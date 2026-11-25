@@ -59,20 +59,58 @@ Screen pane of cmux NEXT showing the shared Mac's marker): pass its --presented-
 observe.rs: CGEventPostToPid to the ScreenCaptureKit display timestamp of the frame whose marker
 changed). The bench viewer has no window on macOS, so without them Total ends at decode.
 
+The stage ledger, every leg in one table (design piece 0, D8): `--legs wired,wifi-away` runs every
+stack once per leg and prints one table, a cmux and an Apple column per leg, Total as glass to
+glass. A leg named after a scripts/measure/screen-stream-eval/mac-holds.sh profile (stall,
+wifi-away, wifi-short, wifi-long, wifi-loss; or LINK=PROFILE) is shaped with dummynet on the shared
+Mac's egress to --viewer-ip only, started before the leg and cleared after it (also when the leg
+fails; the shaper's own watchdog clears it after --shape-max-s if this script dies). mac-holds.sh
+needs root: --shape-sudo is `sudo -n` on the shared Mac by default, or `local:fleet-sudo {host}`
+from a Mac whose keychain holds the fleet password. `table FILE...` prints the same table again
+from the --out files. On the fleet pair, to the presented frame on both stacks:
+
+  screen-share-vs.py run --host cmux20 --viewer cmux17 --host-ip SHARED_IP --viewer-ip VIEWER_IP \
+      --tools ./tools --cua-vnc PATH/cua-vnc --vnc-user USER --vnc-password-file PATH \
+      --presented-pid P --presented-window W --presented-origin X,Y --presented-at X,Y \
+      --apple-presented-pid P --apple-presented-window W --apple-presented-origin X,Y \
+      --apple-presented-at X,Y --legs wired,wifi-away --shape-sudo 'local:fleet-sudo {host}' \
+      --out ledger.jsonl
+
+Apple to the presented frame: with --apple-presented-* naming a Screen Sharing.app window on the
+viewing Mac that shows the shared Mac's marker, the same `cmux-rd observe` times it (key posted to
+that window's process -> the display time of the frame whose marker changed), and Apple's Total
+ends at the presented frame like cmux's. Observe reads the screen, not the stream, so it times
+both viewers the same way. Apple's other stages stay null: it exposes no stage times.
+`--apple-viewer` does the finding itself, as --app-viewer does for cmux: on the viewing Mac it opens
+Screen Sharing.app to --host-ip (`open vnc://USER:PASS@HOST`, the password read there from
+--vnc-password-file and never printed or logged; it does sit in `open`'s argv for the moment
+`open` runs, where a local `ps` on that Mac could read it, which is acceptable on the fleet's
+bench Macs only, never on a shared or personal one), finds its window (CGWindowList through a small
+`swift` script: owner Screen Sharing, title naming the host), locates the marker in it
+(`screencapture -D 1` + screen-eval-marker-locate from --tools), observes it, and quits the
+Screen Sharing process if this run started it (also when no window or marker turns up: the
+processes it started are told apart by a process list before and after `open`). A failure costs Apple's presented Total only: the
+Total falls back to the RFB update with `presented_null` saying why.
+
 `--app-viewer APP` finds that pane itself, with no pointer move and no Computer Use: on the
 viewing Mac it launches the cmux NEXT app bundle APP (`open -n`, foreground unless
 --app-viewer-background, its control socket in automation mode, --encode-profile written to a
 CMUX_NEXT_CONFIG_FILE because remote.screenSharingProfile is user-only), and over that socket
-(the `cmux` CLI's) opens a full-control Mac Screen pane to the host (`debug.device_hub connect`),
-waits for its first frame (`debug.mac_screen state`: window_pid, window_id, transport), finds the
+(the `cmux` CLI's) opens a full-control Mac Screen pane to the host (`debug.device_hub connect`;
+a Release app, NIGHTLY: the `macScreen.open` action with scope full and autoconnect), waits for
+its first frame (`debug.mac_screen state`, a Release app `mac_screen.state`: window_pid, window_id,
+transport), finds the
 marker in it (`screencapture -D 1` + screen-eval-marker-locate from --tools), runs observe, reads
 the app's own stage ledger from its log (`stage ledger:`), and ends the session and the app it
 launched. The app's session goes through the hub to the host's sharing cmux NEXT app, not to the
 bench's `cmux-rd serve`: --app-host-app APP (host) approves it and names the device, else pass
 --app-host-device ID. The budget's `presented_source` says which pane Total ended at
 (`app-viewer` or `presented-flags`), the Total cell's `via` the same, `app_ledger` the app's
-stages, and `app_timings` the pane's own decode, glass and decode_present ms (`debug.mac_screen
-state`, the last 120 frames; decode_present is the viewer's Decode+Present, released to on glass).
+stages, and `app_timings` the pane's own decode, glass and decode_present ms (`mac_screen.state`,
+every build's read, the last 120 frames; decode_present is the viewer's Decode+Present, released
+to on glass). A Release app (NIGHTLY) is driven through every build's methods only: launch says
+`release: true`, the host's approval is the permission it already holds (no `decide`), and its
+window fields need a NIGHTLY whose `mac_screen.state` has window_id (else the pane check says so).
 
 The Apple leg is a headless RFB client (the cua-vnc client, imported from --cua-vnc) on port 5900
 asking only for the marker's strip. It never opens Screen Sharing.app or any window on either Mac.
@@ -162,6 +200,9 @@ import sys
 import threading
 import time
 
+MAC_HOLDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+                         "scripts", "measure", "screen-stream-eval", "mac-holds.sh")
+MAC_HOLDS_PROFILES = ("stall", "wifi-away", "wifi-short", "wifi-long", "wifi-loss")
 MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
 KEYSYM_A = 0x61
 CELLS = 20
@@ -204,6 +245,17 @@ def motion_link(series):
         "target_kbps_last": kbps[-1] if kbps else None,
         "target_kbps_series": kbps,
     }
+
+
+def fine_rate(rows):
+    """The viewer bench's `series_100ms` rows ([ms, bytes, kbps]) as [ms, Mbit/s, kbps]: the
+    received rate over each 100 ms bucket beside the host's newest target."""
+    out, prev = [], 0
+    for ms, nbytes, kbps in rows:
+        span = max(ms - prev, 1)
+        out.append([ms, round(nbytes * 8 / span / 1e3, 2), kbps])
+        prev = ms
+    return out
 
 
 def host_frames(lines, cap_fps):
@@ -273,6 +325,9 @@ BUDGET_ROWS = (
     ("Input", 3, "viewer key down -> host inject", ("up", "inject")),
     ("Screen", 12, "inject -> ScreenCaptureKit display time", ("draw",)),
     ("Capture", 8, "display time -> encode start", ("sck", "gate")),
+    # Capture's two parts, rows of their own (budget None: inside Capture's).
+    (" Gate wait", None, "frame ready -> capture start (encode start without it)", ("gate_wait",)),
+    (" Readback", None, "capture start -> encode start", ("readback",)),
     ("Encode", 8, "encode start -> bitstream", ("encode",)),
     ("Send", 8, "bitstream -> last datagram on the wire", ("send",)),
     ("Network", 2, "wire -> last shard received", ("down",)),
@@ -296,6 +351,9 @@ LEDGER_ROWS = {
 }
 WHY_LEDGER = "needs the per-frame stage ledger (cmux.rd-stage-ledger/1), not in this build"
 WHY_CMUX = {
+    " Readback": "the host timing log has no capture_start_us (a Linux host with ss-capture's field "
+                 "has it; a Mac host captures before the gate, so Capture holds no readback)",
+    " Gate wait": "the host timing log has no frame-ready time (arrived_us or damage_us)",
     "Reassembly": "not split today: the bench stamps a frame complete and releases it in one step, "
                   "so Network holds it; " + WHY_LEDGER,
     "Present": "the bench viewer has no window on macOS (it ends at decode); pass --app-viewer (the "
@@ -378,13 +436,17 @@ def null(why):
 PRESENTED_KINDS = {
     "app-viewer": "the cmux NEXT app's Mac Screen pane (--app-viewer), opened through its control socket",
     "presented-flags": "a viewer pane named by --presented-pid/--presented-window",
+    "apple-viewer": "a Screen Sharing.app window that --apple-viewer opened and found",
 }
 
 
-# The Mac Screen pane's own frame timings (`debug.mac_screen state`, MacScreenStateControl), each
+# The Mac Screen pane's own frame timings (`mac_screen.state`, MacScreenStateControl), each
 # {count, p50, p95, max} over its last APP_TIMING_WINDOW frames.
 APP_TIMING_FIELDS = ("decode_ms", "glass_ms", "decode_present_ms", "present_ms", "frame_interval_ms")
 APP_TIMING_WINDOW = 120
+# The pane-timings read every build registers (Release too: `cmux app mac-screens`,
+# MacScreenStateControl.releaseMethods); debug.mac_screen is DEV only.
+APP_STATE_METHOD = "mac_screen.state"
 
 
 def presented_source(kind, **fields):
@@ -429,18 +491,31 @@ def cmux_cells(rows, ledgers, presented, synthetic=False, summaries=None, presen
             why = (WHY_SYNTHETIC_PRESENT if synthetic and row == "Present"
                    else WHY_CMUX.get(row, WHY_LEDGER))
             cells[row] = null(why)
+    for row in (" Gate wait", " Readback"):
+        if "null" in cells[row] and cells[row]["null"].startswith("no samples"):
+            cells[row] = null(WHY_CMUX[row])
     return cells
 
 
-def apple_cells(g2g, why_skipped=None):
+def apple_cells(g2g, why_skipped=None, presented=None, presented_source=None):
+    """The Apple column. PRESENTED (cmux-rd observe on a visible Screen Sharing.app window, ms)
+    makes Total end at the presented frame; otherwise it is the headless RFB client's total."""
     cells = {}
+    pres = stat(presented or [])
     for row, _, _, _ in BUDGET_ROWS:
         if why_skipped:
             cells[row] = null(why_skipped)
+        elif row == "Total" and pres:
+            cells[row] = dict(pres, source="cmux-rd observe on Screen Sharing.app", to="presented")
+            if isinstance(presented_source, dict) and presented_source.get("kind"):
+                cells[row]["via"] = presented_source["kind"]
         elif row == "Total":
             s = stat(g2g or [])
             cells[row] = dict(s, source="RFB key -> update", to="RFB update") if s else null(
                 "no key press reached a framebuffer update")
+            if isinstance(presented_source, dict) and presented_source.get("null"):
+                # Why it ends at the RFB update, not the presented frame.
+                cells[row]["presented_null"] = presented_source["null"]
         else:
             cells[row] = null(WHY_APPLE.get(row, WHY_APPLE["stage"]))
     return cells
@@ -471,9 +546,10 @@ def quality_summary(scores, why_none):
 
 
 def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
-                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None):
+                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None,
+                 encode_profile=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
-    "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
+    "quality_null"} or {"skipped": why}; APPLE: {"g2g", "presented"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
     p_source = cmux.get("presented_source")
     if cmux.get("skipped"):
@@ -492,7 +568,7 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     if not app_timings:
         app_timings = null(cmux.get("skipped") or "no --app-viewer run")
     elif "null" not in app_timings:
-        app_timings = dict(app_timings, of="the app pane's own timings (debug.mac_screen), last "
+        app_timings = dict(app_timings, of="the app pane's own timings (mac_screen.state), last "
                            f"{APP_TIMING_WINDOW} frames: decode_present = released to on glass")
     apple = apple or {"skipped": "not run (--stacks)"}
     if cmux.get("skipped"):
@@ -507,16 +583,20 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         c_quality = quality_summary(cmux.get("scores") or [],
                                     cmux.get("quality_null") or "no motion trial finished")
     why_apple = apple.get("skipped")
+    a_cells = apple_cells(apple.get("g2g"), why_apple, apple.get("presented"),
+                          apple.get("presented_source"))
     rows = []
     for row, budget, span, _ in BUDGET_ROWS:
         rows.append({"row": row, "budget_ms": budget, "span": span, "cmux": c_cells[row],
-                     "apple": apple_cells(apple.get("g2g"), why_apple)[row]})
+                     "apple": a_cells[row]})
     return {
         "schema": BUDGET_SCHEMA, "label": label, "rev": rev, "link": link, "rtt": rtt,
         "source": source or "screen", "rows": rows,
         # What the cmux leg timed (key, click or scroll) and on which two Macs: a pair of one
         # Mac's names is loopback, whatever the link label says.
         "input": cmux_input, "host": host, "viewer": viewer,
+        # The profile the cmux leg asked for (--encode-profile; null: none sent, so the host ran standard).
+        "encode_profile": encode_profile,
         "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
         "presented_source": p_source, "app_ledger": app_ledger, "app_timings": app_timings,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
@@ -524,6 +604,10 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
                     "apple": {"frame_score": null(why_apple or WHY_APPLE["quality"]),
                               "text_cer": null(why_apple or WHY_APPLE["quality"])}},
     }
+
+
+def budget_text(row):
+    return "" if row.get("budget_ms") is None else row["budget_ms"]
 
 
 def cell_text(cell, keys=("p50", "p95")):
@@ -569,7 +653,7 @@ def format_budget(b):
         lines.append("  " + args_text(b))
     lines.append(f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to")
     for r in b["rows"]:
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {show(r['cmux']):<26} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {show(r['cmux']):<26} "
                      f"{show(r['apple']):<26} {r['span']}")
     lines.append(f"  {'Mbps':<11} {'':>6}  {show(b['mbps']['cmux'], ('avg', 'peak')):<26} "
                  f"{show(b['mbps']['apple'], ('avg', 'peak')):<26} received under motion, avg / peak 1 s")
@@ -653,7 +737,7 @@ def format_compare(before, after):
     for r in after["rows"]:
         b = rows_before.get(r["row"], {})
         d = delta(b.get("cmux"), r["cmux"], "p50")
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {cell_text(b.get('cmux')):<22} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {cell_text(b.get('cmux')):<22} "
                      f"{cell_text(r['cmux']):<22} {('-' if d is None else f'{d:+g}'):>10}  "
                      f"{cell_text(r['apple']):<20}")
     extra = (("Mbps", lambda x: x["mbps"]["cmux"], ("avg", "peak"), "avg"),
@@ -673,6 +757,82 @@ def cmd_compare(args):
         print(json.dumps({"before": before, "after": after}))
         return
     print("\n".join(format_compare(before, after)))
+
+
+def load_budgets(paths):
+    """Every budget record in the result files, in order (one per leg of a `run --legs`)."""
+    found = []
+    for path in paths:
+        with open(path, encoding="utf8") as f:
+            for line in f:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                b = rec.get("budget") if isinstance(rec, dict) else None
+                if isinstance(b, dict) and b.get("schema") == BUDGET_SCHEMA:
+                    found.append(b)
+    if not found:
+        raise SystemExit(f"{', '.join(paths)}: no {BUDGET_SCHEMA} record (a `run --out` file)")
+    return found
+
+
+def format_legs(budgets):
+    """The stage ledger: one row per stage, cmux and Apple side by side for every leg (link),
+    p50 / p95 in ms. Total is glass to glass when it ends at the presented frame; a cell that
+    ends earlier says where. Every null cell is footnoted with its reason."""
+    notes = {}
+
+    def show(cell, keys=("p50", "p95")):
+        text = cell_text(cell, keys)
+        if text == "null":
+            why = cell["null"] if cell else "no value"
+            text = f"null [{notes.setdefault(why, len(notes) + 1)}]"
+        return text
+
+    revs = sorted({b["rev"][:12] for b in budgets if b.get("rev")})
+    title = "stage ledger (ms, p50 / p95)"
+    if revs:
+        title += ": @ " + ", ".join(revs)
+    lines = [title]
+    for i, b in enumerate(budgets):
+        rtt = b.get("rtt")
+        lines.append(f"  leg {i + 1}: {b.get('link') or '?'}"
+                     + (f", udp rtt min {rtt:g} ms" if isinstance(rtt, (int, float)) else "")
+                     + (" (--source synthetic)" if b.get("source") == "synthetic" else ""))
+    heads = []
+    for b in budgets:
+        leg = b.get("link") or "?"
+        heads += [f"cmux {leg}", f"Apple {leg}"]
+    width = max([22] + [len(h) + 2 for h in heads])
+    lines.append(f"  {'stage':<15} {'budget':>6}  " + "".join(f"{h:<{width}}" for h in heads))
+    by_name = [{r["row"]: r for r in b["rows"]} for b in budgets]
+    names = []
+    for b in budgets:
+        names += [r["row"] for r in b["rows"] if r["row"] not in names]
+    for name in names:
+        first = next(rows[name] for rows in by_name if name in rows)
+        cells = []
+        for rows in by_name:
+            row = rows.get(name)
+            cells += ([show(row.get("cmux")), show(row.get("apple"))] if row
+                      else ["-", "-"])  # a record from before this row existed
+        label = "Glass to glass" if name == "Total" else name
+        lines.append(f"  {label:<15} {budget_text(first):>6}  " + "".join(f"{c:<{width}}" for c in cells))
+    cells = []
+    for b in budgets:
+        cells += [show(b["mbps"]["cmux"], ("avg", "peak")), show(b["mbps"]["apple"], ("avg", "peak"))]
+    lines.append(f"  {'Mbps avg/peak':<15} {'':>6}  " + "".join(f"{c:<{width}}" for c in cells))
+    for why, n in notes.items():
+        lines.append(f"  [{n}] null: {why}")
+    return lines
+
+
+def cmd_table(args):
+    print("\n".join(format_legs(load_budgets(args.files))))
 
 
 # --- motion quality: one decoded frame against the source the marker drew -------------------
@@ -853,6 +1013,10 @@ def read_marker_rgb(rgb, width, origin, cell):
 # --- the clock probe --------------------------------------------------------------------
 
 
+# The longest one clock probe runs on the viewer; its control call gets this plus a margin.
+CLOCK_PROBE_SECONDS = 20.0
+
+
 def cmd_clock_serve(args):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
@@ -875,7 +1039,12 @@ def cmd_clock_probe(args):
     best = None
     rtts = []
     misses = 0
+    # A deadline, not only a count: on a lossy link each miss costs the 0.5 s socket timeout, so
+    # 200 probes could outlast the control call's own timeout and end the run with no offset.
+    deadline = time.time() + args.max_seconds
     for i in range(args.count):
+        if time.time() >= deadline:
+            break
         t0 = mono_ns()
         s.sendto(struct.pack("!Q", i), (host, int(port)))
         try:
@@ -912,8 +1081,21 @@ MARKER_FLAGS = ("--motion", "--tick", "--verbose")
 # maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
 # options all take a value; `--flag=0` turns a switch off).
 NUMBER = r"[0-9]{1,9}"
-HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER}
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
+             "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+
+
+def test_loss_pct(value):
+    """`run --host-test-loss PCT` as the string the host's CMUX_RD_TEST_LOSS_PCT gets: a number
+    above 0 and at most 100 (cmux-rd-host's test_loss.rs drops that share of video and parity
+    datagrams after the loss meter counts them sent, so the host measures it as loss). The
+    dummynet `plr` of a mac-holds.sh hold can leave a run with 0 % measured loss while its
+    delay applies; this needs no shaper and no sudo. Anything else raises ValueError."""
+    pct = float(value)
+    if not 0 < pct <= 100:
+        raise ValueError(f"--host-test-loss {value!r}: not above 0 and at most 100")
+    return f"{pct:g}"
 
 
 def checked_args(items, allowed, what):
@@ -1035,6 +1217,8 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                if req.get("test_loss_pct") is not None:
+                    env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
                     open(timing, "w").close()
                     env["CMUX_RD_TIMING_LOG"] = timing
@@ -1232,6 +1416,162 @@ def app_ledger_from_log(ndjson):
     return last, found
 
 
+# The on-screen windows of the viewing Mac as JSON (CGWindowListCopyWindowInfo; titles need the
+# Screen Recording grant observe already holds). Run with `swift FILE`: always on a Mac.
+SS_WINDOWS_SWIFT = r"""
+import CoreGraphics
+import Foundation
+let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+let list = (CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]]) ?? []
+var out: [[String: Any]] = []
+for w in list {
+    let b = (w[kCGWindowBounds as String] as? [String: Any]) ?? [:]
+    out.append(["owner": w[kCGWindowOwnerName as String] as? String ?? "",
+                "pid": w[kCGWindowOwnerPID as String] as? Int ?? 0,
+                "window": w[kCGWindowNumber as String] as? Int ?? 0,
+                "title": w[kCGWindowName as String] as? String ?? "",
+                "layer": w[kCGWindowLayer as String] as? Int ?? 0,
+                "w": b["Width"] as? Double ?? 0, "h": b["Height"] as? Double ?? 0])
+}
+let data = try! JSONSerialization.data(withJSONObject: out)
+print(String(data: data, encoding: .utf8)!)
+"""
+SCREEN_SHARING_OWNER = "Screen Sharing"
+
+
+def vnc_url(user, password, host):
+    """vnc://USER:PASS@HOST for Screen Sharing.app, each part percent-quoted."""
+    from urllib.parse import quote
+    return f"vnc://{quote(user, safe='')}:{quote(password, safe='')}@{host}"
+
+
+def redact_vnc(text):
+    """TEXT with any vnc:// URL's password replaced: never log or print it."""
+    return re.sub(r"(vnc://[^:/@\s]*:)[^@\s]*@", r"\1***@", text or "")
+
+
+def screen_sharing_window(windows, host, exclude=()):
+    """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
+    back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
+    whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
+    an unnamed window could be another host's, so it is never picked."""
+    ours = [w for w in windows or [] if isinstance(w, dict) and w.get("owner") == SCREEN_SHARING_OWNER
+            and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
+            and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
+    named = [w for w in ours if host and host in (w.get("title") or "")]
+    pick = (named or [None])[0]
+    return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+
+
+def screen_sharing_pids():
+    """The pids of every Screen Sharing.app process on this Mac (`pgrep -x`)."""
+    p = subprocess.run(["pgrep", "-x", SCREEN_SHARING_OWNER], capture_output=True, text=True, timeout=30)
+    if p.returncode not in (0, 1):  # 1: none runs
+        raise RuntimeError(f"pgrep: exit {p.returncode}: {p.stderr.strip()[-200:]}")
+    return {int(x) for x in p.stdout.split() if x.strip().isdigit()}
+
+
+def list_windows(state):
+    """SS_WINDOWS_SWIFT's list on this Mac."""
+    src = os.path.join(state, "ss-windows.swift")
+    with open(src, "w") as f:
+        f.write(SS_WINDOWS_SWIFT)
+    p = subprocess.run(["swift", src], capture_output=True, text=True, timeout=120)
+    if p.returncode != 0:
+        raise RuntimeError(f"window list: exit {p.returncode}: {p.stderr.strip()[-300:]}")
+    return json.loads(p.stdout.strip().splitlines()[-1])
+
+
+def locate_marker(state, locate, wait, what="the app's pane"):
+    """The marker on the main display (`screencapture -D 1` + screen-eval-marker-locate), retried
+    up to WAIT seconds: {origin, cell, at} or {error}."""
+    png = os.path.join(os.path.expanduser(state), "app-viewer-locate.png")
+    why = "no capture"
+    deadline = time.time() + wait
+    try:
+        while True:
+            cap = subprocess.run(["screencapture", "-x", "-D", "1", png], capture_output=True, text=True)
+            if cap.returncode == 0:
+                loc = subprocess.run([locate, png], capture_output=True, text=True)
+                found = parse_locate(loc.stdout)
+                if found:
+                    return {"origin": found[0], "cell": found[1], "at": found[2]}
+                why = (loc.stderr or loc.stdout).strip()[-300:]
+            else:
+                why = f"screencapture: {cap.stderr.strip()[-300:]}"
+            if time.time() >= deadline:
+                return {"error": f"no marker visible through {what} ({why})"}
+            time.sleep(0.5)  # bounded wait (WAIT) for the marker to show
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(png)
+
+
+def cmd_apple(args):
+    """On the viewing Mac: open Screen Sharing.app to the host and find its window and the marker
+    in it (`open`), or close what `open` launched (`close`). Prints one JSON line; the password
+    (read here from --password-file) is never printed."""
+    state = os.path.expanduser(args.state)
+    os.makedirs(state, mode=0o700, exist_ok=True)
+    out, opened, ran = {}, False, set()
+    try:
+        if args.action == "close":
+            if args.launched and args.pid:
+                # Only the Screen Sharing process this run started; one that ran before keeps its
+                # windows (closing one window needs AppleScript, which the bench never uses).
+                os.kill(int(args.pid), signal.SIGTERM)
+                out["killed"] = int(args.pid)
+            else:
+                out["left"] = "Screen Sharing ran before this run: its window stays open"
+        else:
+            with open(os.path.expanduser(args.password_file)) as f:
+                password = f.read().strip()
+            before = list_windows(state)
+            old = {w["window"] for w in before if w.get("owner") == SCREEN_SHARING_OWNER}
+            ran = screen_sharing_pids()
+            opened = True
+            # Foreground: observe refuses an obscured window, so no `open -g`.
+            p = subprocess.run(["open", vnc_url(args.user, password, args.host)],
+                               capture_output=True, text=True, timeout=60)
+            del password
+            if p.returncode != 0:
+                raise RuntimeError(f"open vnc://: exit {p.returncode}: {redact_vnc(p.stderr.strip())[-300:]}")
+            deadline, win, windows = time.time() + args.wait, None, []
+            while True:
+                windows = list_windows(state)
+                win = screen_sharing_window(windows, args.host, exclude=old)
+                if win or time.time() >= deadline:
+                    break
+                time.sleep(1)  # bounded wait (--wait) for the window to connect
+            if not win:
+                unnamed = [w.get("title") or "" for w in windows
+                           if w.get("owner") == SCREEN_SHARING_OWNER and w.get("layer") == 0
+                           and w.get("window") not in old]
+                if unnamed:
+                    raise RuntimeError(f"no Screen Sharing window names {args.host} in {args.wait:g} s "
+                                       f"(new ones: {unnamed[:3]})")
+                raise RuntimeError(f"no Screen Sharing window to {args.host} in {args.wait:g} s "
+                                   "(an approval or login prompt on the viewer?)")
+            out.update(win, launched=win["pid"] not in ran)
+            loc = locate_marker(state, args.locate, args.locate_wait, "the Screen Sharing window")
+            out.update(loc)
+    except Exception as e:  # noqa: BLE001 - one JSON line either way
+        out["error"] = redact_vnc(repr(e))[-400:]
+        if opened:
+            # Quit what this run started (by process list, not the window it never found); the
+            # caller then has nothing left to close.
+            try:
+                started = sorted(screen_sharing_pids() - ran)
+                for pid in started:
+                    os.kill(pid, signal.SIGTERM)
+                out["killed"] = started
+            except Exception as e2:  # noqa: BLE001
+                out["close_error"] = repr(e2)[-200:]
+            out.pop("pid", None)
+            out.pop("launched", None)
+    print(json.dumps(out), flush=True)
+
+
 def cmd_app(args):
     """On the viewing Mac: launch the app (`open -n`), call its control socket, locate the marker
     on the main display, or read its stage ledger log. Prints one JSON line."""
@@ -1241,7 +1581,7 @@ def cmd_app(args):
     if args.action == "rpc":
         out = app_call(paths, args.method, json.loads(args.params or "{}"))
     elif args.action == "launch":
-        alive = "error" not in app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
+        alive = "error" not in app_call(paths, "system.ping", timeout=10)
         out = {"socket": paths[0], "reused": alive}
         if alive:
             # An app that already runs keeps its own settings: the profile is whatever it has.
@@ -1271,33 +1611,23 @@ def cmd_app(args):
             subprocess.run(argv + [app], check=True, timeout=60)
             deadline = time.time() + args.wait
             while time.time() < deadline:
-                if "error" not in app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10):
+                if "error" not in app_call(paths, "system.ping", timeout=10):
                     break
                 time.sleep(0.5)  # bounded wait (--wait) for the launched app's socket
             else:
                 out["error"] = f"the app's socket did not answer in {args.wait:g} s ({paths[0]})"
             out["env"] = sorted(env)
+        if not out.get("error"):
+            # debug.device_hub and debug.mac_screen exist only in DEV builds: a Release app (NIGHTLY)
+            # answers method_not_found, and --app-viewer drives it through every build's methods
+            # (macScreen.open, mac_screen.state) instead.
+            probe = app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
+            out["release"] = "method_not_found" in str(probe.get("error") or "")
+            if out["release"] and "error" in app_call(paths, APP_STATE_METHOD, {}, timeout=10):
+                out["error"] = (f"{app} is a Release build without {APP_STATE_METHOD} (before cmux#43923): "
+                                "--app-viewer cannot open or read its Mac Screen pane")
     elif args.action == "locate":
-        png = os.path.join(os.path.expanduser(args.state), "app-viewer-locate.png")
-        why = "no capture"
-        deadline = time.time() + args.wait
-        while True:
-            cap = subprocess.run(["screencapture", "-x", "-D", "1", png], capture_output=True, text=True)
-            if cap.returncode == 0:
-                loc = subprocess.run([args.locate, png], capture_output=True, text=True)
-                found = parse_locate(loc.stdout)
-                if found:
-                    out = {"origin": found[0], "cell": found[1], "at": found[2]}
-                    break
-                why = (loc.stderr or loc.stdout).strip()[-300:]
-            else:
-                why = f"screencapture: {cap.stderr.strip()[-300:]}"
-            if time.time() >= deadline:
-                out = {"error": f"no marker visible through the app's pane ({why})"}
-                break
-            time.sleep(0.5)  # bounded wait (--wait) for the marker to show in the pane
-        with contextlib.suppress(OSError):
-            os.unlink(png)
+        out = locate_marker(args.state, args.locate, args.wait)
     elif args.action == "ledger":
         start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(args.since))
         pred = (f'subsystem == "{APP_LOG_SUBSYSTEM}" AND category == "{APP_LOG_CATEGORY}" '
@@ -1490,8 +1820,10 @@ class Remote:
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
-        p = subprocess.run(self.argv(cmd), input=stdin, capture_output=True, text=True,
-                           timeout=timeout)
+        # With no input, stdin is /dev/null: an inherited stdin lets `reach`/`ssh` read (and
+        # swallow) the orchestrator's own stdin, or wait on it, and the call stalls to its timeout.
+        kw = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        p = subprocess.run(self.argv(cmd), capture_output=True, text=True, timeout=timeout, **kw)
         if p.returncode != 0:
             raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {p.returncode}: {p.stderr.strip()[-400:]}")
         return p.stdout
@@ -1710,6 +2042,131 @@ class SpoolProc:
     kill = terminate
 
 
+class PeerRemote(SpoolRemote):
+    """A Remote for the other Mac of a fleet pair job (scripts/measure/screen-share-vs-pair.sh):
+    each command is one HTTP POST to `screen-share-vs.py peer-serve` on that Mac's LAN address,
+    carrying the run's token (X-Eval-Token). popen and put are SpoolRemote's, over these calls,
+    so only the control lines cross the LAN; every timed sample runs on the Macs."""
+
+    CHUNK = 100_000  # one argument of `bash -c`, under Linux's 128 KiB and macOS's ARG_MAX
+
+    def __init__(self, name, url, token):
+        super().__init__(name)
+        self.url, self.token = url.rstrip("/"), token
+
+    def run(self, cmd, timeout=120, stdin=None):
+        import urllib.error
+        import urllib.request
+        body = json.dumps({"cmd": cmd, "timeout": timeout, "stdin": stdin}).encode()
+        req = urllib.request.Request(self.url + "/run", data=body, method="POST",
+                                     headers={"X-Eval-Token": self.token, "Content-Type": "application/json"})
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout + 30) as resp:
+                    res = json.loads(resp.read())
+                break
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(f"{self.name}: peer refused {cmd[:80]}: HTTP {e.code}") from None
+            except OSError as e:  # the connection, not the command: it never ran
+                if attempt == 3:
+                    raise RuntimeError(f"{self.name}: peer at {self.url} unreachable: {e!r}") from None
+                time.sleep(2 * (attempt + 1))
+        if res.get("timeout"):
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        if res.get("rc") != 0:
+            raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {res.get('rc')}: {res.get('err', '').strip()[-400:]}")
+        return res.get("out", "")
+
+    def done(self):
+        import urllib.request
+        req = urllib.request.Request(self.url + "/done", data=b"{}", method="POST",
+                                     headers={"X-Eval-Token": self.token})
+        with contextlib.suppress(OSError):
+            urllib.request.urlopen(req, timeout=10).close()
+
+
+def peer_client_ok(addr, pinned):
+    """Whether peer-serve takes a request from ADDR: a private or loopback address (the office
+    LAN), and once a client has been served, that same client only."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    if not (ip.is_private or ip.is_loopback):
+        return False
+    return pinned is None or pinned == addr
+
+
+def read_peer_token(path):
+    token = open(path).read().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise SystemExit("peer: the run token is 64 hex characters")
+    return token
+
+
+def cmd_peer_serve(args):
+    """The other Mac's half of a pair job: run what the orchestrating Mac posts, as this step's
+    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s."""
+    import hmac
+    import http.server
+    token = read_peer_token(args.token_file)
+    state = {"pinned": None, "last": time.time()}
+    stop = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def reply(self, code, body=None):
+            data = json.dumps(body or {}).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            client = self.client_address[0]
+            if not peer_client_ok(client, state["pinned"]) or \
+                    not hmac.compare_digest(self.headers.get("X-Eval-Token", ""), token):
+                self.reply(403)
+                return
+            state["pinned"], state["last"] = client, time.time()
+            n = int(self.headers.get("Content-Length") or 0)
+            req = json.loads(self.rfile.read(n) or b"{}")
+            if self.path == "/done":
+                self.reply(200)
+                stop.set()
+                return
+            if self.path != "/run" or not isinstance(req.get("cmd"), str):
+                self.reply(404)
+                return
+            timeout = float(req.get("timeout") or 120)
+            stdin = req.get("stdin")
+            kw = {"input": stdin} if isinstance(stdin, str) else {"stdin": subprocess.DEVNULL}
+            try:
+                p = subprocess.run(["/bin/bash", "-c", req["cmd"]], capture_output=True, text=True,
+                                   timeout=timeout, **kw)
+                self.reply(200, {"rc": p.returncode, "out": p.stdout, "err": p.stderr[-4000:]})
+            except subprocess.TimeoutExpired:
+                self.reply(200, {"rc": None, "timeout": True})
+            except OSError as e:  # the command could not start (too long, no bash): a failed command
+                self.reply(200, {"rc": 126, "out": "", "err": repr(e)})
+
+    server = http.server.ThreadingHTTPServer((args.bind, args.port), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
+    deadline = time.time() + args.hold_s
+    while not stop.wait(1):
+        if time.time() > deadline:
+            print("peer-serve: hold ended", flush=True)
+            break
+    else:
+        print(f"peer-serve: done from {state['pinned']}", flush=True)
+    server.shutdown()
+
+
 TAILNET_UDP = ("UDP over the tailnet got no answer between the wired fleet pair (2026-11-19, cmux20 to cmux17: "
                "\"no clock replies\" while ping answered); pass the shared Mac's LAN address as --host-ip.")
 
@@ -1739,7 +2196,16 @@ class Orchestrator:
         self.a = args
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
-        make = (lambda name: SpoolRemote(name)) if args.via == "spool" else (lambda name: Remote(name, args.via))
+        def make(name):
+            # --local-mac: the orchestrator runs on that Mac (a fleet job, scripts/measure/screen-share-vs-pair.sh
+            # or screen-stream-eval.sh stage-table=), and only the other one is reached over --via.
+            if name == getattr(args, "local_mac", None):
+                return Remote(name, "local")
+            if args.via == "peer":
+                if not (getattr(args, "peer_url", None) and getattr(args, "peer_token_file", None)):
+                    raise SystemExit("--via peer needs --peer-url and --peer-token-file")
+                return PeerRemote(name, args.peer_url, read_peer_token(args.peer_token_file))
+            return SpoolRemote(name) if args.via == "spool" else Remote(name, args.via)
         self.host = make(args.host)
         self.viewer = make(args.viewer)
         self.root = args.root
@@ -1753,17 +2219,22 @@ class Orchestrator:
         self.presented = None  # cmux-rd observe's latencies (ms) through a visible viewer pane
         self.presented_source = None  # where that pane came from (presented_source())
         self.app_ledger = None  # the app viewer's own stage ledger (--app-viewer), or {"null"}
-        self.app_timings = None  # the pane's own frame timings (debug.mac_screen), or {"null"}
+        self.app_timings = None  # the pane's own frame timings (mac_screen.state), or {"null"}
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
         self.quality_null = None
         self.apple_g2g = None
+        self.apple_presented = None  # cmux-rd observe through a visible Screen Sharing.app window
+        self.apple_presented_source = None  # which window it read, or {"null": why}
         self.apple_skipped = None
+        self.shaped = False  # mac-holds.sh started for this leg and not yet cleared
         self.marker_bin = self.ocr_bin = self.locate_bin = None
         self.rev = getattr(args, "rev", None)
         # Extra `cmux-rd serve` / `cmux-rd bench` flags (HOST_ARGS, VIEWER_ARGS), as given.
         self.host_args = list(getattr(args, "host_arg", None) or [])
         self.viewer_args = list(getattr(args, "viewer_arg", None) or [])
         try:
+            loss = getattr(args, "host_test_loss", None)
+            self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
@@ -1780,6 +2251,14 @@ class Orchestrator:
                 self.ocr_bin = os.path.join(tools, "screen-eval-ocr")
             if os.path.exists(os.path.join(tools, "screen-eval-marker-locate")):
                 self.locate_bin = os.path.join(tools, "screen-eval-marker-locate")
+        if getattr(args, "apple_viewer", False):
+            if not self.locate_bin:
+                raise SystemExit("--apple-viewer needs screen-eval-marker-locate (pass --tools with "
+                                 "the unpacked tools.tar.gz) to find the marker in the Screen Sharing window")
+            if args.apple_presented_pid or args.apple_presented_window:
+                raise SystemExit("--apple-viewer finds the window itself: drop --apple-presented-pid/-window")
+            if not (args.vnc_user and args.vnc_password_file):
+                raise SystemExit("--apple-viewer needs --vnc-user and --vnc-password-file")
         if getattr(args, "app_viewer", None):
             if not self.locate_bin:
                 raise SystemExit("--app-viewer needs screen-eval-marker-locate (pass --tools with "
@@ -1791,7 +2270,9 @@ class Orchestrator:
                     self.rev = f.read().strip() or None
 
     def log(self, rec):
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args})
+        pct = getattr(self, "host_test_loss", None)
+        loss = {"host_test_loss_pct": float(pct)} if pct else {}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -1827,7 +2308,7 @@ class Orchestrator:
             self.host.put(self.marker_bin, f"{self.root}/bin/cmux-rd-marker")
         if self.ocr_bin:
             self.viewer.put(self.ocr_bin, f"{self.root}/bin/screen-eval-ocr")
-        if self.locate_bin and getattr(self.a, "app_viewer", None):
+        if self.locate_bin and (getattr(self.a, "app_viewer", None) or getattr(self.a, "apple_viewer", False)):
             self.viewer.put(self.locate_bin, f"{self.root}/bin/screen-eval-marker-locate")
         if self.a.cua_vnc:
             self.viewer.put(self.a.cua_vnc, f"{self.root}/bin/cua-vnc")
@@ -1882,7 +2363,8 @@ class Orchestrator:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             try:
                 out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                      f"--count {self.a.clock_count}", timeout=120)
+                                      f"--count {self.a.clock_count} --max-seconds {CLOCK_PROBE_SECONDS}",
+                                      timeout=CLOCK_PROBE_SECONDS + 60)
             except RuntimeError as e:
                 if tailnet(self.a.host_ip):
                     raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
@@ -1920,6 +2402,7 @@ class Orchestrator:
                                        + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
+                                                                 "test_loss_pct": getattr(self, "host_test_loss", None),
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -1988,6 +2471,10 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("series_100ms"):
+                        # [ms into the window, Mbit/s received, host target kbps] every 100 ms
+                        # (the target is fresh only with the host on --stats-every-ms 100).
+                        rec["rate_100ms"] = fine_rate(rep["series_100ms"])
                     if rep.get("marker_log") is not None:
                         rec["marker_log"] = rep["marker_log"]
                         # Each second's end (viewer wall ms) and the host's newest stats then.
@@ -2074,12 +2561,18 @@ class Orchestrator:
             if not f or not inj:
                 continue
             shown, arrived = f.get("shown_us"), f.get("arrived_us")
+            ready = arrived if arrived is not None else f.get("damage_us")
+            # ss-capture's Linux field: when the encode thread began the capture (the readback).
+            start = f.get("capture_start_us")
             rows.append({
                 "up": ms(v(inj["recv_us"]) - sent),
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
                 "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
+                "gate_wait": ms((start if start is not None else f["release_us"]) - ready)
+                if ready is not None else None,
+                "readback": ms(f["release_us"] - start) if start is not None else None,
                 "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
@@ -2114,6 +2607,9 @@ class Orchestrator:
         # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
+        pct = getattr(self, "host_test_loss", None)
+        if pct:
+            env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -2247,11 +2743,13 @@ class Orchestrator:
             return a.app_host_device, "--app-host-device"
         if a.app_host_app:
             st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+            if "method_not_found" in str(st.get("error") or ""):  # a Release host: every build's hub row
+                st = self.app_rpc(self.host, a.app_host_app, APP_STATE_METHOD, {}).get("hub") or {}
             if st.get("this_device"):
                 return st["this_device"], "--app-host-app this_device"
             raise RuntimeError(f"the host app has no hub device id: {st}")
         name = self.host.run("scutil --get ComputerName").strip()
-        st = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})
+        st = self.viewer_hub()
         hits = [d for d in st.get("devices") or []
                 if d.get("name") == name and d.get("online") and d.get("shared") and not d.get("this")]
         if len(hits) != 1:
@@ -2276,8 +2774,8 @@ class Orchestrator:
         if launch.get("error"):
             raise RuntimeError(launch["error"])
         self.app_launched = not launch.get("reused")
-        hub = self.until(120, lambda: (lambda st: st if st.get("signed_in") else None)(
-            self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})), 2)
+        self.app_release = rec["release"] = bool(launch.get("release"))
+        hub = self.until(120, lambda: (lambda st: st if st.get("signed_in") else None)(self.viewer_hub()), 2)
         if not hub:
             raise RuntimeError("the app viewer is not signed in to the hub "
                                "(pass --app-viewer-env CMUX_AUTH_CREDENTIALS_FILE=...)")
@@ -2285,32 +2783,47 @@ class Orchestrator:
         rec["host_device"] = device
 
         def tabs():
-            st = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen", {"action": "state"})
-            return {t["tab"] for t in st.get("tabs") or []}
+            return {t["tab"] for t in self.pane_rows()}
 
         before = tabs()
         # One connect: it opens a Mac Screen tab even when it answers "no pane", so a retry
         # would open a second tab that replaces the first session. The new tab is followed.
-        rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
-                                      {"action": "connect", "device": device, "scope": "full"})
+        if self.app_release:
+            # Every build's open: an automation open of the person's own device asks for the
+            # scope at once (MacScreenActions.record); autoconnect starts it with the tab unseen.
+            rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "action.run", {
+                "action": "macScreen.open", "origin": "cli",
+                "args": {"device": device, "scope": "full", "autoconnect": True}})
+        else:
+            rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
+                                          {"action": "connect", "device": device, "scope": "full"})
         new = self.until(15, lambda: tabs() - before) or set()
         if len(new) != 1:
             raise RuntimeError(f"connect opened {len(new)} Mac Screen tabs: {rec['connect']}")
         tab = next(iter(new))
 
+        host_debug = [bool(a.app_host_app)]
+
         def ready():
-            if a.app_host_app:
+            if host_debug[0]:
                 st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+                if "method_not_found" in str(st.get("error") or ""):
+                    # A Release host: its saved permission for this viewer decides, no prompt to answer.
+                    host_debug[0] = False
+                    rec["host_release"] = True
                 for req in st.get("pending_requests") or []:
                     self.app_rpc(self.host, a.app_host_app, "debug.device_hub",
                                  {"action": "decide", "session": req["id"], "choice": "always_full"})
-            rows = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
-                                {"action": "state", "tab": tab}).get("tabs") or [{}]
-            row = rows[0]
+            row = (self.pane_rows(tab) or [{}])[0]
+            last[0] = row
             ok = row.get("phase") == "connected" and row.get("has_frame") and row.get("window_id")
             return row if ok else None
 
+        last = [{}]
         row = self.until(a.timeout, ready, 2)
+        if not row and self.app_release and last[0].get("has_frame") and "window_id" not in last[0]:
+            raise RuntimeError("the Release app's mac_screen.state has no window_id (a NIGHTLY before "
+                               "the pane's window fields): observe cannot find its window")
         if not row:
             raise RuntimeError("the app's Mac Screen pane showed no frame of the host in "
                                f"{a.timeout:g} s (approve it on the host, or pass --app-host-app)")
@@ -2321,8 +2834,28 @@ class Orchestrator:
         rec["tab"] = tab
         return row
 
+    def viewer_hub(self):
+        """The viewer app's device hub: `debug.device_hub state` (DEV), or a Release app's
+        `mac_screen.state` hub row, signed in once its hub runs and this device is registered."""
+        a = self.a
+        if not getattr(self, "app_release", False):
+            return self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})
+        hub = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD, {}).get("hub") or {}
+        return dict(hub, signed_in=bool(hub.get("running") and hub.get("registered")))
+
+    def pane_rows(self, tab=None):
+        """The viewer app's Mac Screen tab rows (one TAB's, or all): `debug.mac_screen state`, or a
+        Release app's `mac_screen.state` (window_pid, window_id, hub_session, session_scope too)."""
+        a = self.a
+        if getattr(self, "app_release", False):
+            st = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD, {"tab": tab} if tab else {})
+        else:
+            st = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
+                              {"action": "state", **({"tab": tab} if tab else {})})
+        return st.get("tabs") or []
+
     def read_app_timings(self, tab):
-        """The pane's own frame timings from `debug.mac_screen state` (APP_TIMING_FIELDS, each a
+        """The pane's own frame timings from `mac_screen.state` (every build; APP_TIMING_FIELDS, each a
         {count, p50, p95, max} of the last frames): decode, glass (decoded to on glass, the
         drawable's presentedHandler) and decode_present (released to on glass). Waits up to 30 s
         for a full window of APP_TIMING_WINDOW frames; a short window is kept and says so."""
@@ -2330,8 +2863,8 @@ class Orchestrator:
         last = {}
 
         def full():
-            rows = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
-                                {"action": "state", "tab": tab}).get("tabs") or [{}]
+            rows = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD,
+                                {"tab": tab}).get("tabs") or [{}]
             last.update(rows[0])
             dp = rows[0].get("decode_present_ms") or {}
             return rows[0] if (dp.get("count") or 0) >= APP_TIMING_WINDOW else None
@@ -2349,7 +2882,7 @@ class Orchestrator:
         a = self.a
         row = rec.get("pane") or {}
         try:
-            if row.get("hub_session"):
+            if row.get("hub_session") and not getattr(self, "app_release", False):
                 rec["end"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
                                           {"action": "end", "session": row["hub_session"]})
             if getattr(self, "app_launched", False):
@@ -2439,6 +2972,101 @@ class Orchestrator:
             self.presented_source = {**self.presented_source, "error": rec.get("error") or "observe incomplete"}
         return rec["presented_ms"] if rec.get("ok") else None
 
+    def run_apple_presented(self):
+        """The same through a visible Screen Sharing.app window on the viewing Mac, when
+        --apple-presented-* name one: Apple's glass to glass. None otherwise."""
+        a = self.a
+        if getattr(a, "apple_viewer", False):
+            return self.run_apple_viewer()
+        if not (a.apple_presented_pid and a.apple_presented_window and a.apple_presented_origin
+                and a.apple_presented_at):
+            self.apple_presented_source = {"null": "no --apple-viewer or --apple-presented-* flags"}
+            return None
+        self.apple_presented_source = presented_source(
+            "presented-flags", pid=a.apple_presented_pid, window=a.apple_presented_window,
+            origin=a.apple_presented_origin, cell=a.apple_presented_cell, at=a.apple_presented_at)
+        got = self.observe("apple", a.apple_presented_pid, a.apple_presented_window,
+                           a.apple_presented_origin, a.apple_presented_cell, a.apple_presented_at)
+        if got is None:
+            self.apple_presented_source = {**self.apple_presented_source, "null": "observe incomplete"}
+        return got
+
+    def apple_cmd(self, action, *extra):
+        """`screen-share-vs.py apple ACTION` on the viewing Mac: its JSON reply."""
+        cmd = (f"{self.py} {self.me} apple {action} "
+               + " ".join(shlex.quote(str(x)) for x in extra))
+        return json.loads(self.viewer.run(cmd, timeout=self.a.timeout + 60).strip().splitlines()[-1])
+
+    def run_apple_viewer(self):
+        """--apple-viewer: open Screen Sharing.app on the viewing Mac to the host, find its window
+        and the marker in it, then observe it like --apple-presented-*. A failure costs Apple's
+        presented Total only (its null reason in apple_presented_source), never the other stacks."""
+        a = self.a
+        rec, win = {"stack": "apple", "mode": "apple-viewer"}, {}
+        try:
+            self.rig({"cmd": "marker", "flags": []})
+            time.sleep(0.5)
+            try:
+                win = rec["open"] = self.apple_cmd(
+                    "open", "--host", a.host_ip, "--user", a.vnc_user,
+                    "--password-file", a.vnc_password_file, "--state", f"{self.root}/state",
+                    "--locate", f"{self.root}/bin/screen-eval-marker-locate",
+                    "--wait", a.timeout, "--locate-wait", 10)
+            finally:
+                self.rig({"cmd": "stop"})  # observe starts its own marker
+            if win.get("error"):
+                raise RuntimeError(win["error"])
+            self.apple_presented_source = presented_source(
+                "apple-viewer", pid=win["pid"], window=win["window"], title=win.get("title"),
+                origin=win["origin"], cell=win["cell"], at=win["at"], launched=win.get("launched"))
+            self.log(rec)
+            got = self.observe("apple", win["pid"], win["window"], win["origin"], win["cell"], win["at"])
+            if got is None:
+                self.apple_presented_source = {**self.apple_presented_source, "null": "observe incomplete"}
+            return got
+        except Exception as e:  # noqa: BLE001
+            why = redact_vnc(str(e))[-300:]
+            self.apple_presented_source = {"null": f"--apple-viewer: {why}"}
+            rec["error"] = why
+            self.log(rec)
+            return None
+        finally:
+            if win.get("pid"):
+                try:
+                    self.log({"stack": "apple", "close": self.apple_cmd(
+                        "close", "--pid", win["pid"], *(["--launched"] if win.get("launched") else []),
+                        "--state", f"{self.root}/state")})
+                except Exception as e:  # noqa: BLE001
+                    self.log({"stack": "apple", "close_error": repr(e)[-200:]})
+
+    def observe(self, stack, pid, window, origin, cell, at):
+        """cmux-rd observe on the viewing Mac against one visible viewer window: key press posted
+        to PID -> the ScreenCaptureKit display time of the frame whose marker changed. It never
+        reads the stream, so it times any viewer the same way. The latencies in ms, or None."""
+        cmd = (f"{self.root}/bin/cmux-rd observe --pid {int(pid)} "
+               f"--window {int(window)} --input key --samples {int(self.a.samples)} "
+               f"--cell-size {int(cell)} "
+               f"--marker-origin {shlex.quote(origin)} --at {shlex.quote(at)}")
+        rec = {"stack": stack, "mode": "presented", "observe": cmd}
+        try:
+            # A rig error costs this leg only, never the tables after it.
+            self.rig({"cmd": "marker", "flags": []})
+            time.sleep(0.5)
+            rep = json.loads(self.viewer.run(cmd, timeout=self.a.timeout).strip().splitlines()[-1])
+            rec["ok"] = rep.get("complete") is True
+            rec["presented_ms"] = [x / 1000.0 for x in rep.get("samples_us") or []]
+            rec.update({k: rep.get(k) for k in ("p50_ms", "p95_ms", "n", "method", "error")
+                        if rep.get(k) is not None})
+        except Exception as e:  # noqa: BLE001
+            rec.update({"ok": False, "error": repr(e)[-400:]})
+        finally:
+            try:
+                self.rig({"cmd": "stop"})  # the marker this leg started
+            except Exception as e:  # noqa: BLE001
+                rec["stop_error"] = repr(e)[-200:]
+        self.log(rec)
+        return rec["presented_ms"] if rec.get("ok") else None
+
     # macOS Screen Sharing -----------------------------------------------------------------
 
     def run_apple(self):
@@ -2483,10 +3111,66 @@ class Orchestrator:
         return firsts, g2g, fps
 
     def main(self):
+        """One leg: setup, the shaped link if --shape names a profile, every stack, the tables.
+        Returns the budget record."""
         if tailnet(self.a.host_ip):
             print(f"warning: --host-ip {self.a.host_ip} is a tailnet address. {TAILNET_UDP}",
                   file=sys.stderr, flush=True)
         self.setup()
+        try:
+            # Inside the try: a start that fails after it applied part of the shaping is cleared
+            # now, not by the watchdog after --shape-max-s (self.shaped is set before the start).
+            self.shape_start()
+            return self.measure()
+        finally:
+            self.shape_clear()
+
+    def shape_start(self):
+        """The leg's link profile: mac-holds.sh (dummynet) on the shared Mac's egress to the
+        viewing Mac only, for --shape PROFILE; its detached watchdog clears it after
+        --shape-max-s even if this script dies."""
+        if not self.a.shape:
+            return
+        if not self.a.viewer_ip:
+            raise SystemExit("--shape needs --viewer-ip (the viewing Mac's address on the link)")
+        self.host.put(MAC_HOLDS, f"{self.root}/bin/mac-holds.sh")
+        self.shaped = True
+        self.shape_run(f"start {shlex.quote(self.a.shape)} {int(self.a.shape_max_s)} "
+                       f"{shlex.quote(self.a.viewer_ip)}")
+        self.log({"shape": self.a.shape, "peer": self.a.viewer_ip, "max_s": self.a.shape_max_s})
+
+    def shape_clear(self):
+        if not self.shaped:
+            return
+        rec = {"shape_end": self.a.shape}
+        try:
+            holds = self.shape_run("holds")
+            rec["holds"] = [json.loads(x) for x in holds.splitlines() if x.startswith("{")]
+        except Exception as e:  # noqa: BLE001 - the holds log is evidence; the clear still runs
+            rec["holds_error"] = repr(e)[-200:]
+        try:
+            self.shape_run("clear")
+            self.shaped = False
+        except Exception as e:  # noqa: BLE001
+            rec["clear_error"] = repr(e)[-400:] + " (the watchdog clears it after --shape-max-s)"
+        self.log(rec)
+
+    def shape_run(self, verb):
+        """mac-holds.sh VERB as root on the shared Mac. --shape-sudo is a prefix run there
+        (default `sudo -n`), or with `local:` a command run here with {host} filled in
+        (`local:fleet-sudo {host}`)."""
+        script = f"/bin/bash {self.root}/bin/mac-holds.sh {verb}"
+        via = self.a.shape_sudo
+        if via.startswith("local:"):
+            argv = shlex.split(via[len("local:"):].replace("{host}", self.a.host)) + [script]
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            if p.returncode != 0:
+                raise RuntimeError(f"{' '.join(argv)[:120]}: exit {p.returncode}: "
+                                   f"{p.stderr.strip()[-400:]}")
+            return p.stdout
+        return self.host.run(f"{via} {script}", timeout=120)
+
+    def measure(self):
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,
                   "host_ip": self.a.host_ip, "link": self.a.link})
@@ -2504,6 +3188,7 @@ class Orchestrator:
         elif "apple" in stacks:
             r = self.run_apple()
             results["macOS Screen Sharing"] = r
+            self.apple_presented = self.run_apple_presented()
         try:
             clock1 = self.clock()
             self.log({"clock_end": clock1,
@@ -2511,7 +3196,7 @@ class Orchestrator:
         except Exception as e:  # noqa: BLE001 - the drift check never costs the table
             self.log({"clock_end_error": repr(e)[-400:]})
         self.table(results, clock0, rows)
-        self.budget(stacks, rows, clock0)
+        return self.budget(stacks, rows, clock0)
 
     def budget(self, stacks, rows, clock):
         """The design's budget table, printed and written as one {"budget"} line."""
@@ -2523,15 +3208,19 @@ class Orchestrator:
                     "motion_rows": self.motion_rows, "scores": self.scores,
                     "quality_null": self.quality_null}
         if "apple" in stacks:
-            apple = {"skipped": self.apple_skipped} if self.apple_skipped else {"g2g": self.apple_g2g}
+            apple = ({"skipped": self.apple_skipped} if self.apple_skipped
+                     else {"g2g": self.apple_g2g, "presented": self.apple_presented,
+                           "presented_source": self.apple_presented_source})
         b = build_budget(cmux, apple, label=self.a.label, rev=self.rev, link=self.a.link,
                          rtt=clock.get("rtt_min_ms"), source=self.a.source,
                          cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
                          viewer=self.a.viewer, host_args=self.host_args,
-                         viewer_args=self.viewer_args)
+                         viewer_args=self.viewer_args,
+                         encode_profile=getattr(self.a, "encode_profile", None))
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
+        return b
 
     def table(self, results, clock, rows):
         rtt = clock.get("rtt_ms") or {}
@@ -2593,8 +3282,44 @@ class Orchestrator:
         self.log({"summary": summ, "link": self.a.link, "rtt": clock})
 
 
+def parse_legs(spec):
+    """--legs: comma-separated LINK or LINK=PROFILE (a mac-holds.sh profile). A leg named after a
+    profile (wifi-away) is shaped with it; any other name (wired) is not."""
+    legs = []
+    for item in (spec or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        name, _, profile = item.partition("=")
+        if not profile and name in MAC_HOLDS_PROFILES:
+            profile = name
+        if profile and profile not in MAC_HOLDS_PROFILES:
+            raise SystemExit(f"--legs {item}: unknown profile {profile!r} "
+                             f"(mac-holds.sh has {', '.join(MAC_HOLDS_PROFILES)})")
+        legs.append((name, profile or None))
+    return legs
+
+
 def cmd_run(args):
-    Orchestrator(args).main()
+    legs = parse_legs(args.legs)
+    if not legs:
+        Orchestrator(args).main()
+        return
+    budgets, failed = [], []
+    for name, profile in legs:
+        leg = argparse.Namespace(**vars(args))
+        leg.link, leg.shape = name, profile
+        try:
+            budgets.append(Orchestrator(leg).main())
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - one failed leg must not lose the others
+            failed.append(name)
+            print(f"leg {name} failed: {e!r}"[:600], file=sys.stderr, flush=True)
+    budgets = [b for b in budgets if b]
+    if budgets:  # every leg failed: no table, so the failure below is the last line
+        print()
+        print("\n".join(format_legs(budgets)))
+    if failed:
+        raise SystemExit(f"legs failed: {', '.join(failed)} (the table holds the rest)")
 
 
 def app_env(text):
@@ -2614,9 +3339,14 @@ def build_parser():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh", "spool", "local"], default="reach",
+    r.add_argument("--via", choices=["reach", "ssh", "spool", "local", "peer"], default="reach",
                    help="spool: reach with no stdin (a lane VM's broker relay; SpoolRemote); "
-                   "local: both Macs are this one (run the orchestrator on the shared Mac)")
+                   "local: both Macs are this one (run the orchestrator on the shared Mac); "
+                   "peer: the other Mac's `peer-serve` at --peer-url (a fleet pair job)")
+    r.add_argument("--local-mac", help="this Mac is --host or --viewer NAME: its commands run here, "
+                   "and only the other end goes over --via")
+    r.add_argument("--peer-url", help="--via peer: http://LAN_IP:PORT of the other Mac's peer-serve")
+    r.add_argument("--peer-token-file", help="--via peer: the run token (64 hex), 0600")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
@@ -2641,6 +3371,10 @@ def build_parser():
                    help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
                         "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "
                         + ", ".join(sorted(HOST_ARGS)) + " (a switch is sent as `--flag 1`)")
+    r.add_argument("--host-test-loss", type=float, metavar="PCT",
+                   help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
+                        "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
+                        "row records host_test_loss_pct")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
@@ -2653,7 +3387,9 @@ def build_parser():
     r.add_argument("--encode-profile", choices=("standard", "ultra"),
                    help="the cmux stack's profile, asked in the setup line as the app's viewer "
                         "asks it (default: none sent, so the host runs standard)")
-    r.add_argument("--clock-count", type=int, default=200)
+    r.add_argument("--clock-count", type=int, default=60,
+                   help="clock probes per try; the probe also stops after "
+                   f"{CLOCK_PROBE_SECONDS:g} s (the minimum-RTT sample needs few replies)")
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))
     r.add_argument("--vnc-password-file", help="path on the viewing Mac (0600)")
@@ -2673,6 +3409,28 @@ def build_parser():
     r.add_argument("--presented-origin", help="X,Y: the marker in the viewing Mac's capture pixels")
     r.add_argument("--presented-cell", type=int, default=32, help="the marker cell in those pixels")
     r.add_argument("--presented-at", help="X,Y: the marker's gray pad in those pixels")
+    r.add_argument("--apple-viewer", action="store_true",
+                   help="open Screen Sharing.app on the viewing Mac to --host-ip (--vnc-user, "
+                   "--vnc-password-file), find its window and the marker in it, and time it to the "
+                   "presented frame like --apple-presented-*; needs --tools (screen-eval-marker-locate)")
+    r.add_argument("--apple-presented-pid", type=int, help="Screen Sharing.app's process on the "
+                   "viewing Mac, its window showing the shared Mac: Apple's Total then ends at the "
+                   "presented frame (cmux-rd observe)")
+    r.add_argument("--apple-presented-window", type=int, help="that window's CGWindow id")
+    r.add_argument("--apple-presented-origin", help="X,Y: the marker in the viewing Mac's capture pixels")
+    r.add_argument("--apple-presented-cell", type=int, default=32, help="the marker cell in those pixels")
+    r.add_argument("--apple-presented-at", help="X,Y: the marker's gray pad in those pixels")
+    r.add_argument("--legs", help="every stack once per leg, then one table of all legs: "
+                   "comma-separated LINK or LINK=PROFILE, e.g. wired,wifi-away; a mac-holds.sh "
+                   "profile shapes that leg (needs --viewer-ip)")
+    r.add_argument("--shape", choices=MAC_HOLDS_PROFILES, help="shape this run with a mac-holds.sh "
+                   "profile (dummynet on the shared Mac's egress to --viewer-ip)")
+    r.add_argument("--viewer-ip", help="the viewing Mac's address on the measured link (--shape)")
+    r.add_argument("--shape-max-s", type=int, default=3600,
+                   help="the shaper's watchdog clears it after this many seconds")
+    r.add_argument("--shape-sudo", default="sudo -n", help="how mac-holds.sh gets root: a prefix "
+                   "run on the shared Mac, or `local:CMD` run here with {host} filled in "
+                   "(`local:fleet-sudo {host}`)")
     r.add_argument("--presented-input", choices=("key", "click"), default="key",
                    help="the presented leg's timed input, posted to the pane's process (no pointer move)")
     r.add_argument("--app-viewer", metavar="APP", help="a cmux NEXT app bundle on the viewing Mac (DEV "
@@ -2707,6 +3465,27 @@ def build_parser():
     ap_.add_argument("--pid", type=int, help="ledger: the app's process")
     ap_.add_argument("--since", type=float, help="ledger: epoch seconds")
     ap_.set_defaults(fn=cmd_app)
+    sa = sub.add_parser("apple", help="on the viewing Mac: open or close Screen Sharing.app (--apple-viewer)")
+    sa.add_argument("action", choices=("open", "close"))
+    sa.add_argument("--host", help="open: the shared Mac's address")
+    sa.add_argument("--user", help="open: its VNC user")
+    sa.add_argument("--password-file", help="open: the password file on this Mac (never printed)")
+    sa.add_argument("--state", default="~/.cache/cmux-rd-vs/state", help="scratch folder")
+    sa.add_argument("--locate", help="open: the screen-eval-marker-locate binary")
+    sa.add_argument("--wait", type=float, default=60, help="open: seconds for the window")
+    sa.add_argument("--locate-wait", type=float, default=10, help="open: seconds for the marker")
+    sa.add_argument("--pid", type=int, help="close: Screen Sharing's process")
+    sa.add_argument("--launched", action="store_true", help="close: this run started that process")
+    sa.set_defaults(fn=cmd_apple)
+    t = sub.add_parser("table", help="the stage ledger of every budget record in result files")
+    t.add_argument("files", nargs="+")
+    t.set_defaults(fn=cmd_table)
+    ps = sub.add_parser("peer-serve", help="the other Mac of a pair job: run what the orchestrator posts")
+    ps.add_argument("--bind", required=True, help="this Mac's LAN address")
+    ps.add_argument("--port", type=int, default=4181)
+    ps.add_argument("--token-file", required=True)
+    ps.add_argument("--hold-s", type=int, default=7200)
+    ps.set_defaults(fn=cmd_peer_serve)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")
@@ -2735,6 +3514,8 @@ def build_parser():
     p = sub.add_parser("clock-probe")
     p.add_argument("--addr", required=True)
     p.add_argument("--count", type=int, default=200)
+    p.add_argument("--max-seconds", type=float, default=CLOCK_PROBE_SECONDS,
+                   help="stop probing after this long, replies or not (a lossy link)")
     p.add_argument("--gap-ms", type=float, default=5)
     p.set_defaults(fn=cmd_clock_probe)
     b = sub.add_parser("rfb-bench")

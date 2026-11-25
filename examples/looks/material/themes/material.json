@@ -72,7 +72,7 @@
 
   // The navigation drawer and the tab row on surface-container; the content on surface.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f3edf7",
+  "appearance.surfaces.sidebar.color": "#fbf5ff",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#f3edf7",
   "appearance.surfaces.tabBar.opacity": 1,

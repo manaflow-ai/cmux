@@ -91,7 +91,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 3,
@@ -100,7 +104,7 @@
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         }
       ],
       "after": []
@@ -317,7 +321,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 6,
@@ -326,12 +334,7 @@
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
-        },
-        {
-          "check": "type-roles",
-          "count": 1,
-          "message": "5 text styles in one view (caption, caption semibold, headline, largeTitle semibold, subheadline); a glanceable view reads with 4 at most"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         }
       ],
       "after": []
@@ -712,7 +715,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 15,
@@ -721,13 +728,17 @@
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         },
-        { "check": "type-style", "count": 6, "message": "font \"title3\" draws 20 px on the web and 15 pt on macOS" },
+        {
+          "check": "type-style",
+          "count": 6,
+          "message": "font \"title3\" is no type role: it draws 15 pt regular (the role at that size is \"title\")"
+        },
         {
           "check": "type-roles",
           "count": 1,
-          "message": "6 text styles in one view (caption, caption semibold, headline, largeTitle semibold, subheadline, title3 medium); a glanceable view reads with 4 at most"
+          "message": "5 text styles in one view (caption, caption semibold, label, numeral, title3 medium); a glanceable view reads with 4 at most"
         }
       ],
       "after": []
@@ -842,22 +853,30 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         },
         {
           "check": "line-limit",
           "count": 3,
           "message": "text with no line limit overflows a small tile when it is long"
         },
-        { "check": "type-style", "count": 1, "message": "font \"title2\" draws 20 px on the web and 17 pt on macOS" },
+        {
+          "check": "type-style",
+          "count": 1,
+          "message": "font \"title2\" is no type role: it draws 20 pt regular (the role at that size is \"heading\")"
+        },
         {
           "check": "type-roles",
           "count": 1,
-          "message": "5 text styles in one view (caption, caption medium, headline, largeTitle light, title2); a glanceable view reads with 4 at most"
+          "message": "5 text styles in one view (caption, caption medium, label, largeTitle light, title2 regular); a glanceable view reads with 4 at most"
         }
       ],
       "after": []
@@ -1210,22 +1229,30 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 2, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 2,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         },
         {
           "check": "line-limit",
           "count": 21,
           "message": "text with no line limit overflows a small tile when it is long"
         },
-        { "check": "type-style", "count": 1, "message": "font \"title2\" draws 20 px on the web and 17 pt on macOS" },
+        {
+          "check": "type-style",
+          "count": 1,
+          "message": "font \"title2\" is no type role: it draws 20 pt regular (the role at that size is \"heading\")"
+        },
         {
           "check": "type-roles",
           "count": 1,
-          "message": "7 text styles in one view (body, caption, caption medium, caption2, headline, largeTitle light, title2); a glanceable view reads with 4 at most"
+          "message": "7 text styles in one view (body, caption, caption medium, footnote, label, largeTitle light, title2 regular); a glanceable view reads with 4 at most"
         }
       ],
       "after": []
@@ -1880,22 +1907,30 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 2, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 2,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         },
         {
           "check": "line-limit",
           "count": 45,
           "message": "text with no line limit overflows a small tile when it is long"
         },
-        { "check": "type-style", "count": 1, "message": "font \"title2\" draws 20 px on the web and 17 pt on macOS" },
+        {
+          "check": "type-style",
+          "count": 1,
+          "message": "font \"title2\" is no type role: it draws 20 pt regular (the role at that size is \"heading\")"
+        },
         {
           "check": "type-roles",
           "count": 1,
-          "message": "9 text styles in one view (body, caption, caption medium, caption2, headline, largeTitle light, subheadline, subheadline medium, title2); a glanceable view reads with 4 at most"
+          "message": "8 text styles in one view (body, caption, caption medium, footnote, label, largeTitle light, subheadline medium, title2 regular); a glanceable view reads with 4 at most"
         }
       ],
       "after": []
@@ -2022,7 +2057,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 2,
@@ -2031,7 +2070,7 @@
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         }
       ],
       "after": []
@@ -2230,7 +2269,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 1, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 1,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 2,
@@ -2239,7 +2282,7 @@
         {
           "check": "type-style",
           "count": 1,
-          "message": "font \"largeTitle\" draws 15 px on the web and 26 pt on macOS"
+          "message": "font \"largeTitle\" is no type role: it draws 34 pt regular (the role at that size is \"numeral\")"
         }
       ],
       "after": []
@@ -3645,7 +3688,11 @@
     ],
     "warnings": {
       "before": [
-        { "check": "spacing", "count": 2, "message": "spacing 10 is not on the spacing scale" },
+        {
+          "check": "spacing",
+          "count": 2,
+          "message": "spacing 10 is not on the spacing scale"
+        },
         {
           "check": "line-limit",
           "count": 44,
@@ -3654,7 +3701,7 @@
         {
           "check": "type-roles",
           "count": 1,
-          "message": "6 text styles in one view (caption, caption bold, caption regular, caption2 bold, headline, subheadline semibold); a glanceable view reads with 4 at most"
+          "message": "5 text styles in one view (caption, caption bold, caption2 bold, label, subheadline semibold); a glanceable view reads with 4 at most"
         }
       ],
       "after": []
@@ -3918,8 +3965,7 @@
           "check": "line-limit",
           "count": 3,
           "message": "text with no line limit overflows a small tile when it is long"
-        },
-        { "check": "type-style", "count": 1, "message": "font \"title\" draws 15 px on the web and 22 pt on macOS" }
+        }
       ],
       "after": []
     }
@@ -4249,7 +4295,11 @@
           "count": 3,
           "message": "text with no line limit overflows a small tile when it is long"
         },
-        { "check": "type-style", "count": 1, "message": "font \"title3\" draws 20 px on the web and 15 pt on macOS" }
+        {
+          "check": "type-style",
+          "count": 1,
+          "message": "font \"title3\" is no type role: it draws 15 pt regular (the role at that size is \"title\")"
+        }
       ],
       "after": []
     }
@@ -4717,7 +4767,11 @@
           "count": 3,
           "message": "text with no line limit overflows a small tile when it is long"
         },
-        { "check": "type-style", "count": 1, "message": "font \"title3\" draws 20 px on the web and 15 pt on macOS" }
+        {
+          "check": "type-style",
+          "count": 1,
+          "message": "font \"title3\" is no type role: it draws 15 pt regular (the role at that size is \"title\")"
+        }
       ],
       "after": []
     }

@@ -148,6 +148,7 @@ usage: cmux app ping | identify | capabilities
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: state, error, frame size, first frame ms, fps, round trip, drops; --tab takes a tab id)
+       cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
@@ -157,6 +158,7 @@ usage: cmux app ping | identify | capabilities
        cmux app share [--app APP] [--bundle] [--dry-run]  (the build you run, as one `cmux app try` line: a SHA when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app health [--since-ms <ms>] [--open-chat] [--json]  (chat, model picker, relay refusals, terminal echo; exit 1 on a failure)
        cmux app web-pieces check --state <dir> --channel <channel> [--offline] | status --state <dir>  (what each web piece of a web update serves; no app needed)
        cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
                                                 (this Cloud machine's preview as a new app version; no app needed)

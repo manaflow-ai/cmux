@@ -29,10 +29,26 @@ export type ResolvedWorktreeRecipe = {
   files: string[];
   /** A file the session host could not read, in its own words. */
   problems?: string[];
+  /** Present when the repository's own setup or teardown is in effect: those commands run only once
+   *  the person approved this recipe (by fingerprint) on this machine. */
+  approval?: WorktreeSetupApproval;
 };
 
-/** `none`: the recipe copies and runs nothing. `copying` and `running` are live; the rest are final. */
-export type WorktreeSetupState = "none" | "copying" | "running" | "succeeded" | "failed" | "timed_out" | "interrupted";
+/** The person's answer to a repository recipe: `fingerprint` is what `git.worktree.setup.run`
+ *  takes as `approve`. */
+export type WorktreeSetupApproval = { fingerprint: string; approved: boolean };
+
+/** `none`: the recipe copies and runs nothing. `awaiting_approval`: the repository's setup waits for
+ *  the person (nothing copied or run yet). `copying` and `running` are live; the rest are final. */
+export type WorktreeSetupState =
+  | "none"
+  | "awaiting_approval"
+  | "copying"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "timed_out"
+  | "interrupted";
 
 export type WorktreeIncludeReport = { copied: number; kept: number; outside: string[]; problems: string[] };
 
@@ -62,6 +78,7 @@ export type WorktreeSetupRead = {
 
 const STATES = new Set<WorktreeSetupState>([
   "none",
+  "awaiting_approval",
   "copying",
   "running",
   "succeeded",
@@ -114,6 +131,8 @@ export function readResolvedRecipe(value: unknown): ResolvedWorktreeRecipe | und
   const nullable = (field: unknown) => text(field) ?? null;
   const saved = record(source.saved);
   const problems = lines(source.problems);
+  const approval = record(source.approval);
+  const fingerprint = text(approval?.fingerprint);
   return {
     setup: nullable(source.setup),
     run: nullable(source.run),
@@ -123,6 +142,7 @@ export function readResolvedRecipe(value: unknown): ResolvedWorktreeRecipe | und
     ...(saved ? { saved: readRecipe(saved) } : {}),
     files: lines(source.files),
     ...(problems.length > 0 ? { problems } : {}),
+    ...(fingerprint ? { approval: { fingerprint, approved: approval?.approved === true } } : {}),
   };
 }
 

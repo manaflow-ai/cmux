@@ -32,10 +32,13 @@ public final class OnboardingWindowPresenter {
 
     /// Opens the window for `step`, or brings the open one forward when it
     /// shows `step`. `prepare` sets up the window's model before it shows
-    /// (`reused`: the open window's).
-    public func show(step: OnboardingModel.Step, prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
+    /// (`reused`: the open window's). `quietly`: the run is not the person's own, so the window
+    /// comes forward without the keys (``OnboardingWindowController/presentsQuietly``).
+    public func show(step: OnboardingModel.Step, quietly: Bool = false,
+                     prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
         if let controller, controller.model.step == step {
             prepare?(controller.model, true)
+            controller.presentsQuietly = quietly
             return presentWindow(controller)
         }
         if let old = controller {
@@ -46,6 +49,7 @@ public final class OnboardingWindowPresenter {
         guard let model = makeModel?(step) else { return }
         prepare?(model, false)
         let controller = OnboardingWindowController(model: model, activeLook: activeLook)
+        controller.presentsQuietly = quietly
         controller.onClose = { [weak self, weak controller] in self?.windowDidClose(controller) }
         self.controller = controller
         presentWindow(controller)
@@ -88,14 +92,11 @@ public final class OnboardingWindowPresenter {
         !defaults.bool(forKey: historyShownKey) && defaults.string(forKey: FirstRunSetup.stateKey) == nil
     }
 
-    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
-    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (the first launch is finished) once
-    /// no tool window shows. Each keeps its own once flag.
-    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
+    /// The first-run steps: Agents (it gets a person to a working agent), then `next` (the first launch
+    /// is finished) once no tool window shows. The step keeps its own once flag.
+    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?,
                                   defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
-        await untilClosed()
-        await askAgentToolsOnce(source: agentTools, defaults: defaults)
         await untilClosed()
         next()
     }
@@ -106,11 +107,9 @@ public final class OnboardingWindowPresenter {
         case none
         /// The default: the long first-run onboarding stays off (Lawrence 2026-11-09: no Agents window, card or
         /// history page); a new person gets only the one short Make cmux Yours screen (cmux#48416) and then their
-        /// first chat, and the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
-        /// starts get no cmux MCP server (`agents.cmuxMcp` stays `ask`), and a NIGHTLY that never asked left a
-        /// teammate's Codex with no `cmux` (2026-11-19).
-        case agentToolsOnly
-        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps, the cmux Tools question among them.
+        /// first chat. cmux's tools come with the app (`agents.cmuxMcp` defaults to `on`), so nothing asks.
+        case standard
+        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps.
         case firstRun
 
         /// `showcase` is the DEBUG showcase profile, which never shows onboarding.
@@ -120,7 +119,7 @@ public final class OnboardingWindowPresenter {
             } else if environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding") {
                 self = .firstRun
             } else {
-                self = .agentToolsOnly
+                self = .standard
             }
         }
 
@@ -129,17 +128,14 @@ public final class OnboardingWindowPresenter {
     }
 
     /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
-    /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``), then only the cmux Tools question
-    /// (``askAgentToolsOnce(source:defaults:)``); or, with onboarding on, the first run, for which this
-    /// returns true (the first run asks the question among its steps).
-    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, agentTools: (any AgentToolsSource)?,
-                                defaults: UserDefaults = .standard) async -> Bool {
+    /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``); or, with onboarding on, the first run,
+    /// for which this returns true.
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, defaults: UserDefaults = .standard) async -> Bool {
         switch steps {
         case .none: return false
-        case .agentToolsOnly:
+        case .standard:
             await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
             await untilClosed()
-            await askAgentToolsOnce(source: agentTools, defaults: defaults)
             return false
         case .firstRun:
             await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
@@ -173,27 +169,6 @@ public final class OnboardingWindowPresenter {
         guard controller == nil else { return }
         show(step: .makeItYours)
         defaults.set(true, forKey: key)
-    }
-
-    /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its
-    /// terminals and agent chats, get cmux's server only with the person's yes), so a person who
-    /// closes it without answering is not asked at every launch (Settings > Agents keeps the row). A
-    /// new key: an install that was asked under the old rule (cmux added its server to the person's
-    /// own agents; agent chats always had it) is asked once more, since its chats now need the yes.
-    public static let agentToolsAskedKey = "cmux.onboarding.agentToolsAsked.launchOnly"
-
-    /// The cmux Tools step, asking whether agents the person starts in cmux (its terminals and agent
-    /// chats) get cmux's MCP server, at launch (a first run or an existing installation, an upgrade
-    /// included) when the answer is not `on`, no tool window shows, and it was not shown under this
-    /// rule before. Until the person says yes, their agents in cmux get no server, agent chats too
-    /// (agent_mcp_choice.rs, acpmux `agent_tools`), so the question comes right away rather than
-    /// waiting in Settings (Aziz, 2026-11-11). It asks whether or not a coding agent's CLI is on the
-    /// PATH: agent chats need none.
-    public func askAgentToolsOnce(source: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async {
-        guard let source, source.agentToolsChoice() != .on, controller == nil,
-              !defaults.bool(forKey: Self.agentToolsAskedKey) else { return }
-        defaults.set(true, forKey: Self.agentToolsAskedKey)
-        show(step: .agentTools)
     }
 
     private func windowDidClose(_ closed: OnboardingWindowController?) {

@@ -83,7 +83,7 @@
 
   // The margin: the sidebar, tab strip, address bar and docks, one step of lightness off the page.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f3f0e9",
+  "appearance.surfaces.sidebar.color": "#f8f5ee",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#f3f0e9",
   "appearance.surfaces.tabBar.opacity": 1,
