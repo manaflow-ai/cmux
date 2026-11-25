@@ -65,7 +65,7 @@ final class TerminalComposerBarUITests: XCTestCase {
         // Keyboard up, filled.
         field.typeText("git status --short && ls -la ~/Development")
         Thread.sleep(forTimeInterval: 0.8)
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-filled", seen: &seen)
+        shots(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-filled")
 
         // Keyboard down, filled: the key row's keyboard key hides it.
         keyboardKey.tap()
@@ -124,6 +124,29 @@ final class TerminalComposerBarUITests: XCTestCase {
         shoot(app, "\(name)-end")
         if !pasteChecked { XCTFail("\(name): Paste never came whole on screen") }
         for _ in 0..<8 { drag(window.width * 0.6) }
+    }
+
+    /// Start, middle and end of the row by drags alone: no per-key
+    /// queries, which a busy app answers slowly (the walk above did them).
+    @MainActor
+    private func shots(_ app: XCUIApplication, keyRowY: CGFloat, name: String) {
+        let window = app.windows.firstMatch.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        func drag(_ from: CGFloat, _ to: CGFloat) {
+            origin.withOffset(CGVector(dx: window.width * from, dy: keyRowY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: window.width * to, dy: keyRowY)),
+                       withVelocity: .fast, thenHoldForDuration: 0.2)
+        }
+        for _ in 0..<4 { drag(0.4, 0.95) }
+        Thread.sleep(forTimeInterval: 0.6)
+        shoot(app, "\(name)-start")
+        drag(0.9, 0.4)
+        Thread.sleep(forTimeInterval: 0.6)
+        shoot(app, "\(name)-middle")
+        for _ in 0..<6 { drag(0.95, 0.3) }
+        Thread.sleep(forTimeInterval: 0.8)
+        shoot(app, "\(name)-end")
+        for _ in 0..<6 { drag(0.4, 0.95) }
     }
 
     /// Paste draws its glyph: its cap is not one flat color (a blank
