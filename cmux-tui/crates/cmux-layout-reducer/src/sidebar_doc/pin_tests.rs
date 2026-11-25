@@ -294,6 +294,67 @@ fn unpin_falls_back_when_a_remembered_pinned_group_changes_machine() {
     assert_eq!(doc.item(&workspace_item_id(&remote)).unwrap().parent.as_deref(), Some("g1"));
 }
 
+fn group_items(doc: &mut Doc, id: &str, items: Vec<ItemId>) {
+    run(
+        doc,
+        vec![Op::GroupCreate {
+            id: Some(id.into()),
+            name: id.into(),
+            color: None,
+            icon: None,
+            profile: None,
+            items,
+            to: None,
+        }],
+    );
+}
+
+fn pinned_subgroup_fixture() -> Doc {
+    let mut doc = fixture();
+    group_items(&mut doc, "h1", ["w1", "w2", "w3"].map(item_id).to_vec());
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    run(&mut doc, vec![Op::Pin { items: vec!["h1".into()] }]);
+    doc
+}
+
+#[test]
+fn unpin_falls_back_when_a_remembered_group_is_now_a_descendant() {
+    let mut doc = pinned_subgroup_fixture();
+    run(
+        &mut doc,
+        vec![Op::Move {
+            items: vec!["g1".into()],
+            to: Target {
+                section: PINNED_SECTION_ID.into(),
+                parent: Some("h1".into()),
+                ..Target::default()
+            },
+        }],
+    );
+    run(&mut doc, vec![Op::Unpin { items: vec!["h1".into()] }]);
+    let group = doc.item("h1").unwrap();
+    assert_eq!((group.section.clone(), group.parent.clone()), (machine(), None));
+    assert_eq!(doc.item("g1").unwrap().parent.as_deref(), Some("h1"));
+    assert!(group.extra.get(UNPIN_TO_KEY).is_none());
+}
+
+#[test]
+fn unpin_falls_back_when_a_remembered_group_is_now_too_deep() {
+    let mut doc = pinned_subgroup_fixture();
+    let mut root = String::from("g1");
+    for level in 1..MAX_GROUP_DEPTH {
+        let wrapper = format!("wrapper{level}");
+        group_items(&mut doc, &wrapper, vec![root]);
+        root = wrapper;
+    }
+    assert_eq!(doc.group_level(doc.item("g1").unwrap()), MAX_GROUP_DEPTH);
+    run(&mut doc, vec![Op::Unpin { items: vec!["h1".into()] }]);
+    let group = doc.item("h1").unwrap();
+    assert_eq!((group.section.clone(), group.parent.clone()), (machine(), None));
+    assert_eq!(list(&doc, &machine(), Some("h1")), ["w1", "w2", "w3"]);
+    assert!(group.extra.get(UNPIN_TO_KEY).is_none());
+}
+
 /// An empty group (a saved group kept when its workspaces closed) has no
 /// workspace to name its machine: Unpin was refused (`no_machine`), so an
 /// empty pinned group stayed in Pinned for good (#22259).

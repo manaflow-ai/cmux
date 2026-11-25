@@ -599,19 +599,15 @@ pub(super) fn neighbors(
     })
 }
 
-/// Move `ids` (in this order, as one run) to `to`.
-pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
-    let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
-    for id in ids {
-        if !moved.contains(id) {
-            moved.push(id.clone());
-        }
-    }
-    if moved.is_empty() {
-        return Ok(());
-    }
-    let moved_set: HashSet<ItemId> = moved.iter().cloned().collect();
-    let section = tx.doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
+/// Validate a destination before mutation, including remembered Unpin targets
+/// whose group topology or machine may have changed since Pin.
+fn validate_placement(
+    doc: &Doc,
+    moved: &[ItemId],
+    moved_set: &HashSet<ItemId>,
+    to: &Target,
+) -> Result<(), Refusal> {
+    let section = doc.section(&to.section).ok_or(Refusal::UnknownSection)?;
     if matches!(section.kind, SectionKind::App { .. }) {
         return Err(Refusal::ProviderOwned);
     }
@@ -619,38 +615,37 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
     let mut parent_machine = None;
     let mut parent_level = 0;
     if let Some(parent) = &to.parent {
-        let group = tx.doc.item(parent).ok_or(Refusal::UnknownItem)?;
+        let group = doc.item(parent).ok_or(Refusal::UnknownItem)?;
         if !group.body.is_group() || group.section != to.section {
             return Err(Refusal::Nesting);
         }
         // Not into itself or anything under a moved group.
         if moved_set.contains(parent)
-            || tx.doc.ancestors(group).iter().any(|ancestor| moved_set.contains(&ancestor.id))
+            || doc.ancestors(group).iter().any(|ancestor| moved_set.contains(&ancestor.id))
         {
             return Err(Refusal::InvalidTarget);
         }
-        parent_level = tx.doc.group_level(group);
-        let root = tx.doc.root(group);
-        parent_machine = tx
-            .doc
+        parent_level = doc.group_level(group);
+        let root = doc.root(group);
+        parent_machine = doc
             .descendants(root)
             .into_iter()
             .filter(|child| {
                 !moved_set.contains(&child.id)
-                    && !tx.doc.ancestors(child).iter().any(|a| moved_set.contains(&a.id))
+                    && !doc.ancestors(child).iter().any(|a| moved_set.contains(&a.id))
             })
             .find_map(|child| child.body.workspace().map(|r| r.session_id.clone()));
     }
     let mut moved_machine: Option<String> = None;
-    for id in &moved {
-        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+    for id in moved {
+        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
         if to.parent.is_some()
             && item.body.is_group()
-            && parent_level + tx.doc.group_height(item) > MAX_GROUP_DEPTH
+            && parent_level + doc.group_height(item) > MAX_GROUP_DEPTH
         {
             return Err(Refusal::Nesting);
         }
-        if let Some(machine) = tx.doc.item_machine(item) {
+        if let Some(machine) = doc.item_machine(item) {
             if target_machine.as_ref().is_some_and(|target| *target != machine)
                 || parent_machine.as_ref().is_some_and(|group| *group != machine)
             {
@@ -664,6 +659,22 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             }
         }
     }
+    Ok(())
+}
+
+/// Move `ids` (in this order, as one run) to `to`.
+pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
+    let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
+    for id in ids {
+        if !moved.contains(id) {
+            moved.push(id.clone());
+        }
+    }
+    if moved.is_empty() {
+        return Ok(());
+    }
+    let moved_set: HashSet<ItemId> = moved.iter().cloned().collect();
+    validate_placement(tx.doc, &moved, &moved_set, to)?;
     // Archived items list last (archiving-DESIGN.md): a run that mixes both
     // goes in two steps, and each keeps to its side.
     let (archived, unarchived): (Vec<ItemId>, Vec<ItemId>) =
@@ -987,10 +998,7 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
         None => None,
         Some(group) => {
             let group = doc.item(group)?;
-            if !group.body.is_group()
-                || group.section != section
-                || doc.item_machine(doc.root(group)).is_some_and(|owner| owner != machine)
-            {
+            if !group.body.is_group() || group.section != section {
                 return None;
             }
             Some(group.id.clone())
@@ -1001,7 +1009,7 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     {
         return None;
     }
-    match remembered.get("after").and_then(Value::as_str) {
+    let target = match remembered.get("after").and_then(Value::as_str) {
         None => {
             Some(Target { section: section.into(), parent, index: Some(0), ..Target::default() })
         }
@@ -1016,7 +1024,15 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
                 },
             )
         }
-    }
+    }?;
+    validate_placement(
+        doc,
+        std::slice::from_ref(&item.id),
+        &HashSet::from([item.id.clone()]),
+        &target,
+    )
+    .ok()?;
+    Some(target)
 }
 
 fn adopt(tx: &mut Tx, refs: &[WorkspaceRef], to: Option<&Target>) -> Result<(), Refusal> {
