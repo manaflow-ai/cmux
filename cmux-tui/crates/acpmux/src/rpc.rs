@@ -1033,6 +1033,17 @@ pub mod method {
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
     pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
+    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
+    /// `{autoSession}`, the chat's row field after the switch.
+    pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->
+    /// `{files, patch?}`, `apply` or `discard` -> `{autoSession}`.
+    pub const MUX_AUTO_SESSION_LEFTOVER: &str = "_acpmux/auto_session/leftover";
+    /// The system woke from sleep (no params): every Auto chat stops and asks the Cloud first.
+    pub const MUX_AUTO_SESSION_WAKE: &str = "_acpmux/auto_session/wake";
+    /// The Cloud's events of a chat another holder runs, read only: `{sessionId, after?,
+    /// version?}` -> `{version, projection, events, more}` (`auto_session/runtime/projection.rs`).
+    pub const MUX_AUTO_SESSION_TRANSCRIPT: &str = "_acpmux/auto_session/transcript";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";

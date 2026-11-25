@@ -638,6 +638,8 @@ public final class TerminalModel {
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
@@ -650,8 +652,12 @@ public final class TerminalModel {
 
     /// Refreshes `snapshot` from the live page, rendered here on the main
     /// thread: for callers that need the picture now (the background save).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
