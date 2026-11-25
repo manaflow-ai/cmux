@@ -57,19 +57,17 @@ fn ignored_new_paths_stay_on_the_machine_and_edits_of_listed_files_never_do() {
 }
 
 #[test]
-fn a_named_record_selects_the_matching_chat_when_folders_are_shared() {
-    let local = std::path::Path::new("/tmp/shared-folder");
-    let first = Recorded {
-        name: "chat-first".into(),
+fn detach_record_preserves_manual_names_and_disambiguates_shared_folders() {
+    let record = |name: &str| Recorded {
+        name: name.to_owned(),
         remote: "/remote/shared".into(),
-        local: local.into(),
+        local: "/local/shared".into(),
     };
-    let second = Recorded {
-        name: "chat-second".into(),
-        remote: "/remote/shared".into(),
-        local: local.into(),
-    };
-
-    assert!(record_matches(&second, local, "/remote/shared/", Some("chat-second")));
-    assert!(!record_matches(&first, local, "/remote/shared/", Some("chat-second")));
+    let manual = record("manual");
+    assert_eq!(detach_record([manual.clone()].into_iter(), None).unwrap(), manual);
+    let other = record("chat-page-key");
+    let records = [manual.clone(), other.clone()];
+    assert!(detach_record(records.clone().into_iter(), None).is_err());
+    assert!(detach_record(records.clone().into_iter(), Some("chat-removing")).is_err());
+    assert_eq!(detach_record(records.into_iter(), Some(&other.name)).unwrap(), other);
 }

@@ -977,7 +977,7 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
                     .spawn(move || mounted.unmount());
             }
         }
-    } else {
+    } else if !table.values().any(|other| Some(&other.at) == at.as_ref()) {
         end(&mut table, &line.name, at.as_deref());
     }
     let now = record::ms_of(std::time::SystemTime::now());
@@ -1133,6 +1133,16 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
     }
 }
 
+fn allow_redial(state: &Path, name: &str) -> Result<(), Refusal> {
+    if cmux_projection::state::read(state).is_some_and(|record| record.detached.is_some()) {
+        return Err((
+            "projection.detached",
+            format!("projection {name} was removed from its chat"),
+        ));
+    }
+    Ok(())
+}
+
 /// Reads the dial's manifest and mounts it (or finds the mount it attaches to again).
 fn attach(
     first: &str,
@@ -1159,22 +1169,31 @@ fn attach(
     if encoded.len() as u64 != line.manifest_bytes {
         return Err(("projection.io", "the dial ended inside the manifest".into()));
     }
-    let existing =
-        projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
+    let state = state_of(&line.name)?;
     let started = std::time::Instant::now();
+    let digest = fnv(&encoded);
+    let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let existing = table.get(&line.name).cloned();
     if line.extend {
+        drop(table);
         return extend(&line.name, &at, &encoded, existing, started);
     }
+    // An existing server redials without a manifest. Only a new explicit serve may add back a
+    // detached folder. Check alongside detach's table update, before offering a manifest retry.
+    if encoded.is_empty() {
+        allow_redial(&state, &line.name)?;
+    }
+    let existing = existing.filter(|projected| projected.at == at);
+    if let Some(projected) = existing.filter(|projected| {
+        encoded.is_empty() || projected.digest.load(Ordering::Relaxed) == digest
+    }) {
+        attached_in(&state, &at);
+        drop(table);
+        return Ok((projected.clone(), with_pins(json!({"at": at, "attached": true}), &projected)));
+    }
+    drop(table);
     let mut from_store = None;
     let (manifest, digest) = if encoded.is_empty() {
-        let existing = existing.filter(|projected| projected.at == at);
-        if let Some(projected) = existing {
-            attached(&line.name, &at);
-            return Ok((
-                projected.clone(),
-                with_pins(json!({"at": at, "attached": true}), &projected),
-            ));
-        }
         // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
         let Some(revision) = &line.revision else {
             return Err(("projection.unknown", format!("no projection {} here", line.name)));
@@ -1183,16 +1202,6 @@ fn attach(
         from_store = Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
         (manifest, fnv(revision.root.as_bytes()))
     } else {
-        let digest = fnv(&encoded);
-        if let Some(projected) = existing.filter(|projected| {
-            projected.digest.load(Ordering::Relaxed) == digest && projected.at == at
-        }) {
-            attached(&line.name, &at);
-            return Ok((
-                projected.clone(),
-                with_pins(json!({"at": at, "attached": true}), &projected),
-            ));
-        }
         let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
             .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
         (manifest, digest)
@@ -1200,7 +1209,6 @@ fn attach(
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
-    let state = state_of(&line.name)?;
     let projected =
         mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))

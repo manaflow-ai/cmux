@@ -513,7 +513,9 @@ fn a_detached_projection_keeps_its_edits_and_serving_it_again_clears_the_detach(
     assert!(detached.ms > 0);
     // Detaching again is fine (the Mac retried); Bring Back still reads the layer by name.
     assert_eq!(detach(&line, &state).unwrap()["detached"], true);
+    assert_eq!(allow_redial(&state, "p-removed").unwrap_err().0, "projection.detached");
     attached_in(&state, &at);
+    assert!(allow_redial(&state, "p-removed").is_ok());
     assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
 
     let bad = WayBackLine { chat: Some("a\nb".into()), ..control_line("p-removed", None, None) };

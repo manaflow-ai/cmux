@@ -108,7 +108,7 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | detach --socket S --at REMOTE [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     archived|deleted] | detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
                      moves on|off";
 
@@ -269,6 +269,8 @@ pub(crate) fn start(
     // The server's files go by its mount point (`stop --at`), the projection by its chat.
     let server = name_of(remote);
     let name = chat_name(chat);
+    // Publish the PID and served record together with respect to a concurrent stop.
+    let _registration = registration_lock(&log, &server)?;
     let stderr = std::fs::File::create(log.join(format!("{server}.log")))?;
     let mut command = cmux_process::Command::new(exe);
     // The store this Mac signs in to goes to the server on its stdin (never its arguments), so
@@ -351,11 +353,52 @@ fn servers_dir() -> anyhow::Result<PathBuf> {
         .context("this Mac has no state folder")
 }
 
+fn registration_lock(dir: &Path, server: &str) -> anyhow::Result<std::fs::File> {
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(format!("{server}.registration")))?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+/// Only stop the server registered for this projection on this machine. A path can be reused
+/// while the removal RPC is in flight, including by another machine or a different chat.
+pub(super) fn stop_recorded_server(
+    socket: &Path,
+    record: &super::project_back::Recorded,
+) -> anyhow::Result<bool> {
+    let dir = servers_dir()?;
+    let server = name_of(&record.remote);
+    let Some(on) = projected_at(&record.remote) else { return Ok(false) };
+    if chat_name(&on.chat) != record.name
+        || std::fs::canonicalize(&on.local).ok().as_ref() != Some(&record.local)
+        || on.machine.is_empty()
+        || machine_id(socket).as_deref() != Some(on.machine.as_str())
+    {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    if projected_at(&record.remote).as_ref() != Some(&on) {
+        return Ok(false);
+    }
+    stop_registered(&dir, &server, &record.remote)
+}
+
 /// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
 /// served. Whether there was one to end.
 pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
     let dir = servers_dir()?;
     let server = name_of(remote);
+    if !dir.exists() {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    stop_registered(&dir, &server, remote)
+}
+
+fn stop_registered(dir: &Path, server: &str, remote: &str) -> anyhow::Result<bool> {
     let pid_file = dir.join(format!("{server}.pid"));
     let _ = std::fs::remove_file(dir.join(format!("{server}.served")));
     let Ok(pid) = std::fs::read_to_string(&pid_file) else {
