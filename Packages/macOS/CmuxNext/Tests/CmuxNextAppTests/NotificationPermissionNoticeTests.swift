@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextActions
+import CmuxNextDesign
 @testable import CmuxNextNotifications
 import CmuxNextPages
 @testable import CmuxNextSettings
@@ -180,7 +181,8 @@ import Testing
         var played: [String] = []
         page.playSound = { played.append($0) }
         for name in ["default", "Glass"] {
-            _ = try await page.call("cmux.settings.sound.play", params: ["name": .string(name)],
+            let params: JSONValue = ["name": .string(name)]
+            _ = try await page.call("cmux.settings.sound.play", params: params,
                                     context: PageCallContext(page: "cmux.settings", userGesture: true))
         }
         #expect(played == ["default", "Glass"], "Default is played, not skipped")
