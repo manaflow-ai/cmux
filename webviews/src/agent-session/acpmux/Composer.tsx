@@ -1854,10 +1854,12 @@ function ComposerFrame({
   // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
   // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
   const [arrowed, setArrowed] = useState(false);
+  // The mark counts too: a row the arrows chose at `/emil` is not chosen at `$emil`.
+  const queryMark = typedSlash?.mark;
   useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query, open]);
+  }, [query, queryMark, open]);
   // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
   // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
   // are always offered, so the menu always has rows.
