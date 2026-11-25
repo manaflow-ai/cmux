@@ -1,3 +1,4 @@
+import CmuxNextSettings
 public import Foundation
 
 /// Why the host's socket refused a page frame or stopped. The raw value is the code the page
@@ -61,10 +62,35 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     public var connection: Int
     public var frames: [String]
     public var closed: AgentPaneTransportClose?
+    /// The push's number on its transport: the page acks it by this once it applied it
+    /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``). Nil: no ack wanted.
+    public var seq: Int?
+
+    /// `seq` defaults to nil: a host-made push (a question key's announcement) wants no ack.
+    public init(connection: Int, frames: [String], closed: AgentPaneTransportClose?, seq: Int? = nil) {
+        self.connection = connection
+        self.frames = frames
+        self.closed = closed
+        self.seq = seq
+    }
+
+    /// The push as the page host sends it, built without a Foundation round trip.
+    var value: JSONValue {
+        var object: [String: JSONValue] = ["connection": .number(Double(connection))]
+        if !frames.isEmpty { object["frames"] = .array(frames.map(JSONValue.string)) }
+        if let seq { object["seq"] = .number(Double(seq)) }
+        if let closed {
+            var close: [String: JSONValue] = ["code": .number(Double(closed.code)), "reason": .string(closed.reason)]
+            if let error = closed.error { close["error"] = .string(error.rawValue) }
+            object["closed"] = .object(close)
+        }
+        return .object(object)
+    }
 
     var object: [String: Any] {
         var object: [String: Any] = ["connection": connection]
         if !frames.isEmpty { object["frames"] = frames }
+        if let seq { object["seq"] = seq }
         if let closed {
             var close: [String: Any] = ["code": closed.code, "reason": closed.reason]
             if let error = closed.error { close["error"] = error.rawValue }
