@@ -29,6 +29,16 @@ const EVERY: Duration = Duration::from_secs(1);
 /// followed; a new attach starts again.
 const AT_MOST: Duration = Duration::from_secs(60 * 60);
 
+/// On by default (Leo: "it doesnt work if it's not \"on by default\""); the live probe is the
+/// seed's marker, and `ACPMUX_FILL=0` (or `off`, `false`, `no`) is the kill switch.
+const KILL_SWITCH: &str = "ACPMUX_FILL";
+
+fn killed(value: Option<&str>) -> bool {
+    value.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no")
+    })
+}
+
 /// The fill of the checkout holding `cwd`: None when it is whole (no marker in it or any
 /// folder above, up to the first `.git`); the marker's figure otherwise, 0 when it has none.
 pub(crate) fn fill_of(cwd: &Path) -> Option<u8> {
@@ -70,7 +80,7 @@ fn note(session: &str, fill: u8) -> Message {
 /// folder is filling: the figure now, each change, and 100 at the end. Owned by the
 /// connection's scope.
 pub(super) fn follow(conn: &Arc<Conn>, asked: bool, session: &str, cwd: &Path) {
-    if !asked {
+    if !asked || killed(std::env::var(KILL_SWITCH).ok().as_deref()) {
         return;
     }
     let Some(first) = fill_of(cwd) else { return };
@@ -116,6 +126,15 @@ mod tests {
         assert_eq!(fill_of(root), Some(42));
         std::fs::write(root.join(".git").join(MARKER), b"{\"fill\":900}").unwrap();
         assert_eq!(fill_of(root), Some(100));
+    }
+
+    #[test]
+    fn the_kill_switch_turns_it_off() {
+        assert!(!killed(None));
+        assert!(!killed(Some("1")));
+        for off in ["0", "off", "FALSE", " no "] {
+            assert!(killed(Some(off)), "{off}");
+        }
     }
 
     #[test]
