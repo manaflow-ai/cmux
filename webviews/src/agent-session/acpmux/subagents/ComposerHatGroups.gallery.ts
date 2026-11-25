@@ -150,13 +150,22 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
 }
 
 /// The header's first mark centres on the + button, its words start at the prompt's (cmux#56151).
-function columnHolds(ctx: PlayContext): void {
+/// `whole`: the header must have both, a mark and words (the plan-and-done hat says nothing else).
+function columnHolds(ctx: PlayContext, whole = false): void {
   const mark = head(ctx)?.querySelector<HTMLElement>(
     "[data-kind] svg, [data-kind] .cv-sender-icon__main, .acpmux-lineage__icon svg",
   );
-  const words = head(ctx)?.querySelector<HTMLElement>(".acpmux-running-tray__kind-text");
+  // A groups header's words are its first kind's; a header with no group (a plan and one finished
+  // subagent) is one line of words (SubagentTray's title).
+  const words =
+    head(ctx)?.querySelector<HTMLElement>(".acpmux-running-tray__kind-text") ??
+    head(ctx)?.querySelector<HTMLElement>(".acpmux-running-tray__title");
   const plus = ctx.document.querySelector<HTMLElement>(PLUS_PICKER);
   const prompt = ctx.document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-placeholder");
+  if (whole && !(mark && words && plus && prompt))
+    throw new Error(
+      `the hat draws ${[!mark && "no mark", !words && "no words", !plus && "no +", !prompt && "no prompt"].filter(Boolean).join(", ")}`,
+    );
   if (!mark || !plus) return;
   const centre = (box: DOMRect) => box.left + box.width / 2;
   const markAt = centre(mark.getBoundingClientRect());
@@ -171,6 +180,19 @@ function columnHolds(ctx: PlayContext): void {
 
 const show = async (ctx: PlayContext) => {
   await ctx.waitFor(() => summary(ctx));
+};
+
+/// The plan-and-done hat: its one finished subagent counts in no group (trayHeadGroups draws only
+/// what runs, waits or failed), so no groups summary draws; the header is the plan's words. Wait for
+/// the plan's count, and say what the header drew when it never comes.
+const showPlan = async (ctx: PlayContext) => {
+  try {
+    await ctx.waitFor(() => /\b4\b.*\b6\b/.test(head(ctx)?.textContent ?? ""));
+  } catch (error) {
+    throw new Error(`the hat never showed the plan's 4 of 6: ${JSON.stringify(head(ctx)?.textContent ?? null)}`, {
+      cause: error,
+    });
+  }
 };
 
 export default agentPaneEntry({
@@ -202,8 +224,8 @@ export default agentPaneEntry({
     "plan-and-done": {
       note: "cmux#56151: 4 of 6 · Verify in tagged dev build · 1 subagent done. The plan's mark centres on the +, its words start at the prompt's, the panel button and the chevron sit over Stop and the mic.",
       play: async (ctx) => {
-        await show(ctx);
-        columnHolds(ctx);
+        await showPlan(ctx);
+        columnHolds(ctx, true);
       },
       snapshot: planAndDone,
       experiments: { "subagent-tray-fold-head": "groups" },
