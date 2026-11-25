@@ -27,7 +27,11 @@ OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 missing=""
 for t in qemu-img mkfs.ext4 fakeroot zstd; do command -v "$t" >/dev/null || missing=1; done
-if [ -n "$missing" ]; then sudo -n apt-get install -y -qq qemu-utils e2fsprogs fakeroot zstd >/dev/null; fi
+if [ -n "$missing" ]; then
+  # A pool runner's package lists can be stale or empty: refresh them before the install.
+  sudo -n apt-get update -qq >/dev/null
+  sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-utils e2fsprogs fakeroot zstd >/dev/null
+fi
 
 prefix="cmux-vm-image/$TAG"
 presign() { python3 "$root/scripts/ci/r2-presign.py" --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --key "$prefix/$1" --method "$2" --expires 7200; }

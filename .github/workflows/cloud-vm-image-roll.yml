@@ -443,8 +443,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
-  # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
   # RFD 0100 step 6: every rolled image also goes out as a compressed qcow2 with its sha256, the second format
   # beside the Freestyle snapshot chain, for hosts that run agent VMs themselves. It runs beside promote, never
   # before it, so it adds no time to a roll, and a failed export never turns the roll red (continue-on-error).
@@ -548,6 +546,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
+  # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
   report:
     needs: [plan, bake, promote]
     if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
