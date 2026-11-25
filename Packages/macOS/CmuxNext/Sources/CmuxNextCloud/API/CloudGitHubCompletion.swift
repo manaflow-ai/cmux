@@ -30,6 +30,13 @@ import Observation
         count += 1
     }
 
+    /// Records a connection that completed through an API request rather than GitHub's callback.
+    /// The picker uses this to wake pages waiting for the same change notification.
+    public func recordConnected() {
+        refusal = nil
+        count += 1
+    }
+
     /// A new Connect GitHub starts over: the last refusal no longer applies.
     public func forgetRefusal() { refusal = nil }
 }

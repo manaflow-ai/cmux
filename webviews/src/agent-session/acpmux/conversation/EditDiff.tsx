@@ -64,6 +64,9 @@ type EditDiffProps = {
   whole?: boolean;
   /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
   actions?: ReactNode;
+  /** Drawn inside a card of its own (the edited-files card): no ring, corner, fill or margin, so
+   *  the header and diff sit directly on that card instead of in a second box (conversation.css). */
+  flat?: boolean;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -76,6 +79,7 @@ export function EditDiffFrame({
   reveal = 0,
   whole = false,
   actions,
+  flat = false,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -98,7 +102,7 @@ export function EditDiffFrame({
   const painted = useDiffPainted(hunks);
   useMoreBelowOn(body, painted);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap}>
+    <div className="cv-edit-diff" data-wrap={wrap} data-flat={flat || undefined}>
       <div className="cv-edit-diff__header">
         <span className="cv-edit-diff__name" data-path={file.path}>
           {name}
