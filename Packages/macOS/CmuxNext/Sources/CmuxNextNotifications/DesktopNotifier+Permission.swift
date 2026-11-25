@@ -2,6 +2,7 @@ package import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 package import CmuxNextSettings
+import CmuxNextWakeups
 
 /// macOS notification permission in the app (cmux#55600): read at launch and each time cmux comes
 /// forward (asked once while not yet determined), a denial told once in the app with Open System
@@ -29,15 +30,18 @@ extension DesktopNotifier {
             guard let self, let window = window(), self.deniedNotice.claim(for: self.authorization) else { return }
             Self.showDeniedNotice(in: window)
         }
-        return Task { [weak self] in // inherits the main actor
-            // The launch read can stall (`notificationSettings()` takes seconds on a busy launch): while
-            // nothing has landed, more reads start alongside it, each on its own, so one stuck read blocks none.
-            Task { [weak self] in await self?.refreshPermission() }
-            for _ in 0..<(self?.launchRereads.count ?? 0) {
-                try? await Task.sleep(for: self?.launchRereads.delay ?? .zero)
-                guard self?.authorization == "unknown" else { return }
-                Task { [weak self] in await self?.refreshPermission(asking: false) }
-            }
+        // The launch read can stall (`notificationSettings()` takes seconds on a busy launch): while nothing has
+        // landed, more reads start on a deadline, each on its own, so one stuck read blocks none.
+        rereadWhileUnknown(left: launchRereads.count)
+        return Task { [weak self] in await self?.refreshPermission() } // inherits the main actor
+    }
+
+    private func rereadWhileUnknown(left: Int) {
+        guard left > 0 else { return }
+        launchRereadTimer.schedule(after: launchRereads.delay) { @MainActor [weak self] in
+            guard let self, self.authorization == "unknown" else { return }
+            Task { await self.refreshPermission(asking: false) }
+            self.rereadWhileUnknown(left: left - 1)
         }
     }
 

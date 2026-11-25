@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 package import UserNotifications
 
@@ -119,6 +120,7 @@ package final class DesktopNotifier: NSObject {
     package var playsDefaultSound: (@MainActor () -> Void)?
     /// Extra launch reads while none has landed (``followPermission``), `delay` apart.
     package var launchRereads = (count: 6, delay: Duration.seconds(5))
+    let launchRereadTimer = DemandTimer(owner: "notification-permission-launch-read")
     /// macOS denies cmux notifications (read at launch, on activation, or the person's answer to the prompt).
     package var onDenied: (@MainActor () -> Void)?
     /// The one-time denied notice's record (tests pass their own defaults).

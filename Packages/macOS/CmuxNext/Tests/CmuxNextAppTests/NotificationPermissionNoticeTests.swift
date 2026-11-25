@@ -148,9 +148,10 @@ import Testing
         let center = StallingCenter()
         desktop.permissionCenterOverride = center
         desktop.launchRereads = (count: 40, delay: .milliseconds(50))
-        let follow = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), volume: { 1 }, asks: true) { nil }
-        await follow.value
-        #expect(desktop.authorization == "denied")
+        _ = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), volume: { 1 }, asks: true) { nil }
+        let deadline = ContinuousClock.now + .seconds(20)
+        while desktop.authorization != "denied", ContinuousClock.now < deadline { await Task.yield() }
+        #expect(desktop.authorization == "denied", "a later read lands although the first never answers")
         #expect(await center.reads < 40, "reads stop once one lands")
     }
 
