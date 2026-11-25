@@ -43,7 +43,7 @@ fi
 echo "published_sha=${PUBLISHED_SHA:-}" >> "$GITHUB_OUTPUT"
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
 arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
-if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+if [ "$NIGHTLY_TRACK" != rc ]; then
   downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
 ${arm64_line}"
 else
