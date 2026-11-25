@@ -275,8 +275,8 @@ class NoPerRefCacheSaves(unittest.TestCase):
 # so third-party crates added or bumped since rebuild on every run (run 45512288219: 70 crates
 # built in the debug and release `cargo test`). The key carries a `hashFiles` of the lockfile,
 # so a lockfile change makes a new entry that a base push saves.
-# These two workflows get theirs in #55162; drop the entries once it lands.
-LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml"}
+# The two iOS ones get theirs in #55162; cloud-journey-prod runs main's copy on its schedule and needs a main twin PR. Drop the entries once they land.
+LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml", "cloud-journey-prod.yml"}
 
 
 def rust_cache_keys_without_lockfile() -> list[str]:
