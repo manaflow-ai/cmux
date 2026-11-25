@@ -21,7 +21,9 @@ import Testing
         try #require(await services.cache.previewImage(for: tab, maxPixelSize: size) != nil, "setup: the live terminal had no picture")
 
         // Hibernated under memory pressure: the surface closes with no last frame kept.
-        let entry = try #require(services.cache.terminals.removeValue(forKey: tab))
+        // `#require` takes no mutating call: remove first, then require.
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
         services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: true)
         await services.cache.lastFrames.pictureSettled(tab)
         entry.close()
@@ -40,7 +42,9 @@ import Testing
     @Test func aNewShellsPromptStillHasNoPicture() async throws {
         let (services, tab, session, done) = try await Self.terminal(output: "Last login: Mon Oct 13 09:12:44 on ttys004\r\nyou@mac ~ % ")
         defer { done() }
-        let entry = try #require(services.cache.terminals.removeValue(forKey: tab))
+        // `#require` takes no mutating call: remove first, then require.
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
         services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: true)
         await services.cache.lastFrames.pictureSettled(tab)
         entry.close()
