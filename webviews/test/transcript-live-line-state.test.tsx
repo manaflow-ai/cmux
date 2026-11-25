@@ -64,6 +64,7 @@ const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 const drawn = (line: AcpmuxRow, now: number) =>
@@ -169,7 +170,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
     row("g", SUBAGENTS, { subagents: [agent("fg", "running")] }),
     row("run", "activity", { items: [call("bun test", "in_progress")] }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ doing: "bun test", doingShell: true });
+  expect(line).toMatchObject({ doing: "Running tests", doingShell: false });
   expect(line.liveState).toBeUndefined();
 });
 
@@ -268,7 +269,7 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
   // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Waiting 1m 33s · turn 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Waiting on the model's next step 1m 33s · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -277,7 +278,7 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   const html = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
   );
-  expect(words(html)).toBe("Running bun test 13s");
+  expect(words(html)).toBe("bun test 13s");
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
@@ -312,5 +313,5 @@ test("Thinking past the first step times only this stretch of thinking, the wait
   expect(drawn(line, t0 + 454_000)).toBe("Thinking 5s · turn 7m 34s");
   // It keeps counting with no new event, then says it waits once nothing came for 10 s.
   expect(drawn(line, t0 + 460_000)).toBe("Thinking 11s · turn 7m 40s");
-  expect(drawn(line, t0 + 470_000)).toBe("Waiting 16s · turn 7m 50s");
+  expect(drawn(line, t0 + 470_000)).toBe("Waiting on the model's next step 16s · turn 7m 50s");
 });
