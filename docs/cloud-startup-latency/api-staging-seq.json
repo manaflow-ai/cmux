@@ -1,0 +1,517 @@
+{
+ "attachAttempts": {
+  "max": 1,
+  "mean": 1,
+  "min": 1,
+  "n": 5,
+  "p50": 1,
+  "p90": 1,
+  "p95": 1
+ },
+ "concurrency": 1,
+ "createServerTiming": {
+  "auth": {
+   "max": 0.2,
+   "mean": 0.2,
+   "min": 0.1,
+   "n": 5,
+   "p50": 0.2,
+   "p90": 0.2,
+   "p95": 0.2
+  },
+  "begin_create": {
+   "max": 93,
+   "mean": 42.1,
+   "min": 25.1,
+   "n": 5,
+   "p50": 30.4,
+   "p90": 93,
+   "p95": 93
+  },
+  "billing": {
+   "max": 1,
+   "mean": 0.3,
+   "min": 0.1,
+   "n": 5,
+   "p50": 0.2,
+   "p90": 1,
+   "p95": 1
+  },
+  "entitlements": {
+   "max": 0.1,
+   "mean": 0.1,
+   "min": 0.1,
+   "n": 5,
+   "p50": 0.1,
+   "p90": 0.1,
+   "p95": 0.1
+  },
+  "mark_running": {
+   "max": 7.1,
+   "mean": 5.7,
+   "min": 4.7,
+   "n": 5,
+   "p50": 5,
+   "p90": 7.1,
+   "p95": 7.1
+  },
+  "model_plane_provision": {
+   "max": 5.3,
+   "mean": 3.7,
+   "min": 3,
+   "n": 5,
+   "p50": 3.3,
+   "p90": 5.3,
+   "p95": 5.3
+  },
+  "provider_create": {
+   "max": 2709.2,
+   "mean": 1780.2,
+   "min": 1281.3,
+   "n": 5,
+   "p50": 1296.5,
+   "p90": 2709.2,
+   "p95": 2709.2
+  },
+  "request_parse": {
+   "max": 0.7,
+   "mean": 0.4,
+   "min": 0.3,
+   "n": 5,
+   "p50": 0.3,
+   "p90": 0.7,
+   "p95": 0.7
+  },
+  "resolve_network": {
+   "max": 199.2,
+   "mean": 78.4,
+   "min": 27.8,
+   "n": 5,
+   "p50": 34.5,
+   "p90": 199.2,
+   "p95": 199.2
+  },
+  "total": {
+   "max": 2937.4,
+   "mean": 1882.6,
+   "min": 1340.1,
+   "n": 5,
+   "p50": 1409.7,
+   "p90": 2937.4,
+   "p95": 2937.4
+  },
+  "usage_events": {
+   "max": 9.7,
+   "mean": 7.6,
+   "min": 6.6,
+   "n": 5,
+   "p50": 7.2,
+   "p90": 9.7,
+   "p95": 9.7
+  }
+ },
+ "failed": 0,
+ "label": "",
+ "listMs": 1174.7,
+ "ok": true,
+ "stages": {
+  "attachMs": {
+   "max": 1271.4,
+   "mean": 926.4,
+   "min": 779.5,
+   "n": 5,
+   "p50": 848.8,
+   "p90": 1271.4,
+   "p95": 1271.4
+  },
+  "createMs": {
+   "max": 2986.4,
+   "mean": 1951.4,
+   "min": 1410.1,
+   "n": 5,
+   "p50": 1512.5,
+   "p90": 2986.4,
+   "p95": 2986.4
+  },
+  "createToAttachReadyMs": {
+   "max": 4257.8,
+   "mean": 2877.8,
+   "min": 2258.9,
+   "n": 5,
+   "p50": 2339.9,
+   "p90": 4257.8,
+   "p95": 4257.8
+  },
+  "destroyMs": {
+   "max": 547.7,
+   "mean": 312.2,
+   "min": 218.5,
+   "n": 5,
+   "p50": 244.3,
+   "p90": 547.7,
+   "p95": 547.7
+  },
+  "execMs": {
+   "max": 2228,
+   "mean": 744.6,
+   "min": 365.2,
+   "n": 5,
+   "p50": 372.8,
+   "p90": 2228,
+   "p95": 2228
+  },
+  "pauseMs": {
+   "max": 586,
+   "mean": 360.9,
+   "min": 278.7,
+   "n": 5,
+   "p50": 296.8,
+   "p90": 586,
+   "p95": 586
+  },
+  "resumeAttachMs": {
+   "max": 1909.1,
+   "mean": 1763,
+   "min": 1691.8,
+   "n": 5,
+   "p50": 1734.8,
+   "p90": 1909.1,
+   "p95": 1909.1
+  },
+  "warmAttachMs": {
+   "max": 992,
+   "mean": 934.1,
+   "min": 883.6,
+   "n": 5,
+   "p50": 906,
+   "p90": 992,
+   "p95": 992
+  }
+ },
+ "succeeded": 5,
+ "target": "staging",
+ "totalMs": 34966,
+ "trials": [
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 1271.3,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 1271.4,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 2986.4,
+   "createStages": {
+    "auth": 0.24,
+    "begin_create": 30.39,
+    "billing": 0.95,
+    "entitlements": 0.07,
+    "mark_running": 6.62,
+    "model_plane_provision": 5.29,
+    "provider_create": 2709.24,
+    "request_parse": 0.73,
+    "resolve_network": 199.21,
+    "total": 2937.38,
+    "usage_events": 9.7
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToAttachReadyMs": 4257.8,
+   "createTraceId": "86e14cf67b24aae2f7418615a987be4b",
+   "destroyMs": 321.6,
+   "destroyStatus": 200,
+   "execMs": 2228,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 0,
+   "pauseMs": 346.6,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1734.7,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 1734.8,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:52:47.872Z",
+   "vmId": "vm-cfadf196432d4bebbb62e239488b36e5",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 988.6,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 988.7,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 806.2,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 806.2,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 1512.5,
+   "createStages": {
+    "auth": 0.19,
+    "begin_create": 92.96,
+    "billing": 0.21,
+    "entitlements": 0.08,
+    "mark_running": 4.7,
+    "model_plane_provision": 3.04,
+    "provider_create": 1281.34,
+    "request_parse": 0.43,
+    "resolve_network": 96.98,
+    "total": 1409.73,
+    "usage_events": 6.55
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToAttachReadyMs": 2318.7,
+   "createTraceId": "43577edbf4738121e8b0fabf7d5b44c3",
+   "destroyMs": 218.5,
+   "destroyStatus": 200,
+   "execMs": 387.1,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 1,
+   "pauseMs": 278.7,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1757.9,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 1758,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:52:57.750Z",
+   "vmId": "vm-26151bda679644aaa448dd6c6b83c9d3",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 899.9,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 900,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 848.7,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 848.8,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 1410.1,
+   "createStages": {
+    "auth": 0.16,
+    "begin_create": 25.11,
+    "billing": 0.15,
+    "entitlements": 0.07,
+    "mark_running": 5.02,
+    "model_plane_provision": 3.54,
+    "provider_create": 1292.59,
+    "request_parse": 0.27,
+    "resolve_network": 27.77,
+    "total": 1340.14,
+    "usage_events": 7.19
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToAttachReadyMs": 2258.8999999999996,
+   "createTraceId": "cbf07304798cc1523de30d1ff7099766",
+   "destroyMs": 229,
+   "destroyStatus": 200,
+   "execMs": 372.8,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 2,
+   "pauseMs": 296.8,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1691.8,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 1691.8,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:53:03.612Z",
+   "vmId": "vm-35044be66e8743d68bbcc367833dc0c2",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 883.6,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 883.6,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 926,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 926.1,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 1413.8,
+   "createStages": {
+    "auth": 0.16,
+    "begin_create": 30.36,
+    "billing": 0.13,
+    "entitlements": 0.06,
+    "mark_running": 7.07,
+    "model_plane_provision": 3.3,
+    "provider_create": 1296.47,
+    "request_parse": 0.29,
+    "resolve_network": 33.47,
+    "total": 1351.22,
+    "usage_events": 7.34
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToAttachReadyMs": 2339.9,
+   "createTraceId": "fe3a54fa72b6d97245099d9395aec944",
+   "destroyMs": 244.3,
+   "destroyStatus": 200,
+   "execMs": 370,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 3,
+   "pauseMs": 296.2,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1721.5,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 1721.5,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:53:09.345Z",
+   "vmId": "vm-1c310b3d6aa244a4bab03c66e4cdbc5b",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 992,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 992,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 779.5,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 779.5,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 2434,
+   "createStages": {
+    "auth": 0.14,
+    "begin_create": 31.83,
+    "billing": 0.14,
+    "entitlements": 0.06,
+    "mark_running": 4.87,
+    "model_plane_provision": 3.09,
+    "provider_create": 2321.27,
+    "request_parse": 0.29,
+    "resolve_network": 34.46,
+    "total": 2374.32,
+    "usage_events": 7.12
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToAttachReadyMs": 3213.5,
+   "createTraceId": "f320dbf26f0f43d25ed60985faf57f96",
+   "destroyMs": 547.7,
+   "destroyStatus": 200,
+   "execMs": 365.2,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 4,
+   "pauseMs": 586,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1909.1,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 1909.1,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:53:15.310Z",
+   "vmId": "vm-7b99ddcd05d74a14be5dd4a865a06b64",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 905.9,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 906,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  }
+ ],
+ "url": "https://cmux-staging.vercel.app"
+}

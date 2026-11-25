@@ -1,0 +1,32 @@
+{
+  "id": "paste-small",
+  "priority": "P0",
+  "title": "Cmd+V pastes a short command at the prompt; it runs only on Return",
+  "why": "Pasting a command is everyday terminal use. The paste goes through the app's real path (Cmd+V, the menu's Paste, the terminal's clipboard read) into the daemon's PTY; it must arrive whole, once, without the paste markers, and must not run by itself.",
+  "source": "everyday terminal use (holistic-quality.md 1)",
+  "budget_seconds": 50,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-paste-small"},
+    {"do": "neutral_prompt"},
+    {"do": "clipboard_set", "text": "echo pasted-${nonce}-$((6*7))"},
+    {"do": "key", "key": "v", "modifiers": ["cmd"], "mark": "paste"},
+    {"do": "expect", "title": "the pasted text shows at the prompt once, not run", "since": "paste", "within": 1, "timeout": 5, "settle": 1,
+     "all": [
+       {"daemon_line": "${prompt}echo pasted-${nonce}-$((6*7))"},
+       {"app_text_line": "${prompt}echo pasted-${nonce}-$((6*7))"},
+       {"daemon_lacks": "pasted-${nonce}-42"},
+       {"daemon_lacks": "$((6*7))echo"},
+       {"daemon_lacks": "200~"},
+       {"app_text_lacks": "pasted-${nonce}-42"}
+     ]},
+    {"do": "key", "key": "return", "modifiers": [], "mark": "run"},
+    {"do": "expect", "title": "Return runs it", "since": "run", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "pasted-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "pasted-${nonce}-42"},
+       {"app_prompt": true},
+       {"frame_text": "pasted-${nonce}-42"}
+     ]}
+  ]
+}
