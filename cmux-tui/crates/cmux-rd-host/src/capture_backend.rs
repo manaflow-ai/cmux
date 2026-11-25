@@ -5,6 +5,10 @@
 //! ScreenCast interface and a PipeWire stream. The choice is a pure function of the
 //! session's environment and an explicit `--capture x11|portal` override, so it is the
 //! same in `cmux-rd serve` and in the Linux screen host that starts it.
+//!
+//! Within a Wayland session ([`WaylandCapture`]), GNOME is cast through mutter's own
+//! ScreenCast and RemoteDesktop interfaces (`mutter.rs`) when mutter is on the session bus:
+//! they need no grant and show no dialog. Every other compositor uses the portal.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 /// The capture backend of one session.
@@ -87,13 +91,80 @@ impl CaptureBackend {
     }
 }
 
-/// Whether this desktop's portal sessions can apply input: a build with portal capture and a
-/// saved RemoteDesktop grant (`linux-host enable --allow-control` or `linux-host grant
-/// --control` made it).
+/// How a Wayland session (`CaptureBackend::Portal`) reaches the screen.
+#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaylandCapture {
+    /// mutter's own ScreenCast and RemoteDesktop (GNOME): no grant, no dialog.
+    Mutter,
+    /// xdg-desktop-portal: a grant saved once, at enable.
+    Portal,
+}
+
+#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
+impl WaylandCapture {
+    /// mutter directly when `org.gnome.Mutter.ScreenCast` has an owner on the session bus,
+    /// else the portal.
+    pub fn choose(mutter_screen_cast: bool) -> Self {
+        if mutter_screen_cast {
+            WaylandCapture::Mutter
+        } else {
+            WaylandCapture::Portal
+        }
+    }
+
+    /// Whether this capture needs the portal's grant before shares start without a dialog.
+    pub fn needs_grant(self) -> bool {
+        self == WaylandCapture::Portal
+    }
+}
+
+/// Which of mutter's interfaces this session bus has: (ScreenCast, RemoteDesktop). Both
+/// false in a build without the D-Bus half or with no session bus.
+#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
+pub fn mutter_on_bus() -> (bool, bool) {
+    #[cfg(all(feature = "portal-dbus", target_os = "linux"))]
+    return {
+        let p = crate::mutter::MutterPresence::detect();
+        (p.screen_cast, p.remote_desktop)
+    };
+    #[cfg(not(all(feature = "portal-dbus", target_os = "linux")))]
+    (false, false)
+}
+
+/// This Wayland session's [`WaylandCapture`] (asks the session bus).
+#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
+pub fn wayland_capture() -> WaylandCapture {
+    WaylandCapture::choose(mutter_on_bus().0)
+}
+
+/// Whether a Wayland capture applies input: through mutter, when it has RemoteDesktop; through
+/// the portal, with a saved RemoteDesktop grant.
+#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
+pub fn wayland_control_with(
+    capture: WaylandCapture,
+    mutter_remote_desktop: bool,
+    portal_granted: bool,
+) -> bool {
+    match capture {
+        WaylandCapture::Mutter => mutter_remote_desktop,
+        WaylandCapture::Portal => portal_granted,
+    }
+}
+
+/// Whether this desktop's Wayland sessions can apply input: a build with portal capture, and
+/// either mutter's RemoteDesktop on the session bus (no grant) or a saved portal RemoteDesktop
+/// grant (`linux-host enable --allow-control` or `linux-host grant --control` made it).
 #[cfg(feature = "link")]
 pub fn portal_control_granted() -> bool {
     #[cfg(all(feature = "portal", target_os = "linux"))]
-    return crate::portal::remote_desktop_granted();
+    return {
+        let (screen_cast, remote_desktop) = mutter_on_bus();
+        let capture = WaylandCapture::choose(screen_cast);
+        let portal_granted =
+            capture == WaylandCapture::Portal && crate::portal::remote_desktop_granted();
+        wayland_control_with(capture, remote_desktop, portal_granted)
+    };
     #[cfg(not(all(feature = "portal", target_os = "linux")))]
     false
 }

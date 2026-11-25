@@ -112,11 +112,12 @@ fn session_bus() -> bool {
             .is_some_and(|dir| std::path::Path::new(&dir).join("bus").exists())
 }
 
-/// Whether a portal restore token (the grant `enable` makes, refreshed by every share) is
-/// saved, so Start shows no dialog.
+/// Whether shares start with no dialog: a portal restore token (the grant `enable` makes,
+/// refreshed by every share) is saved, or this is GNOME, which is cast through mutter directly
+/// and needs no grant.
 #[cfg(feature = "portal")]
 fn portal_token_saved() -> bool {
-    crate::portal::any_grant_saved()
+    !crate::capture_backend::wayland_capture().needs_grant() || crate::portal::any_grant_saved()
 }
 
 #[cfg(not(feature = "portal"))]
