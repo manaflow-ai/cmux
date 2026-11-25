@@ -956,7 +956,14 @@ pub fn beat_repo(git_dir: &Path, repo: &str) -> BeatRepo {
             entries
                 .flatten()
                 .filter_map(|entry| {
-                    entry.file_name().to_str()?.strip_suffix(".pack").map(str::to_owned)
+                    if !entry.file_type().ok()?.is_file() {
+                        return None;
+                    }
+                    let name = entry.file_name();
+                    let pack = name.to_str()?.strip_suffix(".pack")?;
+                    // Mirrors also hold loose-*.pack and temporary packs. The index accepts
+                    // only checksum-named packs; one other name rejects the whole heartbeat.
+                    valid_id(pack.strip_prefix("pack-")?).then(|| pack.to_owned())
                 })
                 .collect()
         })
