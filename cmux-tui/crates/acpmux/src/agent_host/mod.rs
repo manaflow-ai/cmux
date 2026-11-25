@@ -133,6 +133,24 @@ pub enum ControllerFrame {
     Custody { token: String },
 }
 
+/// The launch credential's variables (`agent_credentials::launched_with`), said only to the
+/// owner that proved its token. Its `Debug` shows names, never a value.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LaunchCredential(pub Vec<(String, String)>);
+
+impl LaunchCredential {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for LaunchCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|(k, _)| k)).finish()
+    }
+}
+
 /// Host to controller.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -151,6 +169,11 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The launch credential its harness was started with (cmux#52399): the new daemon holds
+        /// it again for the agent's next start, without reading the agent's own env, which a
+        /// wrapper may have cleaned. Empty from a host of an older build, or with none.
+        #[serde(default, skip_serializing_if = "LaunchCredential::is_empty")]
+        launch_credential: LaunchCredential,
     },
     Incompatible {
         min: u16,

@@ -140,6 +140,15 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` are public addresses the sender's router
+        /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+        /// endpoints"); absent from older peers, which offer none, and older
+        /// peers ignore it (the address is still one of `endpoints`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them: `pcp`, `nat-pmp` or `upnp`.
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
     /// "WebSocket relay"): its datagrams no longer reach the peer any other
@@ -182,6 +191,10 @@ pub struct MailboxItem {
     pub sealed: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Its place in the sender phone's queue for this Mac: 1, 2, 3, ... in post order
+    /// (PROTOCOL.md "Store and forward", API 0.18.0). An older hub sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
 }
 
 /// The Mac's answer for one mailbox item.
@@ -206,6 +219,10 @@ pub enum SignalMessage {
         you: String,
         #[serde(default)]
         macs: Vec<MacPresence>,
+        /// A Mac's local hub's wire version ([`crate::local::HUB_VERSION`]);
+        /// absent (0) from the Worker and from hubs before it was sent.
+        #[serde(rename = "hubVersion", default, skip_serializing_if = "is_zero")]
+        hub_version: u32,
     },
     Presence {
         mac: MacPresence,
@@ -380,6 +397,9 @@ struct Shared {
     /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
     /// sessions never move onto a Worker socket, nor a Worker's onto it.
     local: std::sync::atomic::AtomicBool,
+    /// The `hubVersion` of this socket's hello: 0 from the Worker, an older
+    /// hub, or before the hello arrives.
+    hub_version: std::sync::atomic::AtomicU32,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -458,8 +478,18 @@ impl SignalingClient {
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
-        crate::install_crypto_provider();
         let url = signal_url(base_url, team_id, device_id)?;
+        Self::open(url, token, device_id, build_space).await
+    }
+
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    async fn open(
+        url: String,
+        token: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+    ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -508,6 +538,7 @@ impl SignalingClient {
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
             local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -602,11 +633,26 @@ impl SignalingClient {
     }
 
     /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
-    /// no Worker, no account token (`token` is the hub's own).
+    /// no Worker, no account token (`token` is the hub's own). The URL
+    /// carries this side's [`HUB_VERSION`](crate::local::HUB_VERSION)
+    /// (`&hubVersion=`), which an older hub ignores.
     pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
-        let client = Self::connect_in(base_url, token, crate::local::LOCAL_TEAM, device_id, None).await?;
+        let url = format!(
+            "{}&{}={}",
+            signal_url(base_url, crate::local::LOCAL_TEAM, device_id)?,
+            crate::local::HUB_VERSION_PARAM,
+            crate::local::HUB_VERSION
+        );
+        let client = Self::open(url, token, device_id, None).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
+    }
+
+    /// The hub's wire version from its hello ([`crate::local::HUB_VERSION`]):
+    /// 0 from the Worker, from a hub older than the field, or before the
+    /// hello arrived.
+    pub fn hub_version(&self) -> u32 {
+        self.shared.hub_version.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether this socket runs to a Mac's local hub rather than the Worker.
@@ -823,7 +869,8 @@ impl Shared {
             }
         };
         match message {
-            SignalMessage::Hello { you, macs } => {
+            SignalMessage::Hello { you, macs, hub_version } => {
+                self.hub_version.store(hub_version, std::sync::atomic::Ordering::Relaxed);
                 let _ = self.events.send(SignalingEvent::Hello { you, macs });
             }
             SignalMessage::Presence { mac } => {
@@ -881,6 +928,7 @@ mod tests {
         let shared = super::Shared {
             device_id: "d".into(),
             local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -959,15 +1007,22 @@ mod tests {
     #[test]
     fn mailbox_frames_match_the_contract() {
         let frame: SignalMessage = serde_json::from_str(
-            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"},{"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7}]}"#,
         )
         .unwrap();
         let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
         assert_eq!(
             items[0],
-            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5), seq: None }
         );
         assert_eq!(items[1].at, None);
+        // A store-and-forward hub (API 0.18.0) adds each item's `seq`; an older one sends none.
+        assert_eq!((items[1].seq, items[2].seq), (None, Some(7)));
+        assert_eq!(
+            serde_json::to_value(&items[2]).unwrap(),
+            serde_json::json!({"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7})
+        );
+        assert!(serde_json::to_value(&items[0]).unwrap().get("seq").is_none());
         let ack = SignalMessage::MailboxAck {
             results: vec![
                 MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
@@ -1020,6 +1075,34 @@ mod tests {
     }
 
     #[test]
+    fn wg_endpoints_mapped_label_old_and_new() {
+        // A new Mac's announcement: the mapped address is a plain endpoint
+        // plus the label, which an older phone (unknown fields) skips.
+        let new = SignalPayload::WgEndpoints {
+            generation: 5,
+            endpoints: vec!["192.168.1.9:4000".into(), "203.0.113.7:4000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:4000".into()],
+            mapped_by: Some("upnp".into()),
+        };
+        let value = serde_json::to_value(&new).unwrap();
+        assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
+        assert_eq!(value["mappedBy"], "upnp");
+        assert_eq!(value["endpoints"][1], "203.0.113.7:4000");
+        assert_eq!(serde_json::from_value::<SignalPayload>(value).unwrap(), new);
+        // An older Mac's: nothing mapped, and nothing new written back.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-endpoints","generation":1,"endpoints":["203.0.113.7:4000"]}))
+        .unwrap();
+        assert!(
+            matches!(&old, SignalPayload::WgEndpoints { mapped, mapped_by: None, .. } if mapped.is_empty())
+        );
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("mapped"), "{text}");
+    }
+
+    #[test]
     fn wg_versions_and_tls_relayed_addresses() {
         let resp: SignalPayload = serde_json::from_value(serde_json::json!(
             {"kind":"wg-resp","publicKey":"k","endpoints":["9.9.9.9:7"],"overlayIP":"10.77.0.1",
@@ -1035,6 +1118,26 @@ mod tests {
         assert!(matches!(old, SignalPayload::WgResp { version: 0, .. }));
         let text = serde_json::to_string(&old).unwrap();
         assert!(!text.contains("version") && !text.contains("relayed"), "{text}");
+    }
+
+    /// Lockstep (P7 13f): the Worker's hello has no `hubVersion` (0) and
+    /// writes none back; a newer hub's hello, with fields this side does not
+    /// know yet, still parses.
+    #[test]
+    fn lockstep_hello_hub_version_both_ways() {
+        let worker: SignalMessage = serde_json::from_str(r#"{"type":"hello","you":"p","macs":[]}"#).unwrap();
+        assert!(matches!(worker, SignalMessage::Hello { hub_version: 0, .. }));
+        assert!(!serde_json::to_string(&worker).unwrap().contains("hubVersion"));
+        let newer: SignalMessage = serde_json::from_str(
+            r#"{"type":"hello","you":"p","macs":[{"deviceId":"m","name":"","online":true,"future":1}],
+                "hubVersion":9,"caps":["x"],"future":{"a":1}}"#,
+        )
+        .unwrap();
+        assert!(matches!(newer, SignalMessage::Hello { hub_version: 9, ref macs, .. } if macs.len() == 1));
+        let ours =
+            SignalMessage::Hello { you: "p".into(), macs: vec![], hub_version: crate::local::HUB_VERSION };
+        let text = serde_json::to_string(&ours).unwrap();
+        assert!(text.contains(&format!("\"hubVersion\":{}", crate::local::HUB_VERSION)), "{text}");
     }
 
     #[test]
