@@ -23,7 +23,6 @@
   draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
   reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
 
-- 2026-11-25 (lane/sidebar-subagents-own-chat): Sidebar-Look: Leo, 2026-11-25, of a chat row's subagent rows: "esp like the sidebar situation, that's a strict fix which hsouldnt be held." A workspace row lists the subagents of its own chat only (the face's agent tab), not every chat tab open in it, so a nested chat no longer repeats under its parent. "N more" and the folded line's "N done" count the listed (recent) subagents, never acpmux's lifetime `subagentsSeen` (the rows read "4,272 more"). Regression: `SidebarSubagentRowsTests.moreNeverCountsTheLifetimeTotal`.
 - 2026-11-24 (ui/updated-card-slot): Sidebar-Look: Lucas, 2026-11-24: "we also want to fix this interim state after
   you press "Install update" and the old card still shows and overlaps". When another card takes the bottom slot, the
   card that leaves goes in the same frame, also mid-exit (`SidebarCardPresence.hideAtOnce`). Before, the download's
