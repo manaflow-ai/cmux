@@ -37,7 +37,7 @@ final class SwipeBackWholePageUITests: XCTestCase {
 
     static let terminal = Page(name: "terminal", demo: "ws-terminal-idle", field: "terminal.composer.field",
                                shown: "workspace.ws-cmux", back: "Back", reopen: "workspace.row.ws-cmux")
-    static let workspaceChat = Page(name: "workspace-chat", demo: "ws-chat-idle", field: "chat.composer.card",
+    static let workspaceChat = Page(name: "workspace-chat", demo: "kbd-tab", field: "chat.composer.card",
                                     shown: "workspace.ws-cmux", back: "Back", reopen: "workspace.row.ws-cmux")
     /// The agent chat pushed from Home (the system bar on both pages).
     static let homeChat = Page(name: "home-chat", demo: "disclosure-chat", field: "chat.composer.card",
@@ -59,7 +59,7 @@ final class SwipeBackWholePageUITests: XCTestCase {
     }
 
     /// The same swipes with the whole-page behavior off (`-CmuxMobileSwipeBackLegacy`): the
-    /// before of the recording, and proof the probe sees what Leo saw. Records, asserts nothing.
+    /// before of the recording. Setup still asserts; known broken transition behavior is recorded.
     @MainActor
     func testBeforeLegacy() {
         run(Self.terminal, appearances: [.dark], legacy: true)
@@ -91,12 +91,17 @@ final class SwipeBackWholePageUITests: XCTestCase {
                                 "-CmuxMobileWholePageProbe"] + (legacy ? ["-CmuxMobileSwipeBackLegacy"] : [])
         app.launch()
         defer { app.terminate() }
+        let probe = app.staticTexts["debug.whole-page"]
+        guard probe.waitForExistence(timeout: 10) else {
+            attach(app, "\(label)-missing-probe")
+            XCTFail("\(label): the DEBUG transition probe did not start\n\(app.debugDescription)")
+            return
+        }
         let shown = app.descendants(matching: .any)[page.shown]
         let row = page.reopen.map { app.buttons[$0] }
         /// The probe's readings, one per launch.
         var readings: [String] = []
         func reading() -> String {
-            let probe = app.staticTexts["debug.whole-page"]
             guard probe.waitForExistence(timeout: 5) else { return "samples=0 (no probe)" }
             return probe.value as? String ?? ""
         }
@@ -163,7 +168,12 @@ final class SwipeBackWholePageUITests: XCTestCase {
             attach(app, "\(label)-cancel-after")
             if keyboard {
                 // The dock as it was before the swipe, the composer usable.
-                XCTAssertTrue(app.descendants(matching: .any)[page.field].isHittable, "\(label): the composer is usable after a cancelled swipe")
+                let usable = app.descendants(matching: .any)[page.field].isHittable
+                if legacy {
+                    print("CMUX_WHOLE_PAGE \(label): cancelledComposerUsable=\(usable)")
+                } else {
+                    XCTAssertTrue(usable, "\(label): the composer is usable after a cancelled swipe")
+                }
             }
 
             // 3. The back button.
@@ -192,13 +202,19 @@ final class SwipeBackWholePageUITests: XCTestCase {
                 let kv = pair.split(separator: "=", maxSplits: 1)
                 return kv.count == 2 ? (String(kv[0]), String(kv[1])) : nil
             }, uniquingKeysWith: { _, last in last })
-            let samples = Int(values["samples"] ?? "") ?? 0
+            guard let samples = Int(values["samples"] ?? ""),
+                  let drift = Int(values["drift"] ?? ""),
+                  let stray = Int(values["stray"] ?? ""),
+                  let bar = Int(values["bar"] ?? "") else {
+                XCTFail("\(label): incomplete transition measurement (\(line))")
+                continue
+            }
             XCTAssertGreaterThan(samples, 3, "\(label): the probe saw no transition frames (\(line))")
-            XCTAssertLessThanOrEqual(Int(values["drift"] ?? "") ?? .max, 2,
+            XCTAssertLessThanOrEqual(drift, 2,
                                      "\(label): a piece of the page was left behind as it slid (\(line))")
-            XCTAssertLessThanOrEqual(Int(values["stray"] ?? "") ?? .max, 2,
+            XCTAssertLessThanOrEqual(stray, 2,
                                      "\(label): a layer outside the page drew over it as it slid (\(line))")
-            XCTAssertLessThanOrEqual(Int(values["bar"] ?? "") ?? .max, 1,
+            XCTAssertLessThanOrEqual(bar, 1,
                                      "\(label): the Workspaces bar drew over the page (doubled bars) (\(line))")
         }
     }
