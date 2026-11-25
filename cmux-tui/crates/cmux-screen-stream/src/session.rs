@@ -7,7 +7,7 @@ pub const RECONNECT_DEADLINE: f64 = 45.0;
 /// One reconnect attempt's timeout after `elapsed` seconds of trying: what is left of the
 /// deadline, within 1...30 s.
 pub fn attempt_timeout(elapsed: f64) -> f64 {
-    (RECONNECT_DEADLINE - elapsed).min(30.0).max(1.0)
+    (RECONNECT_DEADLINE - elapsed).clamp(1.0, 30.0)
 }
 
 /// Whether reconnecting stops: after `limit` tries, or once it has tried for the deadline.

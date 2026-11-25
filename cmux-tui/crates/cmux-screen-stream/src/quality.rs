@@ -207,8 +207,7 @@ pub fn pixel(fraction: Option<f64>, origin: f64, length: f64) -> i64 {
 /// `Int(exactly:)` of a whole value: `None` when it is not finite or out of range.
 fn exact_int(value: f64) -> Option<i64> {
     // -2^63 is exact; 2^63 is the first value above i64::MAX.
-    (value.is_finite()
-        && value >= -9_223_372_036_854_775_808.0
-        && value < 9_223_372_036_854_775_808.0)
+    (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0)
+        .contains(&value)
         .then_some(value as i64)
 }
