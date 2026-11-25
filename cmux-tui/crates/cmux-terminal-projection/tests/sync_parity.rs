@@ -530,11 +530,10 @@ struct Corpus {
     steps: Option<Vec<usize>>,
 }
 
-fn load_dir(
-    dir: &Path,
-    grid_of: &dyn Fn(&Path, &str) -> Option<(usize, usize)>,
-    out: &mut Vec<Corpus>,
-) {
+/// A corpus file's grid (columns, rows), from its folder and name; `None` skips it.
+type GridOf<'a> = dyn Fn(&Path, &str) -> Option<(usize, usize)> + 'a;
+
+fn load_dir(dir: &Path, grid_of: &GridOf<'_>, out: &mut Vec<Corpus>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
     paths.sort();

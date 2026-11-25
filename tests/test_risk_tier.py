@@ -373,7 +373,7 @@ class ClassifyTests(unittest.TestCase):
     def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
         # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
         # updater install, signing and feed-verification code stays high.
-        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
                    NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
                    NEXT + "CmuxNextSettings/UpdatesSettings.swift",
                    NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
@@ -391,21 +391,21 @@ class ClassifyTests(unittest.TestCase):
         # Signature verification, the feed resolver, the Sparkle driver and the install code must never
         # grade normal; only the ring above is a setting. Its tests stay low.
         updater = "Packages/macOS/CmuxUpdater/"
-        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+        for path in ("Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift",
                      "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
-                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
-                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdaterCore/UpdateFeedResolver.swift",
                      "Sources/CmuxUpdater/UpdateDriver.swift",
                      "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
                      "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
                      "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
                      "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
-                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Sources/CmuxUpdaterCore/InstallWatchdog.swift",
                      "Package.swift"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(updater + path), "high")
-        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
-        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdaterCore/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterCoreTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
@@ -695,6 +695,52 @@ class RecentRevertTests(unittest.TestCase):
         self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
         widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
         self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
+    def test_a_reworded_line_is_an_edit_not_a_takeback(self):
+        # PR #54943 (2026-11-25) reworded the skills index row #53846 had added; the row stays, in new words.
+        commit = ("@@ -57,6 +57,7 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+                  "+| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+                  " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        pr = ("@@ -57,3 +57,3 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+              "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+              " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+              "+| Doing UI work: live mode, a preview tab cmux pictures before and after each turn, how to try it at"
+              " turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Deleting the row with nothing in its place still takes it back.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,2 @@\n | Edit cmux's own web UI while it runs |\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ", commit))
+        # So does replacing it with an unrelated line of the pull request's own.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,3 @@\n ctx\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+                                    "+| Forum posts: read and reply | [cmux-forum](cmux-forum/SKILL.md) |\n ", commit))
+        # Putting back the wording the commit replaced is still a revert.
+        replaced = ("@@ -1,2 +1,2 @@\n-| Doing UI work: open the preview pane by hand |\n"
+                    "+| Doing UI work: frames show in the chat on their own |\n ctx")
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-| Doing UI work: frames show in the chat on their own |\n"
+                                    "+| Doing UI work: open the preview pane by hand |\n ctx", replaced))
+
+    def test_a_duplicate_dropped_beside_the_entry_that_stays_is_not_a_takeback(self):
+        # PR #50003 (2026-11-25) dropped #54487's `cmux-deadline.workspace = true`, a second key for the
+        # dependency already declared with features, and folded its comment into that entry.
+        commit = ("@@ -136,6 +136,8 @@\n cmux-tag-cache.workspace = true\n"
+                  "+# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                  "+cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        pr = ("@@ -99,4 +99,5 @@\n cmux-json.workspace = true\n"
+              "-# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).\n"
+              "+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),\n"
+              "+# and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              " cmux-deadline = { workspace = true, features = [\"tokio\"] }\n"
+              "@@ -136,8 +137,6 @@\n cmux-tag-cache.workspace = true\n"
+              "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        self.assertFalse(risk.undoes(pr, commit))
+        # With no other entry left, dropping them is a takeback.
+        self.assertTrue(risk.undoes("@@ -136,8 +136,6 @@\n cmux-tag-cache.workspace = true\n"
+                                    "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                                    "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true", commit))
 
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
