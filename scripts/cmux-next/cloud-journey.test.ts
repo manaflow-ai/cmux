@@ -17,7 +17,7 @@ import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
-import { idleHeldBy } from "./cloud-journey";
+import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -62,6 +62,16 @@ describe("cloud journey", () => {
     await expect(sessionModelVerdict(fake(line("claude-haiku-5-5") + line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("claude-sonnet-5-5");
     await expect(sessionModelVerdict(fake("").exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("names no model");
     await expect(sessionModelVerdict(fake("", '{"model":"claude-haiku-5-5"}').exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("no agentSessionId");
+  });
+
+  test("the default idle walk waits out the machine's own policy, not 900 s", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await machineIdleSeconds(api({ idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(1800);
+    expect(await machineIdleSeconds(api({ idle_seconds: 120 }), "vm_x")).toBe(120);
+    expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
+    expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
+    expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
+    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
