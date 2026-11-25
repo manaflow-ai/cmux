@@ -18,6 +18,13 @@ public final class SidebarTabThumbnails {
     /// Where pictures come from; nil draws marks only.
     public var provider: Provider?
 
+    /// How long after its last pictures a showing card asks for newer ones (a running terminal, a chat that moved
+    /// on). Without the pane picture schedule (`PanePictures.isEnabled`) every ask is a capture, so the app asks
+    /// less often (``uncachedRefreshInterval``).
+    public var refreshInterval: Duration = SidebarTabThumbnails.cachedRefreshInterval
+    public static let cachedRefreshInterval: Duration = .seconds(1)
+    public static let uncachedRefreshInterval: Duration = .seconds(3)
+
     /// How many tabs' pictures stay: a few cards' worth, about 6 MB at most of 640 px pictures.
     static let capacity = 24
 

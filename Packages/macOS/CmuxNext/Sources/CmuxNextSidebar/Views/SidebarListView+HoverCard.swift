@@ -135,6 +135,12 @@ extension SidebarViewComponents {
         set { list.hoverCard.thumbnails.provider = newValue }
     }
 
+    /// How often a showing workspace card asks for its tiles' newer pictures (``SidebarTabThumbnails/refreshInterval``).
+    public var tabPicturesRefreshInterval: Duration {
+        get { list.hoverCard.thumbnails.refreshInterval }
+        set { list.hoverCard.thumbnails.refreshInterval = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

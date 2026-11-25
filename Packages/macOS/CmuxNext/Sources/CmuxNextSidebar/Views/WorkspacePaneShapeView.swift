@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// loading page, a shell showing only its prompt) its tile says what it is: its icon, title and folder or host.
 /// Leo 2026-11-22 (ask-890db939a2): "i have this layout. so. the preview should be able to depict that."
 ///
-/// While the card shows, its pictures refresh every ``refreshInterval``; a tile keeps its picture until a newer one
+/// While the card shows, its pictures refresh every ``SidebarTabThumbnails/refreshInterval``; a tile keeps its picture until a newer one
 /// lands, so it never flashes back to the mark.
 final class WorkspacePaneShapeView: NSView {
     /// The miniature's height; its width is the card's text column.
@@ -19,8 +19,6 @@ final class WorkspacePaneShapeView: NSView {
     static let markSize: CGFloat = 12
     /// The size pictures are asked at: a tile is at most the card's text column wide, at 2x.
     static let pictureSize = CGSize(width: 640, height: 320)
-    /// How long after its last pictures a showing card asks for newer ones (a running terminal, a chat that moved on).
-    static let refreshInterval: Duration = .seconds(1)
 
     var shape: SidebarPaneShape? {
         didSet {
@@ -76,7 +74,7 @@ final class WorkspacePaneShapeView: NSView {
             }
         }
         // hover-timing: picture refresh cadence while the card shows, not a delay
-        refreshTimer.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.refreshTick() }
+        refreshTimer.scheduleIfIdle(after: thumbnails.refreshInterval) { @MainActor [weak self] in self?.refreshTick() }
     }
 
     /// The tab whose picture tile `index` shows, when it has one (tests).

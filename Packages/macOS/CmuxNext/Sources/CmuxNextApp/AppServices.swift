@@ -671,7 +671,7 @@ final class AppServices {
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
-            self?.home.releaseTabView(key)
+            self?.home.releaseTabView(key); self?.previews.pictures.forget(key)  // and its kept pane pictures
             self?.madeAgentTabs?.releaseIfGone(key)
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }

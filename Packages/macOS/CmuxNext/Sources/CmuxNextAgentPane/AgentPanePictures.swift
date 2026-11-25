@@ -53,7 +53,7 @@ public final class AgentPanePictures {
         // The page picture starts in this turn, right after the on-screen check: a later start could picture it hidden.
         guard let chat = startable(key, within: Self.freshness),
               let kept = await finish(await Self.picture(of: chat), of: chat, key: key) else { return nil }
-        let side = Int(min(maxPixelSize.width, maxPixelSize.height))
+        let side = Int(max(maxPixelSize.width, maxPixelSize.height))  // the longest side, as the kept and last-page pictures
         return side >= Self.side ? kept : await Task.detached(priority: .userInitiated) { AgentPaneVideoInfo.scaled(kept, toFit: side) }.value
     }
 
