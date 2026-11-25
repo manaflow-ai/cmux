@@ -1728,7 +1728,8 @@ class PortableUnitTests(unittest.TestCase):
                 context = {"github": {"ref": "refs/heads/feat-cmux-next"},
                            "needs": {"placement": {"result": "failure"},
                                      "portable-tests": {"result": result}}}
-                self.assertEqual(bool(evaluate(jobs["build"]["if"], context)), result == "success")
+                self.assertEqual(condition(jobs["build"]["if"], context, failed=True), result == "success")
+                self.assertFalse(condition(jobs["build"]["if"], context, failed=True, cancelled=True))
 
     def test_same_locked_suites_run_on_linux_and_leave_the_mac(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
