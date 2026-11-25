@@ -674,12 +674,23 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        total = 0
+        # A pool VM runs its mirror checkout in place of actions/checkout (#55973): the two steps' `if`s exclude each
+        # other, so the bounds add up per kind of runner, not across both.
+        pool = "startsWith(runner.name, 'cmux-runner-pool-')"
+        totals = {"pool": 0, "other": 0}
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
-        self.assertLessEqual(total, 40)
+                cond = str(step.get("if", ""))
+                for kind in totals:
+                    if kind == "pool" and f"!{pool}" in cond:
+                        continue
+                    if kind == "other" and pool in cond.replace(f"!{pool}", ""):
+                        continue
+                    totals[kind] += int(step["timeout-minutes"])
+        for kind, total in totals.items():
+            with self.subTest(runner=kind):
+                self.assertLessEqual(total, 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
@@ -735,6 +746,10 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the Actions cache restores (#55346 bounds them): an error or a timeout there is a miss, and the
+            # install after it runs cold; it is not a check's verdict.
+            if str(step.get("uses", "")).startswith("actions/cache"):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
