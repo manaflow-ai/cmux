@@ -61,7 +61,8 @@ public nonisolated struct GooTuning: Sendable, Equatable {
 /// ``GooTuning/defaults(for:)`` and read live (``tuning(for:)``). A spring is two numbers, not a `.spring` tunable:
 /// the spring kind clamps damping to 1 and up (the motion tokens' rule, Lawrence 2026-11-10), and the goo springs are
 /// this variant's own tuning, under 1 by design. Off has no knobs: it keeps the strip's tokens.
-public nonisolated enum GooTunables {
+public nonisolated struct GooTunables {
+    public nonisolated init() {}
     public static let subtleSection = TunableSection(id: "gooSubtle", title: "Gooey tabs: Subtle", symbol: "drop.halffull", order: 16)
     public static let fullSection = TunableSection(id: "gooFull", title: "Gooey tabs: Full", symbol: "drop.fill", order: 17)
 
