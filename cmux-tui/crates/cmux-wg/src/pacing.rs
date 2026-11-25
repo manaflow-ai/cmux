@@ -356,11 +356,26 @@ pub(crate) struct Pacer {
     /// Segments the stack sent again (lost, or so TCP thinks) since the last
     /// [`Pacer::take_resent`]; a keepalive is not one.
     resent: u64,
+    /// The stack was told the path changed (see [`Pacer::path_changed`]):
+    /// what it sends again now is forced, not lost.
+    forced: bool,
 }
 
 impl Pacer {
     pub(crate) fn has_room(&self) -> bool {
         self.queued < MAX_QUEUED
+    }
+
+    /// The peer was silent and is heard again (a parked phone woke, a
+    /// blackout ended): a segment timed before or during the silence would
+    /// time the silence as a round trip. One such sample after a 60 s sleep
+    /// put the smoothed RTT at about 7.5 s, so a resumed backlog left at a
+    /// hundredth of the path's rate for seconds. Every connection's sample
+    /// in flight is dropped; its next new segment starts another.
+    pub(crate) fn forget_samples(&mut self) {
+        for connection in self.connections.values_mut() {
+            connection.timed = None;
+        }
     }
 
     /// The largest smoothed RTT among the connections, if any measured one.
@@ -450,11 +465,29 @@ impl Pacer {
         // Old sequence space past what the peer acknowledged: TCP sends it
         // again. A keepalive repeats the byte before `snd_una`, so it is not.
         let end = segment.seq.wrapping_add(segment.len);
-        if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
+        if !fresh
+            && !self.forced
+            && segment.len > 0
+            && connection.snd_una.is_some_and(|una| after(end, una))
+        {
             self.resent += 1;
         }
         connection.queue.push_back(packet);
         fresh
+    }
+
+    /// Until [`Pacer::path_settled`], segments sent again are not counted
+    /// in [`Pacer::take_resent`]: the stack resends what is in flight because
+    /// it was told the path changed (or a silence ended), not because the
+    /// segments were lost. Counted, an idle link whose ends send at the same
+    /// moment took it as loss and turned ultra mode's Auto on.
+    pub(crate) fn path_changed(&mut self) {
+        self.forced = true;
+    }
+
+    /// The resends forced by [`Pacer::path_changed`] were pushed.
+    pub(crate) fn path_settled(&mut self) {
+        self.forced = false;
     }
 
     /// Segments sent again since the last call (for ultra mode's Auto).

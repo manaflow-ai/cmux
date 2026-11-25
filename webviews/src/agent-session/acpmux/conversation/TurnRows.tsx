@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { ForumCallCard } from "./ForumCallCard";
 import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -297,6 +298,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "forum":
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
