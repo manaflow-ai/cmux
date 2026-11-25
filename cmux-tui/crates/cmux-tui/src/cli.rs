@@ -131,6 +131,7 @@ mod completion;
 mod key_broker;
 #[cfg(unix)]
 mod notification_banners;
+mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod autocloud;
@@ -1108,6 +1109,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
