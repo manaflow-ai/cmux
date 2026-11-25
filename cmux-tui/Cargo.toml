@@ -579,6 +579,8 @@ subsecond = "=0.7.10"
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
+# A cache the caller owns (`cmux-local-url`): `regex::Regex` keeps one per thread that ever searched.
+regex-automata = "0.4"
 # reqwest and time are already in the dependency graph via iroh; declaring
 # them here adds no new transitive code. chatmux-relay uses reqwest for the
 # single pairing bootstrap POST and time for enrollment expiry parsing.
