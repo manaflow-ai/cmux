@@ -803,15 +803,28 @@ class MacJobTest(unittest.TestCase):
 
     def test_each_step_asks_the_router_first(self) -> None:
         steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
-        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "mac-swift-canary"])
-        for step in steps:
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier"])
+        canary = ci_steps.load().steps["swift-canary"]
+        for step in steps + [canary]:
             with self.subTest(step=step.name):
-                tier = {"mac-fast-tier": "fast_tier", "mac-swift-canary": "swift_canary"}[step.name]
+                tier = {"mac-fast-tier": "fast_tier", "swift-canary": "swift_canary"}[step.name]
                 first = step.run.strip().splitlines()[0]
                 self.assertTrue(first.startswith(f"python3 -I scripts/ci/mac_tiers.py has {tier} "), first)
                 self.assertTrue(first.endswith("|| exit 0"), first)
                 self.assertTrue(step.inputs and step.blocks)
         self.assertTrue(ci_steps.load().steps["mac-fast-tier"].alone)
+
+    def test_the_canary_compiles_on_the_build_fleet_not_a_mac(self) -> None:
+        # Leo, 2026-11-25: "stop waiting on ci to get these fucking things in" (the Mac queue was 175 deep).
+        canary = ci_steps.load().steps["swift-canary"]
+        self.assertEqual(canary.job, "linux")
+        self.assertTrue(canary.alone)
+        self.assertIn("scripts/ci/fleet_compile_result.py", canary.run)
+        self.assertIn("--phase app-debug", canary.run)
+        self.assertNotIn("swift build", canary.run)
+        self.assertIn("swift-canary", ci_steps.route(ci_steps.load(), [self.ROUTED[0]]).get("linux", []))
+        job = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["mac"]
+        self.assertNotIn("swift_canary", json.dumps(job))
 
     def test_the_inputs_cover_what_the_router_routes(self) -> None:
         t = ci_steps.load()

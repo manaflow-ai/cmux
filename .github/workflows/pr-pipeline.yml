@@ -109,9 +109,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # The `mac` job: the Mac tiers of a feat-cmux-next pull request, the Swift canary and the fast tier's Swift
-  # suites, which were cmux-next.yml's swift-canary and fast-tier jobs (and their build-fleet variants) on a pull
-  # request. pr-router.yml starts it only when the change routes a `mac` step and the head is in the full tier (a
+  # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
+  # cmux-next.yml's fast-tier job (and its build-fleet variants) on a pull request. The Swift canary is a `linux`
+  # step now (swift-canary): it reads the build fleet's Debug compile of the head instead of compiling on a Mac. pr-router.yml starts it only when the change routes a `mac` step and the head is in the full tier (a
   # draft runs no Mac, scripts/ci/pr_router.py FULL_TIER_JOBS). Each step asks scripts/ci/mac_tiers.py whether its
   # tier is routed (cmux_next_route.py, the router cmux-next.yml's path_route runs), and so does the step below
   # that gates this job's Mac setup, so a path the steps' globs over-route costs a checkout and a few seconds.
@@ -121,7 +121,7 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
-    # setup (10 min), the tool downloads (3 min), the canary, then the `alone` fast tier (tests/test_ci_step_table.py
+    # setup (10 min), the tool downloads (3 min), then the `alone` fast tier (tests/test_ci_step_table.py
     # holds this).
     timeout-minutes: 165
     permissions:
@@ -155,7 +155,7 @@ jobs:
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: python3 -I scripts/ci/mac_tiers.py route --github-output "$GITHUB_OUTPUT"
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         run: |
           scripts/ci/reset-stale-submodules.sh
           git clean -ffd
@@ -170,13 +170,13 @@ jobs:
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         run: ./scripts/select-ci-xcode.sh
       # On an owned Mac the Swift steps build in a leased root every runner slot shares (owned_spm_scratch.py
       # lease); its holder process keeps the lease until the job ends, so this stays a workflow step.
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
-        if: (steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true') && contains(runner.name, '-glaeda')
+        if: steps.tiers.outputs.fast_tier == 'true' && contains(runner.name, '-glaeda')
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
@@ -184,7 +184,7 @@ jobs:
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
       - name: Name the build root
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         env:
           ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: echo "CMUX_MAC_ROOT=$ROOT" >> "$GITHUB_ENV"
