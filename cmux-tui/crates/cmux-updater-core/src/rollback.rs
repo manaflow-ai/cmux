@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{numeric, version};
 
 /// A build kept for rollback, as the app knows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Kept {
     pub build: String,
