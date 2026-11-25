@@ -3015,6 +3015,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/fill",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/prompt_accepted",
       "params": true
     },
@@ -6377,6 +6382,7 @@
         "model": true,
         "release": true,
         "reserveHome": true,
+        "shapes": true,
         "wait": true,
         "workspaceId": true
       },
