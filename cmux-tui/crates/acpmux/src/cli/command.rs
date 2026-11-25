@@ -253,6 +253,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// Byte channels between agents, here or on a peer: `listen SERVICE` prints each channel's
+    /// bytes, `open [HOST] SERVICE` sends stdin and prints what comes back, like netcat.
+    #[command(subcommand)]
+    Channel(crate::cli::channel::ChannelCommand),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
