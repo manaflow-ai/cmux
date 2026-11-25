@@ -38,6 +38,12 @@ fi
 python3 -m venv --system-site-packages "$CI_TOOLS"
 "$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
 '''
+# The Mac job's toolchain: the Xcode pr-pipeline.yml's "Select Xcode" step chose (DEVELOPER_DIR), and the Swift
+# it ships, named in the log before any Swift step builds. A runner with neither fails here, once, not in each step.
+mac = '''
+echo "DEVELOPER_DIR=${DEVELOPER_DIR:-unset}"
+xcrun swift --version
+'''
 
 # What only some steps need, made only when a routed step of the job lists it in `needs` (so a pull request
 # that routes no bun step never downloads bun). Each runs in the job's checkout after [setup], all at once, and
@@ -1355,4 +1361,68 @@ acpmux="$(command -v acpmux || true)"
 [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
 rm -rf "$home" "$log"
 exit "$status"
+'''
+
+# The `mac` job: the Mac tiers of a feat-cmux-next pull request, which were cmux-next.yml's swift-canary and
+# fast-tier jobs (with their build-fleet variants) on a pull request; cmux-next.yml keeps them for a push to
+# feat-cmux-next and a dispatch. pr-pipeline.yml's job leases the owned Mac's build root and restores the fast
+# tier's seed first, and names the root in $CMUX_MAC_ROOT (the checkout where there is none). `inputs` are a
+# superset of what scripts/ci/cmux_next_route.py routes to the tier (it reads the SwiftPM target graph), and each
+# step's first line asks scripts/ci/mac_tiers.py, which runs that router over $CI_PATHS_FILE, so a path the globs
+# over-route skips in a second.
+[step.mac-swift-canary]
+job = "mac"
+timeout = 1200
+title = "Swift canary"
+about = "a debug build of each CmuxNext target the change reaches (cmux_next_route.py swift_canary_targets)"
+inputs = ["Packages/macOS/CmuxNext/Sources/**.swift"]
+run = '''
+python3 -I scripts/ci/mac_tiers.py has swift_canary > "$CI_TOOLS/canary-tiers.txt" || exit 0
+targets="$(sed -n 's/^swift_canary_targets=//p' "$CI_TOOLS/canary-tiers.txt")"
+read -r -a targets <<< "$targets"
+if ((${#targets[@]} == 0)); then
+  echo "the Swift canary is routed with no target" >&2
+  exit 1
+fi
+cd "${CMUX_MAC_ROOT:-$PWD}/Packages/macOS/CmuxNext"
+for target in "${targets[@]}"; do
+  echo "Canary target: $target"
+  swift build --configuration debug --target "$target"
+done
+'''
+
+[step.mac-fast-tier]
+job = "mac"
+timeout = 6600
+# After the canary: both build in the same CmuxNext .build, and the suites take every core.
+alone = true
+title = "Fast tier (Swift)"
+about = "the fast tier's Swift suites: one build-for-testing per package, then each suite (scripts/cmux-next/fast-tier.py --kind swift)"
+# Every tracked path cmux_next_route.py routed to fast_tier on 2026-11-24 (one path at a time), by its directory
+# where the router reads all of it; the router reads SwiftPM test targets' `reads`, so new ones may need a line.
+inputs = [
+  "Packages/**", "vendor/stack-auth-swift-sdk-prerelease/**", "Resources/**", "plans/cmux-next/**", "schemas/**",
+  "cmux-tui/spec/**", "Native/OptChat/optchat-chief/inspector/**", "tests/fixtures/classic-to-next/**",
+  ".xcode-version", "scripts/select-ci-xcode.sh", "scripts/ci/xcode-pins.txt", ".github/actions/cache-restore/**",
+  ".github/workflows/cmux-next.yml", "scripts/cmux-next/lib/**", "scripts/cmux-next/fast-tier*",
+  "scripts/cmux-next/quarantine.json", "scripts/cmux-next/bundle-ghostty-resources.sh",
+  "scripts/cmux-next/cef-manifest.json", "scripts/cmux-next/check-release-compile.sh",
+  "scripts/cmux-next/ci-target-graph.py", "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+  "scripts/cmux-next/compile-string-catalogs.sh", "scripts/cmux-next/main-thread-heavy-suites.py",
+  "scripts/cmux-next/pin-cmux-tui.sh", "scripts/cmux-next/release-derived-data-path.sh",
+  "scripts/cmux-next/stale-pcm-retry-needed.sh", "scripts/cmux-next/swift-test-shards.py",
+  "scripts/cmux-next/swift-test-with-hang-sampler.sh", "scripts/cmux-next/web-bundle-key.py",
+  "cmux-tui/crates/acpmux/tests/fake_agent.py", "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+  "cmux-tui/crates/cmux-layout-reducer/tests/data/*_corpus.txt", "cmux-tui/crates/cmux-tui/src/cli/app.rs",
+  "web/scripts/cloud-vm/cmux-tui-upgrade.sh", "webviews/src/agent-session/acpmux/flickerLog.ts",
+  "webviews/src/gallery/golden/looks.json", "webviews/test/fixtures/mermaid-front-door.mmd",
+  "webviews/test/fixtures/new-tab-intents.json", "webviews/test/fixtures/chat-sim/replay-lane-session.ndjson",
+]
+run = '''
+python3 -I scripts/ci/mac_tiers.py has fast_tier > "$CI_TOOLS/fast-tiers.txt" || exit 0
+selected=()
+# A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
+if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
+python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
+  --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
