@@ -17,7 +17,7 @@ struct CEFPresentedCalls {
     }
 
     /// The first fork API with detached hosting, the embedder's key state and wheel phases.
-    nonisolated static let forkAPI: Int32 = CEFLayerHosting.detachedForkAPI
+    nonisolated static let forkAPI: Int32 = 30
 
     let sendMouse: (_ browser: Int32, _ mouse: ChromiumPageInput.Mouse) -> Void
     let sendWheel: (_ browser: Int32, _ wheel: ChromiumPageInput.Wheel) -> Void
@@ -185,10 +185,10 @@ extension CEFTab {
         guard let census = presentedPageCensus, !contentView.isHiddenOrHasHiddenAncestor else { return nil }
         let frame = census.frameInWindow
         return ["pane": pane, "parked": false, "parking": NSNull(), "presented": true, "rwhv_in_window": false,
-                "frame_in_window": [frame.minX, frame.minY, frame.width, frame.height].map(Double.init),
+                "frame_in_window": [frame.minX, frame.minY, frame.width, frame.height].map { Double($0) },
                 "widget_drawing": -1, "geometry": "presented", "context_id": Double(census.contextID),
                 "detached": census.detached, "takes_input": census.takesInput, "first_responder": census.isFirstResponder,
-                "page_focused": census.pageFocused, "cursor": census.cursor ?? NSNull()]
+                "page_focused": census.pageFocused, "cursor": census.cursor.map { $0 as Any } ?? NSNull()]
     }
 
     /// The presented page's state (`debug.layers`); nil while it is not presented or has no page view.
