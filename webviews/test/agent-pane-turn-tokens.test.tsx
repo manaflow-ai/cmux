@@ -268,6 +268,12 @@ async function until(ready: () => boolean, what: string) {
 }
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
+/// A line of the agent's reply: a transcript row, which usage records are not.
+const reply = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+];
 
 test("a Claude turn's output tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
@@ -430,7 +436,17 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // The attach page starts after the turn's first calls; an older page brings the start, but
   // pages carry no usage, so a count from it would leave those calls out. Each later rebuild of
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
-  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
+  // The page draws a line of the reply: an open whose page draws nothing reads the older page
+  // itself before its first snapshot (#45859), and then no older history is left to page in.
+  const history = record([
+    prompt("fix the build"),
+    started,
+    call(41_200),
+    call(43_800),
+    call(46_000),
+    reply("Reading the build log."),
+    call(9_000),
+  ]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
   daemon.holdIndex();
   const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
@@ -472,7 +488,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
-    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {

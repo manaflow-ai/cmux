@@ -174,6 +174,30 @@ impl Store {
         write_atomic(&path, file)
     }
 
+    /// Whether the local file decodes to the requested content id. A torn or damaged
+    /// file can be requested again when resuming a transfer.
+    pub fn verified(&self, id: &Id) -> Result<bool> {
+        let file = match fs::read(self.chunk_path(id)) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+        Ok(decode_chunk(&file).is_ok_and(|(kind, bytes)| chunk_id(kind, &bytes) == *id))
+    }
+
+    /// Accepts a received file only under its content id. Replace any damaged local copy.
+    pub fn receive(&self, id: &Id, file: &[u8]) -> Result<()> {
+        let (kind, bytes) = decode_chunk(file)?;
+        if chunk_id(kind, &bytes) != *id {
+            return Err(format!("chunk {} does not hash to its id", hex(id)).into());
+        }
+        let path = self.chunk_path(id);
+        if fs::read(&path).is_ok_and(|local| local == file) {
+            return Ok(());
+        }
+        write_atomic(&path, file)
+    }
+
     /// Every chunk id in the store.
     pub fn ids(&self) -> Result<Vec<Id>> {
         let mut out = Vec::new();
@@ -195,12 +219,9 @@ impl Store {
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().ok_or("a path with no folder")?;
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let name = path.file_name().and_then(|n| n.to_str()).ok_or("a path with no name")?;
-    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let mut f = fs::File::create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    f.write_all(bytes)?;
-    f.sync_data()?;
-    drop(f);
-    fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(bytes)?;
+    tmp.as_file().sync_data()?;
+    tmp.persist(path).map_err(|e| e.error)?;
     Ok(())
 }

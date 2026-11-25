@@ -42,8 +42,7 @@ final class TerminalScroller: NSScrollView {
         documentView = document
         let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
-        // The pointer over the strip shows it, as a macOS overlay scroller (Lawrence 2026-11-12, msg 30795).
-        thin.revealsNearPointerAtRest = true
+        // The pointer over the strip never shows it (Leo 2026-11-22); it holds a knob a move showed.
         verticalScroller = thin
         apply(SystemScrollers.nativeStyle)
         // AppKit resets a scroll view's style when the setting changes.

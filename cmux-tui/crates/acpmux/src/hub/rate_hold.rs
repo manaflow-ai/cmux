@@ -189,6 +189,9 @@ struct HoldState {
     parked: Option<u64>,
     /// When the chat last told the session it reports to that it parked.
     noticed_at: Option<u64>,
+    /// The park is its strikes' ([`Hub::park_rate_hold`]), not a person's Stop: it lifts
+    /// itself once its backoff ran out ([`Hub::spawn_park_lift`]).
+    lifts_itself: bool,
     /// The agent process quit on the limit between turns ([`Hub::hold_at_exit`]): the chat's
     /// stop count then ([`Session::stops`]). The timer's lift at the reset starts the agent again.
     revive: Option<u64>,
@@ -516,18 +519,20 @@ impl Hub {
         strikes: u32,
         now: u64,
     ) {
-        let notice = {
+        let (notice, parked_at) = {
             let mut s = session.rate_hold.lock();
-            s.parked.get_or_insert(now);
+            let parked_at = *s.parked.get_or_insert(now);
+            s.lifts_itself = true;
             s.until = Some(u64::MAX);
             s.turn = Some(turn.to_owned());
             let due = s.noticed_at.is_none_or(|at| now.saturating_sub(at) >= NOTICE_EVERY_MS);
             if due {
                 s.noticed_at = Some(now);
             }
-            due
+            (due, parked_at)
         };
         session.rate_hold.changed.notify_waiters();
+        self.spawn_park_lift(session, parked_at);
         let context = self.usage_stats_of(session, &session.meta()).and_then(|s| s.context_tokens);
         self.append(
             session,
@@ -549,6 +554,8 @@ impl Hub {
         let (turn, strikes) = {
             let mut s = session.rate_hold.lock();
             s.continuation &= keeps_continuation;
+            // The person stopped it: it waits for them, whatever parked it first.
+            s.lifts_itself = false;
             if s.parked.is_some() {
                 return;
             }
@@ -613,6 +620,7 @@ impl Hub {
             let mut s = session.rate_hold.lock();
             s.parked?;
             s.parked = None;
+            s.lifts_itself = false;
             s.strikes = s.strikes.min(PARK_AFTER - 1);
             if s.continuation {
                 s.until = Some(now_ms());
@@ -640,7 +648,7 @@ impl Hub {
                 .last_turn
                 .and_then(|t| t.get("errorText").and_then(Value::as_str).map(str::to_owned))
                 .unwrap_or_else(|| "HTTP 429".into());
-            let note = super::auto_resume::continue_text(&error, "rate_limit");
+            let note = super::auto_resume::continue_text_for(session, &error, "rate_limit");
             session.rate_note.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(note);
         }
         self.lift_rate_hold(session, why);
@@ -710,6 +718,7 @@ impl Hub {
                 .map_or(default, |n| u32::try_from(n).unwrap_or(u32::MAX))
         };
         let turn = last.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+        let mut lift = None;
         let spawn = {
             let mut s = hold.lock();
             // Live since: a hold this daemon set already is newer than its log.
@@ -723,6 +732,9 @@ impl Hub {
                     s.noticed_at = Some(last.at);
                     s.until = Some(u64::MAX);
                     s.turn = turn;
+                    // Its strikes parked it, not a person's Stop: it lifts itself as before.
+                    s.lifts_itself = last.msg.get("why").and_then(Value::as_str) != Some("stopped");
+                    lift = s.lifts_itself.then_some(last.at);
                     false
                 }
                 "rate_limit_held" => {
@@ -746,6 +758,37 @@ impl Hub {
         if spawn {
             self.spawn_rate_hold_timer(session);
         }
+        if let Some(parked_at) = lift {
+            self.spawn_park_lift(session, parked_at);
+        }
+    }
+
+    /// A chat its strikes parked at `parked_at` takes itself back once its backoff ran out:
+    /// [`backoff_ms`] of its strikes from the continuation's minute ([`backoff_base`]), so half
+    /// an hour with the default waits. Its continuation then goes on as at a retry
+    /// ([`Hub::unpark_rate_hold`]: compacted first past [`COMPACT_BEFORE_TOKENS`], with what
+    /// queued as one turn), and a 429 again is the next strike, which parks it again: one request
+    /// per half hour, never a dead chat (Leo, 2026-11-24: "didn't we build auto retries for
+    /// this? why do they fail instead of waiting it out?"). Until then the park stays: a person's
+    /// Stop, retry or prompt, or a new park, ends this lift, and a closed chat is not lifted.
+    fn spawn_park_lift(self: &Arc<Self>, session: &Arc<Session>, parked_at: u64) {
+        let hub = self.clone();
+        let weak = Arc::downgrade(session);
+        self.scope.spawn_until_cancelled("rate-park-lift", async move {
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let base = backoff_base(&super::auto_resume::effective_delays(configured));
+            let Some(strikes) = weak.upgrade().map(|s| s.rate_hold.strikes()) else { return };
+            let at = parked_at.saturating_add(backoff_ms(strikes, base));
+            tokio::time::sleep(Duration::from_millis(at.saturating_sub(now_ms()))).await;
+            let Some(session) = weak.upgrade() else { return };
+            let ours = {
+                let s = session.rate_hold.lock();
+                s.parked == Some(parked_at) && s.lifts_itself
+            };
+            if ours && session.status() != SessionStatus::Closed {
+                hub.unpark_rate_hold(&session, "backoff");
+            }
+        });
     }
 
     /// A `rate_limit` continuation of `turn` waits here for the hold's deadline `until`, or for
@@ -867,7 +910,10 @@ impl Hub {
         let delay = next_at.saturating_sub(now_ms());
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-            () = wake.notified() => {}
+            () = wake.notified() => return,
+        }
+        if reason == crate::protocol::session::RetryReason::Disk {
+            self.wait_disk_free(session, wake).await;
         }
     }
 }
@@ -884,9 +930,10 @@ impl Session {
 pub(crate) fn park_line(name: &str, strikes: u32, context: Option<u64>) -> String {
     let context = context.map_or(String::new(), |n| format!(", context {}K tokens", n / 1000));
     format!(
-        "acpmux: {name} stopped retrying: its last {strikes} turns failed on the rate limit \
-         (HTTP 429){context}. It is parked with its queue kept; `acpmux retry {name}` sends it \
-         on (compacted first), and so does the person's own prompt."
+        "acpmux: {name} is waiting out the rate limit: its last {strikes} turns failed on it \
+         (HTTP 429){context}. It is parked with its queue kept and tries again by itself every \
+         half hour (compacted first); `acpmux retry {name}` or the person's own prompt sends it \
+         on now."
     )
 }
 
@@ -929,10 +976,10 @@ mod tests {
         let line = park_line("claude-sr2-coord", 6, Some(334_751));
         assert_eq!(
             line,
-            "acpmux: claude-sr2-coord stopped retrying: its last 6 turns failed on the rate \
-             limit (HTTP 429), context 334K tokens. It is parked with its queue kept; `acpmux \
-             retry claude-sr2-coord` sends it on (compacted first), and so does the person's \
-             own prompt."
+            "acpmux: claude-sr2-coord is waiting out the rate limit: its last 6 turns failed on \
+             it (HTTP 429), context 334K tokens. It is parked with its queue kept and tries \
+             again by itself every half hour (compacted first); `acpmux retry claude-sr2-coord` \
+             or the person's own prompt sends it on now."
         );
     }
 }

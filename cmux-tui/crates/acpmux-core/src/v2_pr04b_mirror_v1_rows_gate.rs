@@ -101,10 +101,6 @@ fn v2_pr04b_mirror_v1_rows_gate() {
     let god_p95_all = gate_rounds::all_p95(&god_rounds);
     let small_bytes = small_bytes.into_iter().min().unwrap_or(0);
     let god_bytes = god_bytes.into_iter().min().unwrap_or(0);
-    assert!(
-        god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),
-        "received bytes exceed the 1.2x bound: god={god_bytes}, small={small_bytes}"
-    );
     let line = serde_json::json!({
         "name":"v2.pr04b.mirror_v1_rows",
         "small_p95":best_small,
@@ -121,4 +117,9 @@ fn v2_pr04b_mirror_v1_rows_gate() {
         let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
         writeln!(output, "{line}").unwrap();
     }
+    // The bound after the line: a red row keeps its numbers in the v2 home.
+    assert!(
+        god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),
+        "received bytes exceed the 1.2x bound: god={god_bytes}, small={small_bytes}"
+    );
 }

@@ -60,6 +60,10 @@ impl Mux {
     /// and must not take turns on that lock for their rebuilds.
     pub(in crate::mux) fn previous_screen(&self, plan: &RespawnPlan) -> Option<TerminalReplay> {
         let public_id = plan.public_id.as_str();
+        // The respawned terminal's scrollback limit: a rebuild keeps as much
+        // history as the terminal it seeds will hold.
+        let scrollback =
+            self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).scrollback;
         {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             // terminal.persistence.mode memory, or an incognito terminal: no
@@ -86,7 +90,7 @@ impl Mux {
                 ),
             }
         }
-        if let Some(screen) = self.output_store.previous_screen(&plan.public_id) {
+        if let Some(screen) = self.output_store.previous_screen(&plan.public_id, scrollback) {
             return Some(screen);
         }
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -130,6 +134,10 @@ impl Mux {
         let env = record.map(|record| usable_env(&record.env)).unwrap_or_default();
         let (mut options, creation_cell_pixels) =
             self.terminal_spawn_options(cwd, None, size, &env);
+        // A previous screen larger than the seed budget (an exit snapshot or
+        // checkpoint taken at the full replay budget) keeps its newest rows
+        // that fit, rather than being dropped whole.
+        let previous = previous.and_then(|previous| fit_seed(previous, options.scrollback));
         // An incognito terminal's new shell keeps no history either.
         if self.output_store.is_private(self, &plan.public_id) {
             crate::shell_integration::keep_no_history(&mut options.extra_env);
@@ -252,7 +260,30 @@ pub(in crate::mux) fn respawn_seed_without_frame(
     seed
 }
 
-/// The previous screen (dropped whole when it would not fit), the mode reset
+/// `previous` within the seed budget ([`crate::surface::SEED_REPLAY_MAX_BYTES`]).
+/// One that is larger is replayed into a scratch terminal of its size with
+/// the respawned terminal's `scrollback` limit and replayed again bounded,
+/// which keeps its newest rows that fit. A seed used to be dropped whole past
+/// the budget, so the longest histories came back with none at all. `None`
+/// only when even the bounded replay fails (an upload too large to replay).
+pub(in crate::mux) fn fit_seed(
+    previous: TerminalReplay,
+    scrollback: usize,
+) -> Option<TerminalReplay> {
+    let budget = crate::surface::SEED_REPLAY_MAX_BYTES;
+    if previous.bytes.len() <= budget {
+        return Some(previous);
+    }
+    let (cols, rows) = (previous.cols.max(1), previous.rows.max(1));
+    let mut terminal =
+        ghostty_vt::Terminal::new(cols, rows, scrollback, ghostty_vt::Callbacks::default()).ok()?;
+    terminal.vt_write(&previous.bytes);
+    let bytes = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
+    (bytes.len() <= budget).then_some(TerminalReplay { cols, rows, bytes })
+}
+
+/// The previous screen (dropped whole when it would not fit; [`fit_seed`]
+/// bounds it first), the mode reset
 /// and one dim `marker` line (none: no line), bounded by
 /// `VT_REPLAY_MAX_BYTES`.
 pub(in crate::mux) fn respawn_seed(previous: Option<Vec<u8>>, marker: Option<&str>) -> Vec<u8> {

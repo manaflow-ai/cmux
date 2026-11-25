@@ -7,8 +7,8 @@
 //
 // The real pane over a stand-in acpmux daemon whose socket pushes each step live (as
 // agent-pane-one-row-per-call.test.ts). The chat holds a finished turn whose "Worked for" is open,
-// so its calls are drawn, and a running turn under the default live-turn-work arm (`runs`), whose
-// finished runs stay in sight. Every call row counts its commits and mounts
+// so its calls are drawn, and a running turn under the default live-turn-work arm (`open`, #48766),
+// whose finished calls each keep their own line from the start. Every call row counts its commits and mounts
 // (conversation/toolRowCount.ts) through `cmuxAcpmuxDebug.renders()`.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -325,11 +325,18 @@ await requireBrowserLane("agent-pane-tool-row-renders.test.ts", async () => {
     }
     await quiet(page);
     const opened = await renders(page);
-    const drawn = new Set(
-      Object.keys(opened)
+    // A call is drawn if the opens above mounted it, or if it was in sight from the start, which a
+    // running turn's finished calls are under the default live-turn-work arm (`open`): those mounted
+    // before counting began, so only the page shows them (`data-tool-id`, CommandRow).
+    const inSight = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("[data-tool-id]")].map((node) => node.dataset.toolId!),
+    );
+    const drawn = new Set([
+      ...Object.keys(opened)
         .filter((key) => key.startsWith("tool-mount:"))
         .map((key) => key.slice("tool-mount:".length)),
-    );
+      ...inSight,
+    ]);
     await quiet(page);
     // Nothing draws at rest.
     const rest = Object.entries(await renders(page)).filter(([key]) => key.startsWith("tool"));

@@ -49,7 +49,6 @@ LEGACY = {
     "fast_linux_gate.py": 1,
     "finalize-release.py": 1,
     "guard_attribution.py": 1,
-    "hosted_light_rescue.py": 1,
     "hosted_queue_wait.py": 1,
     "ios_internal_builder.py": 1,
     "ios_internal_notes.py": 1,
