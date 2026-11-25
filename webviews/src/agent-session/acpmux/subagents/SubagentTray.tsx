@@ -674,7 +674,13 @@ export const SubagentTray = memo(function SubagentTray({
   // swap-in animation for it is even more additional bullshit"). Only one with nothing left to count
   // (it ended done or stopped) keeps its own head.
   // The `summary` arm (the default) counts as the tally does, in words while they fit (HeadSummary.tsx).
-  const summaryHead = (foldHead === "summary" || groupsHead) && headParts.length > 0;
+  // A `tally` header with one kind to count says it in words too ("2 subagents"), never its mark and
+  // a bare number (Leo, 2026-11-25 12:10Z, on a hat that read the Claude mark and "2": "did we fix this
+  // yet? can you fix this?"; on the same hat 2026-11-23: "this 2 is too bare. it being alone, it's just
+  // bad"). The `groups` default already did; `tally` is what Composer Hat: Two Groups turned off runs,
+  // and was the default before cmux#55415, so a hat could still read a bare number.
+  const loneTally = foldHead === "tally" && headParts.length === 1;
+  const summaryHead = (foldHead === "summary" || groupsHead || loneTally) && headParts.length > 0;
   const tallyHead = (foldHead === "tally" || summaryHead) && headParts.length > 0;
   const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;

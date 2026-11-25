@@ -84,6 +84,18 @@ const loneAgent = chat(
   { isWorking: true },
 );
 
+/** Leo's hat, 2026-11-25 12:10Z: two Claude subagents running and nothing else. It read the Claude mark
+ *  and a bare "2" ("did we fix this yet? can you fix this?"); it reads "2 subagents". */
+const twoAgents = chat(
+  [
+    user("Fix the composer hat and the sidebar rows", 6),
+    row(SUBAGENTS, 6, {
+      subagents: [agent("Fix the composer hat", 5, "running"), agent("Remove the sidebar child rows", 4, "running")],
+    }),
+  ],
+  { isWorking: true },
+);
+
 /** cmux#56151's hat: a six-step plan at step four, one Claude subagent done, "4 of 6 · Verify in tagged
  *  dev build · 1 subagent done". Its first mark centres on the +, its words start at the prompt's. */
 const planAndDone = chat(
@@ -147,6 +159,13 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
     if (!kinds.includes(kind)) throw new Error(`the header draws ${kind}, only ${kinds.join(", ")} expected`);
   const time = header.querySelector<HTMLElement>(".acpmux-running-tray__time");
   if (time && time.scrollWidth > time.clientWidth + 0.5) throw new Error("the time is clipped");
+}
+
+/// The header never reads a mark and a bare number alone (Leo, 2026-11-25: "did we fix this yet? can
+/// you fix this?", on a hat that read the Claude mark and "2").
+function neverBare(ctx: PlayContext): void {
+  const text = (summary(ctx)?.textContent ?? "").trim();
+  if (/^\+?\d+$/.test(text)) throw new Error(`the header reads a bare number: ${text}`);
 }
 
 /// The header's first mark centres on the + button, its words start at the prompt's (cmux#56151).
@@ -231,6 +250,25 @@ export default agentPaneEntry({
       },
       snapshot: loneCommand,
       experiments: { "subagent-tray-fold-head": "groups" },
+    },
+    "two-subagents": {
+      note: "Leo's 2026-11-25 hat: two Claude subagents, nothing else. 2 subagents in words, never the mark and a bare 2.",
+      play: async (ctx) => {
+        await show(ctx);
+        groupsHold(ctx, ["agents"]);
+        neverBare(ctx);
+        columnHolds(ctx);
+      },
+      snapshot: twoAgents,
+    },
+    "two-subagents-tally": {
+      note: "The `tally` arm (Composer Hat: Two Groups off) on the same work: one kind says it in words too, 2 subagents; before, the mark and a bare 2.",
+      play: async (ctx) => {
+        await show(ctx);
+        neverBare(ctx);
+      },
+      snapshot: twoAgents,
+      experiments: { "subagent-tray-fold-head": "tally" },
     },
     "lone-subagent": {
       note: "One subagent: its mark and its task.",
