@@ -6,7 +6,7 @@ import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { useLocationShortcut } from "./composerControls";
 import { MenuFolderIcon, PlusIcon } from "./ComposerPickers";
 import { ExtraFolderList } from "./ExtraFolderList";
-import type { ExtraFolderRows } from "./extraFolders";
+import { isExtraFolderPath, MAX_EXTRA_FOLDERS, trimFolder, type ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
@@ -74,7 +74,8 @@ export function FolderPopover({
   onNoProject?(): void;
   /// A new empty project is the choice: it has no folder yet, but No folder is not what was picked.
   newProject?: boolean;
-  /// The extra folders the new chat can see beside its project.
+  /// The extra folders the new chat can see beside its project: a folder row's + (or Shift-Return on it)
+  /// adds one, and the added ones are listed under the actions with their × (cmux#48299).
   extra?: ExtraFolderRows;
   /// New-chat project sources. Other consumers open directly on the folder list.
   sources?: SourcePickerOptions;
@@ -163,6 +164,15 @@ export function FolderPopover({
     });
   };
   const typedPath = !cloud && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
+  // A folder of this machine the new chat can also see (its row's +): never the chat's own folder, one already
+  // added, a `~/` path (acpmux takes absolute ones) or past acpmux's cap. Cloud starts carry none (cmux#34403).
+  const addsExtra = (id: string) =>
+    extra !== undefined &&
+    !cloud &&
+    extra.folders.length < MAX_EXTRA_FOLDERS &&
+    isExtraFolderPath(id) &&
+    trimFolder(id) !== (current && trimFolder(current)) &&
+    !extra.folders.includes(trimFolder(id));
   // The GitHub repositories added as projects, read as the menu opens.
   const [added, setAdded] = useState<readonly AddedRepo[]>(NO_REPOS);
   // The repositories a listed folder is a clone of: that folder is their row. Listing the account's
@@ -386,6 +396,7 @@ export function FolderPopover({
             <MenuFolderIcon />
           </span>
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
+          {addsExtra(value) && <AlsoSee name={value} onAdd={() => extra?.onAdd(value)} />}
         </span>
       );
     const { group, worktree } = place;
@@ -404,6 +415,7 @@ export function FolderPopover({
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{worktreeLabel(worktree)}</span>
           </span>
+          {addsExtra(worktree.id) && <AlsoSee name={worktreeLabel(worktree)} onAdd={() => extra?.onAdd(worktree.id)} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {worktree.id === current && <CheckIcon />}
           </span>
@@ -446,6 +458,7 @@ export function FolderPopover({
             </>
           )}
         </span>
+        {addsExtra(folder.id) && <AlsoSee name={group.name} onAdd={() => extra?.onAdd(folder.id)} />}
         {disclosure && (
           // The count opens or closes the repository's other worktrees; a press here never picks
           // the row (the arrows do the same from the field).
@@ -587,6 +600,22 @@ export function FolderPopover({
             ) {
               event.preventDefault();
               event.preventBaseUIHandler?.();
+            }
+            // Shift-Return on a folder: the chat also sees it (its row's +), and the menu stays open. Never a
+            // pick, on any row: on the chat's own folder, one already added or a row that is no folder it does
+            // nothing. With words typed and no
+            // folder highlighted it is the first match, the row Return would pick (Combobox `firstMatch`).
+            const isFolder = (value: string | undefined): value is string =>
+              value !== undefined && value !== ACTION_WORKTREE && (shown.has(value) || value === typedPath);
+            const folder = isFolder(highlighted.current)
+              ? highlighted.current
+              : typed && highlightBy !== "keyboard"
+                ? listValues.find(isFolder)
+                : undefined;
+            if (extra && event.key === "Enter" && event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+              event.preventDefault();
+              event.preventBaseUIHandler?.();
+              if (folder && addsExtra(folder)) extra.onAdd(folder);
             }
           }}
           label={t("composer.folderSearch")}
@@ -736,6 +765,37 @@ const ACTION_BROWSE = ACTION + "browse";
 const ACTION_NONE = ACTION + "none";
 const ACTION_WORKTREE = ACTION + "worktree";
 const GITHUB_REPO = "\u0000github:repo:";
+
+/// A folder row's +: the new chat also sees that folder, beside its own (extraFolders.ts, cmux#48299). A press
+/// never picks the row; it shows only while the row is hovered or arrowed to (composerLocation.css).
+function AlsoSee({ name, onAdd }: { name: string; onAdd(): void }) {
+  const t = useT();
+  const label = t("composer.alsoSeeFolder", { name });
+  return (
+    // Out of the option's accessible name: Shift-Return is its keyboard way, and the tooltip names it.
+    <span
+      className="acpmux-location-also"
+      aria-hidden="true"
+      // tooltip-allow: an icon-only control names what it does
+      title={label}
+      data-also-see=""
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerUp={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onMouseUp={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onAdd();
+      }}
+    >
+      <PlusIcon />
+    </span>
+  );
+}
 
 function CheckIcon() {
   return (

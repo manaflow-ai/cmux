@@ -1398,6 +1398,32 @@
 }
 .acpmux-location-worktrees[aria-expanded="true"] > .acpmux-location-worktrees-chevron { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
+/* A folder row's + (FolderPopover `AlsoSee`, cmux#48299): the new chat also sees that folder. It takes no
+   room and no paint until its row is hovered or highlighted (not the open's automatic highlight before words
+   are typed; with words typed it marks the first match, Shift-Return's row), so the rows read as before; only then does it take the auto margin from the count or the check after it. */
+.acpmux-location-also {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border-radius: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-menu-item:hover .acpmux-location-also { display: inline-flex; }
+.acpmux-folder-popover:not(.acpmux-folder-highlight-auto) .acpmux-menu-item[data-highlighted] .acpmux-location-also {
+  display: inline-flex;
+}
+.acpmux-location-also:hover { background: var(--ds-surface-hover); color: var(--agent-text); }
+.acpmux-menu-item:hover .acpmux-location-also + :is(.acpmux-location-worktrees, .acpmux-location-check),
+.acpmux-folder-popover:not(.acpmux-folder-highlight-auto)
+  .acpmux-menu-item[data-highlighted]
+  .acpmux-location-also
+  + :is(.acpmux-location-worktrees, .acpmux-location-check) {
+  margin-left: 0;
+}
 
 /* A new Cloud chat's GitHub part (FolderPopover `github`, githubRepos.ts): its repositories under the
    folders, headed GitHub as the Computer menu heads its sections (`data-section`, below), each with
