@@ -2020,6 +2020,20 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probeTimeoutMs(floorMs: UInt32)  -> UInt32
     
     /**
+     * Milliseconds since the link last made progress: anything heard from
+     * the Mac, or a write other than a keepalive taken by the transport
+     * (`Link::progress_ago`). The one progress clock a send's hold reads:
+     * `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+     */
+    func progressAgoMs()  -> UInt64
+    
+    /**
+     * How many times the link made progress; monotonic, so a change since
+     * the last read means it moved in between (`Link::progress_count`).
+     */
+    func progressCount()  -> UInt64
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -2404,6 +2418,32 @@ open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_probe_timeout_ms(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(floorMs),$0
+    )
+})
+}
+    
+    /**
+     * Milliseconds since the link last made progress: anything heard from
+     * the Mac, or a write other than a keepalive taken by the transport
+     * (`Link::progress_ago`). The one progress clock a send's hold reads:
+     * `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+     */
+open func progressAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_progress_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many times the link made progress; monotonic, so a change since
+     * the last read means it moved in between (`Link::progress_count`).
+     */
+open func progressCount() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_progress_count(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -9797,6 +9837,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe_timeout_ms() != 8844) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_progress_ago_ms() != 45731) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_progress_count() != 51728) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
