@@ -118,10 +118,7 @@ export function AnchoredTranscript({
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   // Another chat's rows share no heights with this one's.
-  const cacheFor = useRef<{ sessionId?: string; cache: HeightCache } | undefined>(undefined);
-  if (!cacheFor.current || cacheFor.current.sessionId !== sessionId)
-    cacheFor.current = { sessionId, cache: new HeightCache() };
-  const measured = cacheFor.current.cache;
+  const measured = useMemo(() => new HeightCache(sessionId), [sessionId]);
   const anchor = useRef<Anchor | undefined>(undefined);
   const pinned = useRef(true);
   // The offset the controller last wrote: its scroll event is ours, not the reader's.
@@ -130,8 +127,9 @@ export function AnchoredTranscript({
   const nodes = useRef(new Map<string, HTMLElement>());
   // How far the composer's stack reaches over the scroller, measured with the rows in each commit.
   const reserve = useRef(0);
+  // The same reserve, for render: the spacer's height and the jump button's lift.
+  const [lift, setLift] = useState(0);
   const dockRef = useRef(dock);
-  dockRef.current = dock;
   const [view, setView] = useState({ top: 0, height: 0, width: 0 });
   // Whether the reader is away from the latest (Jump to latest shows); set only by their own scroll.
   const [behind, setBehind] = useState(false);
@@ -149,19 +147,24 @@ export function AnchoredTranscript({
   );
   const hashes = useMemo(() => new Map(keyed.map(({ id, hash }) => [id, hash])), [keyed]);
   const hashesRef = useRef(hashes);
-  hashesRef.current = hashes;
   const width = view.width;
   const widthRef = useRef(width);
-  widthRef.current = width;
   // Rebuilt when the rows, a row's content or the width change (O(n), a few ms at 50k rows); a
   // measured height change is O(log n).
   const index = useMemo(() => new HeightIndex(heightsFor(keyed, measured, width, ESTIMATE)), [keyed, measured, width]);
   const indexRef = useRef(index);
-  indexRef.current = index;
   const positionRef = useRef(position);
-  positionRef.current = position;
   const idsRef = useRef(ids);
-  idsRef.current = ids;
+  // The callbacks below read this render's values; written before any other effect runs (effects run in
+  // order), never during render, so the React Compiler keeps this component.
+  useLayoutEffect(() => {
+    dockRef.current = dock;
+    hashesRef.current = hashes;
+    widthRef.current = width;
+    indexRef.current = index;
+    positionRef.current = position;
+    idsRef.current = ids;
+  });
 
   /** Puts the reader back: the anchor's offset, or the end while pinned. */
   const restore = useCallback(() => {
@@ -201,8 +204,10 @@ export function AnchoredTranscript({
       widthRef.current = width;
       setView((was) => (was.width === width ? was : { ...was, width }));
     }
-    reserve.current =
+    const covered =
       stack && view && stack.height > 0 ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
+    reserve.current = covered;
+    setLift((was) => (was === covered ? was : covered));
     const reads: [number, number, string][] = [];
     for (const [id, node] of nodes.current) {
       const at = positionRef.current.get(id);
@@ -221,15 +226,23 @@ export function AnchoredTranscript({
       }
     restore();
   }, [restore, measured]);
+  const commitRef = useRef(commit);
+  useLayoutEffect(() => {
+    commitRef.current = commit;
+  });
 
   // One observer for every mounted row and the scroller itself (the composer's growth shrinks it).
-  const observer = useMemo(
-    () => (typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(commit)),
-    [commit],
-  );
+  // Made on first use, never during render; it commits through commitRef, so it outlives a new chat's commit.
+  const observerRef = useRef<ResizeObserver | undefined>(undefined);
+  const observerOf = useCallback(() => {
+    if (!observerRef.current && typeof ResizeObserver !== "undefined")
+      observerRef.current = new ResizeObserver(() => commitRef.current());
+    return observerRef.current;
+  }, []);
 
   const observe = useCallback(
     (node: HTMLElement | null, id: string) => {
+      const observer = observerOf();
       const before = nodes.current.get(id);
       if (before && before !== node) {
         observer?.unobserve(before);
@@ -240,7 +253,7 @@ export function AnchoredTranscript({
         observer?.observe(node);
       }
     },
-    [observer],
+    [observerOf],
   );
 
   // Every render commits before the frame paints.
@@ -248,6 +261,7 @@ export function AnchoredTranscript({
 
   useLayoutEffect(() => {
     const node = scroller.current;
+    const observer = observerOf();
     if (!node || !observer) return;
     observer.observe(node);
     if (dock) observer.observe(dock);
@@ -257,10 +271,13 @@ export function AnchoredTranscript({
     if (spacer.current) mutations?.observe(spacer.current, { subtree: true, childList: true, characterData: true });
     setView({ top: node.scrollTop, height: node.clientHeight, width: Math.round(node.clientWidth) });
     return () => {
-      observer.disconnect();
+      // The rows' observations stay: the observer outlives this effect (observerOf).
+      observer.unobserve(node);
+      if (dock) observer.unobserve(dock);
       mutations?.disconnect();
     };
-  }, [observer, commit, dock]);
+  }, [observerOf, commit, dock]);
+  useLayoutEffect(() => () => observerRef.current?.disconnect(), []);
 
   const onScroll = useCallback(() => {
     const node = scroller.current;
@@ -349,7 +366,7 @@ export function AnchoredTranscript({
         onPointerDownCapture={onPointerDown}
         data-anchored-list=""
       >
-        <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() + reserve.current }}>
+        <div ref={spacer} className="acpmux-spacer" style={{ height: THREAD_TOP + index.total() + lift }}>
           {mounted}
         </div>
       </div>
@@ -358,7 +375,7 @@ export function AnchoredTranscript({
         <JumpButton
           shown={behind}
           working={working}
-          lift={reserve.current}
+          lift={lift}
           onJump={(focused) => {
             toLatest();
             // The button hides at the latest; keyboard focus goes to the list, not to the body.

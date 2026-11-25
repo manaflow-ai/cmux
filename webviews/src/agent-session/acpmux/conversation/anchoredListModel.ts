@@ -129,6 +129,9 @@ const KEPT_PER_ROW = 4;
 export class HeightCache {
   private rows = new Map<string, CachedHeight[]>();
 
+  /// `chat`: the chat whose rows these heights are; another chat's share none.
+  constructor(readonly chat?: string) {}
+
   set(id: string, hash: number, width: number, height: number): void {
     const kept = this.rows.get(id);
     const entry = { hash, width, height };
