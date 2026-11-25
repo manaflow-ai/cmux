@@ -392,14 +392,12 @@ struct CloudStartSession {
             return (session, false)
         }
         let name = request.destinationName
-        // A list the server answered just now for this account: a machine by this name made
-        // elsewhere is taken, never made again. A failed or superseded read refuses.
         let still = { try Self.check(account, now: cloud.account, request.asked(machine: name)) }
-        if !cloud.hasCurrentList(within: Self.listFresh) { await cloud.refresh() }
-        try Self.checked(account, now: cloud.account, request.asked(machine: name))
-        guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
-        if let named = machines.cloud.first(where: { cloud.listedMachineIDs.contains($0.machineID) && $0.machine.title == name }) { return (named, false) }
         do {
+            let named = try await request.freshNamedMachine(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: still) { name in
+                machines.cloud.first { cloud.listedMachineIDs.contains($0.machineID) && $0.machine.title == name }
+            }
+            if let named { return (named, false) }
             return try await cloud.startSessionRuns.creatingOwn(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
                 if let named = machines.cloud.first(where: { cloud.listedMachineIDs.contains($0.machineID) && $0.machine.title == name }) { return (named, false) }
@@ -409,6 +407,8 @@ struct CloudStartSession {
             }
         } catch is CancellationError {
             throw CancellationError()
+        } catch let refusal as Request.Refusal {
+            throw ActionFailure(message: refusal.message)
         } catch let changed as AccountChanged {
             throw changed.failure
         } catch {

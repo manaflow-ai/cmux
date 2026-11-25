@@ -2383,7 +2383,7 @@ fn claude_plans_keep_the_explicit_machine_and_environment() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let mut request = json!({
-        "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV,
+        "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV, "claude_machine_login": true,
         "machines": [
             {"id": "vm_a", "claude_ready": true, "environment": "env_fedcba9876543210fedcba98"},
             {"id": "vm_b", "claude_ready": true, "environment": ENV},
@@ -2406,6 +2406,25 @@ fn claude_plans_keep_the_explicit_machine_and_environment() {
 }
 
 #[test]
+fn a_cloud_route_keeps_the_default_plan_even_if_a_machine_has_a_claude_login() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "claude_machine_login": false,
+        "machines": [{"id": "vm_signed_in", "title": "cloud-chats", "claude_ready": true}],
+    });
+    let gateway = plan(&path, &request.to_string());
+    assert_eq!(gateway["ok"], true, "{gateway}");
+    assert_eq!(gateway["machine"], Value::Null, "{gateway}");
+    assert_eq!(gateway["new_name"], "cloud-chats-2", "{gateway}");
+
+    request["key"] = json!(key());
+    request["claude_machine_login"] = json!(true);
+    let own = plan(&path, &request.to_string());
+    assert_eq!(own["machine"], "vm_signed_in", "{own}");
+}
+
+#[test]
 fn an_existing_binding_needs_environment_proof_before_it_can_receive_a_send() {
     let derived = "denv_0123456789abcdef01234567";
     let mut line = json!({"environment_id": derived, "created": false});
@@ -2422,7 +2441,7 @@ fn an_automatic_claude_send_tries_ready_machines_that_can_hold_the_folder() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let mut request = json!({
-        "key": key(), "account": ACCOUNT, "loaded": true, "size": "md", "environment": ENV,
+        "key": key(), "account": ACCOUNT, "loaded": true, "size": "md", "environment": ENV, "claude_machine_login": true,
         "machines": [
             {"id": "vm_a", "claude_ready": true, "environment": ENV, "disk_mb": 4096},
             {"id": "vm_b", "claude_ready": true, "environment": ENV, "disk_mb": 131072}

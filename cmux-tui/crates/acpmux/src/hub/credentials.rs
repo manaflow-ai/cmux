@@ -100,6 +100,48 @@ impl Hub {
         Ok(true)
     }
 
+    /// Under the turn lock, recover a missed host's work before deciding whether it can end.
+    /// Returns whether the restart should prewarm a replacement.
+    pub(super) async fn end_previous_claude_host(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Result<bool, RpcError> {
+        let _spawn = self.spawn_lease(session).await;
+        if !session.read_meta(claude_login_needs_restart) {
+            return Ok(false);
+        }
+        let current = session.child.lock().await.clone();
+        let child = if current.is_none() && !Self::host_record_gone(&session.id) {
+            Box::pin(self.readopt(session)).await
+        } else {
+            current
+        };
+        if session.turn().is_some()
+            || !session.pending_permissions().is_empty()
+            || self.holds_work_below(session)
+        {
+            return Err(RpcError::invalid_params(
+                "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
+            )
+            .with_data(json!({"reason": "credentials.claude_login_busy"})));
+        }
+        session.route_switch.store(false, Ordering::SeqCst);
+        let had_host = child.as_ref().is_some_and(|child| child.host_record().is_some())
+            || !Self::host_record_gone(&session.id);
+        if child.is_some() {
+            self.detach_child(session).await;
+        } else if had_host {
+            self.end_unadopted_host(session).await;
+        }
+        if session.child.lock().await.is_some() || had_host && !Self::host_record_gone(&session.id)
+        {
+            return Err(RpcError::internal(
+                "this session's agent host is still running, cannot be reached and did not end; close the session to end it",
+            ));
+        }
+        Ok(child.is_some() || had_host)
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
@@ -442,6 +484,71 @@ mod tests {
         assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
         assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
         assert_eq!(launched(&session).get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+        assert_eq!(session.meta().claude_login_restart_pending, Some(false));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_prompt_waits_for_background_work_before_switching_to_claude_login() {
+        use std::sync::atomic::Ordering;
+
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let old = hub.child_for(&session).await.unwrap();
+        *session.work_below_since.lock().unwrap() = 1;
+        assert!(hub.use_claude_machine_login(&session).await.unwrap());
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        let restarts = hub.restart_harnesses(None, Some(&only)).await;
+        assert_eq!(restarts.after_turn, 1);
+        assert!(session.route_switch.load(Ordering::SeqCst));
+
+        let prompt = || vec![json!({"type": "text", "text": "hello"})];
+        let refused = hub.prompt(&session, prompt(), "test", false).await.unwrap_err();
+        assert!(!refused.message.contains(FIRST));
+        let data = refused.data.unwrap();
+        assert_eq!(data, json!({"reason": "credentials.claude_login_busy"}));
+        assert!(hub.holds_work_below(&session));
+        assert!(old.is_alive().await);
+        assert_eq!(session.child.lock().await.as_ref().unwrap().generation, old.generation);
+
+        *session.work_below_since.lock().unwrap() = 0;
+        hub.prompt(&session, prompt(), "test", false).await.unwrap();
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, old.generation);
+        assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_prompt_after_the_recovery_save_uses_the_machine_login_before_restart_is_requested() {
+        use std::sync::atomic::Ordering;
+
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let old = hub.child_for(&session).await.unwrap();
+        // The state between use_claude_machine_login and restart_harnesses in signed_in.
+        assert!(hub.use_claude_machine_login(&session).await.unwrap());
+        assert!(!session.route_switch.load(Ordering::SeqCst));
+        assert_eq!(session.meta().claude_login_restart_pending, Some(true));
+
+        hub.prompt(&session, vec![json!({"type": "text", "text": "hello"})], "test", false)
+            .await
+            .unwrap();
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, old.generation);
+        assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
         assert_eq!(session.meta().claude_login_restart_pending, Some(false));
         hub.shutdown_all().await;
     }

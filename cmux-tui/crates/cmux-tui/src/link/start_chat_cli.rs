@@ -317,6 +317,9 @@ struct PlanRequest {
     /// is listed; a new send takes none, and their titles keep its name unique.
     #[serde(default)]
     machines: Vec<Candidate>,
+    /// Readiness selected a machine login for Claude ahead of automatic placement.
+    #[serde(default)]
+    claude_machine_login: bool,
     /// Machines in the App's store that its list did not name yet (made
     /// since): a send pinned to one keeps it, but none is picked.
     #[serde(default)]
@@ -456,14 +459,14 @@ fn plan_with_calls(
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
     for vm in &mut request.machines {
-        if vm.claude_ready {
-            vm.claude_ready = preflight::too_small(
+        vm.claude_ready = request.claude_machine_login
+            && vm.claude_ready
+            && preflight::too_small(
                 request.size.as_deref(),
                 request.bytes,
                 &vm.preflight_machine(),
             )
             .is_none();
-        }
     }
     let planned = Ledger::update(ledger, |pins| {
         let destination = if let Some(id) = selected {

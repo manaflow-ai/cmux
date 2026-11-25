@@ -157785,127 +157785,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another sign-in is running on this machine. Try again in a moment."
+            "value": "Another sign-in is in progress. Try again in a moment."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجري تسجيل دخول آخر على هذا الجهاز. حاول بعد قليل."
+            "value": "يجري تسجيل دخول آخر. حاول بعد قليل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Druga prijava je u toku na ovoj mašini. Pokušaj ponovo za trenutak."
+            "value": "Druga prijava je u toku. Pokušaj ponovo za trenutak."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et andet login kører på denne maskine. Prøv igen om lidt."
+            "value": "Et andet login er i gang. Prøv igen om lidt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf dieser Maschine läuft schon eine Anmeldung. Versuche es gleich noch einmal."
+            "value": "Es läuft bereits eine andere Anmeldung. Versuche es gleich noch einmal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hay otro inicio de sesión en curso en esta máquina. Inténtalo en un momento."
+            "value": "Hay otro inicio de sesión en curso. Inténtalo en un momento."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une autre connexion est en cours sur cette machine. Réessayez dans un instant."
+            "value": "Une autre connexion est en cours. Réessayez dans un instant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un altro accesso è in corso su questa macchina. Riprova tra poco."
+            "value": "Un altro accesso è in corso. Riprova tra poco."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンで別のサインインが実行中です。しばらくしてからもう一度お試しください。"
+            "value": "別のサインインが進行中です。しばらくしてからもう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មានការចូលមួយទៀតកំពុងដំណើរការលើម៉ាស៊ីននេះ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+            "value": "មានការចូលមួយទៀតកំពុងដំណើរការ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신에서 다른 로그인이 진행 중입니다. 잠시 후 다시 시도하세요."
+            "value": "다른 로그인이 진행 중입니다. 잠시 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En annen pålogging pågår på denne maskinen. Prøv igjen om litt."
+            "value": "En annen pålogging pågår. Prøv igjen om litt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na tej maszynie trwa inne logowanie. Spróbuj za chwilę."
+            "value": "Trwa inne logowanie. Spróbuj za chwilę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outro acesso está em andamento nesta máquina. Tente novamente em instantes."
+            "value": "Outro acesso está em andamento. Tente novamente em instantes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "На этой машине уже идёт другой вход. Повторите чуть позже."
+            "value": "Уже выполняется другой вход. Повторите чуть позже."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "มีการลงชื่อเข้าใช้อื่นกำลังทำงานบนเครื่องนี้ ลองอีกครั้งในอีกสักครู่"
+            "value": "กำลังดำเนินการลงชื่อเข้าใช้อื่นอยู่ ลองอีกครั้งในอีกสักครู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu makinede başka bir oturum açma sürüyor. Birazdan tekrar deneyin."
+            "value": "Başka bir oturum açma işlemi sürüyor. Birazdan tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "На цій машині вже триває інший вхід. Спробуйте трохи згодом."
+            "value": "Уже триває інший вхід. Спробуйте трохи згодом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một phiên đăng nhập khác đang chạy trên máy này. Hãy thử lại sau giây lát."
+            "value": "Một lượt đăng nhập khác đang diễn ra. Hãy thử lại sau giây lát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台机器上正在进行另一个登录。请稍后重试。"
+            "value": "正在进行另一个登录。请稍后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台機器上正在進行另一個登入。請稍後再試。"
+            "value": "正在進行另一個登入。請稍後再試。"
           }
         }
       }

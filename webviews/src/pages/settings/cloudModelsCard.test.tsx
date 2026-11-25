@@ -292,7 +292,7 @@ test("a recovery visit cannot submit a code to or close on another chat's sign-i
   expect(panel()?.querySelector('input[type="password"]')).not.toBeNull();
 
   await act(async () => rendered.history.push(route("chat-b")));
-  expect(panel()?.textContent).toContain("Another sign-in is running on this machine.");
+  expect(panel()?.textContent).toContain("Another sign-in is in progress.");
   expect(panel()?.querySelector('input[type="password"]')).toBeNull();
   expect(panel()?.querySelector('button[type="submit"]')).toBeNull();
   await fire(panel()!.querySelector("h2")!, "keydown", { key: "Enter" });
@@ -313,6 +313,26 @@ test("a recovery visit cannot submit a code to or close on another chat's sign-i
     machine: "vm_b",
     recoverySession: "chat-b",
   });
+});
+
+test("Claude Connect waits for a Cloud approval on another machine", async () => {
+  const attempt = { machine: "vm_a", error: null };
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { ...attempt, phase: "approving" } },
+    "/settings/models?provider=claude&machine=vm_b&open=second",
+  );
+  expect(panel()?.textContent).toContain("Another sign-in is in progress.");
+  expect(panel()?.querySelector('button[type="submit"]')).toBeNull();
+  await fire(panel()!.querySelector("h2")!, "keydown", { key: "Enter" });
+  expect(rendered.provider.modelRuns).toEqual([]);
+
+  await act(async () =>
+    rendered.provider.setModels({ ...mockModels.empty, cloudClaudeLogin: { ...attempt, phase: "connected" } }),
+  );
+  const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  expect(submit?.disabled).toBe(false);
+  await click(submit!);
+  expect(rendered.provider.modelRuns).toContainEqual({ action: "connectClaude", cloud: true, machine: "vm_b" });
 });
 
 test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {

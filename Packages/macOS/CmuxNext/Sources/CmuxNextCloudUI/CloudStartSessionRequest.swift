@@ -53,16 +53,30 @@ package struct CloudStartSessionRequest: Equatable {
 
     @MainActor package func preflight(setup: CloudSetup, scheme: String, heldRefusal: (String) -> String? = { _ in nil }) async throws -> Self {
         let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: machineID, name: machineID == nil ? name : nil).first : nil
-        var request = self
+        let (choice, refusal) = await setup.launchReadiness(harness: agent, model: model, readyClaude: ready != nil)
         let named = agent == "claude" ? setup.claudeMachine(named: destinationName) : nil
-        let fallback = machineID == nil && name == nil && ready == nil ? named : nil
-        request.machineID = machineID ?? ready ?? named
-        if let id = request.machineID, let held = heldRefusal(id) { throw Refusal(message: held) }
-        if let refused = await setup.refusal(harness: agent, model: model, readyClaude: ready != nil),
-           agent != "claude" || request.machineID == nil || fallback != nil {
-            throw Refusal(message: setupRequired(refused, scheme: scheme, machine: request.machineID))
+        let candidate = machineID ?? ready ?? named
+        var request = self
+        if machineID == nil, name == nil, choice == .claudeMachineLogin { request.machineID = ready }
+        if let id = request.machineID ?? (name == nil && refusal != nil ? candidate : nil),
+           let held = heldRefusal(id) { throw Refusal(message: held) }
+        if let refusal, agent != "claude" || candidate == nil || (machineID == nil && name == nil) {
+            throw Refusal(message: setupRequired(refusal, scheme: scheme, machine: candidate))
         }
         return request
+    }
+
+    /// A named start uses only the current list, refreshing it when the cached list is stale.
+    @MainActor package func freshNamedMachine<Machine>(
+        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void,
+        find: (String) -> Machine?
+    ) async throws -> Machine? {
+        if !isFresh() { await refresh() }
+        try check()
+        guard isFresh() else {
+            throw Refusal(message: CloudStartSessionStrings.listUnread(asked(machine: destinationName)))
+        }
+        return find(destinationName)
     }
 
     @MainActor package func launchReadiness(setup: CloudSetup, machine: String) async -> (choice: CloudSetup.Choice, refusal: CloudSetup.Refusal?) {

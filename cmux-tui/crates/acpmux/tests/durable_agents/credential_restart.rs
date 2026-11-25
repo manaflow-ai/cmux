@@ -262,11 +262,6 @@ async fn recovery_reusing_a_login_before_adoption_restarts_the_old_host_before_t
         .await;
     assert_eq!(status["signedIn"], true);
     assert!(status["loginId"].is_null());
-    assert_eq!(
-        daemon.host_record(&chat)["host_pid"],
-        original_host,
-        "the live host was left for adoption"
-    );
     assert_eq!(agent_token(&daemon, &chat, 1).await, "");
     assert_eq!(agent_env(&daemon, &chat, "CMUX_CLAUDE_AUTH", 2).await, "own");
     assert_ne!(daemon.host_record(&chat)["host_pid"], original_host);

@@ -907,11 +907,12 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
-        if session.route_switch.load(Ordering::SeqCst)
-            && session.read_meta(super::credentials::claude_login_needs_restart)
-            && session.pending_permissions().is_empty()
+        if session.read_meta(super::credentials::claude_login_needs_restart)
+            && let Err(e) = Box::pin(self.restart_on_route(session)).await
         {
-            let _ = self.restart_on_route(session).await;
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
         }
         self.refresh_local_chatgpt_between_turns(session).await;
         self.refresh_local_kimi_between_turns(session).await;

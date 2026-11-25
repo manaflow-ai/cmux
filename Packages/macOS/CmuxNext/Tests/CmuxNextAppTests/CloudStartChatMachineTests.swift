@@ -15,6 +15,30 @@ import Testing
 struct CloudStartChatMachineTests {
     private static let me = "user-leo"
 
+    @Test func automaticPlacementPrefersAReadyClaudeMachineOnlyWhenReadinessUsesItsLogin() async throws {
+        let session = CloudTestLink.session(id: "vm_ready", name: "dev")
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [session.machine] }
+        setup.readClaudeMachineLogin = { $0 == session.machineID }
+        let start = try #require(AgentPaneCloudStart(params: ["task": "t", "harness": "claude", "key": UUID().uuidString]))
+
+        let cases: [(Set<String>, CloudSetup.Choice)] = [
+            (["claude"], .gateway(family: "claude")), ([], .claudeMachineLogin),
+        ]
+        for (families, expected) in cases {
+            setup.gateway = { families }
+            let readiness = await setup.plannerReadiness(for: start)
+            #expect(readiness.choice == expected)
+            let json = CloudStartChat.planRequest(key: start.key, account: [Self.me, "team-a"], workspace: nil,
+                                                  user: Self.me, machines: [session], stored: [], readiness: readiness)
+            let request = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+            let candidates = try #require(request["machines"] as? [[String: Any]])
+            #expect(candidates.first?["claude_ready"] as? Bool == true)
+            #expect(request["machine"] == nil)
+            #expect(request["claude_machine_login"] as? Bool == (expected == .claudeMachineLogin))
+        }
+    }
+
     @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
         let store = DaemonStore()
         func tree(_ reordered: Bool) -> DaemonTree {

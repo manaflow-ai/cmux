@@ -178,7 +178,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const device = models?.chatgptDevice?.phase;
   const deviceProvider = models?.deviceProvider ?? "chatgpt";
   const devicePreset = deviceProvider === "kimi" ? "kimi-code" : deviceProvider;
-  const capture = claudeLogin?.phase;
+  const capture = (cloud ? cloudClaude : claudeLogin)?.phase;
   const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
   const claudePending =
     capture === "preparing" || capture === "approving" || capture === "code" || capture === "cancelling";
@@ -197,7 +197,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         ? requested.id
         : resume && devicePending && (!cloud || deviceProvider === "chatgpt")
           ? devicePreset
-          : resume && claudePending
+          : resume && claudePending && claudeLogin
             ? "claude"
             : undefined;
     const resumingDevice = id === devicePreset && devicePending;

@@ -14,7 +14,7 @@ import Foundation
 
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`, ``AgentPaneCloudStart``; leo-workspace design/cloud-work-mode.md):
 /// the chat goes to Cloud with no machine, size or environment prompt. It takes a free Cloud machine of this person's, else a new one for chats sized
-/// for the chat by ``CloudChatPick`` (``machine(for:account:workspace:cli:invocation:pick:)``), copies the chat's folder to a folder of the send's
+/// for the chat by ``CloudChatPick`` (``machine(for:from:cli:invocation:direct:pick:)``), copies the chat's folder to a folder of the send's
 /// own there, and opens a new chat on that machine in the copied folder whose first prompt is the person's (a seeded prompt, sent once with the
 /// Send's gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
@@ -61,13 +61,12 @@ struct CloudStartChat {
             let preflight = folder.flatMap { folder in services.cloud.move.cli.map { CloudStartPreflight(root: folder.root, cli: CloudMoveCLI(binary: $0, timeout: services.cloud.move.timeout)) } }
             defer { preflight?.cancel() } // unused when the start ends before it, or takes another folder
             let account = services.cloud.account, setup = services.cloud.setup
-            let ready = await setup.readyClaudeMachines(for: start)
-            let choice = await setup.launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty).choice
+            let readiness = await setup.plannerReadiness(for: start)
             if let machine = start.machine, let environment = start.environment,
                !setup.machineMatchesEnvironment(machine, environment: environment) { throw CloudStartSessionStrings.environmentMismatch }
-            if let refusal = start.connectionSetupReply(for: choice, readyClaude: !ready.isEmpty) { return refusal }
+            if let refusal = start.connectionSetupReply(for: readiness.choice, readyClaude: !readiness.machines.isEmpty) { return refusal }
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: true)
-            let origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID, preflight: preflight) { [services] in
+            let origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: readiness.choice.connectionID, readiness: readiness, preflight: preflight) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
                 do {
                     try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
@@ -112,6 +111,7 @@ struct CloudStartChat {
         let account: [String?]
         /// This Mac's connection the chat's agent launches on (``CloudSetup/Choice/connectionID``); nil: the machine's own route.
         var connection: String?
+        var readiness: (choice: CloudSetup.Choice, machines: Set<String>) = (.fallback, [])
         var preflight: CloudStartPreflight? // begun before Cloud first use's read; nil: the start runs its own
         let close: @MainActor () async -> Void
     }
@@ -138,7 +138,7 @@ struct CloudStartChat {
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
-        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {
+        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, from: origin, cli: cli, invocation: invocation) {
             await CloudChatPick(work: services.work).read(folder: chat, tab: tab)
         } } // a refusal of its size names the size and the folder
         timeline?.mark("machine") // the pick or create, and its link
@@ -304,7 +304,7 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(work: services.work).read(folder: nil, tab: tab) } }
+        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, from: origin, cli: cli, invocation: invocation) { await CloudChatPick(work: services.work).read(folder: nil, tab: tab) } }
         return try await services.cloud.startGate.holding(machine.machineID) { try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.

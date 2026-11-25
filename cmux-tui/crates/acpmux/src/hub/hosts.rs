@@ -788,9 +788,6 @@ impl Hub {
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
         if adopted.exited.is_none() {
-            if session.read_meta(super::credentials::claude_login_needs_restart) {
-                session.route_switch.store(true, Ordering::SeqCst);
-            }
             self.recover_credential(session, adopted.harness_pid.zip(adopted.harness_start));
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -1118,7 +1115,11 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // A recovered Claude login moves before the next prompt, after checking
+                        // the permissions and background work this host may still hold.
+                        if s.route_switch.swap(false, Ordering::SeqCst)
+                            && !s.read_meta(super::credentials::claude_login_needs_restart)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the

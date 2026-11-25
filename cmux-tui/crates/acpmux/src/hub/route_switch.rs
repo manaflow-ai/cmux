@@ -474,11 +474,17 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
-        session.route_switch.store(false, Ordering::SeqCst);
-        if session.child.lock().await.is_none() {
-            return Ok(());
+        if session.read_meta(super::credentials::claude_login_needs_restart) {
+            if !self.end_previous_claude_host(session).await? {
+                return Ok(());
+            }
+        } else {
+            session.route_switch.store(false, Ordering::SeqCst);
+            if session.child.lock().await.is_none() {
+                return Ok(());
+            }
+            self.detach_child(session).await;
         }
-        self.detach_child(session).await;
         self.child_for(session).await.map(|_| ())
     }
 
@@ -579,6 +585,7 @@ impl Hub {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
                 && session.pending_permissions().is_empty()
+                && !session.read_meta(super::credentials::claude_login_needs_restart)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
                 hub.detach_child(&session).await;

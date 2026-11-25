@@ -19,6 +19,9 @@ mod bg_replaced_binary;
 mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
+#[cfg(debug_assertions)]
+#[path = "durable_agents/claude_recovery.rs"]
+mod claude_recovery;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/credential_restart.rs"]
 mod credential_restart;

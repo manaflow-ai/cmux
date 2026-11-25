@@ -253,7 +253,7 @@ struct CloudStartSessionTests {
         #expect(try await targeted.preflight(setup: setup, scheme: "cmux") == targeted)
         var named = first
         named.name = "B"
-        #expect(try await named.preflight(setup: setup, scheme: "cmux").machineID == "vm_b")
+        #expect(try await named.preflight(setup: setup, scheme: "cmux") == named)
         var refused = try #require(await setup.refusal(harness: "claude", model: nil))
         refused.localLogin = true
         #expect(targeted.setupRequired(refused, scheme: "cmux", machine: "vm_a").contains("cmux://settings/cloud/claude?machine=vm_a"))
@@ -262,6 +262,43 @@ struct CloudStartSessionTests {
         #expect(namedSetup.contains("machineName=new%20Claude"))
         #expect(namedSetup.contains("--name 'new Claude'"))
         #expect(!namedSetup.contains("Cloud needs a Claude setup token"))
+    }
+
+    @Test func aNamedCLIStartUsesTheFreshListsMachineAfterPreflight() async throws {
+        let now = ContinuousClock.now, account = Self.account
+        var loadedAt = now - .seconds(60)
+        var machines = [CloudMachine(id: "vm_a", displayName: "dev"), CloudMachine(id: "vm_b", displayName: "other")]
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.gateway = { ["claude"] }
+        setup.claudeMachines = { machines }
+        setup.readClaudeMachineLogin = { $0 == "vm_a" }
+        let invocation = Self.invocation(["agent": .string("claude"), "name": .string("dev")])
+        let request = try CloudStartSession.request(invocation)
+        #expect(setup.claudeMachine(named: request.destinationName) == "vm_a")
+        let preflight = try await request.preflight(setup: setup, scheme: "cmux")
+        try #require(preflight.machineID == nil)
+        #expect(preflight.name == "dev")
+        let machine = try await preflight.freshNamedMachine(
+            isFresh: { CloudListFreshness.isCurrent(loadedAt: loadedAt, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh) },
+            refresh: {
+                machines = [CloudMachine(id: "vm_a", displayName: "renamed"), CloudMachine(id: "vm_b", displayName: "dev")]
+                loadedAt = now
+            },
+            check: {},
+            find: { name in machines.first { $0.title == name } }
+        )
+        #expect(machine?.id == "vm_b")
+    }
+
+    @Test func anAutomaticCLIStartOnlyPinsAReadyClaudeMachineForItsLogin() async throws {
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [CloudMachine(id: "vm_a", displayName: "dev")] }
+        setup.readClaudeMachineLogin = { $0 == "vm_a" }
+        let request = CloudStartSession.Request(agent: "claude")
+        setup.gateway = { ["claude"] }
+        #expect(try await request.preflight(setup: setup, scheme: "cmux").machineID == nil)
+        setup.gateway = { [] }
+        #expect(try await request.preflight(setup: setup, scheme: "cmux").machineID == "vm_a")
     }
 
     @Test func theCommandToRunAgainKeepsEveryArgument() {

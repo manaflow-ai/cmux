@@ -139,4 +139,11 @@ extension CloudSetup {
         guard Self.family(of: start.harness) == "claude" else { return [] }
         return await readyClaudeMachines(machine: start.machine, environment: start.environment)
     }
+
+    /// The readiness choice and candidate machines used by the first-send planner.
+    package func plannerReadiness(for start: AgentPaneCloudStart) async -> (choice: Choice, machines: Set<String>) {
+        let ready = await readyClaudeMachines(for: start)
+        let choice = await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty).choice
+        return (choice, Set(ready))
+    }
 }

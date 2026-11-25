@@ -8,8 +8,8 @@ import CmuxNextDaemonService
 import Foundation
 
 /// Which Cloud machine a `cloud.startChat` send runs on is cmux-tui's call (`cmux link start-chat
-/// plan`, `link/start_chat_cli/pick.rs`): this person's free machine or one named for chats, never
-/// a teammate's or a lane-pool VM, else a new one named for chats; a retry of the same send stays on
+/// plan`, `link/start_chat_cli/pick.rs`): a new machine for chats, or a ready owner machine when
+/// readiness selected that machine's Claude login. A retry of the same send stays on
 /// the machine its first try took. The App lists its machines for it, makes the machine it asks
 /// for, and connects (Leo, 2026-10-30: "AS MUCH RUST AS POSSIBLE INSTEAD OF SWIFT").
 /// Each send is kept under the account it began in (``CloudStartCore/accountText(_:)``), and takes a machine only
@@ -19,17 +19,17 @@ extension CloudStartChat {
     /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil, machine: String? = nil,
-                            readyClaude: Set<String> = [], platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
+                            readiness: (choice: CloudSetup.Choice, machines: Set<String>), platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                 .filter { $0.agentSession != nil }.count : nil
             var entry = session.machine.startChatPlanEntry(connected: connected, chats: chats)
-            entry["claude_ready"] = readyClaude.contains(session.machineID)
+            entry["claude_ready"] = readiness.machines.contains(session.machineID)
             return entry
         }
         var request: [String: Any] = ["key": key, "account": CloudStartCore().accountText(account), "loaded": true, "machines": listed,
-                                      "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "ensure_project": ensureProject, "size": size?.requested, "bytes": bytes, "plan_max": planMax?.rawValue]
+                                      "stored": stored, "claude_machine_login": readiness.choice == .claudeMachineLogin, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "ensure_project": ensureProject, "size": size?.requested, "bytes": bytes, "plan_max": planMax?.rawValue]
         for (name, value) in [("user", user), ("workspace", workspace), ("local", local), ("environment", environment), ("machine", machine)] { request[name] = value }
         return (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
     }
@@ -54,9 +54,9 @@ extension CloudStartChat {
     }
 
     /// Connects the send's pinned machine or creates and pins one sized for the chat.
-    func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, connection: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
+    func machine(for start: AgentPaneCloudStart, from origin: Origin, cli: CloudMoveCLI, invocation: ActionInvocation,
                  direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan, Bool) {
-        let machines = services.machines, cloud = services.cloud
+        let (machines, cloud, account, workspace, connection) = (services.machines, services.cloud, origin.account, origin.workspace, origin.connection)
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
@@ -66,11 +66,10 @@ extension CloudStartChat {
         async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
-        let ready = await cloud.setup.readyClaudeMachines(for: start)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
-                                       reservationKey: reserved ? start.reservationKey : nil, machine: start.machine, readyClaude: Set(ready), platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
+                                       reservationKey: reserved ? start.reservationKey : nil, machine: start.machine, readiness: origin.readiness, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
         if let id = start.machine, plan.machine != id || !listed.contains(id) { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(id)) }
@@ -106,7 +105,7 @@ extension CloudStartChat {
                 throw failure
             } catch is CloudPersonCreate.Unavailable where direct && !plan.createSent && !Task.isCancelled { // the direct route refused before the op ran: the ledger gives the start a new key, which the relay takes
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
-                return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: false, pick: pick)
+                return try await machine(for: start, from: origin, cli: cli, invocation: invocation, direct: false, pick: pick)
             }
             invocation.arguments["machine"] = .string(created.machineID)
         }
