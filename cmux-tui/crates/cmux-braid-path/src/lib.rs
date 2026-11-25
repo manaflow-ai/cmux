@@ -8,6 +8,8 @@
 
 pub mod last_good;
 pub mod race;
+pub mod remembered;
 
 pub use last_good::{LastGood, Remembered};
 pub use race::{RacePolicy, Won, race, stagger_after};
+pub use remembered::{race_remembered, v6_first};
