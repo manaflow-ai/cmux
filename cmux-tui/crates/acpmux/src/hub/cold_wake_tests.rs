@@ -178,6 +178,86 @@ fn surgery_switched_off_compacts() {
     assert!(!surgery_applied(&answer));
 }
 
+/// A queue entry as `enqueue` makes it: another agent's message when `agent`, else a person's.
+fn queued(prompt_id: &str, agent: Option<&str>) -> super::super::queue::QueuedPrompt {
+    let run = super::super::queue::PromptRun {
+        size: Default::default(),
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: Control::Local,
+        cloud_mobile: false,
+        trust_gate: false,
+        provenance: None,
+        agent: agent.map(str::to_owned),
+        class: None,
+        supersede: None,
+        full_access_device: None,
+        message_id: None,
+        message_sender: None,
+    };
+    super::super::queue::QueuedPrompt {
+        prompt_id: prompt_id.into(),
+        turn_id: format!("t-{prompt_id}"),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(tokio::sync::Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        steer_on_start: false,
+        held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Default::default(),
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    }
+}
+
+fn idle_hub(id: &str) -> (Arc<Hub>, Arc<Session>) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "turnCount": 3,
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve(id).unwrap();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t0", "endedAt": 1}));
+    (hub, session)
+}
+
+/// The batch's own gathered message waits in the queue (`agent_gather.rs`): the batch's
+/// compaction goes ahead of it. Before, the continuation check refused every cold compaction
+/// with `auto_resume.superseded` (15 of 15 on one lane VM over 48 h), so none ran.
+#[tokio::test]
+async fn a_cold_batchs_compaction_goes_ahead_of_the_batch_but_not_a_persons_prompt() {
+    let ours = json!({"kind": KIND});
+    let (_hub, session) = idle_hub("cold-q1");
+    let check = |prov: Option<&Value>| {
+        super::super::auto_resume::check_cut(&session, Some("t0"), false, prov).is_ok()
+    };
+    assert!(check(Some(&ours)), "an empty queue");
+    session.queue.lock().unwrap().push(queued("lane-msg", Some("lane")));
+    assert!(goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(check(Some(&ours)), "the batch's gathered message waits behind its compaction");
+    assert!(!check(None), "another continuation still yields to what waits");
+    assert!(!goes_ahead_of_batch(&session, None), "only the batch's own compaction");
+    session.queue.lock().unwrap().push(queued("persons", None));
+    assert!(!goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(!check(Some(&ours)), "a person's prompt waits: the compaction yields to it");
+    // The chat moved on: superseded, as before.
+    session.queue.lock().unwrap().clear();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t1", "endedAt": 2}));
+    assert!(!check(Some(&ours)));
+}
+
 /// End to end through `Hub::surgery`: a chat with no stored Claude conversation (or surgery
 /// switched off on this machine) is refused, so the cold batch falls back to `/compact`.
 #[tokio::test]
@@ -237,6 +317,7 @@ async fn task_and_offer_results_name_their_sender_and_join_the_window() {
             admitted: false,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         super::super::digest::gathers(&session, &s)
     };
