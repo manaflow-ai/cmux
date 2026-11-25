@@ -1033,13 +1033,6 @@ fn is_mount(at: &Path) -> bool {
     }
 }
 
-/// The Mac dialed projection `name` again: its record says when (an orphan's grace counts from it).
-fn attached(name: &str, at: &Path) {
-    if let Ok(state) = state_of(name) {
-        attached_in(&state, at);
-    }
-}
-
 fn attached_in(state: &Path, at: &Path) {
     let now = cmux_projection::state::ms_of(std::time::SystemTime::now());
     let _ = cmux_projection::state::update(state, at, |record| {
@@ -1179,7 +1172,18 @@ fn attach(
     let existing = table.get(&line.name).cloned();
     if line.extend {
         drop(table);
-        return extend(&line.name, &at, &encoded, existing, started);
+        let (extended, data) = extend(&line.name, &at, &encoded, existing, started)?;
+        // The old mount can finish extending after detach or replacement. Only a live mount
+        // can refresh its record, under the same lock that removes it.
+        let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+        if !table.get(&line.name).is_some_and(|current| Arc::ptr_eq(current, &extended)) {
+            return Err((
+                "projection.unknown",
+                format!("projection {} changed during extend", line.name),
+            ));
+        }
+        attached_in(&state, &at);
+        return Ok((extended, data));
     }
     // An existing server redials without a manifest. Only a new explicit serve may add back a
     // detached folder. Check alongside detach's table update, before offering a manifest retry.
@@ -1259,7 +1263,6 @@ fn extend(
     if projected.digest.load(Ordering::Relaxed) == digest {
         // The same manifest again (a dial that retried): nothing to swap, the barrier may still wait.
         open_barrier(&projected)?;
-        attached(name, at);
         return Ok((projected, json!({"at": at, "extended": true, "added": 0})));
     }
     let full = cmux_projection::manifest::Manifest::decode(encoded)
@@ -1279,7 +1282,6 @@ fn extend(
         mounted.forget_inodes(&extended.changed);
     }
     open_barrier(&projected)?;
-    attached(name, at);
     let data = json!({
         "at": at,
         "extended": true,
