@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 #if canImport(CryptoKit)
 import CryptoKit
@@ -519,3 +520,4 @@ struct CmxIrohCustomRelayLiveTests {
         return result
     }
 }
+#endif

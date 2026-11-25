@@ -1,6 +1,7 @@
-#if canImport(IrohLib)
 public import CMUXMobileCore
+#if canImport(IrohLib)
 public import IrohLib
+#endif
 
 // These conformances are deliberately categorical. They prevent callers from
 // exporting `String(describing: error)`, which may contain endpoint identities,
@@ -45,6 +46,7 @@ enum CmxIrohRouteFailureClassifier {
     }
 }
 
+#if canImport(IrohLib)
 extension IrohError: @retroactive DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         Self.diagnosticFailureKind(message: message())
@@ -156,6 +158,7 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
         return .unknown
     }
 }
+#endif
 
 extension CmxIrohTrustBrokerClientError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
@@ -390,4 +393,3 @@ extension CmxIrohHostPolicyCacheError: DiagnosticFailureProviding {
 extension CmxIrohLocalBindingExpectationError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind { .protocolViolation }
 }
-#endif

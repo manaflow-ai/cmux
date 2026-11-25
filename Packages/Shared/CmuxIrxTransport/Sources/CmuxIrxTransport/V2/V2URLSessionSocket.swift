@@ -1,6 +1,8 @@
 import CmuxEgress
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Adapts a URLSession WebSocket to the shared actor's transport seam.
 public actor V2URLSessionSocket: V2ControlSocket {

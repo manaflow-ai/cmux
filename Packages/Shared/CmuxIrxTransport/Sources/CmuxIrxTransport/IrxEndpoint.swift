@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 public import Foundation
 public import IrohLib
@@ -505,3 +506,4 @@ extension IrxEndpointSupervisor {
         return irx
     }
 }
+#endif

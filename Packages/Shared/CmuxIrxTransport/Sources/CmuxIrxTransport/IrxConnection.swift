@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 import CmuxIrohTransport
 public import Foundation
@@ -645,3 +646,4 @@ public actor IrxConnection {
         return IrxTermination(origin: .transport, code: "connection-lost(\(rendered.prefix(80)))")
     }
 }
+#endif
