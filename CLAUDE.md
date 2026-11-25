@@ -16,8 +16,6 @@ you. Run checks this way:
   `scripts/web-lint.sh` for `webviews/` or `web/`.
 - Open the pull request against `feat-cmux-next` and let CI run; check it once with `gh pr checks N`, not a
   watch loop. Say under Testing what you ran and what you couldn't.
-- Leave classic paths ([`.github/classic-frozen.txt`](.github/classic-frozen.txt)) alone and keep new logic in
-  the language the boundaries file names.
 
 The person path, with the 5-minute build, test and land steps and a map of the tree: [docs/start-here.md](docs/start-here.md).
 
@@ -135,7 +133,6 @@ Read these before working in their scope; nested files may not load automaticall
 | Dev build backend data, local state and sign-in | [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md) |
 | Finishing a task: dev build, simulator, iPhone hand-off | [finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md) |
 | Outside PRs, licenses, PR text, CI, review and merge | [landing](docs/ci/landing.md), [STYLE.md](STYLE.md), [risk tiers](docs/ci/risk-tiers.md) |
-| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
 | Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
