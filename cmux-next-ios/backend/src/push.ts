@@ -14,6 +14,8 @@ export interface ApnsConfig {
   readonly keyId: string
   readonly teamId: string
   readonly sandbox?: { readonly keyP8: string; readonly keyId: string }
+  /** Push-latency probe (optimum-ledger row 16), on with PUSH_SENT_AT_PROBE=1: see `stampSentAt`. */
+  readonly sentAtProbe?: boolean
 }
 
 export const apnsConfig = (env: Env): ApnsConfig | null =>
@@ -22,7 +24,8 @@ export const apnsConfig = (env: Env): ApnsConfig | null =>
         keyP8: env.APNS_KEY_P8,
         keyId: env.APNS_KEY_ID,
         teamId: env.APNS_TEAM_ID,
-        ...(env.APNS_SANDBOX_KEY_P8 && env.APNS_SANDBOX_KEY_ID ? { sandbox: { keyP8: env.APNS_SANDBOX_KEY_P8, keyId: env.APNS_SANDBOX_KEY_ID } } : {})
+        ...(env.APNS_SANDBOX_KEY_P8 && env.APNS_SANDBOX_KEY_ID ? { sandbox: { keyP8: env.APNS_SANDBOX_KEY_P8, keyId: env.APNS_SANDBOX_KEY_ID } } : {}),
+        ...(env.PUSH_SENT_AT_PROBE === "1" ? { sentAtProbe: true } : {})
       }
     : null
 
@@ -615,7 +618,17 @@ export const wantedKinds = (regs: ReadonlyArray<PushRegistration>, macId: string
   return PUSH_KINDS.filter((k) => wanted.has(k))
 }
 
-export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: string, now: number): Request => {
+/**
+ * Push-latency probe (optimum-ledger row 16): the APNs body with `cmuxSentAtMs`, the wall clock (Unix ms) where
+ * the send is handed to APNs, beside `aps`. The phone's service extension logs its receive time minus it
+ * (`PushLatencyProbe`). Unchanged when the stamp would pass the APNs limit.
+ */
+export const stampSentAt = <T extends object>(body: T, nowMs: number): T => {
+  const stamped = { ...body, cmuxSentAtMs: nowMs }
+  return size(stamped) <= MAX_PAYLOAD_BYTES ? stamped : body
+}
+
+export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: string, now: number, sentAtMs?: number): Request => {
   const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
   const ask = e.kind === "question" || e.kind === "permission"
   return new Request(`https://${host}/3/device/${target.token}`, {
@@ -631,7 +644,9 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "content-type": "application/json"
     },
     body: JSON.stringify(
-      sealedFor(e, target) ? sealedPayload(e, sealedFor(e, target)!, { previews: target.previews }) : apnsPayload(e, { previews: target.previews })
+      ((body) => (sentAtMs === undefined ? body : stampSentAt(body, sentAtMs)))(
+        sealedFor(e, target) ? sealedPayload(e, sealedFor(e, target)!, { previews: target.previews }) : apnsPayload(e, { previews: target.previews })
+      )
     )
   })
 }
@@ -795,7 +810,7 @@ export const sendApns = async (
     targets,
     async (t): Promise<ApnsSendResult> => {
       try {
-        const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now))
+        const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now, config.sentAtProbe ? Date.now() : undefined))
         const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
         // A malformed body (`{"reason": true}`, `null`) has no reason.
         const reason = typeof body === "string" ? body : undefined

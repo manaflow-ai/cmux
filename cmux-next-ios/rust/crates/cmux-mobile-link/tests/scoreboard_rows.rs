@@ -45,7 +45,11 @@ fn ms(d: Duration) -> f64 {
     (d.as_secs_f64() * 10_000.0).round() / 10.0
 }
 
-#[allow(clippy::too_many_arguments)] // one SCOREROW line's columns
+fn percentile(sorted: &[f64], fraction: f64) -> f64 {
+    let index = ((sorted.len() as f64 - 1.0) * fraction).round() as usize;
+    sorted[index]
+}
+
 fn row(
     condition: &str,
     pair: &str,
@@ -117,10 +121,6 @@ fn shaped_options(counted: bool) -> (DialOptions, DialOptions) {
     )
 }
 
-/// The Mac's end of the screen channel the phone opened (`screen`): `echo-screen` keys come back on it.
-static SCREEN_OUT: std::sync::Mutex<Option<Arc<cmux_mobile_link::link::ChannelSender>>> =
-    std::sync::Mutex::new(None);
-
 /// What the Mac serves: `echo` (every byte back), `sink` (counts bytes) and `flood` (the first message is a
 /// decimal byte count; the Mac then streams that many bytes in 16 KB sends, as a tool's output).
 async fn serve(incoming: IncomingChannel) {
@@ -130,21 +130,6 @@ async fn serve(incoming: IncomingChannel) {
         "echo" => {
             while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
                 if sender.send(bytes).await.is_err() {
-                    return;
-                }
-            }
-        }
-        // The phone's screen channel (`Link::open_screen`): held for `echo-screen`, whose keys are answered on
-        // it as a terminal's screen update is, over screen datagrams when both ends agreed them.
-        "screen" => {
-            *SCREEN_OUT.lock().unwrap() = Some(Arc::new(sender));
-            while receiver.recv().await.is_some() {}
-        }
-        "echo-screen" => {
-            while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
-                let out = SCREEN_OUT.lock().unwrap().clone();
-                let Some(out) = out else { continue };
-                if out.send_screen(None, &bytes).await.is_err() {
                     return;
                 }
             }
@@ -241,32 +226,6 @@ async fn echo_once(channel: &mut cmux_mobile_link::Channel, byte: u8) -> Option<
     }
 }
 
-/// [`echo_once`], the echo read from `screen` when there is one (messages older than the key are skipped).
-async fn echo_via(
-    keys: &mut cmux_mobile_link::Channel,
-    screen: Option<&mut cmux_mobile_link::Channel>,
-    byte: u8,
-) -> Option<f64> {
-    let Some(screen) = screen else { return echo_once(keys, byte).await };
-    let t = Instant::now();
-    keys.send(Bytes::from(vec![byte])).await.ok()?;
-    loop {
-        match tokio::time::timeout(Duration::from_secs(30), screen.recv()).await {
-            Ok(Some(ChannelEvent::Data(bytes))) => {
-                // A screen message is `[seq][base][payload]`; plain (no screen class) is the payload.
-                let payload = match cmux_mobile_link::classes::screen_message(&bytes) {
-                    Some(message) if screen.screen_class() => message.payload,
-                    _ => bytes,
-                };
-                if payload.first() == Some(&byte) {
-                    return Some(ms(t.elapsed()));
-                }
-            }
-            _ => return None,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Satellite 600 ms and airplane Wi-Fi: link up, and a typed key's remote echo
 
@@ -307,10 +266,10 @@ async fn link_up_satellite_and_airplane() {
                     phone.connected.link.open_on("echo", json!({}), Lane::Input).await.expect("open keys");
                 let mut samples = Vec::new();
                 for i in 0..11u8 {
-                    if let Some(sample) = echo_once(&mut keys, i).await
-                        && i > 0
-                    {
-                        samples.push(sample); // the first key warms the lane
+                    if let Some(sample) = echo_once(&mut keys, i).await {
+                        if i > 0 {
+                            samples.push(sample); // the first key warms the lane
+                        }
                     }
                 }
                 for sample in samples {
@@ -340,25 +299,10 @@ async fn link_up_satellite_and_airplane() {
 async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>, String> {
     let phone = dial_phone(Some(profile), seed, LinkConfig::default(), false).await?;
     let link = &phone.connected.link;
-    // SCOREBOARD_ECHO=screen: the echo comes back on a screen channel (the daemon channel's path), not
-    // on the keys channel.
-    let screen = std::env::var("SCOREBOARD_ECHO").is_ok_and(|value| value == "screen");
-    let mut keys = if screen {
-        link.open_on("echo-screen", json!({}), Lane::Input).await
-    } else {
-        link.open_on("echo", json!({}), Lane::Input).await
-    }
-    .map_err(|e| format!("open keys: {e}"))?;
-    let mut screen_channel = if screen {
-        let channel = link.open_screen("screen", json!({})).await.map_err(|e| format!("open screen: {e}"))?;
-        // The open reaches the Mac before the first key does only on the same stream; wait for it.
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        Some(channel)
-    } else {
-        None
-    };
+    let mut keys =
+        link.open_on("echo", json!({}), Lane::Input).await.map_err(|e| format!("open keys: {e}"))?;
     for i in 0..3u8 {
-        echo_via(&mut keys, screen_channel.as_mut(), i).await.ok_or("warm-up key not echoed")?;
+        echo_once(&mut keys, i).await.ok_or("warm-up key not echoed")?;
     }
     let running = Arc::new(AtomicBool::new(false));
     let drain = if flood {
@@ -388,10 +332,10 @@ async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>
         if flood && !running.load(Ordering::Relaxed) {
             break;
         }
-        if let Some(sample) = echo_via(&mut keys, screen_channel.as_mut(), i as u8).await
-            && (!flood || running.load(Ordering::Relaxed))
-        {
-            samples.push(sample);
+        if let Some(sample) = echo_once(&mut keys, i as u8).await {
+            if !flood || running.load(Ordering::Relaxed) {
+                samples.push(sample);
+            }
         }
         tokio::time::sleep(Duration::from_millis(100).saturating_sub(tick.elapsed())).await;
     }

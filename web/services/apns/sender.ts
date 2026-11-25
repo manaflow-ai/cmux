@@ -332,6 +332,24 @@ function providerToken(config: ApnsConfig, forceRefresh = false): string {
 }
 
 /**
+ * Push-latency probe (optimum-ledger row 16), on with APNS_SENT_AT_PROBE=1:
+ * `cmuxSentAtMs` (Unix ms, beside `aps`) is the wall clock where this sender
+ * hands the push to APNs; the phone's service extension logs its receive time
+ * minus it (`PushLatencyProbe`). Left out when it would pass the APNs limit.
+ */
+export function stampSentAt(
+  payload: Record<string, unknown>,
+  nowMs: number,
+  enabled: boolean = process.env.APNS_SENT_AT_PROBE === "1",
+): Record<string, unknown> {
+  if (!enabled) return payload;
+  const stamped = { ...payload, cmuxSentAtMs: nowMs };
+  return Buffer.byteLength(JSON.stringify(stamped)) <= APNS_MAX_PAYLOAD_BYTES
+    ? stamped
+    : payload;
+}
+
+/**
  * Send one payload to every target (grouped by APNs host so each host reuses a
  * single HTTP/2 connection). Returns a per-token result; callers prune tokens
  * whose `prune` is true.
@@ -397,7 +415,9 @@ export async function sendApnsNotification(
       });
       continue;
     }
-    const body = Buffer.from(JSON.stringify(buildApnsPayload(selected)));
+    const body = Buffer.from(
+      JSON.stringify(stampSentAt(buildApnsPayload(selected), Date.now())),
+    );
     if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
       invalidEnvironmentResults.push({
         deviceToken: t.deviceToken, status: 413, reason: "PayloadTooLarge", prune: false,

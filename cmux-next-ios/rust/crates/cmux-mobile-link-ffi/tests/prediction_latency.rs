@@ -512,3 +512,24 @@ fn keystroke_to_glyph_latency() {
     }
     assert!(failures.is_empty(), "{failures:?}");
 }
+
+/// The ultra-connectivity scoreboard's "satellite 600 ms" row, predicted echo: this file's model at the
+/// `satellite-600@1` link's round trip (600 ms) and loss (0.5 %), prediction on and off. Prints SCOREROW
+/// lines (`scripts/measure/ultra-connectivity-scoreboard.py` reads them); the same typist and remote as the
+/// table above, 20 seeded runs. Jitter is the model's 10 %, not the profile's 20 ms.
+#[test]
+#[ignore = "scoreboard bench: run with --ignored --nocapture"]
+fn scoreboard_satellite_predicted_echo() {
+    for (predict, metric) in [(true, "keystroke_echo_predicted_ms"), (false, "keystroke_echo_unpredicted_ms")]
+    {
+        let summary = summary(600, 0.005, predict);
+        for (index, shown) in summary.shown.iter().enumerate() {
+            let line = serde_json::json!({
+                "condition": "satellite 600 ms", "pair": "iOS→Mac", "metric": metric,
+                "value": *shown as f64 / 1000.0, "unit": "ms", "run": index, "host_os": std::env::consts::OS,
+                "rig": "prediction_latency.rs::scoreboard_satellite_predicted_echo", "profile": "satellite-600@1",
+            });
+            println!("SCOREROW {line}");
+        }
+    }
+}
