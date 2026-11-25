@@ -15,7 +15,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { playTurn, randomTurn, type GapEvent } from "./support/thinkingGapScenes";
 
-type Box = { id: string; top: number; bottom: number; steer: boolean };
+type Box = { id: string; top: number; bottom: number; steer: boolean; ink: string };
 type Frame = { step: string; boxes: Box[] };
 
 await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
@@ -82,6 +82,10 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
                       top: box.top,
                       bottom: box.bottom,
                       steer: (row.dataset.rowId ?? "").startsWith("steer-"),
+                      ink: (() => {
+                        const style = getComputedStyle(row);
+                        return `op=${style.opacity} tf=${style.transform} clip=${style.clipPath} anims=${row.getAnimations().length}`;
+                      })(),
                     })),
                   });
                 }
@@ -116,7 +120,11 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
           if (box.steer || box.id === steer.id) continue;
           const overlap = Math.min(box.bottom, steer.bottom) - Math.max(box.top, steer.top);
           if (overlap > 1)
-            found.push(`frame ${index} ${frame.step}: ${box.id} overlaps ${steer.id} by ${overlap.toFixed(1)}px`);
+            found.push(
+              `frame ${index} ${frame.step}: ${box.id} overlaps ${steer.id} by ${overlap.toFixed(1)}px` +
+                ` [${box.id} ${box.top.toFixed(1)}-${box.bottom.toFixed(1)} ${box.ink}]` +
+                ` [${steer.id} ${steer.top.toFixed(1)}-${steer.bottom.toFixed(1)} ${steer.ink}]`,
+            );
           const now = (box.top + box.bottom) / 2 < (steer.top + steer.bottom) / 2 ? "above" : "below";
           const key = `${steer.id}|${box.id}`;
           const was = side.get(key);
