@@ -36,6 +36,7 @@ import sys
 import tempfile
 
 import yaml
+from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -352,10 +353,13 @@ def main():
     _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
     _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
            "build-linux builds the shipped (fat) profile")
-    early = all_jobs["point-machine-channel-early"]
-    # MACHINE_CHANNEL_THIN: it waits for the channel's own thin Linux legs, not for build-linux's fat ones.
-    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-machine-channel"],
-           f"point-machine-channel-early waits for the thin channel legs only ({needs(early)})")
+    # MACHINE_CHANNEL_THIN: the channel's thin legs and point are cmux-machine-channel.yml's, outside the
+    # coalesce window (cmux#54889 waited 75 of 97 min for it); its point waits for those legs only.
+    _check(not {"build-machine-channel", "point-machine-channel-early"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
+    _check(needs(channel["jobs"]["point"]) == ["build"], f"its point waits for the thin legs only ({needs(channel['jobs']['point'])})")
+    _check("coalesce" not in channel["jobs"] and channel["concurrency"]["cancel-in-progress"] is False,
+           "one run builds and one waits per ref, with no coalesce window")
     for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
         values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
         _check(evaluate(publish["if"], values) == expected,

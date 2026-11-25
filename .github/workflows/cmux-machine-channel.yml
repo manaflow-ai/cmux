@@ -1,0 +1,173 @@
+name: cmux machine channel
+
+# The Cloud machine channel (files.cmux.com/cmux-tui/channels/cloud-machine.json) on every
+# feat-cmux-next push that changes its tree (goal cloud-fix-to-machine: a merged cmux-tui fix runs on
+# a production Cloud machine within 10 min p50).
+#
+# Before this the thin build and its point were two jobs of cmux-tui-artifacts.yml
+# (MACHINE_CHANNEL_THIN), which builds one feat-cmux-next tree per coalesce window
+# (vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES, 60 min): a coalesced push skips tree-preflight and both jobs
+# with it. cmux#54889 (71933dda) waited 75 of its 97 merge-to-channel minutes for that window
+# (cmuxterm-hq goals/cloud-fix-to-machine.md, "Where the time goes"). Here nothing waits for it.
+#
+# Cost: one group per ref with cancel-in-progress false, so at most one run builds and one waits; a
+# newer push replaces the waiting one (only the newest tree matters: the point is forward-only). The
+# plan job skips the build when the channel already names this commit's tree or a later commit.
+#
+# Safe beside cmux-tui-artifacts.yml's point-machine-channel (the fat fallback after publish): both
+# move the channel forward only (web-ota-pointer.py newer), that one keeps a channel of the same tree
+# (--same-tree), and this one's objects are write-once (cmux-machine-linux-bytes.sh early).
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths-ignore:
+      - "cmux-tui/docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-machine-channel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: does the machine channel need this commit
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      target_set: ${{ steps.plan.outputs.target_set }}
+      lto: ${{ steps.plan.outputs.lto }}
+      artifact_prefix: ${{ steps.plan.outputs.artifact_prefix }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 200
+
+      # The owned GCP build lanes reuse the workspace (run 44398113924), as cmux-tui-artifacts.yml.
+      - name: Repair a reused self-hosted checkout
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
+      - name: Compare with the channel
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel, as tree-preflight reads it.
+          python3 -c '
+          import json
+          p = json.load(open("scripts/cmux-next/cmux-tui-build-profiles.json"))["machine_channel"]
+          for k in ("target_set", "lto", "artifact_prefix"):
+              print(f"{k}={p[k]}")' >> "$GITHUB_OUTPUT"
+          # The channel's commit (an unverified read: it only decides whether to build; a wrong
+          # answer at worst leaves the move to point-machine-channel after publish).
+          chan="$(curl -fsS --max-time 20 https://files.cmux.com/cmux-tui/channels/cloud-machine.json | python3 -c '
+          import base64, json, sys
+          print(json.loads(base64.b64decode(json.load(sys.stdin)["payload"]))["commit"])' 2>/dev/null)" || chan=""
+          build=true
+          if [[ "$chan" =~ ^[0-9a-f]{40}$ && "$chan" != "$GITHUB_SHA" ]]; then
+            scripts/ci/timeout.sh 60 git fetch --no-tags --depth=200 origin "$chan" >/dev/null 2>&1 || true
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$chan" 2>/dev/null; then
+              echo "::notice title=machine channel is ahead::the channel names $chan, a later commit"
+              build=false
+            else
+              tk=scripts/ci/cmux_tui_tree_key.py
+              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 "$GITHUB_SHA" 2>/dev/null)" || mine=""
+              theirs="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 "$chan" 2>/dev/null)" || theirs=""
+              if [[ "$mine" =~ ^[0-9a-f]{40}$ && "$mine" == "$theirs" ]]; then
+                echo "::notice title=machine channel has this tree::$chan has tree key $mine, this commit's"
+                build=false
+              fi
+            fi
+          elif [[ "$chan" == "$GITHUB_SHA" ]]; then
+            build=false
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: ${{ needs.plan.outputs.build == 'true' }}
+    permissions:
+      contents: read
+      # The reusable package workflow's permission ceiling.
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials (its own thin key), as cmux-tui-artifacts.yml's build-linux.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      target_set: ${{ needs.plan.outputs.target_set }}
+      lto: ${{ needs.plan.outputs.lto }}
+      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      linux_runner: cmux-linux
+
+  point:
+    # R2 credentials and the channel signing key.
+    environment:
+      name: artifacts
+      deployment: false
+    name: point the Cloud machine channel at this commit's Linux build
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Repair a reused self-hosted checkout
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
+      - name: Download the machine channel's Linux cmux-tui binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # The thin copy only (MACHINE_CHANNEL_THIN), never the shipped cmux-tui-* artifacts.
+          pattern: machine-channel-cmux-tui-*-unknown-linux-musl
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      - name: Upload the Linux binaries and point the channel
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/machine-channel"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
+          rc=0
+          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
+          python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+            --download-dir "$dir/binaries" --out "$dir/payload.json"
+          rm -rf "$dir/binaries"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
