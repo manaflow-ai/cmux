@@ -36,6 +36,7 @@ extension AgentPaneComposerSetting {
         value["modelMenu"] = .string(AgentPaneTunables.modelMenu.value.rawValue)
         value["harnessSwitch"] = .bool(AgentPaneTunables.harnessSwitchInStartedChat.value)
         value["cloudEnvironments"] = .bool(AgentPaneCloudEnvironmentsFlag.current.enabled)
+        value["cloudLeaseOnOpen"] = .bool(AgentPaneCloudLeaseOnOpenFlag.current.enabled)
         return .object(value)
     }
 

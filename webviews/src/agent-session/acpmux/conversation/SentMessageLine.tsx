@@ -514,7 +514,7 @@ export function SentMessageGroup({
           : entry.type === "subsession"
             ? shortId(entry.call.sessionId)
             : entry.message.to
-              ? (recipientName(entry.message.to, names) ?? shortId(entry.message.to))
+              ? (recipientName(entry.message.to, names) ?? entry.message.toName ?? shortId(entry.message.to))
               : t("message.unknown"),
       ),
     ),
@@ -544,6 +544,45 @@ export function SentMessageGroup({
 /// acpmuxMcpSends.ts) and mounts one page of their rows at a time.
 export const SEND_PAGE_SIZE = 32;
 
+/// The rows of a paged group Find mounts for `reveal`, ascending. A recipient's target matches on its
+/// own row; a payload (text, file) the call's messages share, as a tag send's do, matches on the first
+/// message that carries it alone, so one word in a 1,025-recipient send mounts one row, not every row.
+export function sentPageMatches(entries: readonly SentEntry[], reveal: { toolId?: string; needle: string }): number[] {
+  const firsts = new Map<AcpmuxActivity, number>();
+  for (const [at, { item }] of entries.entries()) if (!firsts.has(item)) firsts.set(item, at);
+  if (reveal.toolId !== undefined)
+    return [...firsts].filter(([item]) => item.tool?.id === reveal.toolId).map(([, at]) => at);
+  const hit = (value: string | undefined) => value !== undefined && foldFind(value).includes(reveal.needle);
+  const payloads = new Map<AcpmuxActivity, Set<string>>();
+  const own = (entry: SentEntry) => {
+    if (entry.type !== "send") return false;
+    if (hit(entry.send.target)) return true;
+    if (!hit(entry.send.text) && !hit(entry.send.file)) return false;
+    const key = `${entry.send.text ?? ""}\0${entry.send.file ?? ""}`;
+    const seen = payloads.get(entry.item) ?? new Set<string>();
+    payloads.set(entry.item, seen);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  };
+  // Every message of a batch shares its call: each call's text is folded once, not per message.
+  const calls = new Map<AcpmuxActivity, boolean>();
+  const inCall = (item: AcpmuxActivity) => {
+    let found = calls.get(item);
+    if (found === undefined) calls.set(item, (found = foldFind(activityText(item)).includes(reveal.needle)));
+    return found;
+  };
+  const out = new Set<number>();
+  const reached = new Set<AcpmuxActivity>();
+  for (const [at, entry] of entries.entries())
+    if (own(entry) || (entry.type !== "send" && inCall(entry.item))) {
+      out.add(at);
+      reached.add(entry.item);
+    }
+  for (const [item, at] of firsts) if (!reached.has(item) && inCall(item)) out.add(at);
+  return [...out].sort((x, y) => x - y);
+}
+
 /// An open group of more than SEND_PAGE_SIZE messages: one page of their rows and a pager on the
 /// rows' grid. While Find has matches here, the group mounts exactly the rows that hold them, each
 /// given the match, so Find's Next walks every one as it does in an unpaged group; a match only in a
@@ -553,34 +592,7 @@ function SentPages({ entries, children }: { entries: readonly SentEntry[]; child
   const rows = Children.toArray(children);
   const [page, setPage] = useState(0);
   const reveal = useContext(FindReveal);
-  const matches = useMemo((): number[] => {
-    if (!reveal) return [];
-    const firsts = new Map<AcpmuxActivity, number>();
-    for (const [at, { item }] of entries.entries()) if (!firsts.has(item)) firsts.set(item, at);
-    if (reveal.toolId !== undefined)
-      return [...firsts].filter(([item]) => item.tool?.id === reveal.toolId).map(([, at]) => at);
-    const own = (entry: SentEntry) =>
-      entry.type === "send" &&
-      [entry.send.target, entry.send.text, entry.send.file].some(
-        (value) => value !== undefined && foldFind(value).includes(reveal.needle),
-      );
-    // Every message of a batch shares its call: each call's text is folded once, not per message.
-    const calls = new Map<AcpmuxActivity, boolean>();
-    const inCall = (item: AcpmuxActivity) => {
-      let hit = calls.get(item);
-      if (hit === undefined) calls.set(item, (hit = foldFind(activityText(item)).includes(reveal.needle)));
-      return hit;
-    };
-    const out = new Set<number>();
-    const reached = new Set<AcpmuxActivity>();
-    for (const [at, entry] of entries.entries())
-      if (own(entry) || (entry.type !== "send" && inCall(entry.item))) {
-        out.add(at);
-        reached.add(entry.item);
-      }
-    for (const [item, at] of firsts) if (!reached.has(item) && inCall(item)) out.add(at);
-    return [...out].sort((x, y) => x - y);
-  }, [reveal, entries]);
+  const matches = useMemo((): number[] => (reveal ? sentPageMatches(entries, reveal) : []), [reveal, entries]);
   if (matches.length)
     return (
       <>

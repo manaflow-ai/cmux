@@ -102,62 +102,107 @@ where
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn panicking(
-        runs: &Arc<AtomicUsize>,
-        until: usize,
-    ) -> impl FnMut() -> std::future::Ready<()> + use<> {
-        let runs = runs.clone();
-        move || {
-            let run = runs.fetch_add(1, Ordering::SeqCst) + 1;
-            assert!(run > until, "test panic {run}");
-            std::future::ready(())
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_task_that_panics_runs_again_and_one_that_returns_does_not() {
-        let (fatal, runs) = (Fatal::default(), Arc::new(AtomicUsize::new(0)));
-        restarting("test", &fatal, panicking(&runs, 2)).await.unwrap();
-        assert_eq!(runs.load(Ordering::SeqCst), 3, "two panics, then the run that returned");
-        assert!(fatal.0.borrow().is_none(), "two panics are under the limit");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_task_that_keeps_panicking_raises_fatal_and_stops() {
-        let (fatal, runs) = (Fatal::default(), Arc::new(AtomicUsize::new(0)));
-        restarting("test", &fatal, panicking(&runs, usize::MAX)).await.unwrap();
-        assert_eq!(runs.load(Ordering::SeqCst), MAX_RESTARTS + 1);
-        assert!(fatal.raised().await.contains("the test task panicked 6 times"));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn panics_spread_over_time_never_raise_fatal() {
-        let (fatal, runs) = (Fatal::default(), Arc::new(AtomicUsize::new(0)));
-        let seen = runs.clone();
-        let task = restarting("test", &fatal, move || {
-            let run = seen.fetch_add(1, Ordering::SeqCst);
-            async move {
-                tokio::time::sleep(WINDOW).await;
-                assert!(run >= 20, "test panic {run}");
+/// Debug builds only: a panic at `point` once it is armed, where `text` holds the armed text:
+/// by a unit test ([`arm_panic`]) or by `ACPMUX_TEST_PANIC_AT=POINT[:TEXT]` for the daemon's
+/// integration tests. Each arming fires once, and counts every pass of its point after
+/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
+/// seam.
+#[cfg(debug_assertions)]
+pub(crate) fn panic_point(point: &str, text: &str) {
+    let fire = {
+        let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+        if !seam.read_env {
+            seam.read_env = true;
+            if let Ok(v) = std::env::var("ACPMUX_TEST_PANIC_AT") {
+                let (p, t) = v.split_once(':').unwrap_or((&v, ""));
+                seam.armed.push(Armed { point: p.into(), text: t.into(), ..Armed::default() });
             }
-        });
-        task.await.unwrap();
-        assert_eq!(runs.load(Ordering::SeqCst), 21);
-        assert!(fatal.0.borrow().is_none());
-    }
-
-    #[tokio::test]
-    async fn a_task_that_cannot_run_twice_raises_fatal_on_its_panic() {
-        let fatal = Fatal::default();
-        once("startup", &fatal, async { panic!("test panic") }).await.unwrap();
-        assert_eq!(fatal.raised().await, "the startup task panicked and cannot start again");
-        // The first reason stays.
-        fatal.raise("another".into());
-        assert_eq!(fatal.raised().await, "the startup task panicked and cannot start again");
+        }
+        let mut fire = false;
+        for armed in seam.armed.iter_mut() {
+            if armed.point == point && text.contains(armed.text.as_str()) {
+                armed.passes += 1;
+                // One arming fires per pass.
+                if !fire && !armed.fired {
+                    (armed.fired, fire) = (true, true);
+                }
+            }
+        }
+        fire
+    };
+    if fire {
+        crate::daemon::test_panic(&format!("test panic at {point}"));
     }
 }
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub(crate) fn panic_point(_point: &str, _text: &str) {}
+
+/// [`panic_point`] whose text is made only while something is armed at `point`.
+#[cfg(debug_assertions)]
+pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
+    let armed = {
+        let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+        !seam.read_env || seam.armed.iter().any(|a| a.point == point)
+    };
+    if armed {
+        panic_point(point, &text());
+    }
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
+
+#[cfg(debug_assertions)]
+#[derive(Default)]
+struct Armed {
+    point: String,
+    text: String,
+    fired: bool,
+    passes: usize,
+}
+
+#[cfg(debug_assertions)]
+struct PanicSeam {
+    read_env: bool,
+    armed: Vec<Armed>,
+}
+
+#[cfg(debug_assertions)]
+static PANIC_SEAM: std::sync::Mutex<PanicSeam> =
+    std::sync::Mutex::new(PanicSeam { read_env: false, armed: Vec::new() });
+
+/// Tests only: [`panic_point`] panics once at `point` where its text holds `text`.
+#[cfg(test)]
+pub(crate) fn arm_panic(point: &str, text: &str) {
+    let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+    seam.armed.push(Armed { point: point.into(), text: text.into(), ..Armed::default() });
+}
+
+/// Tests only: how often `point` was passed with `text` since [`arm_panic`] armed it, the pass
+/// that panicked included.
+#[cfg(test)]
+pub(crate) fn armed_passes(point: &str, text: &str) -> usize {
+    let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+    seam.armed.iter().filter(|a| a.point == point && a.text == text).map(|a| a.passes).sum()
+}
+
+/// Tests only: waits up to `within` until `point` was passed at least `passes` times since it
+/// was armed.
+#[cfg(test)]
+pub(crate) async fn passed(point: &str, text: &str, passes: usize, within: Duration) -> bool {
+    let deadline = std::time::Instant::now() + within;
+    while armed_passes(point, text) < passes {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    true
+}
+
+#[cfg(test)]
+#[path = "supervise_tests.rs"]
+mod tests;

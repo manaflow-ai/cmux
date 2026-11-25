@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxConversationCore
 import CmuxMobileTransport
 import CryptoKit
@@ -605,7 +606,7 @@ public final class ChiefCloudBackend: ConversationBackend, ConversationFileBacke
             // A misconfigured dev build's refusal (CMUXBuildSpaceError) does not pass by itself: no retry.
             let request: URLRequest
             do { request = try http.socketRequest(url, token: token) } catch { return .refused(error.localizedDescription) }
-            let task = http.session.webSocketTask(with: request)
+            let task = CmuxEgress.websocket(http.session, with: request, site: "CmuxMobileChief.ChiefCloudBackend")
             socket = task
             awaitingSnapshot = false
             subscribeOutstanding = false

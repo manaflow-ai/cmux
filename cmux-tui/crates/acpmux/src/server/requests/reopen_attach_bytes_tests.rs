@@ -71,6 +71,11 @@ struct Client {
 
 impl Client {
     async fn connect(hub: &Arc<crate::hub::Hub>) -> Self {
+        Self::connect_with(hub, json!({})).await
+    }
+
+    /// A connection whose `initialize` also carries `extra` (its `_meta`, say).
+    async fn connect_with(hub: &Arc<crate::hub::Hub>, extra: Value) -> Self {
         let (input, incoming) = mpsc::channel(32);
         let (output, outgoing) = mpsc::channel(4096);
         tokio::spawn(super::super::serve_connection_with(
@@ -80,7 +85,10 @@ impl Client {
             super::super::Origin::Local,
         ));
         let mut client = Self { input, outgoing, next: 1 };
-        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "reopen-bytes-test", "version": "0"}});
+        let mut hello = json!({"protocolVersion": 1, "clientInfo": {"name": "reopen-bytes-test", "version": "0"}});
+        if let (Some(hello), Some(extra)) = (hello.as_object_mut(), extra.as_object()) {
+            hello.extend(extra.clone());
+        }
         let (_, init) = client.call(method::INITIALIZE, hello).await;
         assert!(init.get("error").is_none(), "{init}");
         client
@@ -154,4 +162,78 @@ async fn a_reopen_with_nothing_new_costs_the_same_on_a_long_chat() {
         "a reopen with nothing after afterSeq grew with the chat's length: {short} bytes at 20 \
          turns, {long} at 2,000"
     );
+}
+
+/// The phone's `initialize` `_meta.acpmux.omitTimeBreakdown` (`AcpmuxHub.swift` `bind`): its
+/// attach and the attached chat's `session_changed` rows carry no `timeBreakdown`, while a
+/// connection that did not ask (the web pane's Session Info) still gets it in both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_that_draws_no_breakdown_gets_none_in_its_attach_or_rows() {
+    let (hub, _) = hub_with_turns(50);
+    let omit = json!({"_meta": {"acpmux": {"omitTimeBreakdown": true}}});
+    let mut phone = Client::connect_with(&hub, omit).await;
+    let mut pane = Client::connect(&hub).await;
+    // Rows go to watchers (`server/mod.rs` fan-out): the phone and the pane both watch.
+    for client in [&mut phone, &mut pane] {
+        let (_, watch) = client.call(method::MUX_WATCH, json!({"enabled": true})).await;
+        assert!(watch.get("error").is_none(), "{watch}");
+    }
+    let open = json!({"sessionId": ID, "limit": 400, "eventStream": true});
+    let (_, first) = pane.call(method::MUX_ATTACH, open.clone()).await;
+    assert!(first.get("error").is_none(), "{first}");
+    let s = hub.resolve(ID).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !hub.session_detail(&s)["timeBreakdown"].is_object() {
+        assert!(Instant::now() < deadline, "the time breakdown never seeded");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let (_, pane_attach) = pane.call(method::MUX_ATTACH, open.clone()).await;
+    assert!(pane_attach["result"]["session"]["timeBreakdown"].is_object(), "{pane_attach}");
+    let (_, phone_attach) = phone.call(method::MUX_ATTACH, open).await;
+    assert!(phone_attach.get("error").is_none(), "{phone_attach}");
+    assert!(
+        phone_attach["result"]["session"].get("timeBreakdown").is_none(),
+        "the phone's attach carried a breakdown"
+    );
+    assert!(phone_attach["result"]["timeBreakdownVersion"].is_string());
+
+    hub.append(&s, "mux", "titled", json!({"title": "renamed-for-rows"}));
+    let update = json!({"sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "rows-end"}});
+    hub.append(
+        &s,
+        "in",
+        "agent_message_chunk",
+        json!({"jsonrpc": "2.0", "method": "session/update",
+               "params": {"sessionId": ID, "update": update}}),
+    );
+    for (name, client, wants) in [("phone", &mut phone, false), ("pane", &mut pane, true)] {
+        let (rows, with_breakdown) = tokio::time::timeout(Duration::from_secs(10), async {
+            let (mut rows, mut with) = (0, 0);
+            loop {
+                let line = client.outgoing.recv().await.expect("connection remains open");
+                let v: Value = serde_json::from_str(&line).unwrap();
+                if v["method"] == method::MUX_SESSION_CHANGED
+                    && v["params"]["sessionId"] == json!(ID)
+                {
+                    rows += 1;
+                    with += usize::from(v["params"]["session"].get("timeBreakdown").is_some());
+                }
+                if line.contains("rows-end") {
+                    return (rows, with);
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the {name} never got the chat's records"));
+        assert!(rows > 0, "the {name} got no session_changed for the attached chat");
+        if wants {
+            assert!(with_breakdown > 0, "the pane's {rows} rows had no breakdown");
+        } else {
+            assert_eq!(
+                with_breakdown, 0,
+                "the phone got a breakdown in {with_breakdown} of {rows} rows"
+            );
+        }
+    }
 }

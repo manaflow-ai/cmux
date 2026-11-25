@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 
 /// One item an extension offers after `@`, as the daemon answers it.
 export type ExtensionMention = {
