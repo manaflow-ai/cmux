@@ -105,6 +105,8 @@ main() {
       web/data/next-docs/*.generated.json) ((actions_current)) ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a), from the tip's own crate.
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
         | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) ((actions_current)) ;;
       schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;
