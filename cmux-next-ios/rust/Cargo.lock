@@ -606,6 +606,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
  "cmux-terminal-sizing",
+ "serde_json",
 ]
 
 [[package]]
@@ -791,6 +792,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
