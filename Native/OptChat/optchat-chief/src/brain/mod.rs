@@ -1014,6 +1014,10 @@ pub struct Brain {
     sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Endpoint-wide Claude gateway health shared with the spawn path.
+    gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// Direct Messages API engine used while the Claude gateway is down.
+    fallback_engine: Option<Engine>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
     /// pauses, and since when each idles (the paused peers are saved in
     /// `state.cloud_paused`).
@@ -1102,6 +1106,8 @@ pub struct Brain {
     turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
+    /// Whether the current turn is executing on the direct gateway fallback.
+    turn_gateway_fallback: bool,
     turn_route: Option<crate::turn_route::RoutePick>,
     /// The configured engine before own-turn routing; subagents keep their defaults.
     turn_spawn_engine: Option<crate::engine::TurnEngine>,
@@ -1257,6 +1263,14 @@ impl Brain {
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let pruned_spawns = state.prune_spawns();
+        if pruned_spawns > 0
+            && let Err(error) = file.save(&state)
+        {
+            log(&format!(
+                "pruning {pruned_spawns} completed spawn records: {error}"
+            ));
+        }
         // Only this home's turn sessions: a name without its prefix is a
         // host before audit round 3's or another home's, never removed.
         let own = format!("{}-", settings.turn_prefix);
@@ -1334,6 +1348,8 @@ impl Brain {
             workspaces: None,
             sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
+            gateway: None,
+            fallback_engine: None,
             cloud_vms: None,
             cloud_idle,
             reported_elsewhere: Default::default(),
@@ -1376,6 +1392,7 @@ impl Brain {
             first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
+            turn_gateway_fallback: false,
             turn_route: None,
             turn_spawn_engine: None,
             describer: None,
@@ -1553,6 +1570,14 @@ impl Brain {
             control::start_ticker(self.tx.clone());
         }
         self.sub_starter = starter;
+    }
+
+    pub fn set_gateway(&mut self, gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>) {
+        self.gateway = gateway;
+    }
+
+    pub fn set_fallback_engine(&mut self, engine: Option<Engine>) {
+        self.fallback_engine = engine;
     }
 
     /// The subagent sessions another acpmux link reports (placed_agents.rs):
