@@ -56,7 +56,7 @@ fn scope_id(scope: &str) -> Option<u32> {
         let name = std::ffi::CString::new(scope).ok()?;
         // SAFETY: `name` is a valid NUL-terminated string for the call.
         let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-        return (index != 0).then_some(index);
+        (index != 0).then_some(index)
     }
     #[cfg(not(unix))]
     None
@@ -124,7 +124,7 @@ pub fn local_link_wants_resolve(instance: String, txt: Vec<LocalTxt>) -> bool {
             return false;
         }
         let known = state.instances.get(&instance).is_some_and(|id| id.eq_ignore_ascii_case(&ad.device_id));
-        !(known && !state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty())
+        !known || state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty()
     })
 }
 
@@ -135,6 +135,16 @@ pub fn local_link_remove(instance: String) {
         if let Some(device_id) = state.instances.remove(&instance) {
             state.peers.remove(&device_id);
         }
+    });
+}
+
+/// The phone changed network: every ad it holds was seen on the old one, so forget them all (the
+/// browser re-reports the ones still live). A dial then skips the dead hub instead of spending
+/// [`LOCAL_DIAL_BOUND`] on it.
+pub fn local_link_forget_all() {
+    with_state(|state| {
+        state.peers.clear();
+        state.instances.clear();
     });
 }
 
@@ -289,8 +299,15 @@ pub async fn connect_local_inner(
     crate::on_runtime(async move {
         let timeline = Timeline::new();
         let (connected, socket) = dial_hub(&request, &addresses, &timeline).await?;
-        crate::finish_link(&crate::WarmPool::shared().0, &request, connected, socket, timeline, observer)
-            .await
+        crate::finish_link(
+            &crate::WarmPool::shared().0,
+            &request,
+            connected,
+            Some(socket),
+            timeline,
+            observer,
+        )
+        .await
     })
     .await
 }
@@ -368,5 +385,23 @@ mod tests {
         local_link_remove("Mac R".into());
         assert!(local_link_wants_resolve("Mac R".into(), ad));
         local_link_pair("mac-R".into(), None);
+    }
+
+    #[test]
+    fn a_network_change_forgets_every_ad() {
+        let _table = table();
+        let tag = local::key_tag(b"roam-key");
+        let ad = txt(&[("id", "mac-roam"), ("v", "1"), ("k", &tag)]);
+        let here = vec![LocalEndpoint { host: "10.0.0.9".into(), port: 4000 }];
+        local_link_pair("mac-roam".into(), Some(b"roam-key".to_vec()));
+        assert!(local_link_observe("Mac Roam".into(), ad.clone(), here.clone()));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_forget_all();
+        assert!(!local_link_nearby("mac-roam".into()), "a dial must not wait on the old LAN's hub");
+        // The browser re-reports a live one.
+        assert!(local_link_observe("Mac Roam".into(), ad, here));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_remove("Mac Roam".into());
+        local_link_pair("mac-roam".into(), None);
     }
 }

@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-24",
+  "row": "app_lines",
+  "allow": 67,
+  "why": "cmux #55413: a Cloud chat's header Browser and Terminal open on its Cloud machine. The route decision is pure and lives in CmuxNextCloud (CloudChatToolRoute, tested there). The App keeps only the adapters that need App-only state: the openToolScoped hook in AgentTabs+Wiring, CloudFrontedChats.openTool/openDesktop (frontedChats, LinkOpener, PaneController, TabContentCache's remote-view approval), and CloudHandlers' desktopRecord split out of openDesktop plus terminalAnchor's skip set.",
+  "author": "issue-55413 lane (claude opus 5.5)",
+  "owner": "issue-55413 lane (claude opus 5.5)",
+  "receipt": "Review (claude opus subagent afc18845a11bcfe72): SHIP at e4069b97adb66bc2e1ade216270e61f4d4a2b9d7",
+  "expiry": "2026-12-24"
+}
