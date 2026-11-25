@@ -15,7 +15,6 @@ pub(super) fn descriptor() -> Value {
         "description": format!("Efficiency insights from this machine's own agent records (Claude Code transcripts), computed locally; nothing leaves the machine. Today: cache waste by cause. Each cache-write token is split into the floor (append, session start, helper start) and avoidable rewrites (idle wake, compaction, model switch, shape change, lost under ttl, prefix edit), with tokens, list-price cost, the saving a warm cache would have given, the fix for each cause, a headline and the sessions with the most avoidable writes. hours is the window back from now (default {}, at most {}).", super::super::usage_insights::DEFAULT_HOURS, acpmux::usage_insights::MAX_HOURS),
         "inputSchema": {
             "type": "object",
-            "additionalProperties": false,
             "properties": {
                 "hours": {"type": "integer", "minimum": 1, "maximum": acpmux::usage_insights::MAX_HOURS, "description": "The window in hours back from now. Default 24."}
             }
@@ -24,10 +23,8 @@ pub(super) fn descriptor() -> Value {
     })
 }
 
+/// The window; other arguments are ignored, so a newer or older caller's extra field never fails.
 fn hours(arguments: &Map<String, Value>) -> Result<u64, String> {
-    if let Some(name) = arguments.keys().find(|name| name.as_str() != "hours") {
-        return Err(format!("usage_insights has no argument {name:?}"));
-    }
     match arguments.get("hours") {
         None | Some(Value::Null) => Ok(super::super::usage_insights::DEFAULT_HOURS),
         Some(value) => value
@@ -69,7 +66,7 @@ mod tests {
         assert_eq!(hours(&args(json!({"hours": 3}))), Ok(3));
         assert!(hours(&args(json!({"hours": 0}))).is_err());
         assert!(hours(&args(json!({"hours": "3"}))).is_err());
-        assert!(hours(&args(json!({"days": 1}))).is_err());
+        assert_eq!(hours(&args(json!({"days": 1}))), Ok(24));
     }
 
     #[test]
