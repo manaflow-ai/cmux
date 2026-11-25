@@ -272,7 +272,6 @@ pub struct MarkUnreadParams {
 /// their other replicas as `pin/<id>` (`hub/synced.rs`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(deny_unknown_fields)]
 pub struct PinParams {
     pub session_id: String,
     pub pinned: bool,
