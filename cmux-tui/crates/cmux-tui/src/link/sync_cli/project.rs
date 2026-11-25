@@ -509,12 +509,12 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled()
-        && let Some(on) = projected_at(remote)
-        && on.local == local
-        && machine_id(socket).unwrap_or_default() == on.machine
-    {
-        stop_server(remote)?;
+    if enabled() {
+        if let Some(on) = projected_at(remote) {
+            if on.local == local && machine_id(socket).unwrap_or_default() == on.machine {
+                stop_server(remote)?;
+            }
+        }
     }
     start(socket, local, remote, chat)
 }
@@ -553,8 +553,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
             other => folder = Some(PathBuf::from(other)),
         }
     }
-    if store_handed && let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
-        eprintln!("cmux link project: no store for the listing: {error:#}");
+    if store_handed {
+        if let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
+            eprintln!("cmux link project: no store for the listing: {error:#}");
+        }
     }
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
@@ -863,10 +865,10 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket)
-        && let Ok(stream) = UnixStream::connect(&quiet)
-    {
-        return (ask(stream, name, at, encoded, revision), true);
+    if let Some(quiet) = quiet_socket(socket) {
+        if let Ok(stream) = UnixStream::connect(&quiet) {
+            return (ask(stream, name, at, encoded, revision), true);
+        }
     }
     (dial(socket, name, at, encoded, revision), false)
 }
