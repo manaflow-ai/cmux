@@ -6,7 +6,7 @@
 // drawn at the send, and what was still going then (a call in flight, a thought) lands after it, never
 // in its run above it; its stretch's footer comes with it, never after; a compaction that runs while
 // the person's prompt waits stays the live line, under the prompt.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { findRowIndex, rowHolds } from "../src/agent-session/acpmux/conversation/chatFind";
 import {
@@ -16,6 +16,18 @@ import {
   THINKING,
   turnView,
 } from "../src/agent-session/acpmux/conversation/turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 const START = Date.UTC(2026, 10, 9, 19, 0, 0);
 const at = (second: number) => START + second * 1000;
