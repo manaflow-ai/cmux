@@ -218,7 +218,8 @@ impl Hub {
         {
             return Ok(answered);
         }
-        let (cut_turn, failed, error) = self.claim_failed_turn(session, auto, allow_stopped)?;
+        let (cut_turn, failed, error, fired_gen) =
+            self.claim_failed_turn(session, auto, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
         let prompt_id = format!("{root}{SUFFIX}{attempt}");
@@ -245,7 +246,7 @@ impl Hub {
             Some(blocks) => blocks,
             // The agent never saw a first send it refused: a continuation would make no sense.
             None if auto.is_some() => {
-                self.clear_fired(session, &cut_turn);
+                self.clear_fired(session, &cut_turn, fired_gen);
                 return Err(not_resendable());
             }
             None => {
@@ -280,6 +281,7 @@ impl Hub {
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
+            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
@@ -290,7 +292,7 @@ impl Hub {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
             // What is left of the claim when the prompt never started its turn, once the
             // prompt is out of the ledger: a retry after this one is never joined to it.
-            hub.clear_fired(&s, &cut_turn);
+            hub.clear_fired(&s, &cut_turn, fired_gen);
             if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
             {
                 hub.resume_held(&s, &held);
@@ -411,12 +413,12 @@ impl Hub {
     /// `auto`: an automatic retry's cut turn, claimed only from that retry's own wait (`Waiting`
     /// for it), so a Stop, a close or a turn that took the chat since refuses it.
     /// `allow_stopped`: a Stop that came while the failed turn ran does not refuse it.
-    fn claim_failed_turn(
+    pub(super) fn claim_failed_turn(
         &self,
         session: &Session,
         auto: Option<&str>,
         allow_stopped: bool,
-    ) -> Result<(String, String, String), RpcError> {
+    ) -> Result<(String, String, String, u64), RpcError> {
         let mut pending = session.auto_resume.lock();
         if let Some(cut) = auto {
             let waits = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut);
@@ -443,7 +445,9 @@ impl Hub {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
             // One under way, or one Stop overtook whose task has not ended: never two at once.
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_) | Mark::Stopping(_)) => {
+            Some(
+                Mark::Waiting { .. } | Mark::Firing(..) | Mark::Ending(_) | Mark::Stopping { .. },
+            ) => {
                 return Err(busy());
             }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
@@ -456,8 +460,9 @@ impl Hub {
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
-        pending.replace(Mark::Firing(cut_turn.clone()));
-        Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
+        let fired_gen = session.auto_resume.next_generation();
+        pending.replace(Mark::Firing(cut_turn.clone(), fired_gen));
+        Ok((cut_turn, failed, field("errorText").unwrap_or_default(), fired_gen))
     }
 
     /// The failed turn `cut_turn`'s prompt `prompt_id`, to send again as it was: when the model
