@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 624be7fd5a31842931b633e4dcd212de255eda70ab0753d5d595d1d99c932f93. */
+/* cmux-tui mux protocol 12, IR ab3586fe23f0093e51860e6356ac6919a98430e4ef8d01e30e3d8e754f8ca182. */
 
 
 import type * as T from "./types.js";
@@ -1582,6 +1582,7 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
+  "since"?: (T.ListWorkspacesSince) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 
