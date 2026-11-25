@@ -580,10 +580,33 @@ class RealWorkflow(unittest.TestCase):
         setup_python = next(i for i, s in enumerate(steps) if s.get("id") == "setup-python")
         self.assertLess(setup_python, index)
         self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
-        # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
-        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
+        # No routing job of its own: tooling-tests waits on coalesce, the base-red check (#52891) and the workflow's
+        # light fast-check-route job, which skips it when this router selects none of its steps.
+        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red", "fast-check-route"])
         self.assertNotIn("portable-placement", self.document["jobs"])
         self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
+
+    def test_fast_check_route_skips_the_job_only_when_this_router_selects_no_step(self):
+        # The job took a runner, a checkout and its venv before its own router could skip every step. fast-check-route
+        # runs the same router on the same merge commit and says tooling_tests=false only when it selects no step;
+        # anything else leaves the output empty and the job runs.
+        route_job = self.document["jobs"]["fast-check-route"]
+        self.assertEqual(route_job["outputs"]["tooling_tests"], "${{ steps.tooling.outputs.tooling_tests }}")
+        step = next(s for s in route_job["steps"] if s.get("id") == "tooling")
+        self.assertIs(step.get("continue-on-error"), True)  # a router failure leaves the output empty: the job runs
+        run = step["run"]
+        self.assertIn("scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml", run)
+        self.assertIn("--job tooling-tests", run)
+        self.assertIn("*,full-ci,*) exit 0", run)  # the full-ci label runs the job
+        self.assertIn("grep -qx 'tooling_all=false'", run)  # a router change (every step runs) runs the job
+        self.assertIn("grep -Eqx 'tooling_steps= *'", run)  # one selected step runs the job
+        self.assertIn('echo "tooling_tests=false" >> "$GITHUB_OUTPUT"', run)
+        # The route job's sparse checkout holds what the router reads: the workflow, scripts/ci and the tests.
+        checkout = route_job["steps"][0]["with"]["sparse-checkout"].split()
+        self.assertEqual(sorted(checkout), ["/.github/", "/scripts/", "/tests/"])
+        # The job reads the output with `!= 'false'`, after `!cancelled()`: a skipped route job (a push, a dispatch,
+        # ready_for_review) or an empty output runs it.
+        self.assertIn("needs.fast-check-route.outputs.tooling_tests != 'false'", self.job["if"])
 
 
 if __name__ == "__main__":

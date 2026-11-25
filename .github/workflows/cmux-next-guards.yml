@@ -119,6 +119,7 @@ jobs:
     outputs:
       ci_guard_group: ${{ steps.route.outputs.ci_guard_group }}
       own_change_checks: ${{ steps.route.outputs.own_change_checks }}
+      tooling_tests: ${{ steps.tooling.outputs.tooling_tests }}
     steps:
       # The guard ownership reads ci-guards.yml and the tests' imports.
       - name: Checkout the merge commit's router (trees only)
@@ -139,6 +140,33 @@ jobs:
         env:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-guards.yml --labels "$LABELS"
+      # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." tooling-tests (below) took a
+      # runner, a full checkout and its venv on every pull request before its own step router (tooling_steps.py) could
+      # pick none of its steps: 27.4k of its 46.5k runner-minutes in 24 h (2026-11-25) were pull requests touching none
+      # of scripts/, tests/, tests_v2/, .github/ or ci/. The same router runs here on the same merge commit; when it
+      # selects no step, tooling_tests=false and the job skips (a skipped job reports skipped, which a required check
+      # reads as passed).
+      # Any failure, the full-ci label, a selected step or a router change (tooling_all=true) leaves it empty: the job
+      # runs and routes its steps itself as before.
+      - name: Route tooling-tests (scripts/ci/tooling_steps.py)
+        id: tooling
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          case ",$LABELS," in *,full-ci,*) exit 0 ;; esac
+          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/tooling-changed.txt" || exit 0
+          git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/tooling-added-deleted.txt" || exit 0
+          out="$RUNNER_TEMP/tooling-route.out"
+          python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/tooling-changed.txt" \
+              --added-deleted "$RUNNER_TEMP/tooling-added-deleted.txt" --event pull_request \
+              --github-output "$out" --summary "$GITHUB_STEP_SUMMARY" || exit 0
+          if grep -qx 'tooling_all=false' "$out" && grep -Eqx 'tooling_steps= *' "$out"; then
+            echo "tooling_tests=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # zizmor and gitleaks on every pull request, fail mode, judged on the merge against its first parent: a workflow
   # security hole (scripts/static-analysis/ratchet.py ZIZMOR_HOLES) or a secret the change adds fails it; every
@@ -1356,10 +1384,11 @@ jobs:
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
-    needs: [coalesce, tooling-tests-base-red]
+    needs: [coalesce, tooling-tests-base-red, fast-check-route]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
-    # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
+    # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail, and a pull request
+    # whose diff reaches none of them skips the job before it takes a runner (fast-check-route's tooling step).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true' && needs.fast-check-route.outputs.tooling_tests != 'false') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     # actions: read lets setup-tooling-route read the steps earlier runs of this pull request passed
