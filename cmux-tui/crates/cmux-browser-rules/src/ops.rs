@@ -8,6 +8,18 @@
 //! | `browser_rules_host_typo_fix` | `{text}` | [`TypoFix`](crate::address::TypoFix) `{text, typedHost}`, or null |
 //! | `browser_rules_https_upgrade_falls_back` | `{domain, code}` | a bool |
 //! | `browser_rules_calculator_answer` | `{text}` | the answer text, or null when `text` is not arithmetic |
+//! | `browser_rules_history_score` | `{entry, text, now, home?}` | the score, or null when `text` does not match |
+//! | `browser_rules_history_dedupe_key` | `{url, home?}` | the key |
+//! | `browser_rules_history_display_text` | `{url, home?}` | the address bar text (`url` may be null) |
+//! | `browser_rules_history_query_tokens` | `{text}` | the tokens |
+//! | `browser_rules_history_words` | `{text}` | the words |
+//! | `browser_rules_history_url_prefix` | `{text}` | the text as the start of a URL |
+//! | `browser_rules_quick_match` | `{tokens, spaced, host, url, titleSpaced}` | the match term, or null |
+//! | `browser_rules_quick_usage` | `{visitCount, typedCount}` | a number |
+//! | `browser_rules_quick_recency` | `{lastVisit, now}` | a number |
+//! | `browser_rules_quick_brevity` | `{urlLength}` | a number |
+//! | `browser_rules_quick_score` | `{match, visitCount, typedCount, lastVisit, now, urlLength}` | a number |
+//! | `browser_rules_quick_allows_inline` | `{hostPrefix, visitCount, typedCount}` | a bool |
 //! | `browser_rules_link_gesture` | `{command, shift, option, button}` | the [`Gesture`] |
 //! | `browser_rules_link_action` | `{mapping, gesture}` | the [`LinkAction`](crate::links::LinkAction) |
 //! | `browser_rules_webkit_link_click` | `{command, shift, option, button, mapping}` | [`WebKitLinkClick`] |
@@ -15,6 +27,7 @@
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
 
+use crate::history::{self, HistoryEntry, quick};
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
@@ -100,6 +113,60 @@ struct WindowOpRequest {
     links: LinkContext,
 }
 
+#[derive(Deserialize)]
+struct HistoryScoreRequest {
+    entry: HistoryEntry,
+    text: String,
+    now: f64,
+    #[serde(default)]
+    home: String,
+}
+
+#[derive(Deserialize)]
+struct HistoryUrlRequest {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    home: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuickMatchRequest {
+    tokens: Vec<String>,
+    spaced: Vec<String>,
+    host: String,
+    url: String,
+    title_spaced: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct QuickScoreRequest {
+    #[serde(rename = "match")]
+    matched: f64,
+    visit_count: i64,
+    typed_count: i64,
+    last_visit: f64,
+    now: f64,
+    url_length: i64,
+    host_prefix: bool,
+}
+
+impl Default for QuickScoreRequest {
+    fn default() -> Self {
+        Self {
+            matched: 0.0,
+            visit_count: 0,
+            typed_count: 0,
+            last_visit: 0.0,
+            now: 0.0,
+            url_length: 0,
+            host_prefix: false,
+        }
+    }
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
@@ -141,6 +208,62 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
         "browser_rules_calculator_answer" => {
             let TextRequest { text } = parse(request)?;
             Ok(json!(calculator::answer(&text)))
+        }
+        "browser_rules_history_score" => {
+            let HistoryScoreRequest { entry, text, now, home } = parse(request)?;
+            Ok(json!(history::score(&entry, &text, now, &home)))
+        }
+        "browser_rules_history_dedupe_key" => {
+            let HistoryUrlRequest { url, home } = parse(request)?;
+            let url = url.ok_or_else(|| OpError::Invalid("url".into()))?;
+            Ok(json!(history::dedupe_key(&url, &home)))
+        }
+        "browser_rules_history_display_text" => {
+            let HistoryUrlRequest { url, home } = parse(request)?;
+            Ok(json!(history::display_text(url.as_deref(), &home)))
+        }
+        "browser_rules_history_query_tokens" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(history::query_tokens(&text)))
+        }
+        "browser_rules_history_words" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(history::words(&text)))
+        }
+        "browser_rules_history_url_prefix" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(history::url_prefix(&text)))
+        }
+        "browser_rules_quick_match" => {
+            let QuickMatchRequest { tokens, spaced, host, url, title_spaced } = parse(request)?;
+            Ok(json!(quick::match_term(&tokens, &spaced, &host, &url, &title_spaced)))
+        }
+        "browser_rules_quick_usage" => {
+            let r: QuickScoreRequest = parse(request)?;
+            Ok(json!(quick::usage(r.visit_count, r.typed_count)))
+        }
+        "browser_rules_quick_recency" => {
+            let r: QuickScoreRequest = parse(request)?;
+            Ok(json!(quick::recency(r.last_visit, r.now)))
+        }
+        "browser_rules_quick_brevity" => {
+            let r: QuickScoreRequest = parse(request)?;
+            Ok(json!(quick::brevity(r.url_length)))
+        }
+        "browser_rules_quick_score" => {
+            let r: QuickScoreRequest = parse(request)?;
+            Ok(json!(quick::score(
+                r.matched,
+                r.visit_count,
+                r.typed_count,
+                r.last_visit,
+                r.now,
+                r.url_length
+            )))
+        }
+        "browser_rules_quick_allows_inline" => {
+            let r: QuickScoreRequest = parse(request)?;
+            Ok(json!(quick::allows_inline_completion(r.host_prefix, r.visit_count, r.typed_count)))
         }
         "browser_rules_link_gesture" => {
             let GestureRequest { modifiers, button } = parse(request)?;

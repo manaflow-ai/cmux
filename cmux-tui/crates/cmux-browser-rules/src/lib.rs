@@ -10,12 +10,15 @@
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`history`]: the omnibox history ranking (`BrowserHistoryRanker`, `OmniboxQuickScore`,
+//!   `OmniboxText`) and the display URL it ranks on (`BrowserURLDisplay.displayText`).
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
 
 pub mod address;
 pub mod calculator;
+pub mod history;
 pub mod links;
 pub mod ops;
 
@@ -23,5 +26,7 @@ pub mod ops;
 mod address_tests;
 #[cfg(test)]
 mod calculator_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod links_tests;
