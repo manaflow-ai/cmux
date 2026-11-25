@@ -469,7 +469,8 @@ public final class AgentPaneModel {
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
-    @ObservationIgnored let host: any AgentPaneHostProviding
+    /// The page's host; a Cloud start in place re-homes it onto the Cloud machine's (``rehome(onto:seed:)``).
+    @ObservationIgnored private(set) var host: any AgentPaneHostProviding
     /// Writes the page's `pane.copyText` text and says whether it took: the person's clipboard in the app
     /// (``writeGeneralClipboard(_:)``), a recorder in a test, which must never replace the clipboard of whoever
     /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
@@ -485,7 +486,7 @@ public final class AgentPaneModel {
     /// Its page was closed (``AgentPaneView/close()``): it is no longer a live page (``AgentPageLiveness``).
     @ObservationIgnored public internal(set) var pageClosed = false
     /// What a new chat inherits from the tab it was opened from.
-    @ObservationIgnored let seed: AgentPaneSeedSource?
+    @ObservationIgnored private(set) var seed: AgentPaneSeedSource?
 
     public init(
         host: any AgentPaneHostProviding,
@@ -1042,6 +1043,21 @@ public final class AgentPaneModel {
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
+    }
+
+    /// A Cloud start that fronts this Mac tab in place keeps this page (Leo, 2026-11-25: "the pane itself
+    /// switches over when you're in cloud"): from here its host is the Cloud machine's, and its next handshake
+    /// starts the chat there from `seed` (the start's prompt and ticket). The page stays mounted: only its
+    /// connection goes (``AgentPaneView/rehome(onto:seed:)``), and its own reconnect asks this host. An empty
+    /// local chat the start replaces is no longer this page's.
+    func rehome(onto host: any AgentPaneHostProviding, seed: AgentPaneSeedSource?) {
+        self.host = host
+        self.seed = seed
+        if sessionId != nil { droppedPaths.clearForSessionChange() }
+        sessionId = nil
+        newTab = nil
+        (remoteChat, neverPooled, miniUnreachable) = (true, true, true)
+        handshakeCwd = nil
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
