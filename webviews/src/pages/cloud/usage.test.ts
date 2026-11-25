@@ -2,7 +2,7 @@
 // server sends is the server's dollars for it (RFD 0163 row 27: show the dollar and the rate, never a credit).
 import { describe, expect, test } from "bun:test";
 import type { CloudUsage } from "./ops";
-import { meterAmount, ratePrice, type UsageMeter } from "./usage";
+import { meterAmount, monthTotal, ratePrice, type UsageMeter } from "./usage";
 
 const usage: CloudUsage = {
   period: "2026-11",
@@ -25,10 +25,10 @@ describe("usage lines", () => {
     for (const meter of METERS) {
       const { amount, usd, rate } = meterAmount(usage, meter);
       expect(rate).toBeDefined();
-      expect(Math.abs(amount * rate! - usd)).toBeLessThan(0.005);
+      expect(Math.abs(amount * (rate ?? Number.NaN) - usd)).toBeLessThan(0.005);
       sum += usd;
     }
-    expect(Math.abs(sum - usage.usd.total)).toBeLessThan(0.005);
+    expect(Math.abs(sum - monthTotal(usage))).toBeLessThan(0.005);
   });
 
   test("stored is per GiB-month over a 730-hour month", () => {
