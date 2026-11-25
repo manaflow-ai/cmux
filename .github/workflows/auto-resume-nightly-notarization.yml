@@ -1082,8 +1082,9 @@ jobs:
       # The newest build waits only for the writer already holding the lease.
       LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
-      # publish-release-assets.py waits through rate limits up to this long (default 600 s).
-      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+      # publish-release-assets.py waits through rate limits up to this long (default 600 s): a whole
+      # core window, so a wait reaches the reset (11-25: a 1800 s cap gave up 40 s before it).
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
@@ -1101,9 +1102,32 @@ jobs:
           # source SHA. A shallow checkout cannot prove ancestry after fetch.
           fetch-depth: 0
 
+      # Release App first, github.token as the fallback, as nightly.yml's publish-nightly does: the App
+      # is its own actor, so the core quota every workflow's github.token shares does not refuse it.
+      # 2026-11-25 18:23Z-21:30Z: every continuation's publish was refused "API rate limit exceeded
+      # for installation" (github.token core 0/5000) and NIGHTLY went 3 h without a publication.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
+
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
       # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
       # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      # Installed after gh_app_token.sh, it wraps that wrapper.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
 
@@ -1292,6 +1316,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
@@ -1352,6 +1377,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
@@ -1589,7 +1615,7 @@ jobs:
       # The newest build waits only for the writer already holding the lease.
       LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
-      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
@@ -1602,9 +1628,32 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      # Release App first, github.token as the fallback, as nightly.yml's publish-nightly does: the App
+      # is its own actor, so the core quota every workflow's github.token shares does not refuse it.
+      # 2026-11-25 18:23Z-21:30Z: every continuation's publish was refused "API rate limit exceeded
+      # for installation" (github.token core 0/5000) and NIGHTLY went 3 h without a publication.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
+
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
       # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
       # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      # Installed after gh_app_token.sh, it wraps that wrapper.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
 
@@ -1642,6 +1691,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
