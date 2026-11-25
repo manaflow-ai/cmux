@@ -167,6 +167,14 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// The next commit is a fold line's toggle: its rows come and go with the table's own row animation.
     private var animatesNextCommit = false
     private var applyScheduled = false
+    /// FEED-15: rows that arrived while the person dragged or the list decelerated wait for rest
+    /// (one apply then, with the reader's row kept in place): a correction set while UIKit moves the
+    /// offset itself is undone by the gesture or the deceleration, and the row being read jumps.
+    private var heldUntilRest = false
+    /// The held rows the pill counts now (moved into its count by the apply at rest).
+    private var heldCounted = 0
+    /// A header re-measure that came while the list moved off the top: done at rest.
+    private var headerHeld: Bool?
     /// Layouts computed off the main thread, one batch at a time.
     private let queue = DispatchQueue(label: "dev.cmux.mobile.feed-layout", qos: .userInitiated)
     private var batchInFlight = false
@@ -330,7 +338,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         if signature != headerSignature {
             headerSignature = signature
             headerContent = content
-            measureHeader(partChanged: partChanged)
+            if let view = collectionView, holdsForScroll(view) {
+                headerHeld = (headerHeld ?? false) || partChanged
+            } else {
+                measureHeader(partChanged: partChanged)
+            }
         } else if content != headerContent {
             // A chip's count changed: the header cell reads its view again, at the same height.
             headerContent = content
@@ -391,7 +403,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             reconfigureHeader()
             return
         }
-        let anchor = partChanged && !syncAtTop() && !jumpingToTop ? visibleAnchor() : nil
+        // Any re-measure off the top keeps the reader's row (a refresh error, the sync state, the
+        // needs-you chip change the header's height too, not only the working-now strip).
+        let anchor = !syncAtTop() && !jumpingToTop ? visibleAnchor() : nil
         headerHeight = height
         reconfigureHeader()
         // The table reads the header's new height.
@@ -441,7 +455,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         defer { FeedCellTiming.log("applyPending y=\(Int(collectionView?.contentOffset.y ?? 0))", t0) }
         #endif
         applyScheduled = false
-        guard let next = pending, width > 0, collectionView != nil else { return }
+        guard let next = pending, width > 0, let view = collectionView else { return }
+        if holdsForScroll(view) {
+            if !heldUntilRest { trace("held while scrolling at \(Int(view.contentOffset.y))") }
+            heldUntilRest = true
+            countHeld(next)
+            return
+        }
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
         // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {
@@ -609,11 +629,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
-        if !travelling.isEmpty, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
+        // The row kept in place is never one that travels: the reader stays with the asks still open.
+        if !travelling.isEmpty, anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+        // At the top the answered ask slides to its place; off the top it moves at once with the
+        // reader's row kept (an animated move while the offset is restored is a visible jump, FEED-15).
+        if !travelling.isEmpty, anchor == nil, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
             // The rows show their new state where they are (an answered card, at once), then the
-            // table moves the answered ask to its place in time and closes the gap it left. The row
-            // kept in place is never one that travels: the reader stays with the asks still open.
-            if anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+            // table moves the answered ask to its place in time and closes the gap it left.
             if !reconfigure.isEmpty {
                 var inPlace = dataSource.snapshot()
                 inPlace.reconfigureItems(reconfigure)
@@ -1219,7 +1241,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     @discardableResult
     private func syncAtTop() -> Bool {
         guard let collectionView else { return control.atTop }
-        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 60
+        // The true top only (FEED-15): a reader a few points below it keeps their row when rows arrive.
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top <= 0.5
         if top != control.atTop { control.atTop = top }
         if top { reachedTop() }
         return top
@@ -1331,10 +1354,49 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { scrollEnded() }
+        if !decelerate { scrollEnded(); releaseHeld() }
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollEnded() }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollEnded(); releaseHeld() }
+
+    /// While the person drags or the list decelerates away from the top, changes wait (FEED-15).
+    /// Not during a jump to the top (it keeps no anchor) and not before the first snapshot.
+    private func holdsForScroll(_ view: UITableView) -> Bool {
+        guard !releasing, view.isTracking || view.isDecelerating, !jumpingToTop,
+              dataSource?.snapshot().numberOfSections ?? 0 > 0 else { return false }
+        return !syncAtTop()
+    }
+
+    /// The pill counts the held rows that are new (never shown, not a fold line) while they wait.
+    private func countHeld(_ next: [FeedItem]) {
+        let fresh = next.reduce(0) { count, item in
+            count + (shownSet.contains(item.id) || everShown.contains(item.id) || FeedStacks.isFold(item.id) ? 0 : 1)
+        }
+        if fresh != heldCounted {
+            control.newAbove += fresh - heldCounted
+            heldCounted = fresh
+        }
+    }
+
+    /// At rest: what waited applies in one pass, with the reader's row kept in place.
+    private var releasing = false
+    private func releaseHeld() {
+        if let partChanged = headerHeld {
+            headerHeld = nil
+            releasing = true
+            measureHeader(partChanged: partChanged)
+            releasing = false
+        }
+        guard heldUntilRest else { return }
+        heldUntilRest = false
+        trace("released at rest")
+        control.newAbove = max(0, control.newAbove - heldCounted)
+        heldCounted = 0
+        releasing = true
+        applyScheduled = true
+        applyPending()
+        releasing = false
+    }
 
     private func scrollEnded() {
         #if DEBUG
