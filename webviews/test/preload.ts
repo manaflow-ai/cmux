@@ -3,10 +3,14 @@
 // after their imports have loaded Base UI, and bun shares one module cache across files, so the
 // first file to import src/ui would turn Base UI's layout effects off for every file after it
 // (popovers and dialogs that never open). Load that one module here with a stand-in document.
+// Floating UI's React binding, which places every Base UI popup, makes the same one-time check
+// (@floating-ui/react-dom `isClient`): loaded without a document, its placement never runs, and a
+// popup never reaches the point or element it was anchored to.
 const scope = globalThis as Record<string, unknown>;
 const hadDocument = "document" in scope;
 if (!hadDocument) scope.document = {};
 await import("@base-ui/utils/useIsoLayoutEffect");
+await import("@floating-ui/react-dom");
 if (!hadDocument) delete scope.document;
 export {};
 
