@@ -8,6 +8,7 @@ import { defineExperiment } from "../experiments/experiment";
 /// The arm is a data attribute on the menu's root (`data-menu-style`), styled in popupSurface.css;
 /// `off` draws no attribute, so today's menus are unchanged. Dogfood: set `cmux.experiments` to
 /// `{"menu-style-v2":"v2"}` in the pane's web inspector and reload.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const menuStyleV2 = defineExperiment({
   id: "menu-style-v2",
   title: "Menu style v2",

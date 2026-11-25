@@ -7,6 +7,7 @@ import { defineExperiment } from "../experiments/experiment";
 /// the menu (the menu keeps its size), and a menu button that takes the panel's fill while its menu is
 /// open. The arm is `data-menu-states` on the menu's root and its button (popupSurface.css); `off`
 /// draws neither, nor a reason, nor a spinner slot.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const menuRowStates = defineExperiment({
   id: "menu-row-states",
   title: "Menu row states",

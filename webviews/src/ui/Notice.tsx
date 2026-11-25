@@ -80,7 +80,8 @@ export interface NoticeProps {
   count?: number;
   /** Work it tracks: the lead is a spinner while working, then a check or the error's mark. */
   state?: NoticeState;
-  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
+  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card.
+   * @status experimental */
   look?: ToastLook;
 }
 

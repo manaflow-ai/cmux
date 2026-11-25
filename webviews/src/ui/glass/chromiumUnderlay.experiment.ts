@@ -7,6 +7,7 @@ import { defineExperiment } from "../../experiments/experiment";
 /// "CHROMIUM OVER THE WINDOW GLASS"). WebKit and an opaque window never draw it. desktop.ts puts the
 /// arm on `<html>` as data-glass-underlay; to try another, set `cmux.experiments` to
 /// `{"chromium-glass-underlay":"light"}` in the pane's web inspector and reload.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const chromiumGlassUnderlay = defineExperiment({
   id: "chromium-glass-underlay",
   title: "Chromium glass underlay",

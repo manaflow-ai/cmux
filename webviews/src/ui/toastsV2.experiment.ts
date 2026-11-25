@@ -8,6 +8,7 @@ import { defineExperiment } from "../experiments/experiment";
 /// the same in every arm (NoticeQueue.promise). Compare in the gallery: `agent-pane.toasts`,
 /// variants `promise-*` and `undo-*`, view `compare`. For dogfood set `cmux.experiments` to
 /// `{"toasts-v2":"mark"}` in the pane's web inspector and reload.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const toastsV2 = defineExperiment({
   id: "toasts-v2",
   title: "Toasts v2: promise and Undo",

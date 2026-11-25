@@ -5,6 +5,9 @@ for menu, focus, positioning, and dialog semantics. Base UI is already in the bu
 the direction-aware keyboard and VoiceOver behavior used by the existing pages; React Aria can be
 adopted behind these APIs later without changing callers.
 
+Every export here is ready, experimental or deprecated; [STATUS.md](STATUS.md) says what each
+promises and how an export is tagged.
+
 ## Menu
 
 ```tsx

@@ -613,7 +613,8 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
-   *  the menu-row-states experiment. */
+   *  the menu-row-states experiment.
+   * @status experimental */
   reason?: string;
   shortcut?: ReactNode;
   /** A second, quieter line under the row's title (`children`, the title's text). */

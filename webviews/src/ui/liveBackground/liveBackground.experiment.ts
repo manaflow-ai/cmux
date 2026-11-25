@@ -6,6 +6,7 @@ import { defineExperiment } from "../../experiments/experiment";
 /// embedde inside today". Off by default: it replaces the person's own picture while it runs, and
 /// the host has no setting for it yet. To try one, set `cmux.experiments` to
 /// `{"live-background":"aurora"}` in the pane's web inspector and reload.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const liveBackground = defineExperiment({
   id: "live-background",
   title: "Live background",

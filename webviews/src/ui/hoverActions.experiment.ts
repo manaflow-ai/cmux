@@ -5,6 +5,7 @@ import { defineExperiment } from "../experiments/experiment";
 /// action on hover, and the rest move to its right-click menu and keys. "all" keeps every hover
 /// action, for comparison: set `cmux.experiments` to `{"hover-actions":"all"}` in the pane's web
 /// inspector and reload. A queued prompt's row shows all its actions in both arms (Leo, 2026-10-20).
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const hoverActions = defineExperiment({
   id: "hover-actions",
   title: "Hover actions",

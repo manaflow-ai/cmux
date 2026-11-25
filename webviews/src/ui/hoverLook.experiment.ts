@@ -18,6 +18,7 @@ export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .u
 /// our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
 /// padding, type, rim width and so the size of every tooltip and card are today's, so turning it on
 /// moves nothing. With the switch off no arm draws anything.
+/// @status experimental: an A/B experiment; its arms may change or go (ui/STATUS.md).
 export const hoverLook = defineExperiment({
   id: "hover-look",
   title: "Tooltip and hover card look",
