@@ -299,8 +299,15 @@ pub async fn connect_local_inner(
     crate::on_runtime(async move {
         let timeline = Timeline::new();
         let (connected, socket) = dial_hub(&request, &addresses, &timeline).await?;
-        crate::finish_link(&crate::WarmPool::shared().0, &request, connected, socket, timeline, observer)
-            .await
+        crate::finish_link(
+            &crate::WarmPool::shared().0,
+            &request,
+            connected,
+            Some(socket),
+            timeline,
+            observer,
+        )
+        .await
     })
     .await
 }

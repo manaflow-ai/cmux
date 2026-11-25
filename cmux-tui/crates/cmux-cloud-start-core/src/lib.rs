@@ -6,6 +6,7 @@
 
 pub mod agent_check;
 pub mod ask;
+pub mod balance;
 pub mod capability;
 pub mod computer_status;
 pub mod hybrid;

@@ -185,6 +185,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Fleet-built test products a Mac unpacks: archive member checks and the same-length path mapping.
+      - name: Test the fleet test products fetcher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_test_products.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -329,6 +334,10 @@ jobs:
       - name: Validate the base-red skip of PR jobs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
+
+      - name: Validate the kit's base-red notice
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_kit_base_red.py
 
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -509,6 +518,25 @@ jobs:
             ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
           else
             echo "No base revision for this event; conventions diff skipped."
+          fi
+
+      # Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them".
+      # Fails a change that adds a spinner, skeleton or "Loading…" line to the iPhone app;
+      # only added lines count (cmux-next-ios/design/placeholder-inventory.md lists the rest).
+      - name: Validate no new iOS loading placeholders
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_loading_placeholders.py
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            python3 scripts/ci/check-ios-loading-placeholders.py "$BASE_SHA"
+          else
+            echo "No base revision for this event; placeholder check skipped."
           fi
 
       - name: Validate reload shared DerivedData default
@@ -864,6 +892,11 @@ jobs:
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
+
+      # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
+      - name: Validate string catalogs are edited in place
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_xcstrings_diff.py
 
       - name: Validate the advisory post-edit checks
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1798,6 +1831,10 @@ jobs:
       - name: Validate when the cmux-next tour runs (merges, dispatches, adding media-tour)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      - name: Validate that a nightly tour starts from the last toured tip
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_last_toured.py
 
       - name: Validate that a pull request tours once, when media-tour is added
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

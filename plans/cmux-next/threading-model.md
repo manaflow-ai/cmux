@@ -152,6 +152,7 @@ still waits for everything queued before it on that queue.
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
+- Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
@@ -210,6 +211,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
+- Design: `com.cmuxterm.next.live-wallpaper.render` (every live wallpaper's frames, LiveWallpaperRenderer,
+  user-initiated, serial: `nextDrawable`, which may wait for the compositor to hand a drawable back, the
+  encode and the commit block this queue, never main; at most one frame per view in flight, a tick that
+  finds its last frame still on the GPU draws nothing, so no back-pressure; held wallpapers queue nothing)
 - Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the

@@ -127,6 +127,9 @@ public final class AgentPaneSeedSource {
     public var workspaceContext = false
     /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
     public var sandboxResult: AgentPaneSeed.SandboxResult?
+    /// This new page is a Mac tab's own again after the Cloud chat it showed in place went: it says so
+    /// (``AgentPaneView/showCloudChatEnded(machine:promptBack:)``, cmux#55066), naming the machine.
+    public var cloudChatEnded: (machine: String?, promptBack: Bool)?
     /// Runs once, when ``take()`` hands the page the seed's draft (not when the source is made: a host
     /// that fails before its handshake never takes it).
     public var onDraftTaken: (() -> Void)?

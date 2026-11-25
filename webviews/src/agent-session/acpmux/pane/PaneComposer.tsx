@@ -23,7 +23,7 @@ import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -48,6 +48,8 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { MoveDock, PlaceChip } from "../place/PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -71,10 +73,11 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
+import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
-import { AutoArrival } from "../AutoWhere";
+import { AutoArrival, AutoAddingMachineLine } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
+import type { StringKey } from "../i18n";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
@@ -83,7 +86,7 @@ import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrus
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -153,6 +156,7 @@ export type PaneComposerDeps = {
   };
   /// Where Auto put this page's chat (AutoArrival), or `deciding` while the daemon answers.
   autoArrival: AutoLanding | "deciding" | undefined;
+  autoAddingMachine: StringKey | undefined;
   /// The arrival line's move is offered now (the chat's own move menu offers it).
   autoArrivalMove: boolean;
   onAutoArrivalDismiss: () => void;
@@ -235,6 +239,8 @@ export type PaneComposerDeps = {
   approvedPlanNode?: React.JSX.Element | null;
   /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
   approvedPlanAtFoot?: boolean;
+  /** A live customization's bar (customizeBar/CustomizeBar.tsx), right over the composer; null with none. */
+  customizeBarNode?: React.JSX.Element | null;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -425,6 +431,7 @@ export function drawPaneComposer({
   showNewTab,
   composerModeRows,
   autoArrival,
+  autoAddingMachine,
   autoArrivalMove,
   onAutoArrivalDismiss,
   autoSendGate,
@@ -490,6 +497,7 @@ export function drawPaneComposer({
   goalNode,
   approvedPlanNode = null,
   approvedPlanAtFoot = false,
+  customizeBarNode = null,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -679,6 +687,9 @@ export function drawPaneComposer({
                 />
               )}
             </Notice>
+            <Notice id="auto-adding-machine" tier="hint" when={autoAddingMachine !== undefined}>
+              {autoAddingMachine !== undefined && <AutoAddingMachineLine text={autoAddingMachine} look={AUTO_LOOK} />}
+            </Notice>
             <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
               {shownComputerUseAsk && (
                 <ComputerUseSetupNotice
@@ -835,6 +846,16 @@ export function drawPaneComposer({
             </Notice>
             <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && !quick && (
+              <MoveDock
+                session={snapshot.sessionId}
+                say={notices.transient}
+                claims={() => ({
+                  queued: snapshot.queue.length,
+                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                })}
+              />
+            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}
@@ -953,6 +974,7 @@ export function drawPaneComposer({
           ))}
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
+        {customizeBarNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
         {changesPillNode}
@@ -978,6 +1000,7 @@ export function drawPaneComposer({
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
               approvedPlanNode !== null ||
+              customizeBarNode !== null ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
@@ -1529,6 +1552,31 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
+            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
+            {...(quick || !snapshot.sessionId
+              ? {}
+              : {
+                  placeControl: (
+                    <>
+                      <PlaceChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                      <HybridChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                    </>
+                  ),
+                })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}

@@ -8,6 +8,8 @@ import {
   apnsTopics,
   clean,
   isSealedText,
+  MAILBOX_MAX_HOLD_MS,
+  MAILBOX_TTL_MS,
   MAX_MAILBOX_SEALED,
   notifyFailures,
   notifyLimitKey,
@@ -22,15 +24,23 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
-import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER, relayRoomName } from "./link-relay.ts"
+import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER } from "./link-relay.ts";
 import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
-import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
+import {
+  isRegion,
+  netcheckRoomName,
+  parseNetcheck,
+  relayPlacement,
+  locationHintFor,
+  relayRoomName,
+} from "./placement.ts";
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
 export { LinkRelay } from "./link-relay.ts"
 export { HubRelay } from "./hub-relay.ts"
+export { locationHintFor } from "./placement.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -173,33 +183,6 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
  * personal space id that appeared in two projects would still be two separate spaces.
  */
 const scoped = (env: Env, caller: Caller, key: string) => (caller.projectId === primaryProject(env).id ? key : `${caller.projectId}:${key}`)
-/**
- * Where a new TeamHub should live: the region of the caller's own location (Cloudflare's geolocation of the
- * client), not of the colo that received the request. A Durable Object stays where it is first created, and
- * free-plan traffic is sometimes received far away (a California client was served from Paris on 2026-10-13),
- * so creating hubs next to the ingress colo stranded them across an ocean. Only affects a hub's creation.
- */
-export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; country?: unknown } | undefined): DurableObjectLocationHint | undefined => {
-  if (!cf || typeof cf.continent !== "string") return undefined
-  const lon = typeof cf.longitude === "string" ? Number.parseFloat(cf.longitude) : typeof cf.longitude === "number" ? cf.longitude : Number.NaN
-  switch (cf.continent) {
-    case "NA":
-      return Number.isFinite(lon) && lon < -100 ? "wnam" : "enam"
-    case "SA":
-      return "sam"
-    case "EU":
-      return Number.isFinite(lon) && lon > 20 ? "eeur" : "weur"
-    case "AF":
-      return "afr"
-    case "OC":
-      return "oc"
-    case "AS":
-      return ["AE", "BH", "IL", "IQ", "IR", "JO", "KW", "LB", "OM", "QA", "SA", "SY", "YE"].includes(String(cf.country)) ? "me" : "apac"
-    default:
-      return undefined
-  }
-}
-
 /** The caller's identity, build space (`spaceOf`), and where a hub created by this request should live. */
 type Ctx = Caller & { readonly space: string; readonly hint?: DurableObjectLocationHint; readonly t: Timing }
 /**
@@ -608,8 +591,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
       const phone = await withStore(env, ctx, (s) => s.getDevice(space, from))
       if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      // `hold` (seconds, API 0.18.0 "Store and forward"): how long the item waits for a Mac that sleeps.
+      if (b.hold !== undefined && !(Number.isInteger(b.hold) && (b.hold as number) >= 1 && (b.hold as number) * 1000 <= MAILBOX_MAX_HOLD_MS))
+        throw new HttpError(400, "bad_request", `hold must be whole seconds from 1 to ${MAILBOX_MAX_HOLD_MS / 1000}`)
       await limit(env.MAILBOX_LIMIT, me, "replies")
-      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed })
+      const ttl = b.hold === undefined ? MAILBOX_TTL_MS : (b.hold as number) * 1000
+      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed }, ttl)
       if ("error" in r) {
         if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
         throw new HttpError(409, "conflict", "another reply already has this id")

@@ -196,8 +196,8 @@ function DoneLine({
   const shown = note?.version === row.version ? note : undefined;
   const openLabel = t("subagents.open", { name });
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
-  // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
-  // columns up from row to row: mark | title | short reason | Retry | time.
+  // title in plain text, its reason after it in red and a red dot on its mark (cmux#54927); the
+  // grid arm also lines its columns up from row to row: mark | title, reason | Retry | time.
   const failed = agent.state === "failed" && !waiting;
   const report = waiting ? undefined : doneReport(agent);
   const localReport = !open && compact && report !== undefined;

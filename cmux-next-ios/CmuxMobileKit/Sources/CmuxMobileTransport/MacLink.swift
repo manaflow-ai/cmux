@@ -82,6 +82,9 @@ public protocol MacLink: AnyObject, Sendable {
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
+    /// Opens a service channel whose open args are any JSON object (`catch-up` takes nested
+    /// cursors). A link without its own sends flat string args only.
+    func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel
     /// Opens a channel on the input lane (PROTOCOL.md "Lanes"): terminal
     /// keystrokes and their replies, which then never wait behind bulk
     /// output. A link without one opens an ordinary channel.
@@ -141,6 +144,13 @@ public struct TunnelKeys: Sendable, Equatable {
 }
 
 extension MacLink {
+    public func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
+        let object = try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))
+        guard let args = object as? [String: String] else {
+            throw LinkError(code: "bad_request", message: "this link sends flat string args only")
+        }
+        return try await openChannel(service: service, args: args)
+    }
     public var connectedPath: LinkPathKind? { nil }
     public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
@@ -171,6 +181,14 @@ public protocol ParkableMacLink: MacLink {
     /// passed. The tunnel then moves onto a fresh socket; probe it, and the
     /// first frame back ends the park on both sides.
     func resumeParked() -> Bool
+    /// In front again, how long the resumed link may stay silent before a
+    /// redial is raced against it (the Rust link: three smoothed round trips
+    /// plus 100 ms, within 250 ms and 1.5 s); nil keeps the controller's own.
+    var resumeHedge: Duration? { get }
+}
+
+public extension ParkableMacLink {
+    var resumeHedge: Duration? { nil }
 }
 
 /// One multiplexed channel inside a link.
