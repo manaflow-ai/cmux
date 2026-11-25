@@ -292,6 +292,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",

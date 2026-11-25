@@ -162,6 +162,7 @@ impl WgNet {
         let ultra = Arc::new(UltraCounters::default());
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
+        underlay.set_floor(auto.is_some());
         let driver =
             Driver::new(config, underlay, negotiation, auto, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
@@ -959,6 +960,7 @@ impl Driver {
         let roamed = self.underlay.take_path_change();
         if std::mem::take(&mut self.resumed) | roamed {
             self.stack.path_changed();
+            self.pacer.path_changed();
         }
         let path_rtt = self.path_rtt();
         self.stack.set_path_rtt(path_rtt);
@@ -966,6 +968,8 @@ impl Driver {
         loop {
             let progressed = self.stack.step();
             self.flush_tx();
+            // Only the first step resends what the path change forced.
+            self.pacer.path_settled();
             if !progressed && !self.stack.has_rx() {
                 break;
             }
