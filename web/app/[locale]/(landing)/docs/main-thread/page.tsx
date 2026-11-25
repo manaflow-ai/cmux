@@ -12,8 +12,28 @@ import {
 
 const path = "/docs/main-thread";
 
-const repoDocHref =
-  "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/cmux-next/main-thread.md";
+const readMoreLinks = [
+  {
+    key: "readThreading",
+    href: "https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md",
+  },
+  {
+    key: "readFaq",
+    href: "https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks_faq.md",
+  },
+  {
+    key: "readScopedBlocking",
+    href: "https://chromium.googlesource.com/chromium/src/+/main/base/threading/scoped_blocking_call.h",
+  },
+  {
+    key: "readHangWatcher",
+    href: "https://chromium.googlesource.com/chromium/src/+/main/base/threading/hang_watcher.h",
+  },
+  {
+    key: "readRepoDoc",
+    href: "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/cmux-next/main-thread.md",
+  },
+] as const;
 
 function assertSupportedLocale(locale: string) {
   if (!mainThreadDocsLocales.includes(locale as (typeof mainThreadDocsLocales)[number])) {
@@ -64,6 +84,14 @@ export default async function MainThreadPage({
         <li>{t("fixWrites")}</li>
       </ol>
 
+      <DocsHeading level={2} id="chrome">{t("chromeTitle")}</DocsHeading>
+      <ul>
+        <li>{t("chromeUiThread")}</li>
+        <li>{t("chromeTasks")}</li>
+        <li>{t("chromeEnforced")}</li>
+        <li>{t("chromeProcesses")}</li>
+      </ul>
+
       <DocsHeading level={2} id="rule">{t("ruleTitle")}</DocsHeading>
       <p>{t("ruleIntro")}</p>
       <CodeBlock lang="swift">{`let text = try await work.run(.userVisible, mayBlock: .files) {
@@ -80,11 +108,15 @@ model.apply(text)`}</CodeBlock>
       <CodeBlock lang="bash">{`log stream --predicate 'category == "blocking"'`}</CodeBlock>
 
       <DocsHeading level={2} id="further-reading">{t("readMoreTitle")}</DocsHeading>
-      <p>
-        <a href={repoDocHref} target="_blank" rel="noopener noreferrer">
-          {t("readRepoDoc")}
-        </a>
-      </p>
+      <ul>
+        {readMoreLinks.map((link) => (
+          <li key={link.key}>
+            <a href={link.href} target="_blank" rel="noopener noreferrer">
+              {t(link.key)}
+            </a>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }
