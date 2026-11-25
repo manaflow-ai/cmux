@@ -144,6 +144,87 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         }
     }
 
+    /// The 8 pt gap between the key row and the composer is the composer's: a tap there, at the
+    /// gap's edges and 4 pt in from each, moves the typing from the terminal to the composer and
+    /// fires no key. 4 pt up into the row is still the key's own (Esc fires).
+    @MainActor
+    func testGapTapFocusesComposer() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "short"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-composer"]
+        app.launch()
+        defer { app.terminate() }
+
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "no composer field")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "no keyboard")
+        let escape = app.buttons["terminal.key.escape"]
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            escape.exists && escape.frame.height >= 20
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 5), .completed, "no key row over the keyboard")
+        pause(1.5)
+
+        let probe = app.descendants(matching: .any)["terminal.keyBar.fired"].firstMatch
+        let target = app.descendants(matching: .any)["terminal.typingTarget"].firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 5), "no key row probe (a DEBUG build?)")
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "no typing target probe")
+        let card = app.descendants(matching: .any)["terminal.composer.card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "no composer card")
+        let row = escape.frame
+        let gapTop = row.maxY
+        let gapBottom = row.maxY + 8
+        XCTAssertLessThanOrEqual(gapBottom, card.frame.minY + 0.5, "the card \(card.frame) starts inside the gap below \(row)")
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        // Under Esc and under the middle of the row.
+        let xs: [CGFloat] = [row.midX, app.windows.firstMatch.frame.midX]
+        let ys: [CGFloat] = [gapTop + 0.5, gapTop + 4, gapBottom - 4, gapBottom - 0.5]
+        let terminalSpot = origin.withOffset(CGVector(dx: app.windows.firstMatch.frame.midX, dy: row.minY - 120))
+        var failures: [String] = []
+        for x in xs {
+            for y in ys {
+                // The terminal takes the typing first, so the gap tap has something to change.
+                terminalSpot.tap()
+                guard waitFor(target, "terminal") else {
+                    failures.append("a terminal tap did not take the typing (\(target.value ?? "nil"))")
+                    continue
+                }
+                let before = probe.value as? String ?? ""
+                origin.withOffset(CGVector(dx: x, dy: y)).tap()
+                let moved = waitFor(target, "composer")
+                let after = probe.value as? String ?? ""
+                if !moved { failures.append("(\(Int(x)), \(y)): the composer did not take the typing") }
+                if after != before { failures.append("(\(Int(x)), \(y)): fired \(before) -> \(after)") }
+            }
+        }
+        attach("gap-taps")
+        XCTAssertTrue(failures.isEmpty, "gap \(gapTop)...\(gapBottom):\n" + failures.joined(separator: "\n"))
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard went down")
+
+        // 4 pt up into the row from the gap's top edge is Esc's own: it fires.
+        let before = probe.value as? String ?? ""
+        origin.withOffset(CGVector(dx: row.midX, dy: gapTop - 4)).tap()
+        let after = probe.value as? String ?? ""
+        XCTAssertTrue(after != before && after.contains("escape"), "4 pt inside Esc \(row) did not fire it: \(before) -> \(after)")
+    }
+
+    @MainActor
+    private func waitFor(_ element: XCUIElement, _ value: String) -> Bool {
+        let done = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (element.value as? String) == value
+        }, object: nil)
+        return XCTWaiter().wait(for: [done], timeout: 3) == .completed
+    }
+
+    @MainActor
+    private func pause(_ seconds: TimeInterval) {
+        let never = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in false }, object: nil)
+        _ = XCTWaiter().wait(for: [never], timeout: seconds)
+    }
+
     @MainActor
     private func attach(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

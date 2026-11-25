@@ -401,13 +401,22 @@ private struct KeyBarFiredProbe: View {
     let model: TerminalModel
 
     var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .allowsHitTesting(false)
-            .accessibilityElement()
-            .accessibilityLabel("Key row probe")
-            .accessibilityValue("\(model.keyBarFired)|joystick:\(model.joystickEngine.touches)")
-            .accessibilityIdentifier("terminal.keyBar.fired")
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Key row probe")
+                .accessibilityValue("\(model.keyBarFired)|joystick:\(model.joystickEngine.touches)")
+                .accessibilityIdentifier("terminal.keyBar.fired")
+            // Where typed keys go: "terminal" while the surface has them, else "composer".
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Typing target probe")
+                .accessibilityValue(model.directTyping ? "terminal" : "composer")
+                .accessibilityIdentifier("terminal.typingTarget")
+        }
+        .allowsHitTesting(false)
     }
 }
 #endif
