@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9778b30a69d8e2f73fc3ce095e7928dcc69670389a87ceb3d2e7aa5ba45426e7. */
+/* cmux-tui mux protocol 12, IR 6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -724,6 +724,11 @@ export type ListWorkspacesKnown = {
   "terminal_revision"?: (bigint) | null;
   "tree_revision"?: (string) | null;
   "workspace_revision"?: (bigint) | null;
+};
+
+export type ListWorkspacesSince = {
+  "epoch": string;
+  "seq": bigint;
 };
 
 export type LivePane = {
@@ -1854,10 +1859,16 @@ export type TerminalResumeCommandResult = {
 };
 
 export type Tree = {
+  "changed"?: Array<Workspace>;
+  "delta"?: boolean;
+  "epoch"?: string;
   "generation"?: string;
   "next"?: bigint;
+  "order"?: Array<Id>;
   "pane_revision"?: bigint;
   "registry_id"?: string;
+  "removed"?: Array<Id>;
+  "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;
   "tree_revision"?: string;
