@@ -650,6 +650,24 @@ pub struct Worktree {
 }
 
 impl Worktree {
+    /// Validates a name and refuses to take over an ordinary or differently mounted worktree.
+    pub fn validate(git_dir: &Path, name: &str, at: &Path) -> anyhow::Result<Self> {
+        let path = Path::new(name);
+        anyhow::ensure!(
+            path.components().count() == 1
+                && matches!(path.components().next(), Some(std::path::Component::Normal(_))),
+            "invalid worktree name {name:?}"
+        );
+        let admin = git_dir.join("worktrees").join(path);
+        if admin.exists() {
+            let expected = format!("{}\n", at.join(".git").display());
+            let held = std::fs::read_to_string(admin.join("gitdir"))
+                .map_err(|error| anyhow::anyhow!("cannot inspect worktree {name:?}: {error}"))?;
+            anyhow::ensure!(held == expected, "worktree {name:?} is not owned by this projection");
+        }
+        Ok(Self { admin })
+    }
+
     /// Registers worktree `name` of `git_dir` at `at` on `commit` (detached), with `index`, and a
     /// `locked` note so `git worktree prune` keeps it while the mount is down. `excludes` are
     /// paths git should not list as untracked (the build output links), kept in this worktree's
@@ -662,7 +680,8 @@ impl Worktree {
         index: &[u8],
         excludes: &[String],
     ) -> anyhow::Result<Self> {
-        let admin = git_dir.join("worktrees").join(name);
+        let worktree = Self::validate(git_dir, name, at)?;
+        let admin = worktree.admin.clone();
         std::fs::create_dir_all(&admin)?;
         // Each file is written only when its bytes change: build scripts watch `HEAD` (cmux's
         // build identity does), and a rewrite with the same commit would rerun them.
@@ -694,7 +713,7 @@ impl Worktree {
                 output(command)?;
             }
         }
-        Ok(Self { admin })
+        Ok(worktree)
     }
 
     /// Whether the worktree at `admin` already has `sparse` as its patterns (no `--sparse` and no

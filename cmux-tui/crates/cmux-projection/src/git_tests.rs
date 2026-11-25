@@ -281,3 +281,49 @@ fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
     assert!(listed.contains("H README.md"), "{listed}");
     assert_eq!(git(&["diff-index", "--cached", "--name-only", &commit]), "", "nothing staged");
 }
+
+#[test]
+fn object_reader_drains_non_blob_records_before_the_next_blob() {
+    let (_dir, git_dir, commit) = repo();
+    let readme = run(git_dir.parent().unwrap(), &["rev-parse", "HEAD:README.md"]).trim().to_owned();
+    let mut reader = ObjectReader::spawn_local(&git_dir).unwrap();
+    assert_eq!(reader.blob(&commit), None);
+    assert_eq!(reader.blob(&readme), Some(b"hello\n".to_vec()));
+}
+
+#[test]
+fn a_commit_with_case_only_distinct_paths_stays_distinct() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    for (name, bytes) in [(b"Foo".as_slice(), b"upper\n".as_slice()), (b"foo", b"lower\n")] {
+        std::fs::write(work.join(std::ffi::OsStr::from_bytes(name)), bytes).unwrap();
+    }
+    run(&work, &["init", "-q"]);
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "one"]);
+    let git_dir = work.join(".git");
+    let commit = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    assert!(projection.manifest.resolve("Foo").is_some());
+    assert!(projection.manifest.resolve("foo").is_some());
+    let index = index_bytes(&projection.index, ObjectFormat::Sha1, 1000, 1000).unwrap();
+    std::fs::write(git_dir.join("index"), index).unwrap();
+    assert_eq!(run(&work, &["ls-files", "--stage"]).lines().count(), 2);
+}
+
+#[test]
+fn a_non_utf8_git_path_is_unsupported() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join(std::ffi::OsStr::from_bytes(b"caf\xe9.txt")), b"latin\n").unwrap();
+    run(&work, &["init", "-q"]);
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "one"]);
+    let commit = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let error = ls_tree(&work.join(".git"), &commit).unwrap_err();
+    assert!(error.downcast_ref::<Unsupported>().is_some(), "{error:#}");
+}
