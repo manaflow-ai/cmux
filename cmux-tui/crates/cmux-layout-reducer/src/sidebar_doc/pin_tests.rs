@@ -115,6 +115,22 @@ fn unpin_puts_a_member_back_in_its_group_where_it_was() {
 }
 
 #[test]
+fn batch_unpin_restores_sibling_order_for_either_selection_order() {
+    for pins in [["w2", "w3"], ["w3", "w2"]] {
+        for unpins in [["w2", "w3"], ["w3", "w2"]] {
+            let mut doc = fixture();
+            run(&mut doc, vec![Op::Pin { items: pins.map(item_id).to_vec() }]);
+            run(&mut doc, vec![Op::Unpin { items: unpins.map(item_id).to_vec() }]);
+            assert_eq!(
+                list(&doc, &machine(), Some("g1")),
+                ["w1", "w2", "w3"],
+                "pin {pins:?}, unpin {unpins:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn unpin_puts_a_first_member_back_first_in_its_group() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w1")] }]);
