@@ -114,6 +114,8 @@ enum Arrived {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     Closed(String),
+    /// The link has a current path again (after none answered): feedback goes at once.
+    PathBack,
 }
 
 impl ViewerIo {
@@ -203,11 +205,19 @@ impl ViewerIo {
                             link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
-                        NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
+                        NetEvent::Endpoint(EndpointEvent::PathChanged {
+                            route,
+                            kind,
+                            rtt_us,
+                            ..
+                        }) => {
                             eprintln!(
                                 "{}",
                                 json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
                             );
+                            if route.is_some() {
+                                out.push(Arrived::PathBack);
+                            }
                         }
                         _ => {}
                     }
@@ -616,6 +626,12 @@ impl Viewer {
                 }
                 Arrived::Closed(reason) => {
                     self.ended.get_or_insert(reason);
+                    continue;
+                }
+                // The host learns the path is back from the first feedback after the
+                // silence (D12): send it now rather than at the next keepalive.
+                Arrived::PathBack => {
+                    self.last_feedback_ns = 0;
                     continue;
                 }
                 Arrived::Control(payload) => payload,
