@@ -2913,6 +2913,396 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "你的团队运行中的机器都在使用中。升级获取更多，或在这台 Mac 上运行。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "你的團隊執行中的機器都在使用中。升級取得更多，或在這台 Mac 上執行。"}}
     }},
+    "cloud.atCap.limitTitle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصل فريقك إلى حد أجهزة Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš tim je dostigao ograničenje Cloud mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit team har nået sin grænse for Cloud-maskiner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team hat sein Limit für Cloud-Maschinen erreicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team is at its Cloud machine limit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu equipo alcanzó su límite de máquinas en Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe a atteint sa limite de machines Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo team ha raggiunto il limite di macchine Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの Cloud マシン数が上限に達しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបស់អ្នកបានដល់ដែនកំណត់ម៉ាស៊ីន Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀의 Cloud 머신 한도에 도달했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet ditt har nådd grensen for Cloud-maskiner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój zespół osiągnął limit maszyn Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua equipe atingiu o limite de máquinas na Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша команда достигла лимита машин Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมของคุณใช้เครื่อง Cloud ครบขีดจำกัดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibiniz Cloud makine sınırına ulaştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша команда досягла ліміту машин Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm của bạn đã đạt giới hạn máy Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的团队已达到 Cloud 机器上限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的團隊已達到 Cloud 機器上限"
+          }
+        }
+      }
+    },
+    "cloud.atCap.limitDetail": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة المتوقفة مؤقتًا تُحتسب ضمنه. قم بالترقية للمزيد، أو احذف جهازًا لم تعد تحتاجه، أو شغّل هذا على جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzirane mašine se računaju. Nadogradite za više, obrišite mašinu koja vam više ne treba ili ovo pokrenite na svom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satte maskiner på pause tæller med. Opgrader for flere, slet en maskine, du ikke længere bruger, eller kør dette på din Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausierte Maschinen zählen mit. Führe ein Upgrade durch, lösche eine Maschine, die du nicht mehr brauchst, oder führe dies auf deinem Mac aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused machines count toward it. Upgrade for more, delete a machine you no longer need, or run this on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas en pausa cuentan. Mejora tu plan para tener más, elimina una máquina que ya no necesites o ejecuta esto en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines en pause comptent. Passez à un plan supérieur, supprimez une machine dont vous n'avez plus besoin ou exécutez ceci sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le macchine in pausa contano. Esegui l'upgrade per averne di più, elimina una macchina che non ti serve più o esegui questo sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中のマシンも数に含まれます。アップグレードして増やすか、不要なマシンを削除するか、この Mac で実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលបានផ្អាកក៏ត្រូវរាប់បញ្ចូលដែរ។ ដំឡើងកម្រិតដើម្បីបានច្រើនទៀត លុបម៉ាស៊ីនដែលអ្នកលែងត្រូវការ ឬដំណើរការវានៅលើ Mac របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일시 정지된 머신도 포함됩니다. 업그레이드하여 늘리거나, 더 이상 필요 없는 머신을 삭제하거나, 이 Mac에서 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskiner på pause teller med. Oppgrader for flere, slett en maskin du ikke trenger lenger, eller kjør dette på din Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymane maszyny też się liczą. Przejdź na wyższy plan, usuń niepotrzebną maszynę albo uruchom to na swoim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas pausadas contam. Faça upgrade para ter mais, exclua uma máquina que não usa mais ou execute isto no seu Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановленные машины тоже учитываются. Перейдите на более высокий план, удалите ненужную машину или запустите это на своём Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่หยุดชั่วคราวก็นับรวมด้วย อัปเกรดเพื่อเพิ่ม ลบเครื่องที่ไม่ใช้แล้ว หรือรันบน Mac ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklatılmış makineler de sayılır. Daha fazlası için yükseltin, artık gerekmeyen bir makineyi silin veya bunu Mac'inizde çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупинені машини теж враховуються. Перейдіть на вищий план, видаліть непотрібну машину або запустіть це на своєму Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy đang tạm dừng cũng được tính. Nâng cấp để có thêm, xóa một máy bạn không còn cần, hoặc chạy việc này trên máy Mac của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停的机器也计算在内。升级以获得更多，删除不再需要的机器，或在你的 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暫停的機器也會計算在內。升級以取得更多、刪除不再需要的機器，或在你的 Mac 上執行。"
+          }
+        }
+      }
+    },
+    "cloud.atCap.limitDetailCount": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لدى فريقك %1$ld من %2$ld من أجهزة Cloud، بما فيها المتوقفة مؤقتًا. قم بالترقية للمزيد، أو احذف جهازًا لم تعد تحتاجه، أو شغّل هذا على جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš tim ima %1$ld od %2$ld Cloud mašina, uključujući pauzirane. Nadogradite za više, obrišite mašinu koja vam više ne treba ili ovo pokrenite na svom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit team har %1$ld af %2$ld Cloud-maskiner, inklusive dem på pause. Opgrader for flere, slet en maskine, du ikke længere bruger, eller kør dette på din Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team hat %1$ld von %2$ld Cloud-Maschinen, pausierte eingeschlossen. Führe ein Upgrade durch, lösche eine Maschine, die du nicht mehr brauchst, oder führe dies auf deinem Mac aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team has %1$ld of %2$ld Cloud machines, paused ones included. Upgrade for more, delete a machine you no longer need, or run this on your Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu equipo tiene %1$ld de %2$ld máquinas en Cloud, incluidas las que están en pausa. Mejora tu plan para tener más, elimina una máquina que ya no necesites o ejecuta esto en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe a %1$ld machines Cloud sur %2$ld, y compris celles en pause. Passez à un plan supérieur, supprimez une machine dont vous n'avez plus besoin ou exécutez ceci sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo team ha %1$ld macchine Cloud su %2$ld, incluse quelle in pausa. Esegui l'upgrade per averne di più, elimina una macchina che non ti serve più o esegui questo sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの Cloud マシンは %2$ld 台中 %1$ld 台です（一時停止中を含む）。アップグレードして増やすか、不要なマシンを削除するか、この Mac で実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបស់អ្នកមានម៉ាស៊ីន Cloud %1$ld ក្នុងចំណោម %2$ld រួមទាំងម៉ាស៊ីនដែលបានផ្អាក។ ដំឡើងកម្រិតដើម្បីបានច្រើនទៀត លុបម៉ាស៊ីនដែលអ្នកលែងត្រូវការ ឬដំណើរការវានៅលើ Mac របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀의 Cloud 머신이 %2$ld대 중 %1$ld대입니다(일시 정지된 머신 포함). 업그레이드하여 늘리거나, 더 이상 필요 없는 머신을 삭제하거나, 이 Mac에서 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet ditt har %1$ld av %2$ld Cloud-maskiner, inkludert de på pause. Oppgrader for flere, slett en maskin du ikke trenger lenger, eller kjør dette på din Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój zespół ma %1$ld z %2$ld maszyn Cloud, wliczając wstrzymane. Przejdź na wyższy plan, usuń niepotrzebną maszynę albo uruchom to na swoim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua equipe tem %1$ld de %2$ld máquinas na Cloud, incluindo as pausadas. Faça upgrade para ter mais, exclua uma máquina que não usa mais ou execute isto no seu Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашей команды %1$ld из %2$ld машин Cloud, включая приостановленные. Перейдите на более высокий план, удалите ненужную машину или запустите это на своём Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมของคุณมีเครื่อง Cloud %1$ld จาก %2$ld เครื่อง รวมเครื่องที่หยุดชั่วคราว อัปเกรดเพื่อเพิ่ม ลบเครื่องที่ไม่ใช้แล้ว หรือรันบน Mac ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibinizin %2$ld Cloud makinesinden %1$ld tanesi var, duraklatılmışlar dahil. Daha fazlası için yükseltin, artık gerekmeyen bir makineyi silin veya bunu Mac'inizde çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша команда має %1$ld з %2$ld машин Cloud, включно з призупиненими. Перейдіть на вищий план, видаліть непотрібну машину або запустіть це на своєму Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm của bạn có %1$ld/%2$ld máy Cloud, tính cả máy đang tạm dừng. Nâng cấp để có thêm, xóa một máy bạn không còn cần, hoặc chạy việc này trên máy Mac của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的团队已有 %1$ld/%2$ld 台 Cloud 机器（含已暂停的）。升级以获得更多，删除不再需要的机器，或在你的 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的團隊已有 %1$ld/%2$ld 台 Cloud 機器（含已暫停的）。升級以取得更多、刪除不再需要的機器，或在你的 Mac 上執行。"
+          }
+        }
+      }
+    },
     "cloud.atCap.freeDetail": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "لا تتضمن خطتك أجهزة سحابية. قم بالترقية، أو شغّل هذا على جهاز Mac."}},
       "bs": {"stringUnit": {"state": "translated","value": "Vaš plan nema Cloud mašina. Nadogradite ili ovo pokrenite na svom Macu."}},

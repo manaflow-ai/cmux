@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
 import Testing
@@ -22,6 +23,25 @@ import Testing
         let spec = CloudMachineCapCard.spec(CloudMachineCap(freePlan: true), freePlanDetail: "Go is $10 a month.")
         #expect(spec.buttons.map(\.id) == ["cancel", "runHere", "upgrade"])
         #expect(spec.lines == ["Go is $10 a month."])
+    }
+
+    /// cmux#56154: at the team's machine-count limit (paused machines count) the card offers Upgrade, never Pause.
+    @Test func theTeamsMachineLimitOffersUpgradeAndNoPause() {
+        let cap = CloudMachineCap(busy: [.init(machine: "vm_a", name: "docs")], machineLimit: .init(limit: 20, used: 20))
+        let spec = CloudMachineCapCard.spec(cap)
+        #expect(spec.buttons.map(\.id) == ["cancel", "runHere", "upgrade"])
+        #expect(spec.buttons.last?.role == .default, "Upgrade is the default button")
+        #expect(spec.title == "Your team is at its Cloud machine limit")
+        #expect(spec.lines.count == 1 && spec.lines[0].contains("20 of 20"), "\(spec.lines)")
+        let unnamed = CloudMachineCapCard.spec(CloudMachineCap(machineLimit: .init()))
+        #expect(unnamed.lines.count == 1 && unnamed.lines[0].hasPrefix("Paused machines count"), "\(unnamed.lines)")
+    }
+
+    @Test func theTeamsMachineLimitRefusalReadsAsTheLimitCard() {
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.vm_limit", message: "at the limit", details: .object(["limit": .number(20), "team_vms": .number(20)]))
+        #expect(CloudMachineCap.refusal(refusal) == CloudMachineCap(machineLimit: .init(limit: 20, used: 20)))
+        let held = CloudAppOpFailure(code: "cmux.cloud.quota_exceeded", message: "", details: .object(["resource": .string("machines"), "limit": .number(50), "used": .number(50)]))
+        #expect(CloudMachineCap.refusal(held)?.machineLimit == .init(limit: 50, used: 50))
     }
 
     @Test func theAnswerNamesTheChoice() {

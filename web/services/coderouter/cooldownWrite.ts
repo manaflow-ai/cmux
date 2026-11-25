@@ -1,7 +1,11 @@
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
-/** Failure reasons that require human intervention instead of waiting. */
-export const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential"]);
+/**
+ * Failure reasons a request never waits out: a credential a human must fix, or a subscription usage window
+ * (`usage_limit`, weekly or 5-hour) that resets hours or days later. A request moves to another account instead of
+ * holding for one of these, and a short transient failure never shortens their rest.
+ */
+export const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential", "usage_limit"]);
 
 export function isNonTransientFailureCode(failureCode: string | null | undefined): boolean {
   return failureCode !== null && failureCode !== undefined && NON_TRANSIENT_FAILURE_CODES.has(failureCode);
