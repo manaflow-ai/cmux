@@ -84,16 +84,28 @@ pub(crate) fn record(name: &str, remote: &str, local: &Path, encoded: &[u8]) -> 
 
 /// The projection recorded for `local` at `remote`, when that folder is projected.
 pub(crate) fn recorded(local: &Path, remote: &str) -> Option<Recorded> {
+    recorded_named(local, remote, None)
+}
+
+/// The projection recorded for `local` at `remote`, optionally restricted to its persisted name.
+/// A folder can be projected by several chats at once, so callers with a chat identity must not
+/// select the first matching record from the directory.
+fn recorded_named(local: &Path, remote: &str, expected_name: Option<&str>) -> Option<Recorded> {
     let local = std::fs::canonicalize(local).ok()?;
     let dir = records_dir().ok()?;
     std::fs::read_dir(dir).ok()?.filter_map(Result::ok).find_map(|entry| {
-        let name = entry.file_name().into_string().ok()?;
-        name.strip_suffix(".json")?;
+        let entry_name = entry.file_name().into_string().ok()?;
+        entry_name.strip_suffix(".json")?;
         let bytes = std::fs::read(entry.path()).ok()?;
         let found: Recorded = serde_json::from_slice(&bytes).ok()?;
-        let same = found.remote.trim_end_matches('/') == remote.trim_end_matches('/');
-        (same && found.local == local).then_some(found)
+        record_matches(&found, &local, remote, expected_name).then_some(found)
     })
+}
+
+fn record_matches(found: &Recorded, local: &Path, remote: &str, name: Option<&str>) -> bool {
+    let same_remote = found.remote.trim_end_matches('/') == remote.trim_end_matches('/');
+    let same_name = name.is_none_or(|expected| found.name == expected);
+    same_remote && same_name && found.local == local
 }
 
 fn forget(name: &str) {
@@ -190,8 +202,14 @@ pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
     let folder = folder.context("the folder is required")?;
-    let found = recorded(&folder, &at)
-        .with_context(|| format!("{} is not a projected folder at {at}", folder.display()))?;
+    let expected_name = chat.as_deref().map(super::project::chat_name);
+    let found = recorded_named(&folder, &at, expected_name.as_deref()).with_context(|| {
+        if let Some(chat) = chat.as_deref() {
+            format!("{} is not a projected folder for chat {chat} at {at}", folder.display())
+        } else {
+            format!("{} is not a projected folder at {at}", folder.display())
+        }
+    })?;
     let mut line = json!({"cmd": "projection.detach", "name": found.name});
     if let Some(chat) = chat {
         line["chat"] = Value::String(chat);

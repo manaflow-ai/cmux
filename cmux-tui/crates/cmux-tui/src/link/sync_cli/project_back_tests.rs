@@ -55,3 +55,21 @@ fn ignored_new_paths_stay_on_the_machine_and_edits_of_listed_files_never_do() {
     let kept: Vec<&str> = plan.writes.iter().map(|write| write.path.as_str()).collect();
     assert_eq!(kept, ["app/src/new.rs", "app/debug.log"]);
 }
+
+#[test]
+fn a_named_record_selects_the_matching_chat_when_folders_are_shared() {
+    let local = std::path::Path::new("/tmp/shared-folder");
+    let first = Recorded {
+        name: "chat-first".into(),
+        remote: "/remote/shared".into(),
+        local: local.into(),
+    };
+    let second = Recorded {
+        name: "chat-second".into(),
+        remote: "/remote/shared".into(),
+        local: local.into(),
+    };
+
+    assert!(record_matches(&second, local, "/remote/shared/", Some("chat-second")));
+    assert!(!record_matches(&first, local, "/remote/shared/", Some("chat-second")));
+}
