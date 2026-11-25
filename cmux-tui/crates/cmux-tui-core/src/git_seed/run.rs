@@ -379,7 +379,8 @@ impl Seed {
                 || fill_unfinished(&self.folder);
             let head_first = self.params.head_first.clone().filter(|_| fresh);
             // The sender's pack of the base, when it sent one, instead of a clone ([`carry`]).
-            if !self.carry_in() {
+            // A warm mirror's objects on this machine before either ([`borrow`]).
+            if !self.borrow_in() && !self.carry_in() {
                 self.clone_or_fetch()?;
             }
             self.base()?;
@@ -446,6 +447,9 @@ impl Seed {
             std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some());
         if not_empty {
             return Err(failed("seed.folder_not_empty", "the folder exists and is not empty"));
+        }
+        if self.borrow_clone() {
+            return Ok(());
         }
         self.clone_into(&folder)
     }
@@ -1311,6 +1315,10 @@ fn clean_folder(folder: &Path, existed: bool) {
 /// `git-seed-carry-v1`: the base from the sender's own objects.
 #[path = "carry.rs"]
 mod carry;
+
+/// A warm mirror's objects through alternates, and the promisor sources.
+#[path = "borrow.rs"]
+pub(super) mod borrow;
 
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.

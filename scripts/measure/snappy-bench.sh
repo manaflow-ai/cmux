@@ -89,7 +89,7 @@ fi
 status=0
 echo "snappy-bench: display: $display"
 python3 scripts/measure/snappy-bench.py --app "$app" --out "$out/run" ${film_args[@]+"${film_args[@]}"} || status=$?
-if [ -f "$out/films/snappy.json" ]; then
+if [ -f "$out/run/snappy.json" ]; then
   (cd "$out/run" && find . -maxdepth 1 \( -name 'snappy.json' -o -name 'app.log' \) -print0 \
     | tar -cf "$OLDPWD/snappy-bench.tar" --null -T -) || true
   echo "snappy-bench: artifact $(du -h snappy-bench.tar 2>/dev/null | cut -f1)"

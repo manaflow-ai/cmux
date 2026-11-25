@@ -366,6 +366,11 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
+    // Chat titles and read marks through the sync engine, pulled and pushed by version vector
+    // (`hub/synced.rs`).
+    Capability { id: "state-sync-v1", wire: &[method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH] },
+    // A chat pinned or unpinned, kept in its record and synced as `pin/<id>` (`hub/synced.rs`).
+    Capability { id: "chat-pin-v1", wire: &[method::MUX_PIN] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
@@ -506,6 +511,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_TEAM_ACK,
         ],
     },
+    // A listen on another member's agent address: open, list, close, and read what it receives
+    // (`server/team.rs` `listen`), under the same team-messaging gate.
+    Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -608,6 +616,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // A turn's frames of the chat's page as it formed, for the frames strip and the live preview
+    // window (`hub/turn_frames.rs`, RFD 0151).
+    Capability { id: "turn-frames-v1", wire: &[method::MUX_TURN_FRAMES] },
     // A wrap-up card's Try it on, Keep and Revert (`customize_run.rs`).
     Capability { id: "customize-run-v1", wire: &[method::MUX_CUSTOMIZE_RUN] },
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),

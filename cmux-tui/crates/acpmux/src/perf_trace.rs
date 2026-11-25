@@ -215,10 +215,10 @@ where
     }
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
-        if let Some(span) = ctx.span(id) {
-            if let Some(t) = span.extensions_mut().get_mut::<Timing>() {
-                values.record(&mut Fields(&mut t.args));
-            }
+        if let Some(span) = ctx.span(id)
+            && let Some(t) = span.extensions_mut().get_mut::<Timing>()
+        {
+            values.record(&mut Fields(&mut t.args));
         }
     }
 
