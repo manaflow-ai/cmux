@@ -77,6 +77,9 @@ const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
 /// `ALLOC=1` (with PROFILE=1) samples the heap allocations of every burst: bytes per record by allocating function.
 const ALLOC = process.env.ALLOC === "1";
+/// `BENCH_CHROME_ARGS` (space-separated) passes on to Chromium: `--js-flags=--trace-gc` (with `DEBUG=pw:browser`)
+/// prints each page's collections, which says whether the god page collects more often or each collection costs more.
+const CHROME_ARGS = process.env.BENCH_CHROME_ARGS?.split(" ").filter(Boolean);
 /// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
 /// DevTools trace on: its time is not a clean measurement, its counts are.
 const PROBE = process.env.PROBE === "1";
@@ -1109,6 +1112,7 @@ if (import.meta.main) {
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
       headless: true,
+      ...(CHROME_ARGS?.length ? { args: CHROME_ARGS } : {}),
     });
     releases.push(() => browser.close());
     const ctx: Ctx = {

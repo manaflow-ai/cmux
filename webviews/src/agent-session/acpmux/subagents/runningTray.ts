@@ -15,7 +15,7 @@ import { subagentNamed } from "./subsessions";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { keptPrefix, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, keptWith, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
 
 /// One running thing in the tray: a subagent (nested ones moved in under their parent), a
 /// background command, or a chat the agent started.
@@ -539,7 +539,8 @@ function placeMarks(rows: readonly AcpmuxRow[], pass: MarkedRows, cache: DoneLin
   // `from`: the first row whose output may differ from the last pass's; `marked` marks come before it.
   let from = 0;
   let marked = 0;
-  let out: AcpmuxRow[] = [];
+  /// How many leading rows of the last output this one keeps.
+  let kept = 0;
   if (reuse) {
     from = keptPrefix(lastRows!, rows);
     let index = 0;
@@ -563,18 +564,19 @@ function placeMarks(rows: readonly AcpmuxRow[], pass: MarkedRows, cache: DoneLin
       at += marks[marked]! - previous - 1 + drawn[marked]!.length;
       previous = marks[marked]!;
     }
-    at += from - previous - 1;
-    out = lastOut!.slice(0, at);
+    kept = Math.min(at + from - previous - 1, lastOut!.length);
   }
-  const kept = out.length;
+  // The rows from `from` on first, then one copy of the kept ones with them (keptWith).
+  const tail: AcpmuxRow[] = [];
   let next = from;
   for (let index = marked; index < marks.length; index += 1) {
     const mark = marks[index]!;
-    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
-    out.push(...drawn[index]!);
+    for (; next < mark && next < rows.length; next += 1) tail.push(rows[next]!);
+    tail.push(...drawn[index]!);
     next = Math.max(next, mark + 1);
   }
-  for (; next < rows.length; next += 1) out.push(rows[next]!);
+  for (; next < rows.length; next += 1) tail.push(rows[next]!);
+  const out = kept > 0 ? keptWith(lastOut!, kept, tail) : tail;
   if (reuse) noteKeptPrefix(out, lastOut!, kept);
   lastPasses.set(cache, { ...pass, rows: new WeakRef(rows), out: new WeakRef(out) });
   return out;
