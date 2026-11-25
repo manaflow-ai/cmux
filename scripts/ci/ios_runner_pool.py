@@ -338,6 +338,12 @@ LANES = {
     # in IOS_WORKFLOWS, so other pickers do not charge an in-flight billing
     # run's simulator: at most one undercounted job of the SIM_LABEL slots.
     "billing": Lane(jobs=1, measured=True),
+    # pr-pipeline.yml's `ios` job (ci/steps.toml's ios steps: the CmuxMobileKit tests, then the reliability
+    # matrix's phone cells, one after the other on one iPhone simulator, one Mac). Not sim-first until glaeda
+    # classes ("pr-router.yml", "ios") as a simulator-step job (the reusable workflow's run carries the caller's
+    # file); until then its sim-first runner refuses it. pr-router.yml is not in IOS_WORKFLOWS (it runs for every
+    # pull request), so, as with billing, other pickers do not charge an in-flight pipeline's simulator.
+    "pipeline": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -419,7 +425,7 @@ def retry_label(default: str) -> str:
 
 def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
-    if lane in ("screenshots", "kit", "phone-cells", "billing"):
+    if lane in ("screenshots", "kit", "phone-cells", "billing", "pipeline"):
         return 1
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.

@@ -5845,7 +5845,8 @@ GUARD_WORKFLOWS = {
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
-                         "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo", "swift-test",
+                         "cmux-scheme-compile-fleet", "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo",
+                         "swift-test",
                          "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
                          "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
@@ -6262,7 +6263,7 @@ def touches(path: str, read: str) -> bool:
 # not risk:high, (3) GitHub does not call it conflicting, (4) the job was red at the PR's merge-base and (5) passes on
 # the newest base after it, and (6) none of the PR's files feeds the check. (5) and (6) are the rule above; this adds
 # (1)-(4), so a lane's own land and autoland's agree. Any one missing keeps the red: the head takes a base merge and a
-# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy, as defaults_guard reads it). A merged
+# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy). A merged
 # pull request (merge_audit) has no conflict to read.
 SCRIPT_DIR = Path(__file__).resolve().parent
 FIXED_ON_BASE_RISK = "risk:high"
