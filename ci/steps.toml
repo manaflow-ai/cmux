@@ -125,6 +125,20 @@ mkdir -p "$CI_TOOLS/bin"
 for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do
   ln -sf "$cargo_bin/$tool" "$CI_TOOLS/bin/$tool"
 done
+# A persistent runner of the GHA pool (cmuxterm-hq build-fleet/swift-linux-builder/gha-runners/pool-startup.sh) keeps
+# sccache in /usr/local/bin and SCCACHE_DIR in the runner user's HOME, which outlives the job, while the job-done hook
+# wipes the checkout and its target/: with no wrapper every cmux_next_ daemon test run compiled all 626 crates cold
+# (20 to 54 min, pr pipeline / linux, 2026-11-24). The checkout path is the same for every job of a runner user
+# (/home/USER/work/cmux/cmux), so sccache's path-keyed entries hit there. cargo runs through sccache only on such a
+# runner: a set RUSTC_WRAPPER (the fleet's kache) is kept, and a runner with no SCCACHE_DIR or no sccache is as before.
+# Only the step table's test jobs read this cache; no release or artifact job sets the wrapper.
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ -z "${RUSTC_WRAPPER:-}" ] && [ -n "${SCCACHE_DIR:-}" ] \
+  && [ -d "$SCCACHE_DIR" ] && [ -w "$SCCACHE_DIR" ] && command -v sccache >/dev/null 2>&1; then
+  rm -f "$CI_TOOLS/bin/cargo"
+  printf '#!/bin/sh\nRUSTC_WRAPPER="%s" exec "%s" "$@"\n' "$(command -v sccache)" "$cargo_bin/cargo" > "$CI_TOOLS/bin/cargo"
+  chmod +x "$CI_TOOLS/bin/cargo"
+  echo "cargo compiles through $(command -v sccache) into $SCCACHE_DIR"
+fi
 '''
 
 # The Zig that builds libghostty-vt from the ghostty-next gitlink (scripts/install-zig-ci.sh: the reviewed, checksummed
@@ -1342,6 +1356,10 @@ for attempt in 1 2 3; do
   fi
   [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
 done
+# The compile cache's hits and misses, when the rust tool sent cargo through the runner's sccache.
+case "$(head -c 300 "$(command -v cargo)" 2>/dev/null | tr -d '\0')" in
+  *RUSTC_WRAPPER=*sccache*) sccache --show-stats || true ;;
+esac
 # End the daemon of this home and its agents, then delete the home (a path this step made).
 acpmux="$(command -v acpmux || true)"
 [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
