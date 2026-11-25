@@ -561,7 +561,11 @@ public struct WorkspacesList: View {
                                                                         tracks: tracks, isRemembered: ws.id == input.rememberedWorkspaceID)))
             }
         }
-        if let id = input.recoveryMacID, !input.searching { add("recovery", [("recovery.\(id)", .recovery(id))]) }
+        // The filtered Mac's recovery: over rows it heads the list; with no row the page's empty state
+        // is that same panel (`scopedEmptyState`), so the list adds none (never both, as the asleep panel).
+        if let id = input.recoveryMacID, !input.searching, !inbox.isEmpty {
+            add("recovery", [("recovery.\(id)", .recovery(id))])
+        }
         // Every Mac offline: one panel. Over rows it heads the list; with no row the page's empty
         // state is that same panel (never both: cmux#52200 walk drew two, one over the other).
         if inbox.allAsleep && !input.searching && !inbox.isEmpty { add("asleep", [("asleep", .asleep)]) }
