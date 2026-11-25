@@ -74,6 +74,10 @@ struct WelcomeGlide: View {
         let width = lockupWordX + ink.maxX
         let height = chevronHeight
         let taglineAt = rhythm.moveAt + 0.45
+        // As the cursor lands, the icon's own chevron (its pixels, glow
+        // included) comes in over the drawn one, which matches it exactly.
+        let landAt = rhythm.moveAt + flight
+        let landed = IntroEase.out(IntroEase.seg(t, landAt - 0.04, landAt + 0.22))
         VStack(spacing: 22) {
             Canvas { context, size in
                 typealias E = IntroEase
@@ -103,7 +107,7 @@ struct WelcomeGlide: View {
 
                 // The cursor, drawn first: on its way home it passes behind the
                 // letters, which stay crisp over it.
-                if t >= rhythm.onAt, !rhythm.isOff(t) {
+                if t >= rhythm.onAt, !rhythm.isOff(t), landed < 1 {
                     // A block a little taller than the x-height, where typing left it.
                     let block = CGRect(x: typingWordX + cursorOffset, y: baseline + xh * 0.1 - blockHeight,
                                        width: blockWidth, height: blockHeight)
@@ -112,12 +116,15 @@ struct WelcomeGlide: View {
                     let from: [CGPoint] = [
                         CGPoint(x: block.minX, y: block.minY), CGPoint(x: block.maxX, y: block.minY),
                         CGPoint(x: block.maxX, y: block.midY), CGPoint(x: block.maxX, y: block.maxY),
-                        CGPoint(x: block.minX, y: block.maxY), CGPoint(x: block.minX, y: block.minY + 0.76 * blockHeight),
-                        CGPoint(x: block.minX, y: block.midY), CGPoint(x: block.minX, y: block.minY + 0.24 * blockHeight),
+                        CGPoint(x: block.minX, y: block.maxY), CGPoint(x: block.minX, y: block.minY + (1 - Chevron.bottomArm) * blockHeight),
+                        CGPoint(x: block.minX, y: block.midY), CGPoint(x: block.minX, y: block.minY + Chevron.topArm * blockHeight),
                     ]
-                    let h = chevronHeight
-                    let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.36, 0.25), (0.72, 0.5), (0.36, 0.75), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
-                    let to = corners.map { CGPoint(x: $0.0 * h, y: $0.1 * h) }
+                    // The chevron's six corners plus its outer edges' midpoints,
+                    // in the block's order (its right side becomes the tip, its
+                    // left side the notch).
+                    let c = Chevron.corners(at: .zero, height: chevronHeight)
+                    let to = [c[0], CGPoint(x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2), c[1],
+                              CGPoint(x: (c[1].x + c[2].x) / 2, y: (c[1].y + c[2].y) / 2), c[2], c[3], c[4], c[5]]
                     // A shallow arc on the way.
                     let lift = -CGFloat(sin(Double.pi * m)) * xh * 0.35
                     var shape = Path()
@@ -126,7 +133,7 @@ struct WelcomeGlide: View {
                     })
                     shape.closeSubpath()
                     let box = shape.boundingRect
-                    context.fill(shape, with: ChevronGradient.shading(from: CGPoint(x: box.minX, y: 0), to: CGPoint(x: box.maxX, y: 0)))
+                    context.fill(shape, with: Chevron.shading(from: box.minX, to: box.maxX))
                 }
 
                 for (glyph, at) in zip(word.glyphs, typedAt) {
@@ -138,6 +145,21 @@ struct WelcomeGlide: View {
                 }
             }
             .aspectRatio(width / height, contentMode: .fit)
+            .overlay(alignment: .topLeading) {
+                if landed > 0 {
+                    GeometryReader { proxy in
+                        // The canvas's points per unit. The chevron lands at its
+                        // top left, `chevronHeight` tall; CmuxLogoMark (the launch
+                        // screen's view) draws the icon layer with its solid
+                        // chevron that tall, centered, glow around it.
+                        let unit = proxy.size.width / width
+                        CmuxLogoMark(chevronHeight: chevronHeight * unit)
+                            .position(x: chevronWidth / 2 * unit, y: chevronHeight / 2 * unit)
+                            .opacity(landed)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
             .frame(maxWidth: 292)
             .padding(.horizontal, 40)
             .accessibilityElement(children: .ignore)
@@ -187,27 +209,47 @@ private struct CursorRhythm: Sendable {
     }
 }
 
-/// The app icon's chevron colours (`AppIcon.icon`): cyan to indigo, left to right.
-private enum ChevronGradient {
-    static let start = (red: 0.0, green: 0.78, blue: 1.0)
-    static let end = (red: 0.36, green: 0.36, blue: 1.0)
-
-    static func color(at x: Double) -> Color {
-        let x = min(max(x, 0), 1)
-        return Color(red: start.red + (end.red - start.red) * x,
-                     green: start.green + (end.green - start.green) * x,
-                     blue: start.blue + (end.blue - start.blue) * x)
-    }
-
-    /// The gradient from `a` (cyan) to `b` (indigo), for a Canvas.
-    static func shading(from a: CGPoint, to b: CGPoint) -> GraphicsContext.Shading {
-        .linearGradient(Gradient(colors: [color(at: 0), color(at: 1)]), startPoint: a, endPoint: b)
-    }
-}
-
-/// The app icon's chevron proportions: 0.72 as wide as it is tall.
+/// The cmux chevron, measured from the app icon's only layer (`AppIcon.icon`,
+/// `cmux-icon-chevron 2.png`, 639 x 818 px, its solid chevron 457 x 636 px):
+/// geometry in units of the chevron's height, sharp corners, and a colour
+/// ramp that runs strictly left to right. The launch screen's `LaunchMark` is
+/// that layer's pixels (`scripts/generate-launch-mark.swift`); the welcome
+/// lands on the same image, so the two never differ.
 private enum Chevron {
-    static let aspect: CGFloat = 0.72
+    /// Width over height.
+    static let aspect: CGFloat = 0.7186
+    /// The tip's height (the middle, to a pixel).
+    static let tipY: CGFloat = 0.4992
+    /// The inner vertex (the notch), from the left.
+    static let notchX: CGFloat = 0.3884
+    /// The arms' height where they are cut flat at the left: top and bottom.
+    static let topArm: CGFloat = 0.2201
+    static let bottomArm: CGFloat = 0.2217
+
+    /// Its corners, clockwise from the top left, `height` tall at `origin`.
+    static func corners(at origin: CGPoint, height h: CGFloat) -> [CGPoint] {
+        [(0, 0), (aspect, tipY), (0, 1), (0, 1 - bottomArm), (notchX, tipY), (0, topArm)]
+            .map { CGPoint(x: origin.x + $0.0 * h, y: origin.y + $0.1 * h) }
+    }
+
+    /// The colour ramp, sampled at 17 even steps across the solid chevron
+    /// (each the mean of its column's opaque pixels).
+    static let ramp: [Gradient.Stop] = [
+        (0.0, 0x07CCFE), (0.0625, 0x05CEFF), (0.125, 0x0AC8FE), (0.1875, 0x10C1FD),
+        (0.25, 0x16B9FC), (0.3125, 0x1CB2FB), (0.375, 0x22AAFA), (0.4375, 0x28A2F9),
+        (0.5, 0x2E9BF8), (0.5625, 0x3494F7), (0.625, 0x3A8CF6), (0.6875, 0x4184F5),
+        (0.75, 0x467DF5), (0.8125, 0x4C77F4), (0.875, 0x5071F4), (0.9375, 0x536EF3),
+        (1.0, 0x536DF3),
+    ].map { location, hex in
+        Gradient.Stop(color: Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                                   blue: Double(hex & 0xFF) / 255),
+                      location: location)
+    }
+
+    /// The ramp from `minX` (cyan) to `maxX` (indigo), for a Canvas.
+    static func shading(from minX: CGFloat, to maxX: CGFloat) -> GraphicsContext.Shading {
+        .linearGradient(Gradient(stops: ramp), startPoint: CGPoint(x: minX, y: 0), endPoint: CGPoint(x: maxX, y: 0))
+    }
 }
 
 /// Text as outlines (CoreText), so the wordmark draws and animates as paths.
