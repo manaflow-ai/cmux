@@ -339,15 +339,6 @@ enum Timer {
 const ACK_DELAY_DEFAULT: Duration = Duration::from_millis(10);
 /// cmux patch: the floor under `2 * SRTT` in the probe timeout (RFC 8985
 /// section 7.2 uses 10 ms when the timer granularity allows).
-
-// TAILSDBG temporary instrumentation
-pub fn tailsdbg(args: core::fmt::Arguments) {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *ON.get_or_init(|| std::env::var_os("CMUX_TCP_DBG").is_some()) {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
-        std::eprintln!("TCPDBG {} {}", t, args);
-    }
-}
 const TLP_MIN_PTO: Duration = Duration::from_millis(10);
 const CLOSE_DELAY: Duration = Duration::from_millis(10_000);
 
@@ -1305,7 +1296,6 @@ impl<'a> Socket<'a> {
     /// [connect](#method.connect).
     pub fn set_retransmit_paused(&mut self, paused: bool) {
         let was = core::mem::replace(&mut self.retransmit_paused, paused);
-        if was != paused { tailsdbg(format_args!("p{} PAUSED {}", self.tuple.map(|t| t.local.port).unwrap_or(0), paused)); }
         if was && !paused {
             self.path_changed();
         }
@@ -1733,7 +1723,6 @@ impl<'a> Socket<'a> {
             {
                 self.rack.tx[i].3 = true;
                 declared = true;
-                tailsdbg(format_args!("p{} RACKLOST end={} sent={} srtt={}", self.tuple.map(|t| t.local.port).unwrap_or(0), end, ts, self.rtte.srtt));
             }
         }
         declared
@@ -3656,7 +3645,6 @@ impl<'a> Socket<'a> {
                 self.timer = Timer::Retransmit { expires_at: rto_at };
             } else {
                 net_debug!("sending a tail-loss probe");
-                tailsdbg(format_args!("p{} TLP seq={} srtt={} rto={}", self.tuple.map(|t| t.local.port).unwrap_or(0), self.local_seq_no, self.rtte.srtt, self.rtte.rto));
                 self.pending_fast_retransmit = true;
                 self.tail_loss_probe_sent = true;
                 // The RTO keeps the deadline it had, so a lost probe costs no
@@ -3669,7 +3657,6 @@ impl<'a> Socket<'a> {
             if let Timer::Retransmit { .. } = self.timer {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
                 net_debug!("retransmitting after rto");
-                tailsdbg(format_args!("p{} RTO seq={} srtt={} rttvar={} rto={} cnt={} pathchg={} inflight={}", self.tuple.map(|t| t.local.port).unwrap_or(0), self.local_seq_no, self.rtte.srtt, self.rtte.rttvar, self.rtte.rto, self.rtte.rto_count, self.path_change_retransmit, self.flight_size()));
 
                 // Inform the congestion controller that we're retransmitting and should enter the slow start state
                 let in_flight = self.flight_size();
@@ -3708,7 +3695,6 @@ impl<'a> Socket<'a> {
             } else {
                 // If a fast rentrasmit timer expired, we should resend only the earliest unAcked segment
                 net_debug!("retransmitting for fast-retransmit");
-                tailsdbg(format_args!("p{} FRTX seq={}", self.tuple.map(|t| t.local.port).unwrap_or(0), self.local_seq_no));
 
                 // Inform the congestion controller that we're doing a fast retransmit and should enter the fast recovery state
                 let in_flight = self.flight_size();
