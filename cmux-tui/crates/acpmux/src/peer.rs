@@ -646,6 +646,21 @@ impl ReceivedBytes {
         row.1 += 1;
     }
 
+    /// `patch`'s bytes by field path, three levels deep, as kinds `patch:a.b.c`.
+    pub(crate) fn add_patch_fields(&self, patch: &serde_json::Value) {
+        fn walk(r: &ReceivedBytes, v: &serde_json::Value, path: &str, depth: usize) {
+            let serde_json::Value::Object(o) = v else { return };
+            for (k, child) in o {
+                let at = if path.is_empty() { format!("patch:{k}") } else { format!("{path}.{k}") };
+                r.add_kind(&at, serde_json::to_string(child).map_or(0, |s| s.len()));
+                if depth < 3 {
+                    walk(r, child, &at, depth + 1);
+                }
+            }
+        }
+        walk(self, patch, "", 1);
+    }
+
     pub(crate) fn add_replay(&self, text: usize) {
         self.replay.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
         self.replay_events.fetch_add(1, Ordering::SeqCst);
