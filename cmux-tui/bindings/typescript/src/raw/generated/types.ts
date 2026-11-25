@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c50e189a8022660c4423cd99b125346bfaa927d5c6faea740c50e5de568dbdca. */
+/* cmux-tui mux protocol 12, IR 4598f32b128b81cfaf58c88fba04ccf3fb6e8ae61a0aad9f78a6c6ceb353cb8a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -735,6 +735,11 @@ export type ListWorkspacesKnown = {
   "workspace_revision"?: (bigint) | null;
 };
 
+export type ListWorkspacesSince = {
+  "epoch": string;
+  "seq": bigint;
+};
+
 export type LivePane = {
   "active_tab": bigint;
   "focused_at"?: bigint;
@@ -897,6 +902,13 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type ReleaseWorkspaceNamesResult = {
+  /** Workspace names this call handed back to the automatic namer. */
+  "released": bigint;
+  /** User-owned names left pinned: a row renamed between the read and its release. */
+  "still_pinned": bigint;
 };
 
 export type RemoteHostAppPermissions = {
@@ -1863,10 +1875,16 @@ export type TerminalResumeCommandResult = {
 };
 
 export type Tree = {
+  "changed"?: Array<Workspace>;
+  "delta"?: boolean;
+  "epoch"?: string;
   "generation"?: string;
   "next"?: bigint;
+  "order"?: Array<Id>;
   "pane_revision"?: bigint;
   "registry_id"?: string;
+  "removed"?: Array<Id>;
+  "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;
   "tree_revision"?: string;
