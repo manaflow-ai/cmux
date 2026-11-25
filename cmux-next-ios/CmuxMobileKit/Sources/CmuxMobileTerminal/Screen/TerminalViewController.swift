@@ -3191,6 +3191,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             LaunchMarks.shared.markNextFrame("terminal_first_row_frame")
         }
         #if DEBUG
+        if model.connectionState.isAttached { OpenMarks.shared?.note("terminal_ready") }
         ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
         #endif
         #if DEBUG
