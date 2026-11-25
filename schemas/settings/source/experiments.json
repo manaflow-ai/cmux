@@ -435,6 +435,54 @@
           ]
         },
         {
+          "key": "experiments.themedPrompts",
+          "note": "Prompts that float over every app (the join consent, the device-control prompt, App Health, cmux Remote's device-control banner and Computer Use question) draw the theme-tinted prompt glass (SurfaceRole.prompt) with inks fit over any app, a small icon beside the title, a quieter note, and the join consent's Settings… button (CmuxDialogView.overApps, DesignSettings.experiment(\"themedPrompts\"); cmux Remote reads the theme the app writes to prompt-theme.json only while this is on). Off by default (Leo's UI merge hold, 2026-11-24); off keeps today's system-glass prompts, unchanged.",
+          "title": {
+            "key": "settings.experiments.themedPrompts",
+            "text": "Themed Floating Prompts"
+          },
+          "help": {
+            "key": "settings.experiments.themedPrompts.help",
+            "text": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "prompt",
+            "consent",
+            "control",
+            "screen sharing",
+            "glass",
+            "theme"
+          ]
+        },
+        {
+          "key": "experiments.toastGlass",
+          "note": "Taste prototype: stack toasts in web pages sit on the App's own toast glass where the App draws it (the agent pane), as its native toasts do, instead of the page's floating material (webviews experiment toast-glass, arm host, hostSettings.ts SETTING_ARMS; Notice data-host-glass role toast). A page with no App glass under it keeps the floating material. Off by default; off keeps today's toasts.",
+          "title": {
+            "key": "settings.experiments.toastGlass",
+            "text": "Toast Glass"
+          },
+          "help": {
+            "key": "settings.experiments.toastGlass.help",
+            "text": "Toasts in chats sit on the same glass as the app's own toasts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "toasts",
+            "toast",
+            "glass",
+            "notice"
+          ]
+        },
+        {
           "key": "experiments.terminalHistoryFind",
           "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps Ghostty's own screen search, unchanged. Applies to terminals opened after the switch.",
           "title": {

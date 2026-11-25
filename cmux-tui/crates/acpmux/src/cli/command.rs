@@ -589,6 +589,12 @@ pub enum Command {
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
+    /// Listen on a teammate's agent address: read what it receives while its owner's grant
+    /// lets you. Needs a team hub (`meshRelay`).
+    Listen {
+        #[command(subcommand)]
+        command: ListenCmd,
+    },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -835,7 +841,7 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
-    /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
+    /// The agent's Cloud repository tools (this_folder, list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
     /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own
@@ -1942,6 +1948,30 @@ pub enum InboxCmd {
     Read { id: String },
     /// Acknowledge one team message.
     Ack { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ListenCmd {
+    /// Open a listen on a teammate's agent address.
+    Open {
+        /// The address, @member/agent.
+        address: String,
+        /// How long it stays open, in seconds (60 to 604800; the hub's default without it).
+        #[arg(long, value_name = "SECONDS")]
+        ttl: Option<u64>,
+    },
+    /// List your listens and others' on your addresses.
+    Ls,
+    /// Close one of your listens by id.
+    Close { id: String },
+    /// Read the messages an address you listen on received.
+    Read {
+        /// The address, @member/agent.
+        address: String,
+        /// Continue from the previous JSON response's `next` cursor.
+        #[arg(long)]
+        before: Option<u64>,
+    },
 }
 
 #[derive(Subcommand)]
