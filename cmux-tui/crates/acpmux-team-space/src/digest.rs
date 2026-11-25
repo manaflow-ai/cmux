@@ -133,7 +133,7 @@ pub struct SeqGap {
 
 impl SeqGap {
     pub fn len(&self) -> u64 {
-        self.to - self.from + 1
+        self.to.saturating_sub(self.from).saturating_add(1)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -229,7 +229,7 @@ fn digits(s: &str) -> Option<&str> {
 fn subject_ref(token: &str) -> Option<String> {
     let lower = token.to_lowercase();
     if let Some(at) = lower.find("github.com/") {
-        let mut parts = lower.get(at + "github.com/".len()..)?.split('/');
+        let mut parts = lower.get(at.saturating_add("github.com/".len())..)?.split('/');
         let (_owner, repo, kind, number) =
             (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
         if !repo.is_empty() && (kind == "pull" || kind == "issues") {
@@ -411,16 +411,16 @@ pub fn build(
     let mut by_key: HashMap<String, usize> = HashMap::new();
     let mut gaps = Vec::new();
     let mut cursor = after;
-    let mut posts_seen = 0;
+    let mut posts_seen = 0usize;
     for event in events {
         if event.seq <= cursor || event.space != space {
             continue;
         }
-        if event.seq > cursor + 1 {
-            gaps.push(SeqGap { from: cursor + 1, to: event.seq - 1 });
+        if event.seq > cursor.saturating_add(1) {
+            gaps.push(SeqGap { from: cursor.saturating_add(1), to: event.seq.saturating_sub(1) });
         }
         cursor = event.seq;
-        posts_seen += 1;
+        posts_seen = posts_seen.saturating_add(1);
 
         let keys = fold_keys(event);
         let reasons = if matcher.own(&event.author) { Vec::new() } else { matcher.reasons(event) };
@@ -486,7 +486,7 @@ pub fn build(
                     section: this_section,
                     wordings: vec![keys.clone()],
                 });
-                groups.len() - 1
+                groups.len().saturating_sub(1)
             }
         };
         for k in keys.into_iter().chain(subject) {
@@ -496,10 +496,10 @@ pub fn build(
     if !behind && head > cursor {
         // The store says the space reaches `head` but returned nothing past `cursor`: those seqs
         // are gone from the feed.
-        gaps.push(SeqGap { from: cursor + 1, to: head });
+        gaps.push(SeqGap { from: cursor.saturating_add(1), to: head });
     }
 
-    let duplicates_folded = posts_seen - groups.len();
+    let duplicates_folded = posts_seen.saturating_sub(groups.len());
     let mut needs_you = Vec::new();
     let mut affects_you = Vec::new();
     let mut rest: BTreeMap<PostKind, RestGroup> = BTreeMap::new();
@@ -519,7 +519,7 @@ pub fn build(
                     posts: 0,
                     items: Vec::new(),
                 });
-                slot.posts += group.entry.attributions.len();
+                slot.posts = slot.posts.saturating_add(group.entry.attributions.len());
                 slot.items.push(group.entry);
             }
         }
@@ -561,7 +561,7 @@ pub fn read(
     let mut cursor = after;
     let mut head;
     loop {
-        let want = READ_PAGE_LIMIT.min(options.max_events - events.len());
+        let want = READ_PAGE_LIMIT.min(options.max_events.saturating_sub(events.len()));
         let page = store.feed(space, cursor, want)?;
         head = page.head;
         let before = cursor;
@@ -587,7 +587,7 @@ fn who(entry: &DigestEntry) -> String {
     let first = entry.attributions.first().map(|a| a.author.as_str()).unwrap_or_default();
     match entry.attributions.len() {
         1 => first.to_owned(),
-        n => format!("{first} +{} more", n - 1),
+        n => format!("{first} +{} more", n.saturating_sub(1)),
     }
 }
 
@@ -614,7 +614,7 @@ fn one_line(entry: &DigestEntry) -> String {
     }
     // The item's text is cut at DIGEST_TEXT_CHARS, past REST_LINE_CHARS, so `kept` never holds
     // the item's own cut marker.
-    format!("{kept} [cut {}]", entry.chars - kept_chars)
+    format!("{kept} [cut {}]", entry.chars.saturating_sub(kept_chars))
 }
 
 fn item_line(entry: &DigestEntry, full: bool) -> String {
@@ -726,7 +726,7 @@ impl Digest {
             .sum();
         let reserve = if full <= budget { 0 } else { format!("[cut {total_items} items]").len() };
         let mut text = String::new();
-        let mut used = 0;
+        let mut used = 0usize;
         let mut shown = Vec::new();
         let mut stopped = false;
         for line in &lines {
@@ -734,17 +734,17 @@ impl Digest {
                 Line::Fixed(s) | Line::Item(_, s) => s,
             };
             let len = s.chars().count();
-            if stopped || used + len + reserve > budget {
+            if stopped || used.saturating_add(len).saturating_add(reserve) > budget {
                 stopped = true;
                 continue;
             }
-            used += len;
+            used = used.saturating_add(len);
             text.push_str(s);
             if let Line::Item(entry, _) = line {
                 shown.push(entry.id.clone());
             }
         }
-        let cut = total_items - shown.len();
+        let cut = total_items.saturating_sub(shown.len());
         if cut > 0 {
             let _ = write!(text, "[cut {cut} items]");
         } else if stopped {
