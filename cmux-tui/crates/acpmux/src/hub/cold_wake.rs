@@ -20,8 +20,11 @@
 //!   whichever is more. A warm chat keeps the 2 s burst window: its cache makes a wake cheap.
 //!   A block, a question and a fire notice still wake at once, and the person's prompt never waits.
 //! - **Compact before delivery.** When a batch opens on a Claude Code chat whose context is at
-//!   least [`COMPACT_ABOVE_TOKENS`], acpmux runs `/compact` at once ([`KIND`]), so the
-//!   compaction's time hides in the window, and the batch goes in after it ends, into the
+//!   least [`COMPACT_ABOVE_TOKENS`], acpmux first tries context surgery (`surgery.rs`: old tool
+//!   output masked in a copy of the transcript, no model call) when masking alone takes it under
+//!   that line ([`surgery_suffices`]); the batch then goes in to the resumed copy with no
+//!   `/compact`. Otherwise (surgery off, refused or failed) it runs `/compact` at once ([`KIND`]),
+//!   so the compaction's time hides in the window, and the batch goes in after it ends, into the
 //!   compacted context. The compaction reads the cold context once; the batch's turn and every
 //!   turn after it read the summary. Nothing steers into the compaction's turn.
 //!
@@ -46,8 +49,10 @@ pub(crate) const COLD_FULL_MS: u64 = 30 * 60_000;
 /// The context below which a cold chat opens no batch: re-reading it uncached costs little, so
 /// its wakes go in as before (a chat with no usage reported yet included).
 pub(crate) const MIN_BATCH_TOKENS: u64 = 20_000;
-/// The context from which a cold batch compacts first.
-pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 100_000;
+/// The context from which a cold batch compacts first. 50K, not 100K: the cold batches measured
+/// on one lane VM over 48 h were 75.9K, 85.3K and 89.2K, none compacted, and each post-idle
+/// wake rewrote 64K-123K tokens into the cache while reading 9.9K from it.
+pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 50_000;
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
 /// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
@@ -107,6 +112,26 @@ pub(crate) fn window_ms(cold_ms: u64, tokens: u64) -> u64 {
 /// Whether a cold batch of a chat with `tokens` of context compacts first.
 pub(crate) fn compacts(tokens: u64) -> bool {
     tokens >= COMPACT_ABOVE_TOKENS
+}
+
+/// Whether surgery's dry run (`surgery.rs`, `dryRun: true`) says masking alone takes the chat
+/// under [`COMPACT_ABOVE_TOKENS`], the line that sends it to `/compact`: then surgery reaches
+/// what the compaction would, with no model call and nothing summarized away. A chat it leaves
+/// above the line still needs `/compact`, and surgery on top would only add a harness restart
+/// and a second rewritten prefix, so it compacts alone. No estimate (no stored usage) is no.
+pub(crate) fn surgery_suffices(dry: &Result<Value, RpcError>) -> bool {
+    let Ok(dry) = dry else { return false };
+    let masked = dry.get("maskedResults").and_then(Value::as_u64).unwrap_or(0);
+    let after = dry.get("tokensAfter").and_then(Value::as_u64);
+    dry.get("dryRun").and_then(Value::as_bool) == Some(true)
+        && masked > 0
+        && after.is_some_and(|a| a < COMPACT_ABOVE_TOKENS)
+}
+
+/// Whether a surgery's answer says it applied: anything else (`applied: false`, an error) keeps
+/// the `/compact` a cold batch ran before surgery.
+pub(crate) fn surgery_applied(answer: &Result<Value, RpcError>) -> bool {
+    answer.as_ref().is_ok_and(|v| v.get("applied").and_then(Value::as_bool) == Some(true))
 }
 
 /// Whether a prompt's provenance is a cold batch's compaction.
@@ -193,6 +218,13 @@ impl Hub {
             after_turn: Some(last),
             ..PromptOptions::default()
         };
+        // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
+        // only when it says no (off, not a stored Claude conversation, nothing to mask, too
+        // little to mask) or fails.
+        if self.cold_wake_surgery(session, tokens).await {
+            self.inbox_review(session);
+            return;
+        }
         tracing::info!(session = %session.id, tokens, "cold wake compaction");
         let blocks = vec![json!({"type": "text", "text": "/compact"})];
         if let Err(e) = self.prompt_with(session, blocks, "acpmux", false, opts).await {
@@ -200,6 +232,22 @@ impl Hub {
         }
         // Its end reviews the inbox (`inbox_turn_ended`); the batch goes in at its deadline.
         self.inbox_review(session);
+    }
+
+    /// Context surgery in place of a cold batch's `/compact`: a dry run first, then the real one
+    /// when masking alone takes the chat under the compaction line ([`surgery_suffices`]). True
+    /// when it applied: the chat resumed on the masked copy and needs no `/compact`. Called
+    /// without the turn lock: surgery takes it itself, and refuses a chat mid-turn.
+    async fn cold_wake_surgery(self: &Arc<Self>, session: &Arc<Session>, tokens: u64) -> bool {
+        let dry = self.surgery(session, None, true).await;
+        if !surgery_suffices(&dry) {
+            tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
+            return false;
+        }
+        let answer = self.surgery(session, None, false).await;
+        let applied = surgery_applied(&answer);
+        tracing::info!(session = %session.id, tokens, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "cold wake surgery");
+        applied
     }
 
     /// `cache_compact.rs`'s check but for the queue: no turn holds the lock, no Web or phone turn
