@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
+import { guessProjectRepo } from "../projectRepos";
+import { chatOwnFolder } from "../folderlessCloud";
 import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
 import { readTopRightLayout, type TopRightLayout } from "./topRightLayout";
 
@@ -267,3 +269,25 @@ const subscribe = (listener: () => void) => {
 
 /// The live header state.
 export const useHeaderState = (): HeaderState => useSyncExternalStore(subscribe, headerState, headerState);
+
+/// The folder part of the header's slash path (Settings > Agent Chat > Header Path,
+/// `agentPane.display.headerBreadcrumb`; Taste Board #20): the chat's repository, then its branch, each
+/// only when the chat knows it. A worktree's path names its repository (projectRepos.ts
+/// `guessProjectRepo`), else the folder's own name stands in; the chat's own branch wins over one read
+/// from the path. Empty for a chat with no folder of its own (none, this Mac's private agent-home
+/// folder, or a Cloud chat's fresh `~/chats/<chat>`: folderlessCloud.ts `chatOwnFolder`), so the header
+/// draws the plain title and never a private folder's generated name.
+export function headerBreadcrumb(chat: {
+  cwd?: string;
+  worktree?: string;
+  branch?: string;
+  cloud?: boolean;
+}): string[] {
+  const cloud = chat.cloud === true;
+  const folder = chatOwnFolder(chat.worktree, cloud) ?? chatOwnFolder(chat.cwd, cloud) ?? "";
+  if (!folder) return [];
+  const repo = guessProjectRepo(folder);
+  const name = repo?.name ?? folder.split("/").pop() ?? "";
+  const branch = chat.branch?.trim() || repo?.branch;
+  return [name, branch].filter((part): part is string => Boolean(part && part !== "/"));
+}
