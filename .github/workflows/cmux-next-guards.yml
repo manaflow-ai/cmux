@@ -1362,6 +1362,11 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
+    # actions: read lets setup-tooling-route read the steps earlier runs of this pull request passed
+    # (scripts/ci/tooling_reuse.py).
+    permissions:
+      contents: read
+      actions: read
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -1449,7 +1454,13 @@ jobs:
         id: setup-tooling-route
         if: ${{ github.event_name == 'pull_request' }}
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          CI_TOOLING_REUSE: ${{ vars.CI_TOOLING_REUSE }}
+          CI_TOOLING_REUSE_AUDIT_PERCENT: ${{ vars.CI_TOOLING_REUSE_AUDIT_PERCENT }}
         run: |
           set -uo pipefail
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
@@ -1460,6 +1471,13 @@ jobs:
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
+          elif [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            # Drop the selected steps an earlier run of this pull request passed on a tree that differs from this
+            # one only in files they cannot read (tooling_reuse.py; it leaves tooling.out alone on any error).
+            timeout 100 python3 scripts/ci/tooling_reuse.py reuse --workflow .github/workflows/cmux-next-guards.yml \
+                --job tooling-tests --route-output "$RUNNER_TEMP/tooling.out" --repository "$GITHUB_REPOSITORY" \
+                --branch "$HEAD_REF" --run-id "$GITHUB_RUN_ID" --summary "$GITHUB_STEP_SUMMARY" \
+              || echo "::warning title=tooling-tests reuse::tooling_reuse.py failed; every selected step runs."
           fi
           cat "$RUNNER_TEMP/tooling.out" >> "$GITHUB_OUTPUT"
 
@@ -1632,6 +1650,7 @@ jobs:
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
       # package with no node_modules gets a `bun install`.
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        id: setup-restore-bun
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
@@ -1850,3 +1869,26 @@ jobs:
         id: tt-tip-test-compile
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tip-test-compile ')) }}
         run: python3 tests/test_ci_tip_test_compile.py
+
+      # What a later head of this pull request reuses (scripts/ci/tooling_reuse.py): the merge tree and the steps that
+      # ran and passed here, failed run or not. Reused and skipped steps' outcome is skipped, so a pass never chains.
+      - name: Record the steps that passed for later heads (tooling_reuse.py)
+        id: setup-tooling-record
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+        run: |
+          python3 scripts/ci/tooling_reuse.py record --workflow .github/workflows/cmux-next-guards.yml \
+            --job tooling-tests --steps-json-env STEPS_JSON --out "$RUNNER_TEMP/tooling-reuse/tooling-passed.json"
+
+      - name: Upload the passed steps for later heads
+        if: ${{ !cancelled() && steps.setup-tooling-record.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tooling-tests-passed-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tooling-reuse/tooling-passed.json
+          retention-days: 7
+          if-no-files-found: ignore

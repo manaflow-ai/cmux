@@ -116,9 +116,7 @@ fn a_stale_pr_layer_and_a_broken_file_are_both_said_in_one_line() {
 
     assert_eq!(
         report.line.as_deref(),
-        Some(
-            "2 things change your customization: pr-45206 is still on; themes/night.json does not load"
-        )
+        Some("2 customization problems: pr-45206 is still on; themes/night.json does not load")
     );
 }
 
@@ -397,100 +395,46 @@ fn json_outside_the_usual_settings_names_what_it_sets_and_random_json_is_named_u
     );
 }
 
-/// Leo, 2026-11-19, with his pane dividers gone: "i thought we turned those on by default and htat i was
-/// following them by default? where's it all at?"
+/// Leo, 2026-11-25, on "Customization: presence is not a setting" and "50 things change your customization: You are
+/// not following the default for sidebar.priorityView.shown and 49 more": "what is this and why is it so ugly". Your
+/// own values are not problems, and info findings (an unknown key, a stray file) are listed but never counted or
+/// toasted.
 #[test]
-fn a_setting_that_zeroes_a_divider_says_you_are_not_following_its_default() {
+fn your_own_values_and_info_findings_are_never_problems_or_toasts() {
     let home = Home::new();
     home.write(
         "cmux-next.json",
-        "{\n  // mine\n  \"appearance\": {\n    \"surfaces\": { \"splitDivider\": { \"opacity\": 0 } },\n    \"density\": \"compact\"\n  }\n}\n",
+        "{\n  \"appearance\": { \"surfaces\": { \"splitDivider\": { \"opacity\": 0 } }, \"density\": \"spacious\" },\n  \"sidebar\": { \"priorityView\": { \"shown\": false } },\n  \"mystery\": { \"live\": true }\n}\n",
     );
+    home.write("dock.json", "{ \"items\": [] }\n");
     let customize = home.customize();
-    let report = customize.doctor(&at(NOW));
-    let id = "not-default:appearance.surfaces.splitDivider.opacity";
-    let divider = find(&report, id);
-    assert_eq!(divider.level, Level::Warning);
-    assert_eq!(
-        divider.title,
-        "You are not following the default for appearance.surfaces.splitDivider.opacity"
-    );
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(
-        divider.detail.starts_with("Yours: 0, default: follows Window opacity."),
-        "{}",
-        divider.detail
+        report.findings.iter().all(|f| !f.title.contains("not following the default")),
+        "{:#?}",
+        kinds(&report)
     );
-    assert_eq!(divider.line, Some(4));
-    assert_eq!(divider.fixes[0].kind, FixKind::FollowDefault);
-    assert!(
-        report.findings.iter().all(|f| f.id != "not-default:appearance.density"),
-        "a plain choice is yours"
-    );
+    find(&report, "unknown-key:mystery");
+    find(&report, "ignored:dock.json");
+    assert!(report.findings.iter().all(|f| f.level == Level::Info), "{:#?}", kinds(&report));
+    assert_eq!(report.line, None, "nothing is broken");
+    assert_eq!(report.announce, None, "an info finding never toasts");
 
-    let fixed = customize.doctor_fix(id, FixKind::FollowDefault, &at(NOW), "cli").unwrap();
-    assert!(
-        fixed.said.starts_with("appearance.surfaces.splitDivider.opacity follows its default"),
-        "{}",
-        fixed.said
-    );
-    let text = fs::read_to_string(home.config("cmux-next.json")).unwrap();
-    assert!(!text.contains("opacity"), "{text}");
-    assert!(text.contains("// mine") && text.contains("\"density\": \"compact\""), "{text}");
-    assert!(customize.doctor(&at(NOW)).findings.iter().all(|f| f.id != id));
+    // A broken file next to them is the one problem counted and toasted.
+    home.write("themes/night.json", "{ \"appearance\": { \"accent\": }\n");
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(report.line.as_deref(), Some("Customization: themes/night.json does not load"));
+    assert_eq!(report.announce, report.line);
 }
 
-#[test]
-fn a_default_that_changed_since_you_set_yours_is_said_once_it_was_seen() {
-    let home = Home::new();
-    home.write("cmux-next.json", "{ \"appearance\": { \"density\": \"spacious\" } }\n");
-    let customize = home.customize();
-    // The first look records today's default for every key you set.
-    customize.doctor_announce(&at(NOW)).unwrap();
-    assert!(customize.doctor(&at(NOW)).findings.is_empty());
-    // A later cmux ships another default: what the doctor saw before was "comfortable".
-    let state = home.dir.path().join("state/doctor.json");
-    let mut file: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
-    file["seen_defaults"]["appearance.density"] = json!("comfortable");
-    fs::write(&state, file.to_string()).unwrap();
-    let report = customize.doctor(&at(NOW));
-    let changed = find(&report, "not-default:appearance.density");
-    assert_eq!(changed.level, Level::Info);
-    assert!(
-        changed
-            .detail
-            .contains("The default changed from \"comfortable\" to \"cozy\" since you set yours."),
-        "{}",
-        changed.detail
-    );
-}
-
-/// A settings file linked into a dotfiles repo stays linked after Follow default and Restore.
+/// A settings file linked into a dotfiles repo stays linked after Restore.
 #[cfg(unix)]
 #[test]
 fn fixes_write_through_a_linked_settings_file_and_never_open_credentials() {
     let home = Home::new();
     let dotfiles = home.dir.path().join("dotfiles");
     fs::create_dir_all(&dotfiles).unwrap();
-    let real = dotfiles.join("cmux-next.json");
-    fs::write(
-        &real,
-        "{ \"appearance\": { \"surfaces\": { \"splitDivider\": { \"opacity\": 0 } } } }\n",
-    )
-    .unwrap();
-    fs::create_dir_all(home.config("")).unwrap();
-    std::os::unix::fs::symlink(&real, home.config("cmux-next.json")).unwrap();
     let customize = home.customize();
-    customize
-        .doctor_fix(
-            "not-default:appearance.surfaces.splitDivider.opacity",
-            FixKind::FollowDefault,
-            &at(NOW),
-            "cli",
-        )
-        .unwrap();
-    assert!(fs::symlink_metadata(home.config("cmux-next.json")).unwrap().file_type().is_symlink());
-    assert!(!fs::read_to_string(&real).unwrap().contains("opacity"));
 
     // Restore: the broken text is copied aside, the link is written through.
     home.write("themes/night.json", "{ \"appearance\": { \"accent\": \"blue\" } }\n");
