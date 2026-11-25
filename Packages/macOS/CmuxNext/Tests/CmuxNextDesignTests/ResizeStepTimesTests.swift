@@ -27,4 +27,18 @@ import Testing
         #expect((report["outer"]?["max_ms"] as? Double ?? 0) >= (report["inner"]?["max_ms"] as? Double ?? 0),
                 "the outer step contains the inner one")
     }
+
+    /// The parts of a step (each pane's layout, the sidebar, the overlay sync) are measured only in a live resize: out
+    /// of one nothing is recorded and the phase's name is never built.
+    @Test func aPartIsRecordedOnlyInALiveResize() {
+        ResizeStepTimes.live.reset()
+        var named = 0
+        ResizeStepTimes.recordLive({ named += 1; return "pane_content.none" }(), since: ResizeStepTimes.startIfLive(false))
+        ResizeStepTimes.recordLive({ named += 1; return "pane_content.none" }(), since: ResizeStepTimes.startIfLive(nil))
+        #expect(named == 0)
+        #expect(ResizeStepTimes.live.report().isEmpty)
+        ResizeStepTimes.recordLive("pane_content.none", since: ResizeStepTimes.startIfLive(true))
+        #expect(ResizeStepTimes.live.report()["pane_content.none"]?["steps"] as? Int == 1)
+        ResizeStepTimes.live.reset()
+    }
 }
