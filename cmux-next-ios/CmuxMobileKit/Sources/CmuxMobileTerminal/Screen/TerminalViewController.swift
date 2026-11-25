@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileSupport
 import GhosttyNextKit
 import Observation
@@ -404,6 +405,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    /// Every typed key's tap to the frame showing the Mac's echo of it, into the
+    /// Rust key-to-paint histogram (`key_paint`, release builds too): one key in
+    /// flight at a time, given up after 2 s (a key that echoes nothing).
+    private var keyPaint = TerminalFirstEcho()
+    private var keyPaintStart: CFTimeInterval = 0
     #if DEBUG
     /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
     /// in flight at a time, given up after 2 s (a key that echoes nothing).
@@ -670,6 +676,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composerHost = composer
         jumpRowHost = jumpRow
         bottomStack.jumpRow = jumpRow.view
+        // The 8 pt between the key row and the composer focuses the composer,
+        // so a finger landing short of the field never reaches a key or the
+        // terminal (Leo, 2026-11-25: "When I tap the composer at certain points
+        // it treats it as if I also simultaneously tapped one of the combo buttons").
+        bottomStack.keyRow = keyBarClip
+        bottomStack.composer = composer.view
+        bottomStack.onGapTap = { [weak self] in self?.model.focusComposer() }
         // Not clipped: the keys' glass lifts past the row on touch. Hide
         // Toolbar folds the row by hiding it, and unfolding fades it in
         // (`dockChanged`), so it never draws over the composer while it grows.
@@ -923,6 +936,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
+                }
+                if model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if keyPaint.step != .idle, now - keyPaintStart > 2 { keyPaint = TerminalFirstEcho() }
+                    if keyPaint.sent(data) { keyPaintStart = now }
                 }
                 #if DEBUG
                 if model.connectionState.isAttached, !inputRefused { ResumeMarks.shared?.note("terminal_key_sent") }
@@ -2107,6 +2125,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
                 firstEcho.fed(data)
+                keyPaint.fed(data)
                 #if DEBUG
                 echoMeter.fed(data)
                 devProbe?.fed(data)
@@ -2598,6 +2617,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             applyTUIPlacement()
         }
         firstEcho.processed()
+        keyPaint.processed()
         #if DEBUG
         echoMeter.processed()
         devProbe?.processed()
@@ -3245,6 +3265,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
         paintPresented()
+        if keyPaint.presented() {
+            recordKeyPaint(paintMs: UInt32(clamping: Int(((CACurrentMediaTime() - keyPaintStart) * 1000).rounded())))
+            keyPaint = TerminalFirstEcho()
+        }
         #if DEBUG
         if echoMeter.presented() {
             InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
@@ -4949,11 +4973,41 @@ final class TerminalBottomStack: UIView {
     /// The button's tap target in `jumpRow`'s coordinates; `.null` while hidden.
     var jumpTarget: CGRect = .null
 
+    /// The key row's clip view and the composer's host view: the band
+    /// between them (`TerminalDockMetrics.keyRowGap`) is the composer's.
+    weak var keyRow: UIView?
+    weak var composer: UIView?
+    /// A tap in that band: focus the composer.
+    var onGapTap: (() -> Void)?
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
+        if hit === self, let gap = composerGap, gap.contains(point) { return self }
         guard let row = jumpRow, hit === self || hit === row || hit.isDescendant(of: row) else { return hit }
         let inRow = convert(point, to: row)
         return Self.passesThrough(inRow, rowBounds: row.bounds, target: jumpTarget) ? nil : hit
+    }
+
+    /// The band between a shown key row and a shown composer, full width, in
+    /// the stack's coordinates; nil when either is hidden or they touch.
+    var composerGap: CGRect? {
+        guard let keyRow, let composer, !keyRow.isHidden, keyRow.alpha > 0.01, !composer.isHidden else { return nil }
+        return Self.gap(below: keyRow.frame, above: composer.frame, width: bounds.width)
+    }
+
+    nonisolated static func gap(below keyRow: CGRect, above composer: CGRect, width: CGFloat) -> CGRect? {
+        let top = keyRow.maxY, bottom = composer.minY
+        guard bottom > top else { return nil }
+        return CGRect(x: 0, y: top, width: width, height: bottom - top)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first, touch.view === self, let gap = composerGap,
+           gap.insetBy(dx: 0, dy: -2).contains(touch.location(in: self)) {
+            onGapTap?()
+            return
+        }
+        super.touchesEnded(touches, with: event)
     }
 
     /// A point in the row (row coordinates) outside the button's target is
@@ -5129,9 +5183,19 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             // clipped; the app's first rows stay pinned at the top (the top
             // exception) and the body moves down only as far as the cursor's row
             // needs. Set in the layout pass, so inside the keyboard's own animation.
+            // The rows the app draws (the Mac's grid as fed, else the claimed
+            // area's), as `drawnRowsBottom` counts them. Not `surface.grid.rows`:
+            // the surface is the mirror's (screen plus margins, 153 rows on a
+            // 6.3" phone), so the lift pushed the grid ~1700 pt off screen
+            // with the keyboard down (#53958).
+            let drawnRows = appliedHostRows ?? model.session.remoteRows ?? tuiGridHold.rows(page: tuiRows)
             let placement = TerminalGridSizing(cellHeight: cell.height)
-                .keyboardPlacement(gridRows: surface.grid.rows, visibleHeight: tuiClip.bounds.height,
-                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+                .keyboardPlacement(gridRows: drawnRows, visibleHeight: tuiClip.bounds.height,
+                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift },
+                                   // The host is the area's rows tall (`tuiHeight`), bottom on the
+                                   // stack: a shorter grid at its top went off screen with the
+                                   // keyboard up, the rows under it blank in view.
+                                   areaRows: tuiGridHold.rows(page: tuiRows))
             if placement.lift != tuiKeyboardLift {
                 tuiKeyboardLift = placement.lift
                 tuiClip.bounds.origin.y = -placement.lift
