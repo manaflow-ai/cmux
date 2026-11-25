@@ -1072,4 +1072,11 @@ impl LinkGroup for IrohLinkGroup {
         }
         Ok(())
     }
+
+    fn abandon(&self) {
+        // A held lock is an `open` in flight, which dials its own replacement on failure.
+        if let Ok(connection) = self.connection.try_lock() {
+            connection.close(0_u8.into(), b"cmux link declared dead");
+        }
+    }
 }
