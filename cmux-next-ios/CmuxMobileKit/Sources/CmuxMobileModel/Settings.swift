@@ -169,19 +169,47 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Read by the terminal composer, which also toggles it from its + menu
+    /// (`CmuxMobilePreferences.terminalComposerAutocorrect`).
+    public var terminalComposerAutocorrect: Bool {
+        didSet { save(terminalComposerAutocorrect, "terminalComposerAutocorrect") }
+    }
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
+    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalPlainScroll`) at each drag through the same key.
+    public var terminalPlainScroll: Bool { didSet { save(terminalPlainScroll, "terminalPlainScroll") } }
+    /// Settings → Terminal → Zoom Full-Screen Apps (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalZoomFullScreenApps`) when a page opens.
+    public var terminalZoomFullScreenApps: Bool {
+        didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
+    }
+    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
+    public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
+    /// terminal (`CmuxMobilePreferences.predictiveEchoFullScreen`) through the same key.
+    public var predictiveEchoFullScreen: Bool {
+        didSet { save(predictiveEchoFullScreen, "predictiveEchoFullScreen") }
+    }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Cloud → AutoCloud (the Mac's `cloud.autoCloud`; off by default): Cloud chats lists the
+    /// account's Auto chats, read and sent to through the Cloud service with no Mac
+    /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
+    public var cloudAutoMode: Bool { didSet { save(cloudAutoMode, "cloudAutoMode") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
     /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
     /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
     public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
+    /// Settings → Transport → Quiet Cloud Connections (off by default). Read by the Cloud pages
+    /// (`CmuxMobilePreferences.quietCloudConnect`) through the same key.
+    public var quietCloudConnect: Bool { didSet { save(quietCloudConnect, "quietCloudConnect") } }
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
@@ -231,10 +259,19 @@ public final class SettingsStore {
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        terminalComposerAutocorrect = defaults.object(forKey: "cmuxMobile.settings.terminalComposerAutocorrect") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalComposerAutocorrect")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
+        terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
+        terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
+        terminalHistoryFind = bool("terminalHistoryFind", false)
         predictiveEcho = bool("predictiveEcho", true)
+        predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
@@ -242,6 +279,7 @@ public final class SettingsStore {
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         alignKeepalives = bool("alignKeepalives", false)
+        quietCloudConnect = bool("quietCloudConnect", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))

@@ -67,6 +67,8 @@ static APP_BACKGROUNDED: AtomicBool = AtomicBool::new(false);
 /// backgrounded).
 pub fn set_app_backgrounded(backgrounded: bool) {
     APP_BACKGROUNDED.store(backgrounded, Ordering::Relaxed);
+    // No second socket on cell while backgrounded.
+    super::apply_multipath_to_live_sessions();
 }
 
 /// The last value [`set_app_backgrounded`] stored.
@@ -131,6 +133,11 @@ impl Paths {
     }
 
     fn rank_of(&self, wanted: Wanted) -> (PathKind, Medium) {
+        if wanted.route.carrier == Carrier::Relay {
+            // cmux's WebSocket relay: a relay like TURN, farther away (its
+            // RTT ranks it below a TURN path that answers).
+            return (PathKind::DoRelay, Medium::Routed);
+        }
         if wanted.relayed || wanted.route.carrier == Carrier::Turn {
             return (PathKind::TurnRelay, Medium::Routed);
         }
@@ -339,8 +346,7 @@ impl Paths {
         let config = self.probes;
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else { return };
         if let Some(rtt_us) = entry.watch.answer(&config, probe, now) {
-            // An answer also says the path is not silent.
-            entry.watch.heard();
+            // `answer` also says the path is not silent.
             let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
         }
     }
@@ -359,6 +365,13 @@ impl Paths {
     }
 
     /// The probes due at `now`, after applying lost probes and silences.
+    /// Hold every path's routine pings until `floor` (`PathWatch::hold_routine`).
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        for entry in &mut self.entries {
+            entry.watch.hold_routine(floor);
+        }
+    }
+
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
         let current = self.selector.current();
