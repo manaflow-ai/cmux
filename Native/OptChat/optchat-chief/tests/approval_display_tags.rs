@@ -54,15 +54,28 @@ fn subagent_tags(task: &str) -> std::collections::BTreeMap<String, String> {
         }
     }
     let answer = worker.join().unwrap().expect("the spawn answers");
-    assert!(answer.contains("Started a1"), "{answer}");
-    let inner = h.agents.inner.lock().unwrap();
-    inner
-        .specs
-        .iter()
-        .find(|s| s.tags.contains_key("optchat.subagent"))
-        .expect("a subagent session")
-        .tags
-        .clone()
+    // spawn answers before the session starts (Lucas's latency item 4);
+    // the start lands on its own thread.
+    assert!(answer.contains("Starting a1"), "{answer}");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let found = h
+            .agents
+            .inner
+            .lock()
+            .unwrap()
+            .specs
+            .iter()
+            .find(|s| s.tags.contains_key("optchat.subagent"))
+            .map(|s| s.tags.clone());
+        if let Some(tags) = found {
+            return tags;
+        }
+        assert!(std::time::Instant::now() < deadline, "no subagent session");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
 }
 
 #[test]
