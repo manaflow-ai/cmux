@@ -905,6 +905,10 @@ struct HybridUnderlay {
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    /// Asks the session to send the peer its endpoints again through
+    /// signaling (`Session::nudge_peer`): our route to the peer's TURN
+    /// relayed address went quiet.
+    nudge: Option<mpsc::UnboundedSender<()>>,
 }
 
 /// Peer-reflexive addresses kept as paths at once (newest win).
@@ -986,6 +990,7 @@ impl HybridUnderlay {
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
+            nudge: None,
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay.sync_paths();
@@ -1828,6 +1833,18 @@ impl Underlay for HybridUnderlay {
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
         let due = self.paths.poll(now);
+        if let Some(route) = self.paths.take_chosen_quiet()
+            && self.labels.peer_relayed.contains(&route.addr)
+            && let Some(nudge) = &self.nudge
+        {
+            // We reach the peer through its TURN server and that route went
+            // quiet: the server may be gone, and a peer with nothing to send
+            // (idle) would not find out until its next probe, seconds away.
+            // Signaling still reaches it; the announcement it answers inside
+            // the tunnel starts its own silence watch on that route, and
+            // with it its TURN server check.
+            let _ = nudge.send(());
+        }
         if let Some(rtt_us) = self.paths.take_turn_quiet()
             && let Some(turn) = self.turn.as_ref()
         {
@@ -2135,7 +2152,8 @@ fn start_tunnel(
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
     let turn_dead = spec.turn.as_ref().map(TurnCarrier::dead);
-    let underlay = HybridUnderlay::new(
+    let (nudge_tx, mut nudge_rx) = mpsc::unbounded_channel();
+    let mut underlay = HybridUnderlay::new(
         UnderlaySpec {
             socket: spec.socket,
             peer_endpoints: spec.peer_endpoints,
@@ -2150,6 +2168,7 @@ fn start_tunnel(
         },
         options,
     );
+    underlay.nudge = Some(nudge_tx);
     let host = |ip: Ipv4Addr| IpNetwork::new(IpAddr::V4(ip), 32).expect("host prefix");
     let config = WgConfig {
         private_key: spec.private_key,
@@ -2184,6 +2203,13 @@ fn start_tunnel(
         keeps_turn: spec.keeps_turn,
         turn_dead,
         route_to,
+    });
+    let weak = Arc::downgrade(&session);
+    tokio::spawn(async move {
+        while nudge_rx.recv().await.is_some() {
+            let Some(session) = weak.upgrade() else { return };
+            session.nudge_peer();
+        }
     });
     Ok(Tunnel { session, path: path_rx, peer })
 }
