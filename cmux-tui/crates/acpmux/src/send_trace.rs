@@ -163,7 +163,7 @@ pub fn first_update(session: &str) {
     }
     let p = {
         let Ok(mut map) = PENDING.lock() else { return };
-        if !map.get(session).is_some_and(|p| p.handed.is_some()) {
+        if map.get(session).is_none_or(|p| p.handed.is_none()) {
             return;
         }
         let p = map.remove(session);
@@ -173,11 +173,11 @@ pub fn first_update(session: &str) {
     let Some(p) = p else { return };
     let end_ms = now_ms();
     let body = body(&p, end_ms, machine_id());
-    // Closing the first_token span.
-    drop(p.step);
+    // Closing the first_token span; the trace id outlives it for the post.
+    let Pending { trace_id, step, .. } = p;
+    drop(step);
     let Some(body) = body else { return };
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-    let trace_id = p.trace_id;
     rt.spawn(post(trace_id, body));
 }
 
