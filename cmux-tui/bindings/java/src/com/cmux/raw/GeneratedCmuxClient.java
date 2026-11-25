@@ -343,6 +343,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object computerUseApprovals(ComputerUseApprovalsRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_APPROVALS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseConfig(ComputerUseConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseEndpoint() throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_ENDPOINT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);
@@ -431,6 +446,16 @@ public abstract class GeneratedCmuxClient {
     public final ConversationRunsResult conversationRuns(ConversationRunsRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_RUNS, request.toWire());
         return ConversationRunsResult.fromWire(result);
+    }
+
+    public final ConversationScheduledListResult conversationScheduledList(ConversationScheduledListRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_LIST, request.toWire());
+        return ConversationScheduledListResult.fromWire(result);
+    }
+
+    public final ConversationScheduledOpResult conversationScheduledOp(ConversationScheduledOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_OP, request.toWire());
+        return ConversationScheduledOpResult.fromWire(result);
     }
 
     public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
@@ -971,6 +996,11 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
+    public final Object processCensus() throws CmuxException {
+        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
@@ -1191,9 +1221,9 @@ public abstract class GeneratedCmuxClient {
         return SetCellPixelsResult.fromWire(result);
     }
 
-    public final EmptyResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
+    public final SetClientInfoResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CLIENT_INFO, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SetClientInfoResult.fromWire(result);
     }
 
     public final EmptyResult setClientSizing(SetClientSizingRequest request) throws CmuxException {
@@ -1391,6 +1421,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {

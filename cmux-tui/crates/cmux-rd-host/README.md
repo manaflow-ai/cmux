@@ -10,14 +10,21 @@ policy): `cmux-rd-core`.
 ```
 cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
-cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--mode view|control] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
+
+The bench requests control by default. With `--mode view --input click --samples 1`,
+it sends the same click and watches the decoded marker for one second. In the active
+bench report, `input_sent` counts attempted samples and `input_acked` records whether
+the host acknowledged the last event. A view-only host acknowledges discarded input.
+`marker_changes` counts observed counter changes after the first sample begins, and
+`g2g_ms` measures the time to the expected counter for each successful sample.
 
 ## macOS host
 
 ```
-cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline]
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps N (default: the display's refresh rate, else 60)] [--profile high|baseline] [--encode-profile standard|ultra]
 ```
 
 The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
@@ -26,6 +33,53 @@ the app that started it, needs Screen Recording and Accessibility.
 marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-rd bench`
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
+
+## Approved Mac-to-Mac WG media
+
+`serve` and `connect` keep the signed hub session's Noise link for admission,
+reliable control, candidate routing and revocation. A fresh ephemeral cmux-wg
+session carries media inside its authenticated datagrams when the signed offer
+and answer select `rd_wg/1`; no private WG key is signaled. For WG, `connected`
+is emitted only after both sides report WG readiness.
+The media MTU accounts for WG padding and the inner IP/UDP header. Both the
+outer media queue and per-session queues are bounded.
+
+Process Setup/Answer accept optional `peer_carrier`: omission preserves the
+original rd-link media protocol for legacy peers, while the exact string
+`rd_wg/1` selects WG before networking starts. Any supplied unknown, empty,
+null or malformed value fails closed. The app forwards the peer's authenticated
+`a=fingerprint:cmux-rd-carrier rd_wg/1` marker, and the host echoes its selected
+marker only after Rust accepts Setup. Mixed old/new pairs therefore keep their
+original protocol; two updated peers select WG. This initial legacy selection
+is not a fallback: a selected WG session can never switch to bare rd media.
+The updated app invokes `cmux rd serve-v2` or `cmux rd connect-v2`. These
+versioned aliases prove the worker implements signed carrier selection; old
+workers reject them before emitting any key. Old app callers retain `serve`
+and `connect`. This also prevents an old dev override from falsely advertising
+WG through new Swift. The bundled `bin/cmux` and app still need an integrated
+artifact check; Swift-only validation is insufficient.
+
+Before readiness, an unsupported or failed WG negotiation proposes a typed
+WebRTC retry. Both sides acknowledge the proposal, and each waits until its
+outgoing acknowledgement has been delivered before emitting a fallback app
+line. Missing acknowledgements expire after three seconds and end the session.
+This is not atomic agreement under arbitrary loss: if one process exits and its
+final outer acknowledgement is lost, the other peer may end the session instead
+of retrying. A terminal close always wins over retry; no peer waits indefinitely.
+Old peers without this exchange therefore fail closed; they never receive bare
+rd-link media. Stop, consent/revocation, peer authentication failure, and failures
+after readiness never permit a retry. The app consumes this decision on the
+original approved ticket (the schema/FFI integration is a prerequisite).
+
+This layering preserves existing authorization without a new hub trust model,
+but adds WG encryption and an inner IP/UDP header to rd-link. The existing
+`cmux-remote` shared WG hub `datagram.bind` API is a separate carrier endpoint;
+Mac Screen's current signed setup does not carry its socket/configuration.
+Real-Mac comparison numbers are required before claiming a latency/fps benefit
+or closing #42196. This implementation alone is not performance evidence.
+
+Focused transport checks (on managed CI):
+`cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --features link wg_`.
 
 For transport, encoder and controller measurements without any grant, a bench build of
 `cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
@@ -58,6 +112,18 @@ scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip 
   --tools ./tools --label after --cua-vnc PATH/cua-vnc \
   --vnc-user USER --vnc-password-file PATH_ON_VIEWING_MAC --out after.jsonl
 scripts/screen-share-vs.py compare before.jsonl after.jsonl
+```
+
+`--host-arg=ARG` adds a `cmux-rd serve` flag and `--viewer-arg=ARG` a `cmux-rd bench` flag, each
+repeatable and in the `=` form (the value starts with `-`). Only an allowlist passes
+(`--resolution-ladder`, `--max-qp N`, `--max-kbps N`; `--caps LIST`); anything else
+is refused. Both lists go into every output line and the table headers, so `compare` shows what
+differed. A head run with the resolution ladder on:
+
+```
+scripts/screen-share-vs.py run ... --label ladder --out ladder.jsonl \
+  --host-arg=--resolution-ladder --host-arg=--max-qp=40 --host-arg=--max-kbps=1000 \
+  --viewer-arg=--caps=video.scaled
 ```
 
 The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
@@ -231,6 +297,54 @@ This crate is its own Cargo workspace (excluded from the cmux-tui workspace) bec
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
 
+### Stage ledger: where each frame's milliseconds go (`cmux.rd-stage-ledger/1`)
+
+Decision D8 of cmuxterm-hq `docs/design/screen-share-under-100ms.md`. A viewer that offers
+cap `ledger` (and `clock`, so its times convert to the host's) gets, after each frame's last
+shard, a `FrameTimes` datagram (kind 12, cmux-rd-proto `frame_times.rs`) with the host's times
+for that frame: display time (ScreenCaptureKit's, 0 where the capture backend has none), encode
+start, bitstream ready, first and last datagram handed to the carrier. The viewer adds first
+shard, last shard (the frame became decodable), released, decoded and presented
+(cmux-rd-core `ledger.rs`). A viewer that does not offer the cap gets nothing new.
+
+`cmux-rd bench` prints the run's table as `stage_ledger` in its report line, and the app logs
+it every 5 s (`remote-view-rd`, "stage ledger: ..."). One JSON object, all times in ms on the
+host's clock:
+
+```json
+{"schema":"cmux.rd-stage-ledger/1","clock":"host monotonic","frames":N,"frames_with_host_times":N,
+ "offset_us":-1234,"received_mbps":14.2,
+ "stages":[{"stage":"Capture","from":"display time","to":"encode start","budget_ms":8.000,
+            "n":N,"p50_ms":3.1,"p95_ms":6.0,"reason":null}, ...],
+ "display_to_decoded":{"n":N,"p50_ms":..,"p95_ms":..}}
+```
+
+`stages` always has these twelve rows, in order: Input, Screen, Capture, Encode, Send,
+Network, Transport, Recovery, Reassembly, Decode, Present, Total. They are the ten rows of the
+design's budget table plus Network split in two right after it: Transport + Recovery = Network
+for every frame. A row with no samples has `n: 0`, null percentiles and a `reason`:
+
+| Stage | From, to | Filled by |
+| --- | --- | --- |
+| Input | viewer key down to host inject | the fleet harness (observer input receipt + host `inject_us`) |
+| Screen | inject to display time | the fleet harness (host `inject_us` + `shown_us`) |
+| Capture | display time to encode start | host |
+| Encode | encode start to bitstream ready | host |
+| Send | bitstream ready to last datagram sent | host |
+| Network | last datagram sent to last shard received | host + viewer (needs the clock offset) |
+| Transport | first datagram sent to first shard received: the path's one-way delay | host + viewer (needs the clock offset) |
+| Recovery | arrival spread (first to last shard) minus send spread (first to last datagram): time lost to retransmits, waiting for parity, jitter and queueing; can be negative when the path squeezes the burst | host + viewer (one clock each) |
+| Reassembly | last shard to frame released | viewer |
+| Decode | released to decoded | viewer |
+| Present | decoded to on glass (drawable presented time) | the app; `cmux-rd bench` has no renderer |
+| Total | display time to presented | the app; the bench reports `display_to_decoded` instead |
+
+Send ends when the last datagram is handed to the carrier: on a link carrier that is the link
+thread's queue, not the socket. `CMUX_RD_TIMING_LOG` lines carry the same host times per frame
+(`release_us` is the gate's release, `capture_us` the frame's `t_capture_us`, `encode_start_us`,
+`encoded_us`, `first_sent_us`, `sent_us`), for the harness to join with its observer's input and
+presented-marker receipts.
+
 ## Release
 
 `.github/workflows/cmux-rd-release.yml` publishes a GitHub release `cmux-rd-vX.Y.Z` (tag on
@@ -277,6 +391,17 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
   decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- `--encode-profile ultra` (`host` and `serve`; opt-in, standard is the default) stops saving
+  bandwidth on a fat link: frames at the viewer's rate (else the display's refresh) up to 120 fps,
+  a 150 Mbps ceiling unless `--max-kbps` names one. On VideoToolbox it holds frame rate first:
+  it runs the regular hardware encoder instead of the low-latency one (whose realtime encoder
+  refuses DataRateLimits and drops frames instead), and each frame gets one frame interval's
+  share of the target (DataRateLimits) but never more than 3 bits per pixel (about 0.78 MB at
+  1080p), with no QP ceiling and no QP floor (`CMUX_RD_VT_ULTRA_MIN_QP` sets one), so extra
+  rate buys fps before per-frame quality. A keyframe alone gets QP 30 or more. One frame
+  interval after the screen goes still, one refinement frame takes up to four frame budgets.
+  H.264 level 5.2 still bounds the frame rate at large sizes
+  (`mac::encoder_fps`): a 4K display encodes at most about 64 fps in H.264.
 
 ## Upstream media (development)
 
@@ -413,3 +538,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

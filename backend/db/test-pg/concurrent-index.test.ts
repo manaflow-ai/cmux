@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test"
+import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,7 +14,10 @@ const url = process.env.SCRATCH_URL
 const run = url ? describe : describe.skip
 const root = join(import.meta.dir, "..")
 const scratch = mkdtempSync(join(tmpdir(), "cmux-next-migrate-"))
-const databases: Array<string> = []
+// One database for the file, its public schema reset per case: CREATE and DROP DATABASE each cost a
+// checkpoint-sized wait on a busy runner, and four of them pushed a case and afterAll past 5 s.
+const database = `cmux_next_migrate_${process.pid}`
+let cases = 0
 
 const admin = async <T>(fn: (c: pg.Client) => Promise<T>): Promise<T> => {
   const c = new pg.Client({ connectionString: url })
@@ -26,25 +29,32 @@ const admin = async <T>(fn: (c: pg.Client) => Promise<T>): Promise<T> => {
   }
 }
 
+const dbUrl = (() => {
+  if (!url) return ""
+  const u = new URL(url)
+  u.pathname = `/${database}`
+  return u.href
+})()
+
+beforeAll(async () => {
+  if (url) await admin(async (c) => {
+    await c.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
+    await c.query(`CREATE DATABASE "${database}"`)
+  })
+})
+
 afterAll(async () => {
-  if (url) await admin(async (c) => { for (const d of databases) await c.query(`DROP DATABASE IF EXISTS "${d}" WITH (FORCE)`) })
+  if (url) await admin((c) => c.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`))
   rmSync(scratch, { recursive: true, force: true })
 })
 
-/** A fresh database and a migrations dir holding `files`; returns its URL and the dir. */
+/** An empty public schema in the file's database and a migrations dir holding `files`. */
 const setup = async (files: Record<string, string>) => {
-  const name = `cmux_next_migrate_${process.pid}_${databases.length}`
-  databases.push(name)
-  await admin(async (c) => {
-    await c.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
-    await c.query(`CREATE DATABASE "${name}"`)
-  })
-  const u = new URL(url!)
-  u.pathname = `/${name}`
-  const dir = join(scratch, name)
+  await query(dbUrl, "DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+  const dir = join(scratch, `case_${cases++}`)
   mkdirSync(dir)
   for (const [f, sql] of Object.entries(files)) writeFileSync(join(dir, f), sql)
-  return { dbUrl: u.href, dir }
+  return { dbUrl, dir }
 }
 
 const migrate = (dbUrl: string, dir: string) => {

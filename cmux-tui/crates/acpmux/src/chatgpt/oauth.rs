@@ -192,7 +192,7 @@ impl Client {
     fn http(&self) -> &reqwest::Client {
         self.http.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::Client::builder()
+            crate::happy_dial::http_client()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
@@ -489,7 +489,7 @@ impl Client {
 }
 
 /// Writes the account's record and its `chatgpt-plan` route; the route id.
-fn save(
+pub(super) fn save(
     places: &Places,
     reauth: Option<String>,
     client_id: &str,
@@ -507,7 +507,15 @@ fn save(
         .map(|(id, _)| id.clone())
         .or_else(|| {
             // A reauth of the same person whose client id changed keeps its connection.
-            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+            reauth
+                .clone()
+                .filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+        })
+        .or_else(|| {
+            // A reauth of a ChatGPT route this home holds no sign-in for takes that route (`begin`).
+            reauth.filter(|id| {
+                !records.iter().any(|(rid, _)| rid == id) && super::is_chatgpt_route(dir, id)
+            })
         })
         .unwrap_or_else(|| {
             let taken = |id: &str| {

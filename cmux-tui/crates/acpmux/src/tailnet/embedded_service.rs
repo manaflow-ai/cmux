@@ -8,8 +8,8 @@ use cmux_tailnet::Node;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::embedded::{Controller, release_node};
 use crate::hub::Hub;
+use crate::tailnet::embedded::{Controller, release_node};
 
 const DRAIN_BOUND: Duration = Duration::from_secs(2);
 const NODE_CLOSE_BOUND: Duration = Duration::from_secs(3);
@@ -169,7 +169,7 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>, fenced: Fence) 
         }
         let spawn = |node: Arc<Node>, name: String| {
             let (stop, stopping) = watch::channel(false);
-            let task = tokio::spawn(crate::server::tailnet_ingress::serve(
+            let task = tokio::spawn(super::tailnet_ingress::serve(
                 hub.clone(),
                 node.clone(),
                 name.clone(),

@@ -5,7 +5,8 @@ Entries live in scripts/cmux-next/fast-tier.json. Each has a name, an owner
 lane, an optional bead and one of three kinds:
   swift   {package, filter}: `swift test --skip-build --filter` after one
           `swift build --build-tests` and one `swift test --list-tests` per package
-  cargo   {path, package[, filter]}: `cargo test --locked -p` in path
+  cargo   {path, package[, filter, lib]}: `cargo test --locked -p` in path; lib: true
+          builds and runs only the package's library unit tests (`--lib`)
   script  {path[, args]}: python3 -I for a .py path, bash otherwise
 An entry must be deterministic, need no window server or gui token, and finish
 within --max-seconds (60) after the build. A swift or cargo entry whose filter
@@ -76,12 +77,19 @@ def command(entry):
     if kind == "swift":
         return ["swift", "test", "--skip-build", "--package-path", entry["package"], "--filter", entry["filter"]], "."
     if kind == "cargo":
-        argv = ["cargo", "test", "--locked", "-p", entry["package"]]
+        argv = ["cargo", "test", "--locked", "-p", entry["package"], *cargo_targets(entry)]
         if entry.get("filter"):
             argv += ["--", entry["filter"]]
         return argv, entry["path"]
     runner = ["python3", "-I"] if entry["path"].endswith(".py") else ["bash"]
     return runner + [entry["path"], *entry.get("args", [])], "."
+
+
+def cargo_targets(entry):
+    """`--lib` for an entry whose tests are the library's own: without it `cargo test -p`
+    builds every integration-test binary and doctest of the package, which the entry never runs
+    (cmux-tui-core: 32 test binaries, 6.5 of the job's 9 min prebuild, job 137303235769)."""
+    return ["--lib"] if entry.get("lib") else []
 
 
 def describe(argv, cwd):
@@ -175,6 +183,10 @@ def run_build(root, argv, cwd, what, log_lock):
     build running beside another stays readable. Returns (returncode, seconds, the
     lines naming a lock cargo refused to update under --locked)."""
     started = time.monotonic()
+    # A cargo build runs inside fixit-compile (ci-oops 0a): when every error has a machine-applicable fix it writes
+    # the fixup patch for fixit-compile-push and still exits with cargo's status.
+    if argv[0] == "cargo" and FIXIT_COMPILE.is_file():
+        argv = [sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "cargo", "--root", str(root), "--", *argv]
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, errors="replace")
     # cargo's stale-lock refusal, kept for cargo-locks.py explain: the only lines a failed build's cause needs.
@@ -186,6 +198,8 @@ def run_build(root, argv, cwd, what, log_lock):
             refusals.append(output_line)
     return proc.wait(), time.monotonic() - started, refusals
 
+
+FIXIT_COMPILE = Path(__file__).resolve().parent.parent / "ci" / "oops" / "fixit_compile.py"
 
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
 STALE_LOCK_HINT = "--locked was passed"
@@ -217,10 +231,14 @@ def build_packages(root, entries, dry_run, timing):
              for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
                           (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
                            f"{package} test plan"))]
-    cargo = []
-    for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
-        packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+    # One build per cargo package, the same `-p` its entry runs with: one build of
+    # `-p cmux-tui-core -p cmux-layout-reducer` unifies the two packages' dependency
+    # features, so the reducer entry's own `cargo test -p cmux-layout-reducer`
+    # rebuilt libc, serde_json and proptest inside its 60 s cap (57.6 s of build,
+    # then a timeout: job 137088937648 on cmux-runner-pool).
+    cargo = [(["cargo", "test", "--locked", "--no-run", "-p", package, *targets], path, f"{path} {package}")
+             for path, package, targets in dict.fromkeys(
+                 (e["path"], e["package"], tuple(cargo_targets(e))) for e in entries if e["kind"] == "cargo")]
     builds = swift + cargo
     if dry_run:
         for argv, cwd, what in builds:

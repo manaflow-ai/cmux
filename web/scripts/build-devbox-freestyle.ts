@@ -95,7 +95,6 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
-  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
   requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
@@ -132,6 +131,7 @@ import {
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCommand,
   devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
@@ -190,12 +190,16 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
-// Resolved before the builder exists so a manifest outage fails the bake for free.
+// Resolved before the builder exists so an outage, or a release file no trusted key signed,
+// fails the bake for free: the daemon and hook come from the baked commit's verified
+// release.json (resolveCmuxTuiSource), never from latest/manifest.json.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
 // Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
-// creates a VM when the pinned manifest has no acpmux build.
-requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
-console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
+// creates a VM when the pinned build has no acpmux.
+requireCmuxTuiAcpmux(cmuxTuiSource, `https://files.cmux.com/cmux-tui/${cmuxTuiSource.commit}/release.json`);
+console.log(
+  `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
+);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -749,6 +753,7 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);

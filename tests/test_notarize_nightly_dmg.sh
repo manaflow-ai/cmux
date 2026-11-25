@@ -19,10 +19,8 @@ FAKE_BIN="$TMP_DIR/bin"
 # other case keeps one DMG submission.
 export CMUX_STAPLE_APP_IN_DMG=false
 LOG="$TMP_DIR/calls.log"
-HELPER_STATE="$TMP_DIR/helper-notarization.state"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Library/cmux Computer Use.app/Contents" "$FAKE_BIN"
+mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
-printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
 cat > "$FAKE_BIN/create-dmg" <<'EOF'
 #!/usr/bin/env bash
@@ -109,10 +107,6 @@ fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
   printf '{"status":"Accepted","ticketContents":%s}\n' "${CMUX_TEST_DMG_TICKET:-[]}"
 fi
-if [ "${1:-}" = "stapler" ] && [ "${2:-}" = "validate" ] && [ "${CMUX_TEST_HELPER_UNSTAPLED:-0}" = 1 ] \
-  && [[ "${3:-}" == *"/cmux Computer Use.app" ]]; then
-  exit 65
-fi
 EOF
 
 cat > "$FAKE_BIN/hdiutil" <<'EOF'
@@ -151,12 +145,6 @@ printf '%s %s\n' "$(basename "$0")" "$*" >> "$CMUX_TEST_CALL_LOG"
 EOF
 done
 
-cat > "$FAKE_BIN/notarize-computer-use-helper" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
-exit "${CMUX_TEST_HELPER_EXIT:-0}"
-EOF
 chmod +x "$FAKE_BIN"/*
 
 FIXTURE_P8_BASE64="$(printf 'fixture-p8' | base64)"
@@ -176,13 +164,10 @@ run_helper() {
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
-  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
-  CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
   CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
   CMUX_NOTARY_PENDING_ON_TIMEOUT="${TEST_NOTARY_PENDING_ON_TIMEOUT:-false}" \
   CMUX_STAPLE_APP_IN_DMG="${TEST_STAPLE_APP_IN_DMG:-false}" \
   GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
-  CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
   ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
@@ -192,12 +177,6 @@ run_helper() {
 
 run_helper
 
-if ! grep -Fxq \
-  "notarize-helper --finish $HELPER_STATE $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
-  "$LOG"; then
-  echo "FAIL: nightly packaging did not finish the early Computer Use notarization" >&2
-  exit 1
-fi
 if ! grep -q '^notary-key ' "$LOG"; then
   echo "FAIL: notarytool did not authenticate with the team API key" >&2
   exit 1
@@ -234,7 +213,6 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
-helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
 create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
 convert_line="$(line_of "hdiutil convert ")"
 dmg_sign_line="$(line_of "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $DMG")"
@@ -258,8 +236,7 @@ app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"
 mounted_spctl_line="$(line_of "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount")"
-if ! [ "$helper_notary_line" -lt "$create_dmg_line" ] \
-  || ! [ "$submit_line" -lt "$app_staple_line" ] \
+if ! [ "$submit_line" -lt "$app_staple_line" ] \
   || ! [ "$app_staple_line" -lt "$dmg_staple_line" ] \
   || ! [ "$dmg_staple_line" -lt "$attach_line" ] \
   || ! [ "$attach_line" -lt "$mounted_spctl_line" ]; then
@@ -576,7 +553,6 @@ run_continue() {
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
-  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-helper" \
   CMUX_NOTARY_CONTINUE_STATE="$CONTINUE_STATE" \
   GITHUB_OUTPUT="$CONTINUE_GITHUB_OUTPUT" \
   ASC_API_KEY_ID=FIXTUREKEY \
@@ -602,7 +578,6 @@ if ! grep -q '^xcrun notarytool info fixture-saved-id ' "$LOG" \
   || grep -q '^xcrun notarytool submit' "$LOG" \
   || grep -q '^create-dmg' "$LOG" \
   || grep -q '^codesign' "$LOG" \
-  || grep -q '^notarize-helper' "$LOG" \
   || ! grep -Fq "xcrun stapler staple $APP" "$LOG" \
   || ! grep -Fq "xcrun stapler staple $CONTINUE_DMG" "$LOG" \
   || ! grep -Fq "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount" "$LOG" \
@@ -845,53 +820,6 @@ fi
 
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
 
-# cx-urd.68: Apple still holds the helper after its bounded wait (exit 75).
-# The run goes on to the DMG, whose ticket covers the helper's slices (Codesign
-# kept the helper's submitted signature), instead of failing the nightly. An
-# unstapled helper the accepted DMG ticket does not cover stops the run.
-QUEUED_APP="$TMP_DIR/queued/cmux NIGHTLY.app"
-QUEUED_HELPER="$QUEUED_APP/Contents/Library/cmux Computer Use.app"
-mkdir -p "$QUEUED_APP/Contents/MacOS" "$QUEUED_HELPER/Contents/MacOS"
-printf 'signed-app-fixture\n' > "$QUEUED_APP/Contents/MacOS/cmux"
-printf 'helper\n' > "$QUEUED_HELPER/Contents/MacOS/cmux-cua"
-python3 -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux-cua", "CFBundleIdentifier": "com.cmuxterm.cua"}, open(sys.argv[1], "wb"))' \
-  "$QUEUED_HELPER/Contents/Info.plist"
-helper_cdhash="$(printf '%s' arm64 | shasum | cut -c1-40)"
-run_queued() {
-  : > "$LOG"
-  rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg" "$TMP_DIR/queued.dmg".notarization.*
-  CMUX_TEST_HELPER_EXIT=75 CMUX_TEST_HELPER_UNSTAPLED=1 \
-    run_helper "$QUEUED_APP" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg"
-}
-if ! CMUX_TEST_DMG_TICKET="[{\"arch\":\"arm64\",\"cdhash\":\"$helper_cdhash\",\"path\":\"cmux Computer Use.app/Contents/MacOS/cmux-cua\"}]" \
-  run_queued >/dev/null 2>"$TMP_DIR/queued.err"; then
-  echo "FAIL: a helper still in Apple's queue must not fail the nightly" >&2
-  cat "$TMP_DIR/queued.err" "$LOG" >&2
-  exit 1
-fi
-if ! grep -Fq "xcrun notarytool submit $TMP_DIR/queued.dmg" "$LOG" || ! grep -Fq "xcrun stapler staple $TMP_DIR/queued.dmg" "$LOG" \
-  || [ ! -e "$TMP_DIR/queued-immutable.dmg" ]; then
-  echo "FAIL: a queued helper must still produce the notarized, stapled DMG" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-if CMUX_TEST_DMG_TICKET='[]' run_queued >/dev/null 2>"$TMP_DIR/queued-uncovered.err"; then
-  echo "FAIL: an unstapled helper the DMG ticket does not cover must stop the run" >&2
-  exit 1
-fi
-if grep -Fq "xcrun stapler staple $QUEUED_APP" "$LOG" || [ -e "$TMP_DIR/queued-immutable.dmg" ] \
-  || ! grep -Fq "does not cover the unstapled Computer Use helper" "$TMP_DIR/queued-uncovered.err"; then
-  echo "FAIL: an uncovered helper must stop before the app is stapled, saying why" >&2
-  exit 1
-fi
-: > "$LOG"
-if CMUX_TEST_HELPER_EXIT=1 run_helper "$QUEUED_APP" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg" >/dev/null 2>&1 \
-  || grep -q '^xcrun notarytool submit' "$LOG"; then
-  echo "FAIL: a rejected helper must still fail before the DMG submission" >&2
-  exit 1
-fi
-echo "PASS: a helper still in Apple's queue falls through to the DMG, whose ticket must cover it"
-
 # The bounded notary wait only helps if the step and the job outlive it: the
 # step allows the wait plus DMG creation and the post-notary verification,
 # and the job allows the step plus the steps before and after it.
@@ -951,18 +879,11 @@ CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
 CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
 CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
 CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
-CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
 ASC_API_KEY_ID=FIXTUREKEY \
 ASC_API_ISSUER_ID=fixture-issuer \
 ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$RC_APP" "$TMP_DIR/cmux-rc-macos.dmg" "$TMP_DIR/cmux-rc-immutable.dmg"
-# The RC fixture, like a cmux-next bundle, has no nested Computer Use app, so
-# no helper notarization runs for it.
-if grep -q '^notarize-helper ' "$LOG"; then
-  echo "FAIL: packaging notarized a Computer Use helper the bundle does not carry" >&2
-  exit 1
-fi
 for expected in \
   "metadata $RC_APP rc" \
   "metadata $TMP_DIR/cmux-rc-mount/cmux NIGHTLY.app rc"; do
@@ -975,13 +896,13 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   echo "FAIL: unknown channel must be rejected" >&2
   exit 1
 fi
-echo "PASS: rc channel packaging selects rc metadata checks and skips an absent Computer Use helper"
+echo "PASS: rc channel packaging selects rc metadata checks"
 
 # Stable packages through the same path with the release entitlements, so the
 # stable release can ship per-architecture DMGs the way nightly does.
 : > "$LOG"
 STABLE_APP="$TMP_DIR/input/cmux.app"
-mkdir -p "$STABLE_APP/Contents/MacOS" "$STABLE_APP/Contents/Library/cmux Computer Use.app/Contents"
+mkdir -p "$STABLE_APP/Contents/MacOS"
 printf 'signed-stable-fixture\n' > "$STABLE_APP/Contents/MacOS/cmux"
 CMUX_TEST_CALL_LOG="$LOG" \
 CMUX_TEST_SOURCE_APP="$STABLE_APP" \
@@ -996,21 +917,19 @@ CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
 CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
 CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
 CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
-CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
 ASC_API_KEY_ID=FIXTUREKEY \
 ASC_API_ISSUER_ID=fixture-issuer \
 ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$STABLE_APP" "$TMP_DIR/cmux-macos-arm64.dmg" "$TMP_DIR/cmux-stable-immutable.dmg"
 for expected in \
-  "notarize-helper $STABLE_APP $ROOT_DIR/cmux.release.entitlements Developer ID Application: Fixture" \
   "metadata $STABLE_APP stable"; do
   if ! grep -Fxq "$expected" "$LOG"; then
     echo "FAIL: stable channel packaging missed: $expected" >&2
     exit 1
   fi
 done
-echo "PASS: stable channel packaging selects release entitlements and metadata checks"
+echo "PASS: stable channel packaging selects stable metadata checks"
 
 # Resuming a stable submission passes the channel gate and stops at the next
 # check (here a deliberate SHA-256 mismatch), never at "Unsupported channel".
@@ -1039,8 +958,8 @@ if grep -Fq 'Unsupported recovery channel' <<<"$resume_output" \
 fi
 echo "PASS: stable notarization state resumes past the channel gate"
 
-# Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
-# Computer Use and outer notarization. It must work without Apple API secrets,
+# Fast dogfood keeps Developer ID signing and DMG creation but bypasses
+# notarization. It must work without Apple API secrets,
 # and the signed image still becomes the internal immutable artifact.
 : > "$LOG"
 FAST_DMG="$TMP_DIR/cmux-fast-dogfood.dmg"
@@ -1055,8 +974,8 @@ if ! (
   echo "FAIL: fast dogfood packaging should sign without notarization secrets" >&2
   exit 1
 fi
-if grep -q '^xcrun notarytool ' "$LOG" || grep -q '^notarize-helper ' "$LOG"; then
-  echo "FAIL: fast dogfood packaging must skip helper and outer notarization" >&2
+if grep -q '^xcrun notarytool ' "$LOG"; then
+  echo "FAIL: fast dogfood packaging must skip notarization" >&2
   exit 1
 fi
 if ! grep -q "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $FAST_DMG" "$LOG"; then
@@ -1174,7 +1093,7 @@ EOF
 cat > "$W/bin/resume" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'resume %s %s app_only=%s helper_recheck_skipped=%s wait=%s cert=%s\n' "$(basename "$1")" "$3" "${CMUX_RESUME_APP_ONLY:-false}" "${CMUX_SKIP_HELPER_RECHECK:-false}" "${CMUX_NOTARY_WAIT_TIMEOUT:-}" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
+printf 'resume %s %s app_only=%s wait=%s cert=%s\n' "$(basename "$1")" "$3" "${CMUX_RESUME_APP_ONLY:-false}" "${CMUX_NOTARY_WAIT_TIMEOUT:-}" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
 if grep -Fxq 'stapled_app=true' "$1"; then
   case "${CMUX_TEST_SECOND:-Accepted}" in
     Accepted) cp "$3" "$4" ;;
@@ -1210,10 +1129,10 @@ reset_wrapper() {
 }
 expected="$(cat <<EOF
 keychain delete cert=
-resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true helper_recheck_skipped=false wait=2m cert=
+resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true wait=2m cert=
 package $W/recovery/stapled-app/cmux-nightly-macos.dmg cert=set creates_keychain=true submit_only=true marker=true
 keychain delete cert=
-resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false helper_recheck_skipped=true wait=40m cert=
+resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false wait=40m cert=
 EOF
 )"
 # Before 6 h (the default limit): Accepted ships the stapled-app DMG; queued

@@ -39,6 +39,18 @@ impl Config {
             };
             return Ok(());
         }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "direct_port" | "directport"
+        ) {
+            self.direct_port = match value.trim().to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                port => Some(port.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(|| {
+                    anyhow::anyhow!("direct_port must be a TCP port (1-65535) or none")
+                })?),
+            };
+            return Ok(());
+        }
         // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
         // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
         if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {
@@ -124,13 +136,17 @@ impl Config {
             | "session.sessionstasksmax"
             | "sessions_tasks_max"
             | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
+            "session.lanes" | "lanes" => &mut self.session.lanes,
+            "session.disk_mb" | "session.diskmb" | "disk_mb" | "diskmb" => {
+                &mut self.session.disk_mb
+            }
             _ => anyhow::bail!(
                 "unknown session resource setting `{key}` (use session.memory_mb, \
-                 session.swap_mb, session.tasks_max, session.sessions_tasks_max or \
-                 session.cpu_class)"
+                 session.swap_mb, session.tasks_max, session.sessions_tasks_max, \
+                 session.lanes, session.disk_mb or session.cpu_class)"
             ),
         };
-        let tasks = key.contains("tasks");
+        let tasks = key.contains("tasks") || key.contains("lanes");
         let value = value.trim();
         *slot = match value.to_ascii_lowercase().as_str() {
             "" | "default" | "none" | "clear" => None,
@@ -340,7 +356,7 @@ impl Config {
     }
 
     /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
-    /// Terminal and Chief harnesses are chosen only explicitly.
+    /// Terminal, Chief and UniiChat harnesses are chosen only explicitly.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;

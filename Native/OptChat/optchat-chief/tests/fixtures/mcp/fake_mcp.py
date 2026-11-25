@@ -6,8 +6,11 @@
 --era stateless  2026-07-28: no initialize (method not found), server/discover,
                  the Tasks extension (tasks/get carries the result),
                  subscriptions/listen.
---http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio
-                 (session era; --token T makes it answer 401 without it).
+--http PORT      serve Streamable HTTP on 127.0.0.1:PORT instead of stdio (0: a free
+                 port, printed as the first stdout line)
+                 (session era; --token T makes it answer 401 without it;
+                 --revoke-on-call then revokes T at the first tools/call, mid-session,
+                 and the refresh grant hands out its successor).
 """
 import json, sys, threading, time, uuid
 
@@ -18,6 +21,11 @@ tasks = {}
 subscribed = set()
 listen_ids = []
 counter = {"n": 0}
+# --device CLIENT: sign in with a device code (RFC 8628) for CLIENT instead of a redirect (HTTP
+# mode): no registration endpoint; the device token endpoint answers authorization_pending once,
+# then the token.
+DEVICE = sys.argv[sys.argv.index("--device") + 1] if "--device" in sys.argv else None
+device_polls = {"n": 0}
 
 TOOLS = [
     {"name": "echo", "description": "Echo the text back.", "annotations": {"readOnlyHint": True},
@@ -182,6 +190,7 @@ def http(port, token):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import queue
     streams = []
+    live = {"token": token, "revoke": "--revoke-on-call" in sys.argv}
 
     def push(msg):
         for q in list(streams):
@@ -197,9 +206,9 @@ def http(port, token):
             pass
 
         def authed(self):
-            if token and self.headers.get("Authorization") != f"Bearer {token}":
+            if live["token"] and self.headers.get("Authorization") != f"Bearer {live['token']}":
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % port)
+                self.send_header("WWW-Authenticate", 'Bearer resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource"' % self.server.server_address[1])
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return False
@@ -218,7 +227,9 @@ def http(port, token):
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
+            if DEVICE and self.path in ("/device/code", "/device/token"):
+                return self.device(body, base)
             if self.path == "/register":
                 return self.reply(201, {"client_id": "fake-client", "redirect_uris": json.loads(body)["redirect_uris"]})
             if self.path == "/token":
@@ -228,13 +239,17 @@ def http(port, token):
                 if form.get("grant_type") == ["refresh_token"]:
                     if form.get("refresh_token") != ["ref-1"]:
                         return self.reply(400, {"error": "invalid_grant"})
-                    return self.reply(200, {"access_token": token, "refresh_token": "ref-2", "token_type": "Bearer", "expires_in": 3600})
+                    return self.reply(200, {"access_token": live["token"], "refresh_token": "ref-2", "token_type": "Bearer", "expires_in": 3600})
                 if form.get("code") != ["good-code"] or not form.get("code_verifier") or form.get("resource") != [base + "/mcp"]:
                     return self.reply(400, {"error": "invalid_grant"})
                 return self.reply(200, {"access_token": token, "token_type": "Bearer", "expires_in": 3600})
+            msg = json.loads(body)
+            if live["revoke"] and msg.get("method") == "tools/call":
+                # The token dies mid-session; its successor is what a refresh buys.
+                live["revoke"] = False
+                live["token"] = live["token"] + "-next"
             if not self.authed():
                 return
-            msg = json.loads(body)
             r = handle(msg)
             if r is None:
                 self.send_response(202)
@@ -249,14 +264,36 @@ def http(port, token):
             self.end_headers()
             self.wfile.write(data)
 
+        def device(self, body, base):
+            from urllib.parse import parse_qs
+            form = parse_qs(body.decode())
+            if form.get("client_id") != [DEVICE]:
+                return self.reply(400, {"error": "invalid_client"})
+            if self.path == "/device/code":
+                if not form.get("scope"):
+                    return self.reply(400, {"error": "invalid_scope"})
+                return self.reply(200, {"device_code": "dev-code-1", "user_code": "WDJB-MJHT",
+                    "verification_uri": base + "/device", "expires_in": 60, "interval": 1})
+            if form.get("grant_type") != ["urn:ietf:params:oauth:grant-type:device_code"] or form.get("device_code") != ["dev-code-1"]:
+                return self.reply(400, {"error": "invalid_grant"})
+            device_polls["n"] += 1
+            if device_polls["n"] == 1:
+                return self.reply(400, {"error": "authorization_pending"})
+            return self.reply(200, {"access_token": token, "token_type": "bearer", "scope": "repo,read:org"})
+
         def do_GET(self):
-            base = "http://127.0.0.1:%d" % port
+            base = "http://127.0.0.1:%d" % self.server.server_address[1]
             if self.path.startswith("/.well-known/oauth-protected-resource"):
                 return self.reply(200, {"resource": base + "/mcp", "authorization_servers": [base]})
             if self.path.startswith("/.well-known/oauth-authorization-server"):
-                return self.reply(200, {"issuer": base, "authorization_endpoint": base + "/authorize",
+                meta = {"issuer": base, "authorization_endpoint": base + "/authorize",
                     "token_endpoint": base + "/token", "registration_endpoint": base + "/register",
-                    "code_challenge_methods_supported": ["S256"]})
+                    "code_challenge_methods_supported": ["S256"]}
+                if DEVICE:
+                    del meta["registration_endpoint"]
+                    meta["token_endpoint"] = base + "/device/token"
+                    meta["device_authorization_endpoint"] = base + "/device/code"
+                return self.reply(200, meta)
             if self.path.startswith("/authorize"):
                 from urllib.parse import urlparse, parse_qs
                 q = parse_qs(urlparse(self.path).query)
@@ -282,7 +319,11 @@ def http(port, token):
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-    ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", port), H)
+    # Port 0 asks the kernel for a free port; its number is the first stdout line, so no other
+    # test can take the port between a pick and a bind.
+    print(server.server_address[1], flush=True)
+    server.serve_forever()
 
 
 if "--http" in sys.argv:

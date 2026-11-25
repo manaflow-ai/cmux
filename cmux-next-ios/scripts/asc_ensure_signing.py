@@ -212,7 +212,8 @@ def ensure_capabilities(api: Api, bundle_pk: str, identifier: str, wanted: dict[
         return False
     have = {
         (c.get("attributes") or {}).get("capabilityType")
-        for c in api.get_all(f"/v1/bundleIds/{bundle_pk}/bundleIdCapabilities?limit=200")
+        # No ?limit: App Store Connect answers 400 PARAMETER_ERROR.ILLEGAL to paging on this relationship.
+        for c in api.get_all(f"/v1/bundleIds/{bundle_pk}/bundleIdCapabilities")
     }
     changed = False
     for capability, settings in wanted.items():

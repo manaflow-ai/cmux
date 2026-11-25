@@ -80,11 +80,7 @@ PATH_OWNERS = {
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
-    ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
-    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
     "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
-    ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
-    "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
     "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -126,12 +122,6 @@ PATH_OWNERS = {
     "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py loads it by path and also reads its workflow
-    # and fixtures.
-    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
@@ -147,6 +137,7 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),

@@ -109,8 +109,15 @@ mkdir -p "$(dirname "$app_path")"
 first_install=true
 [[ -e "$app_path" ]] && first_install=false
 was_running=false
+was_front=false
 if ! $first_install && [[ "$(app_running)" != "false" ]]; then
   was_running=true
+  # The reopen comes back in front only when the person was in the app: an update run from elsewhere (a
+  # schedule, an agent, another app's terminal) never takes the keyboard (Leo, 2026-10-31: "WHY THE F*** DOES
+  # THE DEV BUILD KEEP STEALING F*** FOCUS").
+  if [[ "$(lsappinfo info -only bundleid "$(lsappinfo front 2>/dev/null)" 2>/dev/null)" == *'"com.cmuxterm.app.debug.next"'* ]]; then
+    was_front=true
+  fi
   # Quit and Keep Sessions: a plain Quit may ask whether to end them. In
   # another cmux's terminal these variables name that app; the bundled CLI
   # then finds its own.
@@ -146,6 +153,11 @@ if $first_install; then
   open "$app_path"
   echo "Opened cmux NEXT DEV. Next time, run this script again to update it."
 elif $was_running; then
-  open "$app_path"
+  if $was_front; then
+    open "$app_path"
+  else
+    # Behind the front app; the app's own background-reopen argument makes it refuse its launch activation.
+    open -g "$app_path" --args --cmux-update-reopened-behind
+  fi
   echo "Reopened cmux NEXT DEV; its sessions, agents and chats reattach."
 fi

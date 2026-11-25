@@ -47,14 +47,17 @@ public struct AwaitedContent: Equatable, Sendable {
     /// The content a key typed now would miss: the focus names `tab` of `kind`, and its pane (`pane`; nil: the pane has
     /// no controller yet, `paneInTopology` says whether the focus's topology lists it) does not show it. Nil otherwise.
     public static func awaited(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> AwaitedContent? {
-        if let pane {
-            // The common case first (every key-down asks): the content shows.
-            if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return nil }
-            guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
-        } else if !paneInTopology {
-            return nil
-        }
-        return AwaitedContent(tab: tab, kind: kind)
+        reading(kind, tab: tab, pane: pane, paneInTopology: paneInTopology).hasPrefix("awaited") ? AwaitedContent(tab: tab, kind: kind) : nil
+    }
+
+    /// What ``awaited(_:tab:pane:paneInTopology:)`` reads: `awaited` (or `awaited_no_pane`) when the hold waits for the
+    /// content, else the first condition that fails (hq#22681: the launch marks it of the process's first key).
+    public static func reading(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> String {
+        guard let pane else { return paneInTopology ? "awaited_no_pane" : "pane_not_in_topology" }
+        // The common case first (every key-down asks): the content shows.
+        if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return "shown" }
+        guard pane.selectedTab == tab else { return pane.selectedTab == nil ? "none_selected" : "other_selected" }
+        return kind == .browser || pane.selectedIsLiveTerminal ? "awaited" : "not_live_terminal"
     }
 
     /// The app actions that need the focused page itself (its address bar): they wait for it in a page hold.

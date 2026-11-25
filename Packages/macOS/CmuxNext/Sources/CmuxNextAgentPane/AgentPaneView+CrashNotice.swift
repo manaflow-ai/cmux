@@ -13,6 +13,8 @@ extension AgentPaneView {
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
     /// or the notice.
     func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
+        // The old host has no page to tell it: its last frame stays until a new document paints.
+        documentWillChange(.contentEnded)
         contentEnded(termination.withPid(fallback: knownWebContentPid))
     }
 
@@ -47,6 +49,8 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
+        // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
@@ -83,6 +87,8 @@ extension AgentPaneView {
     /// working chat before this (user report 2026-10-30): a host route, a retarget or a WebKit
     /// fallback had loaded the page again, and only Reload took the notice away.
     func pageLoadedAgain() {
+        // A document loaded while the chat waits drawn away starts "visible": tell it it is hidden.
+        page?.reapplyDrawnAway()
         // Every host's load lands here: a start's card is gone with the old document, so its question moves to a dialog.
         model.cloudAsks.pageReloaded()
         // A page that came back before its owed retry ran needs none.

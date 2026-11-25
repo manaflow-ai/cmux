@@ -92,13 +92,16 @@ export default componentEntry<Props>({
   covers: ["app-health/model.ts#indicatorHeadline", "app-health/AppHealth.tsx#AppHealthIndicator"],
   keywords: ["health", "slow", "stuck", "footer", "sidebar", "layout shift", "spaces", "status"],
   load: async () => {
-    const [{ AppHealthDot }, { indicatorHeadline }, { createStrings }, table] = await Promise.all([
-      import("./AppHealth"),
-      import("./model"),
-      import("../pages/shared/i18n"),
-      import("../pages/server-cards/generated/strings.json"),
-    ]);
-    const strings = createStrings(table.default);
+    const [{ AppHealthDot }, { indicatorHeadline }, { createStrings }, table, catalog, { englishTable }] =
+      await Promise.all([
+        import("./AppHealth"),
+        import("./model"),
+        import("../pages/shared/i18n"),
+        import("../pages/server-cards/generated/strings.json"),
+        import("./Localizable.xcstrings?raw"),
+        import("./galleryStrings"),
+      ]);
+    const strings = createStrings({ en: { ...table.default.en, ...englishTable(catalog.default).en } });
     // The row as the native footer lays it out (SidebarFooterBand): the avatar at the leading inset, the
     // spaces strip centered on the sidebar, the update button and Search at the trailing end.
     function Row({ line }: { line?: { text: string; tone: "danger" | "attention" | "muted" } | null }) {

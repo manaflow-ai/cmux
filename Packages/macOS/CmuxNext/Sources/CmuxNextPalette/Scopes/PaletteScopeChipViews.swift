@@ -83,7 +83,8 @@ final class PaletteScopeChipView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PaletteStrings.chipAccessibility(chip.title))
-        themedToolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
+        // The chip shows its title: no tooltip (a1315's cut 2). VoiceOver hears where a click goes.
+        setAccessibilityHelp(isTop ? nil : PaletteStrings.backTo(chip.title))
         setAccessibilityIdentifier("palette.scopeChip.\(chip.scope.rawValue)")
     }
 

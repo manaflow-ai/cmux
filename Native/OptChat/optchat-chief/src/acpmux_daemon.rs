@@ -361,6 +361,18 @@ impl Started {
     }
 }
 
+/// The daemon this process started, while it still runs: its pid and the
+/// binary it ran. Its child, never reaped while it runs, so the pid names it
+/// alone (`acpmux_peer`: a not-dumpable daemon hides its executable on Linux).
+pub fn started_daemon() -> Option<(u32, PathBuf)> {
+    let mut starts = starts();
+    let started = starts.started.as_mut()?;
+    if started.gone() {
+        return None;
+    }
+    Some((started.child.id(), started.bin.clone()))
+}
+
 /// The starts of this process: in flight, done, and whether it stops.
 struct Starts {
     starting: u32,

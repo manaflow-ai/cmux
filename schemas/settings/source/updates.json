@@ -118,7 +118,7 @@
             "text": "Off: cmux asks before downloading. It always asks before restarting."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "update",
             "download",
@@ -267,6 +267,49 @@
           ]
         },
         {
+          "key": "updates.daemon",
+          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
+          "title": {
+            "key": "settings.updates.daemon",
+            "text": "Live Background Updates"
+          },
+          "help": {
+            "key": "settings.updates.daemon.help",
+            "text": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesDaemonSetting"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesDaemonOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesDaemonEveryMerge",
+                "text": "Every Merge"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "update",
+            "daemon",
+            "terminal",
+            "live",
+            "background",
+            "no restart",
+            "nightly",
+            "merge"
+          ]
+        },
+        {
           "key": "updates.liveWebReload",
           "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
           "title": {
@@ -308,6 +351,55 @@
             "update",
             "install",
             "quit"
+          ]
+        },
+        {
+          "key": "updates.installWhenIdle",
+          "note": "Update when idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): a downloaded update installs once the person is away (no input for updates.installWhenIdleMinutes, or the screen locked), never over an unsent draft; a running agent turn does not hold it, since the relaunch keeps every terminal and agent and its turn runs on (Leo 2026-11-22: \"cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be de facto able to click the restart button\"). Off in the schema; on in cmux NEXT NIGHTLY through its build default (SettingsBuildDefaults).",
+          "title": {
+            "key": "settings.updates.installWhenIdle",
+            "text": "Update When Idle"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdle.help",
+            "text": "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart"
+          ]
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "note": "How long cmux must be idle before updates.installWhenIdle installs a downloaded update.",
+          "title": {
+            "key": "settings.updates.installWhenIdleMinutes",
+            "text": "Idle Time Before Updating"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdleMinutes.help",
+            "text": "How long cmux must be idle before Update When Idle installs."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart",
+            "minutes"
           ]
         },
         {
@@ -407,7 +499,7 @@
             "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "tips",
             "whats new",

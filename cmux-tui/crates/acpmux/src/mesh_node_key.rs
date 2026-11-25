@@ -91,6 +91,14 @@ fn load_or_create_with(
     }
 }
 
+/// The node key in `state_dir` as a Noise static key, read only (never created), with no key
+/// lock: the hub carrier's door where the cmux link holds the lock for its WireGuard session
+/// (`key_holder::open_for_noise_static` says why that is one holder still).
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn read_noise_static(state_dir: &Path) -> Result<Zeroizing<[u8; 32]>> {
+    key_holder::open_for_noise_static(KeyFile::Node, state_dir, read_key)
+}
+
 /// The public half of the node key now in `state_dir`, or None when there is none or it cannot
 /// be read. Never creates one: the hub carrier's key check (`hub_carrier.rs`) uses it to see a
 /// key [`replace_at`] replaced.

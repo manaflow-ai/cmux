@@ -40,8 +40,17 @@
 //!   none, so a parent's turn
 //!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
 //!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
-//!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
-//!   of a turn that reports.
+//!   one. A report steers into the parent's running turn, as any agent's message does
+//!   (`subsession_send.rs`): a busy coordinator reads it at its next tool step instead of after a
+//!   turn that may run for many minutes (Leo, 2026-10-29, of a lane's "your queue is drained"
+//!   left behind a 15-minute turn: "the drain guy came back but it's still not doing the right
+//!   thing"). It goes into the person's own turn too, as a sub-session's family message does
+//!   (`Hub::own_lane_report`): the chat's own lane reporting to the session that started it. A
+//!   steered report is not counted as work the turn took in (`lane_steer_in`), so a turn on
+//!   reports only still reports nothing. A parent whose agent does not steer, or whose turn is
+//!   past its cap (`turn_cap.rs`), gets it when the turn ends, as before. A no-wait question's
+//!   reply (`question_replies.rs`) goes the same way into its asker's turn, as any agent's
+//!   message does, but never into a turn the asker's person started.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -65,8 +74,8 @@
 //!   steers into the parent: the lane's next report replaces it and says how many such turns it
 //!   folds in, a still-waiting turn never replaces a real report still queued, and the lane's own
 //!   row shows its last words meanwhile. One that nothing replaced in [`HELD_MAX_MS`] goes as it
-//!   is (a task that never ends, a dev server say). A report that is no longer still waiting
-//!   (the work ended, it failed, it asks) goes as before, at once.
+//!   is, never steered (a task that never ends, a dev server say). A report that is no longer
+//!   still waiting (the work ended, it failed, it asks) goes as before, at once.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -253,6 +262,10 @@ pub(super) struct Report {
     /// unless a newer report replaces it.
     #[serde(default)]
     pub(super) interim: bool,
+    /// A still-waiting report that went as it is once held [`HELD_MAX_MS`]: still no news, so it
+    /// never steers.
+    #[serde(default)]
+    pub(super) released: bool,
     /// Still-waiting turns before this one whose reports it replaced.
     #[serde(default)]
     pub(super) quiet_turns: u32,
@@ -396,6 +409,9 @@ fn state(summary: &Value) -> String {
                 format!("waiting on a question: {ask}")
             };
         }
+        Some("secret") => return "waiting on a secret".into(),
+        Some("elevation") => return "waiting on a root password".into(),
+        Some("mcp_connect") => return "waiting on an MCP server connect".into(),
         Some(_) => return "waiting on a permission".into(),
         None => {}
     }
@@ -455,6 +471,20 @@ fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<St
 
 impl Hub {
     /// The authenticated starter a lane reports to, independent of mutable display tags.
+    /// Whether `provenance` is the report of a lane `session` started, to it: as a sub-session's
+    /// family message does, it goes into the person's own turn (`turns.rs`, `steer_end.rs`), the
+    /// chat's own lane reporting to the session that started it. A report the hub sends another
+    /// asker (`question_replies.rs`) is none. Only the hub sets a report's provenance.
+    pub(super) fn own_lane_report(&self, session: &Session, provenance: Option<&Value>) -> bool {
+        provenance.is_some_and(|p| {
+            p.get("kind").and_then(Value::as_str) == Some(KIND)
+                && p.get("from")
+                    .and_then(Value::as_str)
+                    .and_then(|lane| self.lane_report_parent(lane))
+                    .is_some_and(|parent| parent == session.id)
+        })
+    }
+
     pub(crate) fn lane_report_parent(&self, lane: &str) -> Option<String> {
         self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
     }
@@ -519,8 +549,7 @@ impl Hub {
         if parent == child || self.lane_below(parent, child) {
             return;
         }
-        let Some(s) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(child).cloned()
-        else {
+        let Some(s) = self.session_get(child) else {
             return;
         };
         // A close sets the status before `lane_retire` takes this lock: read under it, a parent
@@ -703,6 +732,7 @@ impl Hub {
                 l.held = None;
                 let r = l.ready.as_mut().filter(|r| r.prompt_id == held && r.interim)?;
                 r.interim = false;
+                r.released = true;
                 Some(())
             });
             if released.is_some() {
@@ -811,6 +841,7 @@ impl Hub {
             subagent_ended: false,
             interim,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -839,7 +870,7 @@ impl Hub {
 
     /// Whether session `id` is here and not closed.
     fn lane_open(&self, id: &str) -> bool {
-        let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let s = self.session_get(id);
         s.is_some_and(|s| s.status() != SessionStatus::Closed)
     }
 
@@ -863,7 +894,7 @@ impl Hub {
         lane: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(parent).cloned();
+        let local = self.session_get(parent);
         let Some(p) = local else {
             // The parent is gone: nobody to report to.
             self.lane_links(|links| {
@@ -916,8 +947,7 @@ impl Hub {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }
         // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
-        let lane_session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let lane_session = self.session_get(lane);
         let sender = lane_session
             .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
         crate::prompt_provenance::stamp_sender(provenance, sender.as_ref())
@@ -945,11 +975,15 @@ impl Hub {
             })),
             ..PromptOptions::default()
         };
-        // The answer comes when the parent's turn ends; the report is in once it is accepted.
+        // The report is in once it is accepted, steered or queued.
         let hub = self.clone();
-        // Never steered in: a report waits for the parent's turn to end (see above).
+        // Steered into a running turn (see above); a still-waiting report that went as it is
+        // after HELD_MAX_MS is no news, so it waits for the turn to end.
+        // A still-waiting report due only for a pull request it names first (`due_report`) is
+        // news, as `replace_ready_seen` takes it.
+        let steer = (!report.interim || !report.prs.is_empty()) && !report.released;
         let run =
-            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", false, opts).await });
+            tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", steer, opts).await });
         if rx.await.is_ok() {
             return Ok(());
         }
@@ -1090,6 +1124,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -1448,6 +1483,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         }
     }
 
@@ -1522,7 +1558,7 @@ mod tests {
         // The parent's close has begun (`kill` marks it closing, then closes it) but has not
         // retired its links yet: the link check passes, the parent must still refuse it.
         parent.closing.store(true, Ordering::SeqCst);
-        hub.set_status(&parent, SessionStatus::Closed);
+        hub.set_status(&parent, NotWaiting::Closed);
         hub.lane_hand_over(&lane.id, due).await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");
@@ -1656,6 +1692,7 @@ mod tests {
             subagent_ended: false,
             interim: false,
             quiet_turns: 0,
+            released: false,
         };
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
         // The report is taken; the lane closes (its link retired) before it is handed over.

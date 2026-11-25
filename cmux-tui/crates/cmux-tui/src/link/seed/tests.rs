@@ -407,8 +407,14 @@ fn sparse_patterns_are_sent() {
 fn lfs_attributes_are_noticed() {
     let f = Fixture::new();
     write(&f.work.join(".gitattributes"), "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("art/.gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("docs/.gitattributes"), "*.md text\n");
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     assert!(planned.params.lfs);
+    // Where they are, for a head-first seed to tell whether one reaches its head.
+    let mut files = planned.lfs_attributes;
+    files.sort();
+    assert_eq!(files, [".gitattributes", "art/.gitattributes"]);
 }
 
 #[test]
@@ -673,7 +679,7 @@ fn a_delta_seed_needs_the_previous_commits() {
 }
 
 #[test]
-fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
+fn untracked_heavy_folders_and_files_past_the_cap_stay_here_and_are_named() {
     // The fixture's .gitignore names node_modules/, so the heavy folder here is one it doesn't.
     let f = Fixture::new();
     let work = &f.work;
@@ -683,6 +689,11 @@ fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
     write(&work.join("web/.next/build-manifest.json"), "{}\n");
     write(&work.join("assets/model.bin"), vec![7_u8; 6 * 1024 * 1024]);
     write(&work.join("assets/icon.png"), vec![7_u8; 64 * 1024]);
+    // Past the one-file cap: sparse, so the test writes nothing.
+    std::fs::File::create(work.join("assets/huge.bin"))
+        .unwrap()
+        .set_len(super::plan::BIG_UNTRACKED_FILE_CAP + 1)
+        .unwrap();
 
     let planned = plan(work, &f.path("seed.bundle")).unwrap();
     let skipped: Vec<(&str, &str)> =
@@ -691,8 +702,10 @@ fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
     assert_eq!(heavy.len(), 1, "one entry for the heavy folder, none for its files: {skipped:?}");
     assert_eq!(heavy[0].0, "web/.next/");
     assert!(heavy[0].1.contains("heavy folder"), "{skipped:?}");
-    let big = skipped.iter().find(|(path, _)| *path == "assets/model.bin");
-    assert!(big.is_some_and(|(_, why)| why.contains("6.3 MB")), "{skipped:?}");
+    // A big file under the cap goes (RFD 0066 piece 4); one past it is named with its size.
+    let huge = skipped.iter().find(|(path, _)| *path == "assets/huge.bin");
+    assert!(huge.is_some_and(|(_, why)| why.contains("100 MB")), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/model.bin"), "{skipped:?}");
     assert!(!skipped.iter().any(|(path, _)| *path == "assets/icon.png"), "{skipped:?}");
 
     let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
@@ -700,5 +713,27 @@ fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
     assert!(work_paths.lines().any(|path| path == "web/package.json"), "{work_paths}");
     assert!(work_paths.lines().any(|path| path == "assets/icon.png"), "{work_paths}");
     assert!(!work_paths.contains(".next"), "{work_paths}");
-    assert!(!work_paths.contains("model.bin"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/model.bin"), "{work_paths}");
+    assert!(!work_paths.contains("huge.bin"), "{work_paths}");
+    let model =
+        git(work, &["cat-file", "-s", &format!("{}:assets/model.bin", planned.params.work)]);
+    assert_eq!(model, (6 * 1024 * 1024).to_string());
+}
+
+#[test]
+fn big_untracked_files_share_one_budget_and_the_rest_are_named() {
+    use super::plan::{BIG_UNTRACKED_FILE_CAP, BIG_UNTRACKED_TOTAL_CAP, big_left_here};
+    let mut sent = 0;
+    assert_eq!(big_left_here(BIG_UNTRACKED_FILE_CAP, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP);
+    let over = big_left_here(BIG_UNTRACKED_FILE_CAP + 1, &mut sent).unwrap();
+    assert!(over.contains("100 MB") && over.contains("limit for one untracked file"), "{over}");
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP, "a file left here counts for nothing");
+    sent = BIG_UNTRACKED_TOTAL_CAP - 10_000_000;
+    let past = big_left_here(20_000_000, &mut sent).unwrap();
+    assert!(past.contains("(20 MB)") && past.contains("carries 990 MB"), "{past}");
+    assert!(past.contains("limit is 1 GB"), "{past}");
+    // A smaller one that still fits goes after it.
+    assert_eq!(big_left_here(10_000_000, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_TOTAL_CAP);
 }

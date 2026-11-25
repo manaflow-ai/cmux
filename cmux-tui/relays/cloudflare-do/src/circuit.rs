@@ -15,8 +15,11 @@ use crate::abuse::{
     CIRCUIT_IDLE_TIMEOUT_MS, admit_circuit_socket, websocket_counts_toward_capacity,
     websocket_is_open,
 };
-use crate::attachment::{CircuitAttachment, CircuitPhase, OutboundQueue};
+use crate::attachment::{CircuitAttachment, CircuitPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, verify_ticket};
+use crate::forward::{
+    CLOSE_UNSUPPORTED, outbound_queue_close, persist_peer_before_forward, reserve_outbound_frame,
+};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_opaque_identifier,
     websocket_upgrade,
@@ -25,100 +28,9 @@ use crate::wire::{
 const PEER_TAG: &str = "circuit-peer";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
-const MAX_OUTBOUND_QUEUE_FRAMES: usize = 128;
-const MAX_OUTBOUND_QUEUE_BYTES: u32 = 2 * 1024 * 1024;
 const ACTIVE_CIRCUIT_STORAGE_KEY: &str = "active-circuit-v1";
 const RELEASE_RETRY_MS: u64 = 5_000;
 const CLOSE_POLICY: u16 = 1008;
-const CLOSE_UNSUPPORTED: u16 = 1003;
-const CLOSE_OVERLOADED: u16 = 1013;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutboundQueueError {
-    EmptyFrame,
-    FrameLimit,
-    ByteLimit,
-}
-
-fn outbound_queue_close(error: OutboundQueueError) -> (u16, &'static str, &'static str) {
-    match error {
-        OutboundQueueError::EmptyFrame => (
-            CLOSE_UNSUPPORTED,
-            "circuit frames must not be empty",
-            "circuit peer sent an empty frame",
-        ),
-        OutboundQueueError::FrameLimit | OutboundQueueError::ByteLimit => (
-            CLOSE_OVERLOADED,
-            "circuit peer is backpressured",
-            "circuit outbound queue limit exceeded",
-        ),
-    }
-}
-
-fn reserve_outbound_frame(
-    queue: &mut OutboundQueue,
-    buffered_bytes: u32,
-    frame_bytes: usize,
-) -> std::result::Result<(), OutboundQueueError> {
-    // Worker WebSocket sends are synchronous but not backpressured. Keep the
-    // runtime's byte count and our per-frame ledger in the socket attachment
-    // so the limits survive Durable Object hibernation.
-    if frame_bytes == 0 {
-        return Err(OutboundQueueError::EmptyFrame);
-    }
-
-    if buffered_bytes == 0 {
-        queue.untracked_bytes = 0;
-        queue.frame_bytes.clear();
-    } else if buffered_bytes < queue.observed_bytes {
-        let mut drained = queue.observed_bytes - buffered_bytes;
-        let untracked_drained = drained.min(queue.untracked_bytes);
-        queue.untracked_bytes -= untracked_drained;
-        drained -= untracked_drained;
-        while drained > 0 {
-            let Some(front) = queue.frame_bytes.front_mut() else {
-                break;
-            };
-            let frame_drained = drained.min(*front);
-            *front -= frame_drained;
-            drained -= frame_drained;
-            if *front == 0 {
-                queue.frame_bytes.pop_front();
-            }
-        }
-    } else if buffered_bytes > queue.observed_bytes {
-        queue.untracked_bytes =
-            queue.untracked_bytes.saturating_add(buffered_bytes - queue.observed_bytes);
-    }
-    queue.observed_bytes = buffered_bytes;
-
-    if queue.frame_bytes.len() >= MAX_OUTBOUND_QUEUE_FRAMES {
-        return Err(OutboundQueueError::FrameLimit);
-    }
-    let frame_bytes = u32::try_from(frame_bytes).map_err(|_| OutboundQueueError::ByteLimit)?;
-    let projected = buffered_bytes
-        .checked_add(frame_bytes)
-        .filter(|bytes| *bytes <= MAX_OUTBOUND_QUEUE_BYTES)
-        .ok_or(OutboundQueueError::ByteLimit)?;
-    queue.frame_bytes.push_back(frame_bytes);
-    queue.observed_bytes = projected;
-    Ok(())
-}
-
-fn persist_peer_before_forward<E>(
-    now_ms: u64,
-    peer: &mut CircuitAttachment,
-    persist_peer: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
-    forward: impl FnOnce() -> std::result::Result<(), E>,
-) -> std::result::Result<(), E> {
-    // The latest deadline across the ready pair is the shared circuit idle
-    // deadline. Persisting only the destination attachment also durably saves
-    // its outbound FIFO ledger, while avoiding a second attachment write on
-    // every interactive frame.
-    peer.idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
-    persist_peer(peer)?;
-    forward()
-}
 
 fn has_live_ready_pair(
     sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
@@ -666,6 +578,10 @@ impl DurableObject for RelayCircuit {
     }
 
     async fn fetch(&self, request: Request) -> Result<Response> {
+        // The slot creating this circuit near itself before either Join (`crate::placement`).
+        if request.method() == Method::Post && request.path() == crate::placement::PLACE_PATH {
+            return Response::empty().map(|response| response.with_status(204));
+        }
         if !websocket_upgrade(&request)? {
             return upgrade_required();
         }
@@ -792,6 +708,10 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use super::*;
+    use crate::attachment::OutboundQueue;
+    use crate::forward::{
+        CLOSE_OVERLOADED, MAX_OUTBOUND_QUEUE_BYTES, MAX_OUTBOUND_QUEUE_FRAMES, OutboundQueueError,
+    };
 
     #[test]
     fn active_release_record_survives_hibernation_and_retry() {

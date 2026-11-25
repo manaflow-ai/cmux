@@ -74,7 +74,8 @@ class FastChecksFailoverTests(unittest.TestCase):
         return result, receipt
 
     def test_the_label_comes_from_the_linux_pool(self) -> None:
-        lines = runs_on_lines()
+        # The Linux job's label; setup=kernel-free's Mac job (checks-mac) names the owned side-light pool.
+        lines = [line for line in runs_on_lines() if "RUNNER_POOLS" in line]
         self.assertEqual(len(lines), 1)
         line = lines[0].rstrip()
         self.assertTrue(line.endswith(POOL), line.strip())

@@ -1,0 +1,19 @@
+{
+  "//": "The parts an agent may use, in json-render's catalog terms. The extension draws only these, each as a cmux kit view; generate/generate.ts turns the same file into json-render's prompt.",
+  "components": {
+    "Panel": { "description": "A titled group on the app's card surface. Use one per widget.", "children": true, "props": { "title": { "type": "string" } } },
+    "Stack": { "description": "Lays children out vertically (default) or horizontally.", "children": true, "props": { "direction": { "enum": ["vertical", "horizontal"] }, "spacing": { "type": "number" } } },
+    "Text": { "description": "A label.", "props": { "text": { "type": "string", "required": true }, "font": { "enum": ["title3", "headline", "body", "callout", "caption"] }, "color": { "enum": ["primary", "secondary", "accent", "success", "warning", "danger"] } } },
+    "Row": { "description": "A list row with a title, optional subtitle and SF Symbol.", "props": { "title": { "type": "string", "required": true }, "subtitle": { "type": "string" }, "symbol": { "type": "string" }, "tint": { "enum": ["primary", "secondary", "accent", "success", "warning", "danger"] } } },
+    "Button": { "description": "A button. on.press runs an action.", "events": ["press"], "props": { "label": { "type": "string", "required": true } } },
+    "TextField": { "description": "A one-line text input. Bind value with $bindState. on.submit runs on Return.", "events": ["submit"], "props": { "value": { "type": "string" }, "placeholder": { "type": "string" } } },
+    "Toggle": { "description": "A switch with a label. Bind checked with $bindState or $bindItem.", "props": { "checked": { "type": "boolean" }, "label": { "type": "string" } } },
+    "Badge": { "description": "A small count or status pill.", "props": { "text": { "type": "string", "required": true }, "tone": { "enum": ["secondary", "accent", "success", "warning", "danger"] } } },
+    "ProgressView": { "description": "A progress bar, value 0 to 1.", "props": { "value": { "type": "number" } } },
+    "EmptyState": { "description": "A centered empty or error message.", "props": { "title": { "type": "string", "required": true }, "message": { "type": "string" }, "symbol": { "type": "string" } } },
+    "Divider": { "description": "A thin separator line.", "props": {} },
+    "Spacer": { "description": "Flexible space inside a horizontal Stack.", "props": {} }
+  },
+  "actions": ["setState", "pushState", "removeState"],
+  "limits": { "elements": 200, "depth": 24 }
+}

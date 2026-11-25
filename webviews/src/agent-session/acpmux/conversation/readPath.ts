@@ -21,16 +21,43 @@ const failed = (tool: Tool) =>
 /// The one file `tool` read, as the call named it; undefined for any other call and for a failed read.
 /// A shell counts only once it finished without failing (until then it reads as the line that runs,
 /// #36940), and only a line whose named step is the whole of it (no `… &&` after the read).
+/// A call's snapshot never changes (an update makes a new one, as toolNames.ts `canonicalCall` reads it),
+/// and the transcript's layout and its tool rows both group a live turn's calls on every record that
+/// adds one (toolGroups.ts): each call's shell line is parsed once, not again per record.
 export function readPath(tool: Tool): string | undefined {
-  if (tool.kind === "execute" && tool.command) {
-    if (running(tool) || failed(tool)) return undefined;
-    // A pipe's later step filters what the read printed (`cat build.log | grep error`): the row
-    // keeps its output to open.
-    if (tool.command.includes("|")) return undefined;
-    const action = commandAction(tool.command);
-    if (action?.key !== "command.read" || action.more || action.files?.length !== 1) return undefined;
-    return action.files[0];
-  }
+  if (READ_PATH.has(tool)) return READ_PATH.get(tool);
+  const path = readPathOf(tool);
+  READ_PATH.set(tool, path);
+  return path;
+}
+
+const READ_PATH = new WeakMap<Tool, string | undefined>();
+
+function readPathOf(tool: Tool): string | undefined {
+  if (tool.kind === "execute" && tool.command) return shellRead(tool, tool.command);
+  const path = harnessRead(tool);
+  // A harness's parse of a shell line that kept its variable (Codex's "Read $f" at `$f`, for `for f in
+  // a b; do cat $f; done`) reads as its command does, as its label does (toolPaths.ts `toolLabel`):
+  // a row never shows a `$f` (Leo, 2026-11-21: "this is not a good enough tool call heading that we
+  // have derived").
+  if (path !== undefined && UNEXPANDED.test(path)) return tool.command ? shellRead(tool, tool.command) : undefined;
+  return path;
+}
+
+/// A `$name` or `${name}` a path shows as written.
+const UNEXPANDED = /\$\{?[A-Za-z_]/;
+
+function shellRead(tool: Tool, command: string): string | undefined {
+  if (running(tool) || failed(tool)) return undefined;
+  // A pipe's later step filters what the read printed (`cat build.log | grep error`): the row
+  // keeps its output to open.
+  if (command.includes("|")) return undefined;
+  const action = commandAction(command);
+  if (action?.key !== "command.read" || action.more || action.files?.length !== 1) return undefined;
+  return action.files[0];
+}
+
+function harnessRead(tool: Tool): string | undefined {
   // A failed read keeps its opening (a hook's reason shows only inside it), and a call that read
   // several files (Gemini's read_many_files) keeps its own row.
   if (failed(tool)) return undefined;

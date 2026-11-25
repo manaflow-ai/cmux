@@ -3,8 +3,9 @@
 // waits in the pane's hold (trustHeld.ts `hold(..., waking)`) under "Waking the machine…"; the
 // native attach resumes or reconnects the machine (`cloudMachine.attach`, the paused card's Resume
 // path, useCloudChatRecovery.ts `resume`), the pane connects again, and the hold sends each prompt
-// once, in order, when the chat is back. A wake that fails or runs out (useCloudChatRecovery's one
-// minute) gives the prompts back to the composer.
+// once, in order, when the chat is back. A wake that fails gives the prompts back to the composer;
+// a slow one keeps them held while the recovery keeps reading (useCloudChatRecovery has no deadline;
+// past RESUME_SLOW_MS its card says so and offers Resume machine again).
 
 export type CloudWakeState = {
   /// The chat runs on a Cloud machine of the account signed in (the handshake's identity).

@@ -93,6 +93,12 @@ pub enum SignalPayload {
         /// older peers, which still send relay frames and their marker.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"):
+        /// [`RELAY_READY`] when this side can join it, [`RELAY_NOW`] when it
+        /// joins at once (it has no other path); absent from older peers,
+        /// which never join.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -116,6 +122,10 @@ pub enum SignalPayload {
         /// older Macs.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// As in `wg-init`: [`RELAY_READY`] or [`RELAY_NOW`]; absent from
+        /// older Macs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     /// A WireGuard side's new endpoints after a roam (or a new TURN
     /// allocation), the same announcement it sends inside the tunnel
@@ -131,6 +141,12 @@ pub enum SignalPayload {
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
     },
+    /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
+    /// "WebSocket relay"): its datagrams no longer reach the peer any other
+    /// way, so the peer joins too. Sent only to a peer that offered the
+    /// relay (`relay` in its `wg-init` / `wg-resp`).
+    #[serde(rename = "wg-relay")]
+    WgRelay {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -150,6 +166,11 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
+    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
+    /// device's own ticket for the session's WebSocket relay, which a relay
+    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_ticket: Option<String>,
 }
 
 /// One sealed reply the backend held for this Mac (PROTOCOL.md "Reply
@@ -185,6 +206,10 @@ pub enum SignalMessage {
         you: String,
         #[serde(default)]
         macs: Vec<MacPresence>,
+        /// A Mac's local hub's wire version ([`crate::local::HUB_VERSION`]);
+        /// absent (0) from the Worker and from hubs before it was sent.
+        #[serde(rename = "hubVersion", default, skip_serializing_if = "is_zero")]
+        hub_version: u32,
     },
     Presence {
         mac: MacPresence,
@@ -207,6 +232,14 @@ pub enum SignalMessage {
         session_id: Option<String>,
     },
 }
+
+/// `relay` in `wg-init` / `wg-resp`: this side can join cmux's WebSocket
+/// relay (PROTOCOL.md "WebSocket relay") when nothing else reaches the peer.
+pub const RELAY_READY: &str = "ready";
+/// `relay`: this side joins the relay at once, since it has no other path
+/// (no plain UDP and no TURN allocation); the peer joins too, without
+/// waiting for its own paths to fail.
+pub const RELAY_NOW: &str = "now";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):
@@ -284,6 +317,8 @@ pub enum SignalingError {
 /// whole timeout.
 pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+/// How long the WebSocket upgrade may take before the attempt fails and the caller retries.
+pub const CONNECT_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// A socket that heard nothing for this long missed the pong to its last keepalive: one
 /// [`KEEPALIVE_INTERVAL`] plus room for a slow network's round trip. A live socket always hears
 /// within it; one that did not was half open through a suspension or a sleep, or its path died.
@@ -339,7 +374,25 @@ struct Shared {
     /// session-less `bad_request` error frame instead of `pong`: that answer is the ping's, never a
     /// refusal of a dial in flight, so the reader swallows one such error per ping it sent.
     pings_unanswered: std::sync::atomic::AtomicU32,
+    /// When the last `link_stat` went out ([`SignalingClient::send_link_stat`]). A Worker older
+    /// than the frame answers it with a session-less `bad_request "unknown frame type"`, which
+    /// would fail every dial in flight on this socket: the reader swallows that answer within
+    /// [`LINK_STAT_ANSWER_WITHIN`] of a stat and stops sending stats on this socket.
+    link_stat_sent: Mutex<Option<std::time::Instant>>,
+    /// An older Worker refused `link_stat`: none is sent on this socket again.
+    link_stat_refused: std::sync::atomic::AtomicBool,
+    /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
+    /// sessions never move onto a Worker socket, nor a Worker's onto it.
+    local: std::sync::atomic::AtomicBool,
+    /// The `hubVersion` of this socket's hello: 0 from the Worker, an older
+    /// hub, or before the hello arrives.
+    hub_version: std::sync::atomic::AtomicU32,
 }
+
+/// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
+pub const LINK_STAT_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(30);
+/// The message an older Worker refuses a frame type it does not know with.
+const UNKNOWN_FRAME_TYPE: &str = "unknown frame type";
 
 /// A connected signaling socket. Clone to share.
 #[derive(Clone)]
@@ -393,15 +446,37 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
 }
 
 impl SignalingClient {
-    /// Connect with `Authorization: Bearer <token>`.
+    /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
         base_url: &str,
         token: &str,
         team_id: &str,
         device_id: &str,
     ) -> Result<Self, SignalingError> {
-        crate::install_crypto_provider();
+        Self::connect_in(base_url, token, team_id, device_id, None).await
+    }
+
+    /// [`Self::connect`] whose upgrade also carries `build_space` (a dev
+    /// build's `x-cmux-build-space: dev:<slug>`); `None` sends no header.
+    pub async fn connect_in(
+        base_url: &str,
+        token: &str,
+        team_id: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+    ) -> Result<Self, SignalingError> {
         let url = signal_url(base_url, team_id, device_id)?;
+        Self::open(url, token, device_id, build_space).await
+    }
+
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    async fn open(
+        url: String,
+        token: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+    ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -409,7 +484,28 @@ impl SignalingClient {
                 .parse()
                 .map_err(|_| SignalingError::BadUrl("token is not a header value".into()))?,
         );
-        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(connect_error)?;
+        if let Some(space) = build_space {
+            request.headers_mut().insert(
+                crate::build_space::HEADER,
+                space
+                    .as_str()
+                    .parse()
+                    .map_err(|_| SignalingError::BadUrl("build space is not a header value".into()))?,
+            );
+        }
+        // Opened on the liveness thread (`liveness.rs`), so its reads, writes and keepalive run
+        // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
+        // would otherwise hold the reconnect, and the Mac stays offline, with no end.
+        let connecting = crate::liveness::spawn(async move {
+            match tokio::time::timeout(CONNECT_WAIT, crate::signal_dial::connect_async(request)).await {
+                Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
+                Err(_) => Err(SignalingError::Connect(format!(
+                    "no answer to the upgrade within {}s",
+                    CONNECT_WAIT.as_secs()
+                ))),
+            }
+        });
+        let socket = connecting.await.map_err(|e| SignalingError::Connect(e.to_string()))??;
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
@@ -426,11 +522,15 @@ impl SignalingClient {
             mailbox: mailbox_tx,
             closed: Mutex::new(None),
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
+            link_stat_sent: Mutex::new(None),
+            link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
         });
         let pinger = Arc::clone(&out);
-        tokio::spawn(async move { out.write_out(sink).await });
+        crate::liveness::spawn(async move { out.write_out(sink).await });
         let reader_shared = Arc::clone(&shared);
-        tokio::spawn(async move {
+        crate::liveness::spawn(async move {
             let shared = reader_shared;
             let mut keepalive = next_keepalive(tokio::time::Instant::now());
             let mut last_inbound = tokio::time::Instant::now();
@@ -438,15 +538,20 @@ impl SignalingClient {
                 let next = tokio::select! {
                     next = source.next() => next,
                     () = tokio::time::sleep_until(keepalive) => {
-                        keepalive = next_keepalive(tokio::time::Instant::now());
-                        if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
+                        let now = tokio::time::Instant::now();
+                        // A tick this late means this process did not run (a starved or swapping
+                        // host), not that the service went quiet: what it sent meanwhile is still
+                        // unread. The stall is not counted as silence.
+                        let late = now.saturating_duration_since(keepalive);
+                        keepalive = next_keepalive(now);
+                        if last_inbound.elapsed().saturating_sub(late) >= KEEPALIVE_TIMEOUT {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
                         for signal in keepalive_signals() {
                             let is_app_ping = matches!(&signal, Signal::Text(text) if text == APP_PING);
                             let is_ping = signal == Signal::Ping;
-                            if pinger.push_signal(signal).is_ok() {
+                            if pinger.push_keepalive(signal).is_ok() {
                                 if is_app_ping {
                                     shared.pings_unanswered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 } else if is_ping {
@@ -512,6 +617,34 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
+    /// no Worker, no account token (`token` is the hub's own). The URL
+    /// carries this side's [`HUB_VERSION`](crate::local::HUB_VERSION)
+    /// (`&hubVersion=`), which an older hub ignores.
+    pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
+        let url = format!(
+            "{}&{}={}",
+            signal_url(base_url, crate::local::LOCAL_TEAM, device_id)?,
+            crate::local::HUB_VERSION_PARAM,
+            crate::local::HUB_VERSION
+        );
+        let client = Self::open(url, token, device_id, None).await?;
+        client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(client)
+    }
+
+    /// The hub's wire version from its hello ([`crate::local::HUB_VERSION`]):
+    /// 0 from the Worker, from a hub older than the field, or before the
+    /// hello arrived.
+    pub fn hub_version(&self) -> u32 {
+        self.shared.hub_version.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether this socket runs to a Mac's local hub rather than the Worker.
+    pub fn is_local(&self) -> bool {
+        self.shared.local.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether `other` is a handle of this same socket.
@@ -614,6 +747,7 @@ impl SignalingClient {
             session_id: session_id.to_owned(),
             payload,
             from_user_id: None,
+            relay_ticket: None,
         });
         let text = serde_json::to_string(&message).expect("signal serializes");
         self.shared.out.push_signal(Signal::Text(text))
@@ -623,6 +757,22 @@ impl SignalingClient {
     pub fn send_mailbox_ack(&self, results: Vec<MailboxResult>) -> Result<(), SignalingError> {
         let text = serde_json::to_string(&SignalMessage::MailboxAck { results }).expect("ack serializes");
         self.shared.out.push_signal(Signal::Text(text))
+    }
+
+    /// Send one `link_stat` frame (PROTOCOL.md "Link stats"), already serialized. Refused (no
+    /// send) once this socket's Worker said it does not know the frame ([`Self::sends_link_stats`]).
+    pub fn send_link_stat(&self, text: String) -> Result<(), SignalingError> {
+        if !self.sends_link_stats() {
+            return Err(SignalingError::Closed);
+        }
+        *self.shared.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(std::time::Instant::now());
+        self.shared.out.push_signal(Signal::Text(text))
+    }
+
+    /// Whether this socket still sends `link_stat`: false once an older Worker refused one.
+    pub fn sends_link_stats(&self) -> bool {
+        !self.shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Close the socket. Sessions see `Disconnected`.
@@ -671,8 +821,31 @@ impl Shared {
         }
     }
 
+    /// Whether `text` is an older Worker's refusal of the `link_stat` this socket just sent: a
+    /// session-less `bad_request "unknown frame type"` within [`LINK_STAT_ANSWER_WITHIN`] of it.
+    /// It stops this socket's stats; it never reaches a dial (it would fail every dial in flight).
+    fn answers_link_stat(&self, text: &str) -> bool {
+        if !text.contains(UNKNOWN_FRAME_TYPE) {
+            return false;
+        }
+        let sent = *self.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        if sent.is_none_or(|at| at.elapsed() >= LINK_STAT_ANSWER_WITHIN) {
+            return false;
+        }
+        match serde_json::from_str::<SignalMessage>(text) {
+            Ok(SignalMessage::Error { code, message, session_id: None })
+                if code == "bad_request" && message == UNKNOWN_FRAME_TYPE =>
+            {
+                self.link_stat_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+                tracing::debug!("this Worker does not take link_stat; not sending it on this socket");
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn dispatch_text(&self, text: &str, incoming: &mpsc::UnboundedSender<IncomingSession>) {
-        if self.answers_app_ping(text) {
+        if self.answers_link_stat(text) || self.answers_app_ping(text) {
             return;
         }
         let message = match serde_json::from_str::<SignalMessage>(text) {
@@ -683,7 +856,8 @@ impl Shared {
             }
         };
         match message {
-            SignalMessage::Hello { you, macs } => {
+            SignalMessage::Hello { you, macs, hub_version } => {
+                self.hub_version.store(hub_version, std::sync::atomic::Ordering::Relaxed);
                 let _ = self.events.send(SignalingEvent::Hello { you, macs });
             }
             SignalMessage::Presence { mac } => {
@@ -740,6 +914,8 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -750,6 +926,8 @@ mod tests {
             mailbox,
             closed: Mutex::new(None),
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
+            link_stat_sent: Mutex::new(None),
+            link_stat_refused: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }
@@ -780,6 +958,38 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn an_older_workers_refusal_of_link_stat_stops_stats_and_fails_no_dial() {
+        let (shared, mut events) = shared_for_test();
+        let (incoming, _in_rx) = mpsc::unbounded_channel();
+        let refusal = r#"{"type":"error","code":"bad_request","message":"unknown frame type"}"#;
+        // No stat sent: the same frame is a real session-less error.
+        shared.dispatch_text(refusal, &incoming);
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        assert!(!shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed));
+        // A stat just went out: its refusal is swallowed and stops stats on this socket.
+        *shared.link_stat_sent.lock().unwrap() = Some(std::time::Instant::now());
+        // An outstanding app ping does not take the stat's refusal for its own answer.
+        shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(refusal, &incoming);
+        assert!(events.try_recv().is_err());
+        assert!(shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(shared.pings_unanswered.load(std::sync::atomic::Ordering::Relaxed), 1);
+        // Another bad_request is not the stat's refusal.
+        shared.pings_unanswered.store(0, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"to must be a deviceId"}"#,
+            &incoming,
+        );
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        // A refusal that names a session is never the stat's.
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"unknown frame type","sessionId":"s1"}"#,
+            &incoming,
+        );
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
+    }
 
     #[test]
     fn mailbox_frames_match_the_contract() {
@@ -818,6 +1028,7 @@ mod tests {
                 sdp_m_line_index: Some(0),
             },
             from_user_id: None,
+            relay_ticket: None,
         });
         let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
         assert_eq!(
@@ -859,6 +1070,26 @@ mod tests {
         assert!(matches!(old, SignalPayload::WgResp { version: 0, .. }));
         let text = serde_json::to_string(&old).unwrap();
         assert!(!text.contains("version") && !text.contains("relayed"), "{text}");
+    }
+
+    /// Lockstep (P7 13f): the Worker's hello has no `hubVersion` (0) and
+    /// writes none back; a newer hub's hello, with fields this side does not
+    /// know yet, still parses.
+    #[test]
+    fn lockstep_hello_hub_version_both_ways() {
+        let worker: SignalMessage = serde_json::from_str(r#"{"type":"hello","you":"p","macs":[]}"#).unwrap();
+        assert!(matches!(worker, SignalMessage::Hello { hub_version: 0, .. }));
+        assert!(!serde_json::to_string(&worker).unwrap().contains("hubVersion"));
+        let newer: SignalMessage = serde_json::from_str(
+            r#"{"type":"hello","you":"p","macs":[{"deviceId":"m","name":"","online":true,"future":1}],
+                "hubVersion":9,"caps":["x"],"future":{"a":1}}"#,
+        )
+        .unwrap();
+        assert!(matches!(newer, SignalMessage::Hello { hub_version: 9, ref macs, .. } if macs.len() == 1));
+        let ours =
+            SignalMessage::Hello { you: "p".into(), macs: vec![], hub_version: crate::local::HUB_VERSION };
+        let text = serde_json::to_string(&ours).unwrap();
+        assert!(text.contains(&format!("\"hubVersion\":{}", crate::local::HUB_VERSION)), "{text}");
     }
 
     #[test]
