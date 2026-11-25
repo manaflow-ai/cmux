@@ -9,7 +9,8 @@
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-target="$root/cmux-tui/target"
+target="${CARGO_TARGET_DIR:-$root/cmux-tui/target}"
+echo "target dir: $target"
 gib() { du -sb "$1" 2>/dev/null | awk '{printf "%.2f", $1 / 1073741824}'; }
 for inc in 1 0; do
   rm -rf "$target"
