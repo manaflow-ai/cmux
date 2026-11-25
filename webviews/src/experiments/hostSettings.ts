@@ -38,6 +38,7 @@ export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
 };
 
 function armsFor(entry: SettingArmEntry): readonly SettingArm[] {
+  // Array.isArray does not narrow a readonly array; "experiment" in entry does.
   return "experiment" in entry ? [entry] : entry;
 }
 
