@@ -2,6 +2,10 @@
 
 Leo's ask is: “Can you guys add better generalized tooling and goals and being able to test and bench and write stuff down for eg connections”.
 
+1. done: generalized connection goals, tests, and duress benchmark emit a passing JSONL receipt.
+2. done: the benchmark contract, commands, goals, and measured receipt are written down here and in the network baseline.
+Brief vs his words: none.
+
 ## Scope
 
 The connection lifecycle already had separate product and simulator seams.
