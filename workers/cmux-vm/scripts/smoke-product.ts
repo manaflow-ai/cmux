@@ -56,6 +56,8 @@ const oidcToken = async (): Promise<string> => {
 const runId = process.env["GITHUB_RUN_ID"] === undefined ? `local-${Date.now()}` : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`;
 const STEP_TIMEOUT_MS = 120_000;
 const BOOT_TIMEOUT_MS = 300_000;
+/** How long the product create waits out the team's VM quota (a 429 on budget vms) before it fails. */
+const QUOTA_WAIT_MS = 300_000;
 
 const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
   const response = await fetch(new URL(path, origin), {
@@ -122,12 +124,21 @@ try {
 
   // The body cmux-platform's driver sends: labels, the approved image, and no idleTimeoutSeconds or autoDeleteSeconds.
   const name = `smoke-product-${runId}`.slice(0, 63);
-  const created = await call(
-    "POST",
-    "/v1/vms",
-    { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
-    { "idempotency-key": `smoke-product-${runId}` },
-  );
+  // The team's 2-VM quota is shared with ci-product-smoke-platform (cmux-platform's copy of this job, its own
+  // principal, so its VMs are not in the list above), and a VM this principal just deleted can still count for a
+  // moment. A 429 on the vms budget says nothing about the image, yet it failed the create, and image-roll-settle
+  // rolled back two good images on it (cloud-native-auto-45ed727f-45280002974-1 in run 45287713986 and
+  // -67d01201-45360379569-1 in run 45364031012, 2026-11-23/24). So the create waits the answer's retryAfterSeconds
+  // and asks again, up to QUOTA_WAIT_MS; each ask has its own idempotency key, since a refused ask made no VM.
+  const body = { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image };
+  let created = await call("POST", "/v1/vms", body, { "idempotency-key": `smoke-product-${runId}` });
+  for (let ask = 2; created.status === 429 && field(created.body, "budget") === "vms" && Date.now() - started < QUOTA_WAIT_MS; ask++) {
+    const after = field(created.body, "retryAfterSeconds");
+    const waitMs = Math.min(Math.max(typeof after === "number" && Number.isFinite(after) ? after * 1000 : 30_000, 5_000), 60_000);
+    console.log(`    product create answered 429 (team VM quota held, ${JSON.stringify(created.body)}); asking again in ${waitMs / 1000}s`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    created = await call("POST", "/v1/vms", body, { "idempotency-key": `smoke-product-${runId}-q${ask}` });
+  }
   // Record any VM id before judging the status, so the cleanup below deletes a VM a failed create still made.
   const id = field(created.body, "id");
   if (typeof id === "string" && /^vm_[0-9a-z]{26}$/.test(id)) vmId = id;

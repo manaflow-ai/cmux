@@ -230,7 +230,10 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     'if [ -z "$left" ]; then echo tmp-no-writer; exit 0; fi',
     'printf \'%s\\n\' "$left" | while IFS= read -r p; do',
     '  echo "written after clean: $p $(stat -c \'owner=%U:%G mtime=%y\' -- "$p" 2>&1)"',
-    '  if command -v fuser >/dev/null 2>&1; then fuser -v -- "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
+    // No `--`: psmisc's fuser takes it for an empty process spec and prints its usage, 40 lines per leftover, which
+    // pushed every "written after clean" line out of the step log's 3000-byte tail (image roll 45608292358). Every
+    // leftover path is absolute, so none reads as an option.
+    '  if command -v fuser >/dev/null 2>&1; then fuser -v "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
     '  for fd in /proc/[0-9]*/fd/*; do',
     '    t="$(readlink "$fd" 2>/dev/null)" || continue',
     '    case "$t" in "$p"|"$p"/*) pid="${fd#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] || echo "  open by pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)";; esac',
@@ -243,7 +246,9 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     "done",
     'echo "processes of $CMUX_TUI_USER:"',
     'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
-    'echo "files under /tmp or /var/tmp were written after clean (see above)" >&2',
+    // Last, so the log's tail always keeps the names however long the process listing above runs.
+    'echo "files under /tmp or /var/tmp were written after clean:" >&2',
+    'printf \'%s\\n\' "$left" | head -20 | sed \'s/^/  leftover: /\' >&2',
     "exit 1",
   ].join("\n");
   return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;

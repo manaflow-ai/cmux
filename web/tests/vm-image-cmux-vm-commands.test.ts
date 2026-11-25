@@ -530,6 +530,9 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      // fuser's usage text never floods the log, and the names come last, inside the step log's 3000-byte tail.
+      expect(out).not.toContain("Usage: fuser");
+      expect(out.trimEnd().endsWith(`leftover: ${leftover}`)).toBe(true);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");
