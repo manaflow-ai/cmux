@@ -203,5 +203,8 @@ struct CloudChatNamesTests {
         #expect(AgentTurnStateStore.plainName("\u{202E}evil\u{202C}\r\n\tname  ") == "evil name")
     }
 
-    private final class Changed: @unchecked Sendable { var fired = false }
 }
+
+/// At file scope, not nested in the main-actor suite: a nested class takes the suite's `@MainActor`, and the
+/// observation's Sendable `onChange` could not set `fired` (a compile error in the whole test build).
+private final class Changed: @unchecked Sendable { var fired = false }
