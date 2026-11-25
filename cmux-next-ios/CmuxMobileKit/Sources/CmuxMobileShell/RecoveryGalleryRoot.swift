@@ -60,6 +60,7 @@ import SwiftUI
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
+            || ProcessInfo.processInfo.environment["CMUX_MOBILE_RECOVERY_GALLERY"]?.isEmpty == false
     }
 
     let scene: String
@@ -70,9 +71,12 @@ public struct RecoveryGalleryRoot: View {
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
-        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        // The always-on simulator launches with an environment, not arguments (`ios-live`'s launch.env).
+        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
+            ?? ProcessInfo.processInfo.environment["CMUX_MOBILE_RECOVERY_GALLERY"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist", "quiet", "stills", "skeleton", "agentmark"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "quiet", "stills", "skeleton", "agentmark", "terminal"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -87,8 +91,7 @@ public struct RecoveryGalleryRoot: View {
         Group {
             switch scene {
             case "terminal":
-                TerminalConnectingView(topInset: 60)
-                    .background(Color.black)
+                terminalCover
             case "card":
                 cards
             case "cloud":
@@ -141,6 +144,39 @@ public struct RecoveryGalleryRoot: View {
     }
 
     /// The Workspaces placeholder rows, as `skeleton` above describes.
+    /// A terminal page with no rows of its own yet (Leo, 2026-11-25: "the placeholder's also bad"):
+    /// `terminal` (or `terminal-unreachable`), no saved copy past the quiet bound: which Mac, why,
+    /// Retry; `terminal-offline`, the Mac offline; `terminal-saved`, the Mac's screen as last kept,
+    /// drawn as it is; `terminal-quiet`, no saved copy inside the quiet bound: nothing at all.
+    @ViewBuilder private var terminalCover: some View {
+        let saved = """
+        ~/Projects $ git status
+        On branch main
+        Your branch is up to date with 'origin/main'.
+
+        nothing to commit, working tree clean
+        ~/Projects $ claude
+        ✻ Waiting for 5 background agents to finish
+        ❯
+        """
+        switch variant {
+        case "saved":
+            TerminalConnectingView(topInset: 60, screenText: saved).background(Color.black)
+        case "quiet":
+            TerminalConnectingView(topInset: 60).background(Color.black)
+        case "offline":
+            TerminalConnectingView(topInset: 60,
+                                   unreachable: TerminalUnreachable.make(state: .offline(mac: "cosmic-gray"), linkStatus: nil),
+                                   retry: {})
+                .background(Color.black)
+        default:
+            TerminalConnectingView(topInset: 60,
+                                   unreachable: TerminalUnreachable.make(state: .reattaching(mac: "cosmic-gray"), linkStatus: nil),
+                                   retry: {})
+                .background(Color.black)
+        }
+    }
+
     @ViewBuilder private var skeletons: some View {
         if let variant {
             NavigationStack {
