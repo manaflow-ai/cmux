@@ -113,19 +113,17 @@ struct ColumnEdgeAtStripEndTests {
         for (kind, view) in screen.dividerViews where !view.isHidden {
             let band = view.convert(view.cursorRectInBounds, to: nil)
             guard band.width > 0, band.height > 0 else { continue }
-            // Spelled out with explicit types: the one-expression ternary of nested flatMaps over
-            // untyped literals ran past the type checker's time limit and failed the test build.
             let fractions: [CGFloat] = [0.1, 0.5, 0.9]
             var points: [CGPoint] = []
             for f in fractions {
                 if view.axis == .horizontal {
                     let y: CGFloat = band.minY + band.height * f
                     let xs: [CGFloat] = [band.minX + 0.5, band.midX, band.maxX - 0.5]
-                    points += xs.map { CGPoint(x: $0, y: y) }
+                    for x in xs { points.append(CGPoint(x: x, y: y)) }
                 } else {
                     let x: CGFloat = band.minX + band.width * f
                     let ys: [CGFloat] = [band.minY + 0.5, band.midY, band.maxY - 0.5]
-                    points += ys.map { CGPoint(x: x, y: $0) }
+                    for y in ys { points.append(CGPoint(x: x, y: y)) }
                 }
             }
             for point in points {
