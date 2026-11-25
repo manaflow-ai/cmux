@@ -17,14 +17,16 @@ extension SidebarItemRowView {
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.
     func layoutHoverActions(in b: NSRect) {
         let shown = showsHoverActions
-        if shown, hoverClose == nil, onClose != nil {
+        // Home never closes (the store refuses `home_not_closable`), so its tile has no ✕, as its list row has none.
+        let closable = info.workspaceRow?.isClosable ?? true
+        if shown, closable, hoverClose == nil, onClose != nil {
             let button = SidebarIconButton.rowClose(label: Strings.closeButton)
             button.onPress = { [weak self] in self?.onClose?() }
             if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).close") }
             addSubview(button)
             hoverClose = button
         }
-        let closes = shown && hoverClose != nil
+        let closes = shown && closable && hoverClose != nil
         hoverClose?.isHidden = !closes
         // Last, shown or not: no two icons share a box (Leo 2026-11-22: "fucking overlapping icons"), whatever the
         // alphas below say.

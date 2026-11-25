@@ -78,6 +78,28 @@ import Testing
         PointerHover.setDebugPointer(nil, in: harness.window)
     }
 
+    /// A pinned Home tile shows no close x on hover, as Home's list row shows none: the store refuses every close of
+    /// Home (`home_not_closable`). Its ⋮ takes the trailing column, where a row with no close puts it.
+    @Test func aHoveredPinnedHomeTileShowsNoClose() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let pins = SidebarHoverPinTests.Pins(pinned: Set(SidebarHomePinnedDragHarness.pins.map(Self.workspace)))
+        let harness = pins.harness
+        defer { harness.close() }
+        let pin = try #require(SidebarHomePinnedDragHarness.pins.first)
+        let row = try harness.item(pin.id)
+        var info = row.info
+        info.workspaceRow = SidebarWorkspace(id: Self.workspace(of: pin), title: row.titleText, isClosable: false)
+        row.configure(info, style: row.style)
+        Self.hover(row, in: harness)
+        #expect(row.showsHoverActions, "\(row.titleText): no hover controls under the pointer")
+        #expect(Self.visibleCloses(in: row).isEmpty, "\(row.titleText): a Home tile shows a close x it cannot run")
+        let more = try #require(row.hoverMore, "\(row.titleText): no more button on hover")
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width - SidebarStyle.horizontalInset)
+        #expect(abs(more.frame.midX - column) < 0.5, "\(row.titleText): with no x, the more button is off the column")
+        PointerHover.setDebugPointer(nil, in: harness.window)
+    }
+
     /// A pinned tile leads as its list row does: no pin before its icon and title (Leo: "it puts a symbol at the left").
     @Test func aPinnedTileDrawsNoLeadingPin() throws {
         let harness = SidebarHomePinnedDragHarness()
