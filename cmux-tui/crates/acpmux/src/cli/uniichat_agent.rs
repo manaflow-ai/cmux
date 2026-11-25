@@ -455,8 +455,7 @@ async fn connect(endpoint: &Endpoint, token: &str) -> Result<Socket, (i64, Strin
         "authorization",
         format!("Bearer {token}").parse().map_err(|_| (AUTH_REQUIRED, endpoint.signed_out()))?,
     );
-    match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await
-    {
+    match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req)).await {
         Err(_) => Err((-32603, format!("UniiChat: {} did not answer in 20 s", endpoint.host))),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(r)))
             if matches!(r.status().as_u16(), 401 | 403) =>
@@ -476,7 +475,7 @@ async fn say(
     body: Vec<u8>,
     sizes: &str,
 ) -> Result<(), (i64, String)> {
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(Duration::from_secs(120))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()

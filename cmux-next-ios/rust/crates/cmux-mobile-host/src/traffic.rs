@@ -46,6 +46,8 @@ pub enum Kind {
     Localhost,
     /// `appearance`, `appearance-wallpaper`.
     Appearance,
+    /// `tabs`: the tab overview's thumbnails and favicons.
+    Tabs,
     /// This Mac's channels to another of the person's machines (`cmux machine`, `link_socket.rs`).
     Remote,
     /// `auth`, `echo`, `version`, `machine`, `needs-you`.
@@ -55,7 +57,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 15] = [
+    pub const ALL: [Kind; 16] = [
         Kind::Terminal,
         Kind::Chat,
         Kind::CloudChat,
@@ -68,6 +70,7 @@ impl Kind {
         Kind::File,
         Kind::Localhost,
         Kind::Appearance,
+        Kind::Tabs,
         Kind::Remote,
         Kind::Control,
         Kind::Other,
@@ -87,6 +90,7 @@ impl Kind {
             Kind::File => "file",
             Kind::Localhost => "localhost",
             Kind::Appearance => "appearance",
+            Kind::Tabs => "tabs",
             Kind::Remote => "remote",
             Kind::Control => "control",
             Kind::Other => "other",
@@ -109,10 +113,11 @@ impl Kind {
                 let tab = args.get("tab").and_then(Value::as_str).unwrap_or_default();
                 if crate::surface::cloud_desktop_of(tab).is_some() { Kind::Desktop } else { Kind::Simulator }
             }
-            "file" | "file-preview" | "upload" => Kind::File,
+            "file" | "file-preview" | "upload" | "bundle" => Kind::File,
             "localhost" => Kind::Localhost,
             "appearance" | "appearance-wallpaper" => Kind::Appearance,
-            "auth" | "echo" | "version" | "machine" | "needs-you" => Kind::Control,
+            "tabs" => Kind::Tabs,
+            "auth" | "echo" | "version" | "machine" | "needs-you" | "phone-frames" => Kind::Control,
             _ => Kind::Other,
         }
     }

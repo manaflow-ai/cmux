@@ -35,6 +35,8 @@ public nonisolated struct AgentPaneFileOpening: Equatable, Sendable {
         case .editor:
             guard let app = editor() else { throw AgentPaneFileRefusal.noEditor }
             return AgentPaneFileOpening(url: url, editor: app)
+        case .finder:
+            return AgentPaneFileOpening(url: url, editor: nil)
         }
     }
 }

@@ -400,7 +400,7 @@ fn the_pty_run_shows_the_link_and_prompt_and_captures_the_token() {
     let input = pipe_with(b"CODE-123\n");
     let mut out = Vec::new();
     let started = std::time::Instant::now();
-    let token = capture::run(&program, &["setup-token"], Some(input), 200, &mut out).unwrap();
+    let token = capture::run(&program, Some(input), 200, &mut out).unwrap();
     unsafe { libc::close(input) };
     assert_eq!(&*token, TOKEN);
     let shown = String::from_utf8_lossy(&out);
@@ -418,13 +418,12 @@ fn the_pty_run_fails_with_no_token_and_names_a_missing_claude() {
     let dir = tempfile::tempdir().unwrap();
     let program = fake_claude(dir.path(), "echo 'Error: login failed'\nexit 1");
     let mut out = Vec::new();
-    let error = capture::run(&program, &["setup-token"], None, 200, &mut out).unwrap_err();
+    let error = capture::run(&program, None, 200, &mut out).unwrap_err();
     assert!(error.contains("without printing a token"), "{error}");
     assert!(String::from_utf8_lossy(&out).contains("login failed"));
 
     let missing = dir.path().join("no-such-claude");
-    let error =
-        capture::run(missing.to_str().unwrap(), &["setup-token"], None, 200, &mut out).unwrap_err();
+    let error = capture::run(missing.to_str().unwrap(), None, 200, &mut out).unwrap_err();
     assert!(error.contains("not installed"), "{error}");
 }
 
@@ -449,4 +448,40 @@ fn chatgpt_wait_with_keep_answers_pending_and_leaves_the_attempt() {
     let value = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap();
     assert_eq!(value, json!({"attempt": "a1", "status": "pending"}));
     assert!(!daemon.methods().iter().any(|m| m == method::MUX_CONNECTIONS_CHATGPT_CANCEL));
+}
+
+/// The MODEL CONNECTIONS lines of `cmux cloud --help` (#48924) parse here, each provider of `api-key`'s
+/// `anthropic|openai` included, with no optional `[...]` part.
+#[test]
+fn the_help_connect_lines_parse() {
+    for japanese in [false, true] {
+        let help = crate::cli::cloud_help::overview(japanese);
+        let lines = help
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("cmux vm connect"))
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        for line in lines {
+            let required = line.split(" [").next().unwrap_or(line);
+            let words = required.split_whitespace().skip(2).collect::<Vec<_>>();
+            let (verb, rest) = words.split_first().expect("a verb");
+            let alternatives = rest
+                .iter()
+                .find_map(|word| word.contains('|').then(|| word.split('|').collect::<Vec<_>>()))
+                .unwrap_or_else(|| vec![""]);
+            for pick in alternatives {
+                let args = rest
+                    .iter()
+                    .map(|word| if word.contains('|') { pick } else { word })
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                let parsed = parse(verb, &args);
+                assert!(
+                    matches!(parsed, Ok(ref command) if !matches!(command, Command::Help)),
+                    "{line}: {pick} parsed as {parsed:?}"
+                );
+            }
+        }
+    }
 }

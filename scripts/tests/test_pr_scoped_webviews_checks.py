@@ -237,6 +237,27 @@ class ScopedChecksTests(unittest.TestCase):
         checkout = self.checkout({f'{settings}/clean.ts': CLEAN}, {f'{settings}/AThemeTokens.gallery.tsx': entry})
         self.assertRun(checkout.run(COVERAGE), True, 'pages.settings.theme-tokens: duplicate id')
 
+    def test_coverage_pr_adding_an_invalid_entry_id_fails_with_warn_only_style_guards(self):
+        # Entry validity is not a style rule: #48230's invalid experiment id passed its own PR as a warning
+        # (CMUX_NEXT_STYLE_GUARDS=warn), then reddened every web-view PR's shard 1 (#49118).
+        settings = 'webviews/src/pages/settings/components'
+        entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        bad = entry.replace('id: "pages.settings.theme-tokens"', 'id: "pages.settings.Theme_Tokens"', 1)
+        self.assertNotEqual(bad, entry)
+        checkout = self.checkout({f'{settings}/clean.ts': CLEAN}, {f'{settings}/AThemeTokens.gallery.tsx': bad})
+        result = checkout.run(COVERAGE, style_guards='warn')
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn('pages.settings.Theme_Tokens: the id must be dotted lower kebab case', output)
+
+    def test_coverage_base_invalid_entry_id_warns_on_an_unrelated_pr_with_warn_only_style_guards(self):
+        settings = 'webviews/src/pages/settings/components'
+        entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        bad = entry.replace('id: "pages.settings.theme-tokens"', 'id: "pages.settings.Theme_Tokens"', 1)
+        checkout = self.checkout({f'{settings}/AThemeTokens.gallery.tsx': bad}, {f'{settings}/clean.ts': CLEAN})
+        self.assertRun(checkout.run(COVERAGE, style_guards='warn'), False,
+                       'pages.settings.Theme_Tokens: the id must be dotted lower kebab case')
+
     def test_coverage_pr_dropping_an_owner_prefix_last_line_owns_it(self):
         allowlist = WEBVIEWS / 'test/gallery-coverage.allowlist.json'
         text = allowlist.read_text()

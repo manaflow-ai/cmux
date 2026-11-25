@@ -110,24 +110,24 @@ extension AgentPaneGitStage {
     /// `git.stage` or `git.unstage` arrived without a real click or key press in the pane.
     public nonisolated static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitStageGesture", defaultValue: "Staging needs a click or key press in the pane.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// `git.stage` or `git.unstage` whose params break its contract.
     public nonisolated static var invalidMessage: String {
-        String(localized: "agentPane.error.gitStageInvalid", defaultValue: "The app refused the staging request.", bundle: .module)
+        String(localized: "agentPane.error.gitStageInvalid", defaultValue: "The app refused the staging request.", bundle: .localizedModule)
     }
 
     /// The hunk is not in the file's diff any more (the file changed since the view read it).
     nonisolated static var hunkMovedMessage: String {
         String(localized: "agentPane.error.gitHunkMoved", defaultValue: "That change is no longer in the file. Refresh and try again.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// The repository is outside the pane's folders.
     nonisolated static var outsideMessage: String {
         String(localized: "agentPane.error.gitStageOutside", defaultValue: "That folder is outside this chat's folders.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// `git.stage` / `git.unstage` (nil: params that break the contract): spends `model`'s GRANT
