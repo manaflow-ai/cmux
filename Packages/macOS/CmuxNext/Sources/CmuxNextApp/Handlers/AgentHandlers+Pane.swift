@@ -99,7 +99,7 @@ extension AgentHandlers {
         case .pending: .pending
         }
         let targetLocal = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true } ?? false
-        let facts = WindowRules.ChatHostFacts(route: route, ready: destination.isReady, cancelled: Task.isCancelled,
+        let facts = WindowRules.ChatHostFacts(route: route, ready: destination.opens, cancelled: Task.isCancelled,
                                               targeted: invocation.target != nil, targetLocal: targetLocal,
                                               activeLocal: context.services.activeDaemon.isLocal)
         guard let plan = WindowRules().chatHostPlan(facts) else {
