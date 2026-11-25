@@ -289,7 +289,7 @@ pub async fn serve_admin_with_mux_binding(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

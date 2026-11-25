@@ -2040,6 +2040,87 @@
      "constraints": [
       "With limit: the after of the next page, on every page that is not the last."
      ]
+    },
+    "delta": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+     ]
+    },
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "changed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Workspace"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+     ]
+    },
+    "removed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: the ids of the workspaces no longer in the tree."
+     ]
+    },
+    "order": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta, when the order of the workspaces changed: every id, in the tree's order."
+     ]
     }
    },
    "additional_properties": false
@@ -2102,6 +2183,34 @@
      "default": null,
      "constraints": [
       "Opaque; from the tree_revision of the last whole tree."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ListWorkspacesSince": {
+   "kind": "object",
+   "fields": {
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Opaque; the epoch of the last reply applied (\"\" when none)."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The seq of the last reply applied (0 when none)."
      ]
     }
    },
@@ -12313,6 +12422,19 @@
       "constraints": [
        "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
       ]
+     },
+     "since": {
+      "type": {
+       "kind": "ref",
+       "name": "ListWorkspacesSince"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-list-delta-v1",
+      "constraints": [
+       "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+      ]
      }
     },
     "additional_properties": false
@@ -19006,6 +19128,16 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-resume-v1"
+     },
+     "resume_max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-bounded-v1"
      }
     },
     "additional_properties": false,

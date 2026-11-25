@@ -54,6 +54,9 @@ pub struct RpcError {
 /// `data.reason` of [`RpcError::no_peer`].
 pub const NO_PEER: &str = "no_peer";
 
+/// A temporary refusal. The reason in `data` identifies the resource.
+pub(crate) const BUSY_CODE: i64 = -32031;
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -430,6 +433,11 @@ pub mod method {
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
+    /// Which of this connection's requests the daemon still runs, and which it answered lately
+    /// (`server/in_flight.rs` `states`): `{}` -> `{running: [id], answered: [id]}`. A client's
+    /// proof, per request, that a slow answer is still being worked on (webviews `direct.ts`
+    /// `checkRequests`). Answered in order with the connection's requests, never queued for a slot.
+    pub const MUX_REQUEST_STATE: &str = "_acpmux/request_state";
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
@@ -704,6 +712,9 @@ pub mod method {
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// Read-only pages and find for a terminal pane's exact provider session.
+    pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
+    pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
@@ -984,6 +995,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
+    /// on the masked copy, with no model call.
+    pub const MUX_SURGERY: &str = "_acpmux/surgery";
     /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
     /// agent or its Chief when the harness writes no plan of its own, and read back.
     pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
@@ -1071,6 +1085,17 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
+    /// Agent byte channels (`server/channels.rs`, capability `agent-channels-v1`).
+    pub const MUX_CHANNEL_LISTEN: &str = "_acpmux/channel/listen";
+    pub const MUX_CHANNEL_UNLISTEN: &str = "_acpmux/channel/unlisten";
+    pub const MUX_CHANNEL_OPEN: &str = "_acpmux/channel/open";
+    pub const MUX_CHANNEL_SEND: &str = "_acpmux/channel/send";
+    pub const MUX_CHANNEL_CLOSE: &str = "_acpmux/channel/close";
+    /// The peer leg of `open`: the opening daemon to the listening one.
+    pub const MUX_CHANNEL_CONNECT: &str = "_acpmux/channel/connect";
+    pub const MUX_CHANNEL_OPENED: &str = "_acpmux/channel/opened";
+    pub const MUX_CHANNEL_DATA: &str = "_acpmux/channel/data";
+    pub const MUX_CHANNEL_CLOSED: &str = "_acpmux/channel/closed";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
     // its Full-access setting turned off or was removed (`server/remote_guard.rs`).

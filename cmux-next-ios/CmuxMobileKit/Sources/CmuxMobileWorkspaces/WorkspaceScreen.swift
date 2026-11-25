@@ -101,6 +101,8 @@ public struct WorkspaceScreen: View {
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
                 overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
             }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
