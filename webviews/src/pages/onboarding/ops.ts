@@ -252,6 +252,10 @@ export interface MakeItYoursState {
   /** `appearance.backgroundBlur`; null: unset (the theme's). */
   material: MakeItYoursMaterial | null;
   materials: MakeItYoursMaterial[];
+  /** The intro walk's other settings now, by dotted path (walk.ts `WALK_PATHS`); absent: unset. */
+  walk?: Record<string, string | number | boolean | null>;
+  /** `experiments.introWalk`: the step is the intro walk's four screens; absent or false: today's one screen. */
+  introWalk?: boolean;
   /** Where a new chat runs; an older host leaves it out, and the row is not drawn. */
   chatsRunIn?: ChatsRunIn;
   /** The backgrounds' previews were read. */
@@ -332,6 +336,11 @@ export interface OnboardingOps {
   /** The window's Opacity, 0 to 1 (Settings > Appearance's own row). */
   "cmux.onboarding.makeItYours.opacity": [{ value: number }, unknown];
   "cmux.onboarding.makeItYours.material": [{ value: MakeItYoursMaterial }, unknown];
+  /** The intro walk (a look bundle, the trust and noise rows, Tidy): one publish; a null value removes. */
+  "cmux.onboarding.makeItYours.walk": [
+    { writes: { path: string; value: string | number | boolean | null }[] },
+    unknown,
+  ];
 }
 
 export interface OnboardingEvents {
@@ -364,5 +373,6 @@ export const OPS = {
   background: "cmux.onboarding.makeItYours.background",
   opacity: "cmux.onboarding.makeItYours.opacity",
   material: "cmux.onboarding.makeItYours.material",
+  walk: "cmux.onboarding.makeItYours.walk",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;
