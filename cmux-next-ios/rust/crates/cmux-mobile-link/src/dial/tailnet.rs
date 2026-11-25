@@ -337,6 +337,10 @@ fn dialed(
         liveness: None,
         // The tailnet's keys belong to Tailscale, not to this link.
         tunnel_keys: None,
+        on_link: None,
+        overlay: None,
+        // TCP over the tailnet is already reliable; the tailnet lists no reliable lane.
+        reliable: false,
     }
 }
 
