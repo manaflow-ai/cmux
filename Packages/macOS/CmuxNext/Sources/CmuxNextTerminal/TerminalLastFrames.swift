@@ -108,8 +108,11 @@ public struct TerminalLastFrames {
         if let frame = frames[key] {
             pictures.keep(key) { await frame.snapshot(maxPixelSize: side) }
         } else if let surface = session.surfaceView.presentedFrame {
-            let frame = SendableSurface(surface: surface)
-            pictures.keep(key) { await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(frame, maxPixelSize: side) }.value }
+            let frame = SendableSurface(surface: surface), paused = session.surfaceView.pausedPicture
+            // A purged frame renders empty: the picture taken as it paused stands in.
+            pictures.keep(key) { await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(frame, maxPixelSize: side) }.value ?? paused }
+        } else if let paused = session.surfaceView.pausedPicture {
+            pictures.keep(key) { paused }
         }
     }
 
