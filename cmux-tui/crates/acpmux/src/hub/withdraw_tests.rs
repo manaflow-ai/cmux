@@ -46,9 +46,9 @@ fn notices(hub: &Hub) -> usize {
 /// The notice's accept waits behind the chat's agent slot, which a spawn, a respawn or a mode
 /// change holds (on the owner's Mac, at load 150 to 430, for longer than any fixed wait). The
 /// withdraw answered `withdraw.notice_failed` after 5 s, and the notice then went in: the
-/// sender was told to withdraw again for a retraction the agent got. It waits for the
-/// notice's own accept, and a second withdraw meanwhile answers as the first, with no second
-/// notice.
+/// sender was told to withdraw again for a retraction the agent got. Now the notice is queued
+/// durably once its answer is due (`prompt_admission.rs`), so the withdraw answers retracted
+/// while the slot is still held; a second withdraw answers as the first, with no second notice.
 #[tokio::test(start_paused = true)]
 async fn a_notice_slower_than_any_fixed_wait_is_retracted_once_not_failed() {
     let (hub, session) = chat_running_a_message();
@@ -56,25 +56,28 @@ async fn a_notice_slower_than_any_fixed_wait_is_retracted_once_not_failed() {
     let first = withdraw(&hub, &session);
     tokio::time::sleep(Duration::from_secs(1)).await;
     let second = withdraw(&hub, &session);
-    tokio::time::sleep(Duration::from_secs(60)).await;
-    if first.is_finished() {
-        let answer = first.await.unwrap();
-        panic!("the withdraw answered while its notice was still on its way: {answer:?}");
-    }
-    assert!(!second.is_finished(), "the second withdraw answered before the first");
-    drop(slot);
-    let reply = first.await.unwrap().expect("the withdraw failed");
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(4);
+    let reply = tokio::time::timeout(bound, first)
+        .await
+        .expect("the withdraw is answered while the slot is held")
+        .unwrap()
+        .expect("the withdraw failed");
     assert_eq!(
         (&reply["outcome"], &reply["via"]),
         (&json!("retracted"), &json!("queued")),
         "{reply}"
     );
-    let again = second.await.unwrap().expect("the second withdraw failed");
+    let again = tokio::time::timeout(bound, second)
+        .await
+        .expect("the second withdraw is answered")
+        .unwrap()
+        .expect("the second withdraw failed");
     assert_eq!(
         (&again["outcome"], &again["already"]),
         (&json!("retracted"), &json!(true)),
         "{again}"
     );
+    drop(slot);
     assert_eq!(notices(&hub), 1, "one retraction notice");
     let records = hub.events("s-1", 0, 100_000).unwrap();
     let retracted = records.iter().filter(|r| r.kind == "prompt_retracted").count();

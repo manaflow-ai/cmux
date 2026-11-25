@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "composerRing": "context", "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
+/// "agentPane": { "showContextUsage": true, "composerRing": "context", "showDictation": true, "spellChecking": false, "attachmentView": "strip", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -31,7 +31,7 @@ import CmuxNextDesign
 /// w, b, e, 0, $, x, dd, u). It is off by default and never steals a key when off
 /// (webviews composer/vimKeys.ts).
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
-/// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
+/// (each in the text where it was added, as Messages does), `strip` (in a row; the default) or
 /// `both` (in the text and in the row, each removable from either; sent messages draw it as
 /// `inline`). Only the look: a draft's text, its attachments and their order are the same in all.
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
@@ -75,6 +75,9 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var composerLook = Self.composerLookDefault
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
     public var followUpMode = Self.followUpModeDefault
+    /// `developerTools.overloadNotice` (``HostOverloadNoticeSetting``, Settings > Advanced >
+    /// Developer Tools; off by default): the chat's "This Mac is overloaded" banner.
+    public var showOverloadNotice = HostOverloadNoticeSetting.fallback
     /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
     /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
     public var savedPrompts = Self.savedPromptsDefault
@@ -87,7 +90,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, showOverloadNotice, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -105,6 +108,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "composerLook": .string(composerLook.rawValue),
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
             "followUpMode": .string(followUpMode.rawValue),
+            "showOverloadNotice": .bool(showOverloadNotice),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
