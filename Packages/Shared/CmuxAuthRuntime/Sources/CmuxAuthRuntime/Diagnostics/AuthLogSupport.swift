@@ -35,6 +35,7 @@ enum OSLogType {
 
 enum OSLogPrivacy {
     case `public`
+    case `private`
 }
 
 extension DefaultStringInterpolation {
@@ -47,6 +48,7 @@ struct Logger: Sendable {
     init(subsystem: String, category: String) {}
 
     func log(level: OSLogType, _ message: String) {}
+    func debug(_ message: String) {}
     func info(_ message: String) {}
     func error(_ message: String) {}
 }

@@ -1,6 +1,6 @@
 public import Foundation
 #if canImport(FoundationNetworking)
-import FoundationNetworking
+public import FoundationNetworking
 #endif
 public import CmuxEgress
 #if canImport(OSLog)

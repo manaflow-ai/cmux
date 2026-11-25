@@ -1,5 +1,6 @@
-#if canImport(Network)
 import Foundation
+
+#if canImport(Network)
 import Network
 
 /// A real HTTP/1.1 server on 127.0.0.1 that stands in for the sign-in
