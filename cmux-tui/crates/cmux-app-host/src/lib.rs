@@ -51,6 +51,7 @@ pub mod entry;
 #[cfg(feature = "engine")]
 pub mod host_loop;
 pub mod motion;
+pub mod motion_profile;
 pub mod particles;
 pub mod protocol;
 #[cfg(feature = "engine")]

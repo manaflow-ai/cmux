@@ -305,7 +305,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     const line = page.locator(".cv-worked.is-below");
     const hint = line.getByText("⌃B to run in background");
     await hint.waitFor({ timeout: 5_000 });
-    expect(await line.locator(".cv-thinking").textContent()).toBe("cargo test --workspace");
+    expect(await line.locator(".cv-thinking").textContent()).toBe("Running tests");
     // The hint shows only while the pointer is on the line (Leo, 2026-10-21).
     const opacity = () => hint.evaluate((node) => getComputedStyle(node).opacity);
     expect(await opacity()).toBe("0");
@@ -476,7 +476,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   ] as const) {
     test(`${name} shows no hint and keeps Ctrl-B`, async () => {
       const page = await open(session);
-      await page.getByText("cargo test --workspace").first().waitFor();
+      await page.getByText("Running tests").first().waitFor();
       await watchCtrlB(page);
       await composer(page).click();
       await page.keyboard.press("Control+b");

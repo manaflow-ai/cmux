@@ -1,0 +1,682 @@
+ci-step local-gcp-agent-lane-14.us-west1-c.c.manaflow-437420.internal-29926622-1-8e0a76f2e8af: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext CmuxNextPagesTests at 1f1573b54faa5860f41590ac40a47e10a42d5548: exit 1
+error: ci-step local-gcp-agent-lane-14.us-west1-c.c.manaflow-437420.internal-29926622-1-8e0a76f2e8af: no same-tree cmux-tui for 1f1573b54faa5860f41590ac40a47e10a42d5548: the recipe ran past 56m40s; its live-daemon suites will skip and fail the step
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:17: error: cannot find 'CloudStartCore' in scope
+   |                 `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:43:108: error: 'nil' requires a contextual type
+   |                                                                                                            `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:59:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:18: error: cannot find 'CloudStartCore' in scope
+   |                  `- error: cannot find 'CloudStartCore' in scope
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartKeepsOnePageTests.swift:60:110: error: 'nil' requires a contextual type
+   |                                                                                                              `- error: 'nil' requires a contextual type
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:131:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:138:28: error: cannot infer contextual base in reference to member 'gui'
+    |                            `- error: cannot infer contextual base in reference to member 'gui'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:139:26: error: cannot infer contextual base in reference to member 'comfortable'
+    |                          `- error: cannot infer contextual base in reference to member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:145:88: error: type 'String' has no member 'comfortable'
+    |                                                                                        `- error: type 'String' has no member 'comfortable'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:149:71: error: type 'String' has no member 'compact'
+    |                                                                       `- error: type 'String' has no member 'compact'
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-2/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingMakeItYoursStepTests.swift:154:41: error: cannot infer contextual base in reference to member 'gui'
+    |                                         `- error: cannot infer contextual base in reference to member 'gui'
+ci-step local-gcp-agent-lane-14.us-west1-c.c.manaflow-437420.internal-29926622-1-8e0a76f2e8af exited 1

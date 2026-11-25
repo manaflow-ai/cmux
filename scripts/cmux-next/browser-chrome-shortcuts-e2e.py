@@ -10,8 +10,8 @@ act on the page:
 
 For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page and
 checks, with no real key presses unless `--keys` is given: the router delivers Cmd-V, Cmd-Shift-V and
-Cmd-Opt-Shift-V to the page, offers Cmd-B, Cmd-I and Shift-Cmd-E to a Chromium page first
-(cmux first in WebKit), and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
+Cmd-Opt-Shift-V to the page, runs cmux's Cmd-B, Cmd-I and Shift-Cmd-E before the page, offers
+Cmd-F (Find) to the page first in both engines, and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
 Reload (`browserHardReload`, what the chord runs) reloads with `Cache-Control: no-cache`, read
 from the script's own server, and Reload Page does not. On Chromium it also right-clicks a link
 and checks that Open Link in New Tab creates the destination tab. With `--keys` (the app active, its page
@@ -231,11 +231,11 @@ def check_engine(engine, base_url):
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, want in routed)
 
-    # Rich-text editing chords (Bold, Italic, Center): a Chromium page gets them first and the cmux
-    # action bound to the chord runs only if the page leaves the key unhandled. A WebKit tab reports
-    # no unhandled keys, so cmux keeps running them first there.
-    want = "offerToPage" if engine == "chromium" else "run("
-    for label, key, modifiers in [("Cmd-B", "b", ["cmd"]), ("Cmd-I", "i", ["cmd"]), ("Shift-Cmd-E", "E", ["cmd", "shift"])]:
+    # cmux shortcuts run before the page (Lawrence 2026-11-11), so Cmd-B toggles the sidebar even in a
+    # page that takes it for Bold. Only Find goes to the page first, in both engines (Chromium reports
+    # an unhandled key; WebKit sends it back to NSApp.sendEvent), and cmux's Find runs if it comes back.
+    for label, key, modifiers, want in [("Cmd-B", "b", ["cmd"], "run("), ("Cmd-I", "i", ["cmd"], "run("),
+                                        ("Shift-Cmd-E", "E", ["cmd", "shift"], "run("), ("Cmd-F", "f", ["cmd"], "offerToPage")]:
         reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "dry_run": True}) or {}
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, routed.startswith(want))
