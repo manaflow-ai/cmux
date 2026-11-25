@@ -66,7 +66,7 @@ delete step) instead of deleting it.
 ";
 
 /// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
-const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+pub(super) const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
 const RUNNING_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_CHAT_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_PROMPT: &str = "Reply with one short sentence that names the planet you are on.";

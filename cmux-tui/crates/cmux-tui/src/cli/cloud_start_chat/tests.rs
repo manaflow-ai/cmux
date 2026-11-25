@@ -19,6 +19,8 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "direct_tests.rs"]
+mod direct_route;
 #[path = "drill_start_tests.rs"]
 mod drill_start;
 #[path = "folder_tests.rs"]
