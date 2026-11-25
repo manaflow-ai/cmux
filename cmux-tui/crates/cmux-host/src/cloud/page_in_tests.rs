@@ -24,7 +24,7 @@ fn the_targets_are_each_harness_once_through_its_links() {
     let system = system_link.to_str().unwrap();
     let missing = dir.path().join("no-node");
     let targets =
-        targets(&[home.clone(), dir.path().join("no-home")], &[system, missing.to_str().unwrap()]);
+        targets(&[home, dir.path().join("no-home")], &[system, missing.to_str().unwrap()]);
     assert_eq!(targets, vec![std::fs::canonicalize(&claude).unwrap()]);
 }
 
@@ -34,7 +34,7 @@ fn a_read_takes_every_byte_within_its_bounds() {
     let a = file(dir.path(), "a", 3 << 20);
     let b = file(dir.path(), "b", 5);
     let far = Instant::now() + Duration::from_secs(60);
-    let files = vec![a.clone(), dir.path().join("missing"), b.clone()];
+    let files = vec![a, dir.path().join("missing"), b];
     assert_eq!(
         page_in(&files, MAX_BYTES, far),
         Paged { files: 2, bytes: (3 << 20) + 5, whole: true }
