@@ -192,7 +192,9 @@ fn enabled(global: &GlobalArgs) -> bool {
         super::super::app::READ_TIMEOUT,
         None,
     )
-    .is_ok_and(|reply| reply["value"].as_str().is_some_and(|mode| mode != "off"))
+    .is_ok_and(|reply| {
+        reply.get("value").and_then(|value| value.as_str()).is_some_and(|mode| mode != "off")
+    })
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what

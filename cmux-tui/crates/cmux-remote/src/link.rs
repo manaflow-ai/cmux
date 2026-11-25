@@ -13,8 +13,8 @@ use tokio::task::JoinHandle;
 
 use crate::per_lane::PerLane;
 
-const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
-const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
+pub(crate) const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
+pub(crate) const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
@@ -970,5 +970,51 @@ impl Drop for LaneMuxLink {
         for task in tasks.drain(..) {
             task.abort();
         }
+    }
+}
+
+/// A link whose first frames received are a reconnect's early data, read from its IK hello
+/// (`cmux_braid_session::may_send_early`), and then whatever the link itself carries. The
+/// session above reads them as it reads any frame, so its inbound dedupe drops the copies the
+/// client's replay sends again after the commit.
+pub(crate) struct EarlyFrames {
+    link: Arc<dyn FrameLink>,
+    early: StdMutex<std::collections::VecDeque<Bytes>>,
+}
+
+impl EarlyFrames {
+    pub(crate) fn new(link: Arc<dyn FrameLink>, early: Vec<Bytes>) -> Self {
+        Self { link, early: StdMutex::new(early.into()) }
+    }
+}
+
+#[async_trait]
+impl FrameLink for EarlyFrames {
+    fn description(&self) -> &str {
+        self.link.description()
+    }
+
+    fn maximum_frame_bytes(&self) -> usize {
+        self.link.maximum_frame_bytes()
+    }
+
+    fn terminal_control_drain_active(&self) -> bool {
+        self.link.terminal_control_drain_active()
+    }
+
+    async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+        self.link.send(frame).await
+    }
+
+    async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        let early = self.early.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).pop_front();
+        match early {
+            Some(frame) => Ok(Some(frame)),
+            None => self.link.receive().await,
+        }
+    }
+
+    async fn close(&self) -> Result<(), LinkError> {
+        self.link.close().await
     }
 }

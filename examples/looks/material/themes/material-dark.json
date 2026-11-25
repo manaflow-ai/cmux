@@ -12,7 +12,7 @@
   "appearance.appTheme": "followTerminal",
   // background = surface, foreground = on-surface, selection = secondary-container (the navigation
   // drawer's active indicator), accent = primary.
-  "colors": { "background": "#141218", "foreground": "#e6e0e9", "selection": "#4a4458", "accent": "#d0bcff" },
+  "colors": { "background": "#141218", "foreground": "#e6e0e9", "selection": "#787288", "accent": "#d0bcff" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
   // ANSI colors at a tonal chroma, each solved in OKLCH over the page (5.5:1, the bright ones
@@ -72,7 +72,7 @@
 
   // The navigation drawer and the tab row on surface-container; the content on surface.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#211f26",
+  "appearance.surfaces.sidebar.color": "#141219",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#211f26",
   "appearance.surfaces.tabBar.opacity": 1,

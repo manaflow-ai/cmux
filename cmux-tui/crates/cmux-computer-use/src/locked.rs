@@ -90,8 +90,10 @@ pub fn kind_of(tool: &str, args: &Value) -> Kind {
         "record" if args.get("action").and_then(Value::as_str) == Some("stop") => Kind::Engine,
         "record" => Kind::Display,
         "get_ui_tree" => Kind::WindowLook,
-        "click" | "type_text" | "press_key" | "drag" if foreground(args) => Kind::Hid,
-        "click" | "type_text" | "press_key" | "drag" | "scroll" | "set_value"
+        "click" | "move_pointer" | "type_text" | "press_key" | "drag" if foreground(args) => {
+            Kind::Hid
+        }
+        "click" | "move_pointer" | "type_text" | "press_key" | "drag" | "scroll" | "set_value"
         | "perform_action" => Kind::WindowInput,
         // An accessibility press on one alert's button.
         "dismiss_alert" => Kind::WindowInput,

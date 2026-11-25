@@ -80,6 +80,20 @@ final class SidebarCardPresence {
         }
     }
 
+    /// Hides the card in this frame, mid-exit too: another card has its place, and an exit there
+    /// would draw under that card's entrance.
+    func hideAtOnce() {
+        guard let view, !view.isHidden || isLeaving else { return }
+        generation += 1
+        isLeaving = false
+        pendingEnter = false
+        hidesNextAtOnce = false
+        laidOut = false
+        view.isHidden = true
+        transition.clear(view.layer)
+        view.superview?.needsLayout = true
+    }
+
     /// Call from the card's `layout()`: plays a pending entrance once the card has a size.
     func didLayout() {
         guard let view, !view.isHidden, !view.bounds.isEmpty else { return }

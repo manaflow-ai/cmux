@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 890,
-    "mcp": 808
+    "verbs": 892,
+    "mcp": 810
   },
   "nouns": [
     {
@@ -1290,6 +1290,20 @@
           "id": "cloudBringBack",
           "mcp": true,
           "mcpTool": "app_cloud_bring_back"
+        },
+        {
+          "command": "cmux cloud chief-computer",
+          "title": "Use Chief’s Own Computer…",
+          "id": "cloud.chiefComputer",
+          "mcp": true,
+          "mcpTool": "app_cloud_chief_computer"
+        },
+        {
+          "command": "cmux cloud computer-control",
+          "title": "Chief Computer Control…",
+          "id": "cloud.computerControl",
+          "mcp": true,
+          "mcpTool": "app_cloud_computer_control"
         },
         {
           "command": "cmux cloud copy-session-link",

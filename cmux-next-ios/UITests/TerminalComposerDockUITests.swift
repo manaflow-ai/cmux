@@ -1,10 +1,8 @@
 import XCTest
 
-/// The terminal's bottom dock behaves like classic cmux iOS's
-/// (verify/composer-classic-parity.md): the key row shows with the keyboard
-/// down, Return in the composer starts a new line, the compose key reveals,
-/// closes and reopens the composer, and Hide Toolbar Too (the keyboard key's
-/// long-press) folds the dock until the
+/// The terminal's key row follows the soft keyboard. Return in the
+/// composer starts a new line, the compose key reveals,
+/// closes and reopens the composer, and Hide Toolbar folds the dock until the
 /// next terminal tap. Runs on a workspace's terminal tab as the app shows it
 /// (TabsKit chrome), with mock sign-in and the mock terminal session.
 final class TerminalComposerDockUITests: XCTestCase {
@@ -25,15 +23,15 @@ final class TerminalComposerDockUITests: XCTestCase {
         let control = app.buttons["terminal.key.control"]
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer field\n\(app.debugDescription)")
 
-        // At rest, keyboard down: the key row is already there (classic), above the composer.
-        XCTAssertTrue(composeKey.exists && control.exists && keyboardKey.exists, "key row at rest\n\(app.debugDescription)")
-        // Each key's 44 pt hit area (Apple HIG) reaches the composer's top edge; the caps stay above it.
-        XCTAssertLessThanOrEqual(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
-        XCTAssertEqual(keyboardKey.label, "Show Keyboard")
+        XCTAssertFalse(keyboardKey.exists, "the key row is hidden at rest")
         attach(app, "rest")
 
         // Return in the field starts a new line; it does not send.
         field.tap()
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 5))
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertLessThan(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
+        XCTAssertEqual(keyboardKey.label, "Hide Keyboard")
         field.typeText("echo one\nls")
         XCTAssertEqual(field.value as? String, "echo one\nls", "Return inserted a new line")
 
@@ -48,12 +46,19 @@ final class TerminalComposerDockUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertEqual(field.value as? String, "echo one\nls", "the draft survives close and reopen")
 
-        // Hide Toolbar Too folds the key row and the composer; a terminal tap brings them back.
-        keyboardKey.press(forDuration: 1.2)
-        let hide = app.buttons["Hide Toolbar Too"]
-        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar Too in the keyboard key's menu\n\(app.debugDescription)")
+        // Hide Toolbar folds the key row and the composer; a terminal tap brings them back.
+        let hide = app.buttons["Hide Toolbar"]
+        // Drag the key row's scroller (right of the pinned keys) to its end.
+        let window = app.windows.firstMatch.frame
+        let rowY = (keyboardKey.frame.midY - window.minY) / window.height
+        // 44 pt keys: the row is ~1900 pt wide, so a few more drags than the old 28 pt row took.
+        for _ in 0..<16 where !(hide.exists && hide.isHittable) {
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
+            from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
+        }
+        XCTAssertTrue(hide.waitForHittable(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
         hide.tap()
-        XCTAssertTrue(composeKey.waitForNonExistence(timeout: 5), "Hide Toolbar Too hides the key row")
+        XCTAssertTrue(composeKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
         XCTAssertFalse(field.exists, "and the composer")
         attach(app, "hidden")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()

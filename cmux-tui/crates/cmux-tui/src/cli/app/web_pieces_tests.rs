@@ -537,8 +537,13 @@ fn a_drill_only_reports_a_refused_active_update() {
 
     // The real channel's refusal still rolls back, with no drill field.
     let real = tempfile::tempdir().unwrap();
-    let reply = apply(&check(real.path(), "every-merge"), Some(refusing(&pair, 4, &[A])), &keys(&pair), NOW)
-        .unwrap();
+    let reply = apply(
+        &check(real.path(), "every-merge"),
+        Some(refusing(&pair, 4, &[A])),
+        &keys(&pair),
+        NOW,
+    )
+    .unwrap();
     assert_eq!(reply["refused_active"], true, "{reply}");
     assert!(reply.get("drill_refused_active").is_none(), "{reply}");
 }

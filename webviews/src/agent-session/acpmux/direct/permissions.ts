@@ -93,6 +93,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
+    ...(claudeMeta?.tool === "ExitPlanMode" && typeof objectValue(toolCall?.rawInput)?.plan === "string"
+      ? { planEditable: true }
+      : {}),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),

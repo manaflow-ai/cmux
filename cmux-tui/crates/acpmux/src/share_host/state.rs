@@ -5,7 +5,7 @@
 use super::{NotRunning, records};
 use cmux_hub_host::hub::Hub;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use tokio::sync::mpsc::UnboundedSender;
@@ -50,11 +50,15 @@ pub(crate) struct Shared {
     devices: Mutex<HashMap<String, String>>,
     /// The hub's other devices as screens, from the last `GET /v1/devices`; None before a read.
     screens: Mutex<Option<Vec<HubScreen>>>,
+    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
+    seen_approvals: Mutex<HashSet<String>>,
 }
 
 /// One of the device hub's records other than this device's: a machine's screen host.
 #[derive(Debug, Clone)]
 struct HubScreen {
+    /// The hub's device id: what a viewer opens (`macScreen.open --device`).
+    id: String,
     name: String,
     platform: String,
     online: bool,
@@ -99,6 +103,7 @@ impl Shared {
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
             screens: Mutex::new(None),
+            seen_approvals: Mutex::new(HashSet::new()),
         })
     }
 
@@ -157,6 +162,7 @@ impl Shared {
                     self.update_link(|link| link.sharing = shared.or(link.sharing));
                 } else if let Some(name) = field("name").filter(|n| !n.trim().is_empty()) {
                     screens.push(HubScreen {
+                        id: id.clone(),
                         name,
                         platform: platform.clone(),
                         online: flag("online").unwrap_or(false),
@@ -183,9 +189,18 @@ impl Shared {
             .filter(|s| !key.is_empty() && host_key(&s.name) == key)
             .max_by_key(|s| (s.online, s.shared));
         Some(match best {
-            Some(s) => json!({"listed": true, "platform": s.platform, "screenShared": s.shared}),
+            Some(s) => json!({"listed": true, "id": s.id, "platform": s.platform,
+                "online": s.online, "screenShared": s.shared}),
             None => json!({"listed": false}),
         })
+    }
+
+    /// Runs `decide` with the taken approval nonces, one approval at a time.
+    pub(crate) fn with_seen_approvals<T>(
+        &self,
+        decide: impl FnOnce(&mut HashSet<String>) -> T,
+    ) -> T {
+        decide(&mut lock(&self.seen_approvals))
     }
 
     /// The hub's platform of device `id`, when listed.

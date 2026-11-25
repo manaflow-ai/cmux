@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""The post-merge batch tier: the base's deferred checks run on the clock, not once per merge.
+"""The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every two hours (the window is one variable,
-vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) the newest feat-cmux-next tip gets one run of
+once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
+the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
+default 120), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -11,10 +12,13 @@ normal landing (never merged here).
 
 Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick):
 
-  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min:
-          "is there an untested tip?" in two API calls. It dispatches a batch run when the tip
-          is not the newest batch run's commit, no batch run is in flight, and the newest one
-          started at least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min, and a
+          batch run's judge job runs it as its last step (--self-run-id), so a finished batch starts
+          the next one at once when the merges have piled up: "is there an untested tip?" in two or
+          three API calls. It dispatches a batch run when the tip is not the newest batch run's
+          commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
+          commits ahead of the newest batch run's commit (one compare call) or that run started at
+          least a window ago. Nothing waits or loops; a skipped tick costs seconds.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -45,12 +49,16 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
 DEFAULT_WINDOW_MINUTES = 120
+# A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
+# (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
+# that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
+DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran (one page; about 2.5 days at 12 a day,
-# plus probes).
-RUNS_PAGE = 60
+# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
+# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
+RUNS_PAGE = 100
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
@@ -154,16 +162,19 @@ def touches_workflows(files) -> list[str]:
 
 
 def push_token(files=(), command: str = "") -> str:
-    """The token that creates and pushes the swap-out, probe or revert branch. PUSH_TOKEN is minted with contents
-    write only; a diff that touches .github/workflows/** takes WORKFLOWS_TOKEN, minted apart with workflows write
-    (a step that may fail: the routing App had no Workflows permission and the combined mint failed every revert
-    job, run 45021631601, hq#18499). With no WORKFLOWS_TOKEN such a diff stops here with `command`."""
-    workflow_files = touches_workflows(files)
-    if not workflow_files:
-        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    """The token that creates and pushes the swap-out, probe or revert branch. WORKFLOWS_TOKEN (workflows write,
+    minted apart) whenever the job has one: every such branch starts at a feat-cmux-next or drill commit, whose
+    workflow files differ from main's, and GitHub refuses a contents-only token that creates a ref there whatever
+    the diff touches ("Resource not accessible by integration (HTTP 403)" on POST git/refs: drill 9's piece probe,
+    run 45096141472, job 137440066365). PUSH_TOKEN (contents write only) is the fallback when that mint failed
+    (the routing App had no Workflows permission and the combined mint failed every revert job, run 45021631601,
+    hq#18499); then a diff that touches .github/workflows/** stops here with `command`."""
     token = os.environ.get("WORKFLOWS_TOKEN", "")
     if token:
         return token
+    workflow_files = touches_workflows(files)
+    if not workflow_files:
+        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
     raise WorkflowsTokenMissing(
         f"This change touches workflow files ({', '.join(workflow_files)}) and the job has no workflows-write token "
         f"(the \"Mint the workflows push token\" step failed or did not run). Grant the routing App Workflows: Read and "
@@ -316,11 +327,18 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True) -> tuple[str, str]:
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True,
+                  every_merges: int = 0, ahead=lambda base: None, self_run_id: int = 0) -> tuple[str, str]:
     """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
-    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it."""
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it.
+    ahead(sha): how many commits the tip is ahead of sha (None when unknown); called only inside the window, where
+    every_merges or more (when above 0) dispatch. self_run_id: the batch run whose judge step asks (it has judged,
+    so it is neither in flight nor unjudged)."""
     batches = [r for r in runs if is_batch(r)]
-    live = [r for r in batches if r.get("status") != "completed"]
+    live = [r for r in batches if r.get("status") != "completed" and r.get("id") != self_run_id]
+    if self_run_id:
+        asked = judged
+        judged = lambda run_id: run_id == self_run_id or asked(run_id)  # noqa: E731
     if live:
         return "skip", f"batch run {live[0].get('id')} is {live[0].get('status')} on {str(live[0].get('head_sha'))[:11]}"
     if not batches:
@@ -331,9 +349,18 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
             return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
+    # A batch that gave no verdict tested nothing, so it opens no window, whether or not the tip moved since:
+    # run 45105503067's plan failed its fetch at 03:21Z on 2026-11-23, the tip moved on within a minute, and
+    # no suite ran on the base until the window closed two hours later, while a stale Cargo.lock sat there.
+    if not judged(newest["id"]):
+        return "dispatch", f"batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} gave no verdict (its plan or judge failed); tip {tip[:11]} is untested"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
-        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min"
+        count = ahead(newest.get("head_sha")) if every_merges > 0 else None
+        if count is not None and count >= every_merges:
+            return "dispatch", f"tip {tip[:11]} is {count} commits ahead of batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} (every {every_merges})"
+        piled = f", {count} of {every_merges} merges" if count is not None else ""
+        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min{piled}"
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
@@ -343,6 +370,28 @@ def window_minutes(value: str | None) -> int:
     except ValueError:
         return DEFAULT_WINDOW_MINUTES
     return minutes if minutes > 0 else DEFAULT_WINDOW_MINUTES
+
+
+def every_merges(value: str | None) -> int:
+    """NEXT_POST_MERGE_EVERY_MERGES: unset or unreadable is the default; 0 turns the count off (the window alone)."""
+    try:
+        count = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_EVERY_MERGES
+    return max(count, 0)
+
+
+def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
+    """Commits tip has that base has not (one compare call, one commit listed); None when GitHub cannot say."""
+    if not base or not SHA_RE.match(str(base)):
+        return None
+    try:
+        data = api(f"repos/{repo}/compare/{base}...{tip}?per_page=1") or {}
+    except RuntimeError as err:
+        print(f"::warning::compare {str(base)[:11]}...{tip[:11]}: {err}; the window decides")
+        return None
+    count = data.get("ahead_by")
+    return count if isinstance(count, int) else None
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
@@ -363,13 +412,17 @@ def tick(args: argparse.Namespace) -> int:
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged)
+    self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+    action, reason = tick_decision(
+        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
+    )
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(
             f"repos/{args.repo}/actions/workflows/{WORKFLOW}/dispatches",
             method="POST",
-            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "tick"}},
+            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "next" if self_run_id else "tick"}},
         )
     return 0
 
@@ -946,6 +999,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("tick")
     common(p)
     p.add_argument("--window-minutes", default=os.environ.get("NEXT_POST_MERGE_WINDOW_MINUTES"))
+    p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
+                   help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
+    p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")

@@ -198,4 +198,20 @@ pub static ACTIONS: &[Action] = &[
         focuses: true,
         ..Action::DEFAULT
     },
+    // Make This Agent a Chief: the focused chat's agent becomes a Chief under its own id, as
+    // `cmux chief adopt AGENT` (`chief.profile.adopt`); its conversations and history stay.
+    Action {
+        id: "agentPane.adoptAsChief",
+        group: GROUP,
+        title: t("HomeActions", "action.agentPane.adoptAsChief", "Make This Agent a Chief"),
+        keywords: &["agent", "chat", "chief", "adopt", "promote", "orchestrator", "profile"],
+        category: "agents",
+        symbol: "sparkles",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane", "agent-chat"],
+        cli_name: "chief adopt",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
 ];

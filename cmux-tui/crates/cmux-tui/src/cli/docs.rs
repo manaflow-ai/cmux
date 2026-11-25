@@ -136,9 +136,9 @@ pub(super) const GUIDES: &[Guide] = &[
         whether each harness (default: every configured or found one) is installed, signed in \
         and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
         harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
-        started outside cmux the cmux MCP server through their own `mcp add`; until the \
-        person answers yes to cmux's tools in their agents (`agents.cmuxMcp` on: the cmux \
-        Tools step or Settings > Agents), it writes nothing and says so (needs_user). `cmux setup computer-use` turns Computer Use \
+        started outside cmux the cmux MCP server through their own `mcp add`; agents started \
+        in cmux get cmux's tools unless the person turns `agents.cmuxMcp` off (Settings > \
+        Agents). `cmux setup computer-use` turns Computer Use \
         on once the person allows it on the sheet cmux shows, and names each missing macOS \
         grant with the command that opens its System Settings pane. `cmux setup \
         cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \

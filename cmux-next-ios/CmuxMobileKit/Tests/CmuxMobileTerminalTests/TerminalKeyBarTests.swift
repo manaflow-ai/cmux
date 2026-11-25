@@ -137,20 +137,15 @@ import Testing
     }
 }
 
-/// The key row: classic cmux iOS's keys, the launchers last (option B of cmux#50880).
+/// The key row: classic cmux iOS's keys in its default order.
 @Suite struct TerminalKeyRowTests {
-    @Test func theRowHasOnlyKeysByTheArrowsAndTheLaunchersLast() {
-        // Leo, 2026-11-22, on Claude right after →: "surely we can think of more ergonomic ways to do things...?"
-        #expect(Array(KeyBarKey.row.prefix(14)) == [
+    @Test func theRowIsClassicsOrderWithTheArrowsBeforeTheAgents() {
+        // Leo, 2026-11-21: arrows "left of the weird claude/codex/ollama ... buttons".
+        #expect(Array(KeyBarKey.row.prefix(17)) == [
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
-            .up, .down, .left, .right,
+            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
-        #expect(KeyBarKey.row[14] == .chord("l"), "a key, not a launcher, right after →")
-        #expect(Array(KeyBarKey.row.suffix(5)) == [
-            .zoomOut, .zoomIn, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
-        ])
-        #expect(KeyBarLayout.standard == .agentsLast)
-        #expect(KeyBarLayout.standard.launcherSeparatorKey == KeyBarKey.launcher(.claude), "the hairline before the launchers")
+        #expect(Array(KeyBarKey.row.suffix(4)) == [.zoomOut, .zoomIn, .wide, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
         // The compose key is pinned, never in the scroller.
         #expect(!KeyBarKey.row.contains(.composer))
@@ -164,70 +159,21 @@ import Testing
             let row = layout.scroller
             #expect(Set(row) == reference, "\(layout)")
             #expect(row.count == reference.count, "\(layout)")
+            #expect(row.last == .hideChrome)
             let lastArrow = row.lastIndex { KeyBarKey.arrows.contains($0) }
-            let firstAgent = row.firstIndex(where: \.isLauncher)
+            let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }
             #expect(lastArrow! < firstAgent!, "\(layout)")
-            #expect(layout.launcherSeparatorKey == row[firstAgent!], "\(layout)")
         }
+        #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
     }
 
     @Test func launchersTypeClassicsCommands() {
         #expect(KeyBarLauncher.claude.command == "claude --dangerously-skip-permissions")
+        #expect(KeyBarLauncher.claude.pressesReturn)
+        #expect(KeyBarLauncher.codex.pressesReturn)
         // Ollama waits for the model name.
         #expect(KeyBarLauncher.ollama.command == "ollama run ")
-    }
-
-    /// A tap only types the command: one stray thumb used to run
-    /// `claude --dangerously-skip-permissions`. Run Now (long-press) adds Return.
-    @Test func aLauncherTapNeverPressesReturn() {
-        let router = TerminalInputRouter()
-        let enter = TerminalHIDUsage.ghosttyKeyCode(TerminalHIDUsage.enter)
-        for launcher in [KeyBarLauncher.claude, .codex, .ollama] {
-            let tap = launcher.input(.insert, router: router)
-            #expect(tap == [.text(launcher.command)], "\(launcher)")
-            let keys = tap.compactMap { action -> TerminalKeyEvent? in
-                if case .key(let event) = action { event } else { nil }
-            }
-            #expect(keys.isEmpty, "\(launcher): a tap sends no key, so no Return")
-            let run = launcher.input(.run, router: router)
-            #expect(run.first == .text(launcher.command))
-            let runKeys = run.compactMap { action -> TerminalKeyEvent? in
-                if case .key(let event) = action { event } else { nil }
-            }
-            #expect(runKeys.count == 2 && runKeys.allSatisfy { $0.keyCode == enter }, "\(launcher): Run Now presses Return")
-        }
-    }
-
-    /// Apple HIG, Accessibility: "a hit region of at least 44x44 pt"
-    /// (https://developer.apple.com/design/human-interface-guidelines/accessibility).
-    @Test func everyKeysHitAreaIsAtLeast44Points() {
-        let hit = KeyRowHitTarget()
-        let row = TerminalDockMetrics.keyRowHeight
-        let caps: [(String, CGSize)] = [
-            ("glyph key", CGSize(width: TerminalDockMetrics.minKeyWidth, height: row)),
-            ("word key", CGSize(width: 60, height: row)),
-            ("joystick", CGSize(width: JoystickGeometry.circle, height: JoystickGeometry.circle)),
-            ("keyboard key", CGSize(width: row + 12, height: row)),
-        ]
-        for (name, cap) in caps {
-            let size = hit.hitSize(cap: cap)
-            #expect(size.width >= 44 && size.height >= 44, "\(name): \(size)")
-        }
-        // A glyph key's hit area is exactly its share: 44 pt, caps 6 pt apart.
-        #expect(hit.hitSize(cap: caps[0].1) == CGSize(width: 44, height: 44))
-        #expect(KeyRowHitTarget.rowHitHeight >= 44, "the row's host view is the hit areas' height")
-        #expect(KeyRowHitTarget.verticalSlop == 8)
-        // The caps keep their 28 pt row: the PTY's rows are sized by it.
-        #expect(TerminalDockMetrics.keyRowHeight == 28)
-    }
-
-    @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {
-        let fade = KeyRowFade()
-        #expect(fade.leadingEdgeAlpha(scrolled: 0) == 1)
-        #expect(fade.leadingEdgeAlpha(scrolled: 12) == 0.5)
-        #expect(fade.leadingEdgeAlpha(scrolled: 200) == 0)
-        // Rubber-band past the start: still no fade.
-        #expect(fade.leadingEdgeAlpha(scrolled: -30) == 1)
+        #expect(!KeyBarLauncher.ollama.pressesReturn)
     }
 
     @Test func zoomStepsOnePointWithinTheSettingsRange() {
@@ -260,20 +206,30 @@ import Testing
     }
 }
 
-/// The dock: key row always, composer open by default, Hide Toolbar folds both.
+/// The dock: the key row only over the soft keyboard (Leo, 2026-11-23: "why
+/// are those things always showing?"), composer open by default, Hide Toolbar
+/// folds both.
 @Suite struct TerminalDockVisibilityTests {
-    @Test func theKeyRowShowsWithTheKeyboardUpOrDown() {
+    @Test func theKeyRowShowsOnlyWithTheSoftKeyboardUp() {
         var dock = TerminalDockVisibility()
-        #expect(dock.showsKeyRow && dock.showsComposer)
+        // Keyboard down: the composer, no key row.
+        #expect(!dock.showsKeyRow && dock.showsComposer)
         dock.keyboardWillShow(visibleHeight: 336)
         #expect(dock.softKeyboard == .shown)
         #expect(dock.showsKeyRow)
+        // It leaves with the keyboard, from the will-hide on.
         dock.keyboardWillHide()
+        #expect(!dock.showsKeyRow)
         dock.keyboardDidHide()
-        #expect(dock.showsKeyRow)
-        // A hardware keyboard's bar is no soft keyboard.
+        #expect(!dock.showsKeyRow)
+        // A hardware keyboard's bar is no soft keyboard: its keys are real.
         dock.keyboardWillShow(visibleHeight: 44)
         #expect(dock.softKeyboard == .none)
+        #expect(!dock.showsKeyRow)
+        // Hide Toolbar wins over the keyboard.
+        dock.keyboardWillShow(visibleHeight: 336)
+        dock.chromeHidden = true
+        #expect(!dock.showsKeyRow)
     }
 
     @Test func hideToolbarFoldsBothAndKeepsTheComposerOpen() {
@@ -288,32 +244,34 @@ import Testing
     @Test func restingHeightFollowsWhatShows() {
         let metrics = TerminalDockMetrics()
         let line: CGFloat = 20.29
-        // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
-        #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == CGFloat(28 + 8 + 40))
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 28)
+        // SF body: 20.29 + 2 x 2 = 24.3 -> the chat card's 48 pt (a 44 pt row) wins.
+        #expect(metrics.restingComposerHeight(lineHeight: line) == 48)
+        // At rest the keyboard is down, so the key row is never counted: the
+        // PTY keeps its rows when the keyboard and the row come and go.
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 0)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
-        #expect(metrics.restingComposerHeight(lineHeight: 40) == 58)
+        #expect(metrics.restingComposerHeight(lineHeight: 50) == 54)
     }
 }
 
 @Suite struct JoystickAndComposerGeometryTests {
     @Test func theThumbsCenterReachesTheCirclesEdgeAndNoFarther() {
         let geometry = JoystickGeometry()
-        #expect(JoystickGeometry.circle == 28)
-        // The dot's center stops on the circle's edge (14 pt), not 48 pt out.
-        #expect(JoystickGeometry.travel == 14)
+        #expect(JoystickGeometry.circle == 44)
+        // The dot's center stops on the circle's edge (22 pt), not 48 pt out.
+        #expect(JoystickGeometry.travel == 22)
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
-        // The screenshot's case: a long drag up moves the dot 14 pt.
-        // (Scaling rounds: 200 x 14 / 200 is 14.000000000000002.)
+        // The screenshot's case: a long drag up moves the dot 22 pt.
         let up = geometry.thumbOffset(for: CGSize(width: 0, height: -120))
-        #expect(abs(up.width) < 0.001 && abs(up.height + 14) < 0.001)
+        #expect(abs(up.width) < 0.001 && abs(up.height + 22) < 0.001)
         let right = geometry.thumbOffset(for: CGSize(width: 200, height: 0))
-        #expect(abs(right.width - 14) < 0.001 && abs(right.height) < 0.001)
+        #expect(abs(right.width - 22) < 0.001 && abs(right.height) < 0.001)
         // Diagonally it keeps the finger's direction, on the same edge.
         let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
-        #expect(abs(hypot(diagonal.width, diagonal.height) - 14) < 0.001)
+        #expect(abs(hypot(diagonal.width, diagonal.height) - 22) < 0.001)
         #expect(abs(diagonal.width / diagonal.height - 0.75) < 0.001)
         let corner = geometry.thumbOffset(for: CGSize(width: -500, height: 500))
         #expect(abs(hypot(corner.width, corner.height) - JoystickGeometry.circle / 2) < 0.001)
