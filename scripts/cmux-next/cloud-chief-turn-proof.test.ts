@@ -1,7 +1,7 @@
 // The Chief turn proof's verdicts: which faults are staging's or the shared credential's (NOT JUDGED, exit 0) and
 // which are the code's (FAIL). The quoted lines are the red runs of 2026-11-25. No network and no secret.
 import { describe, expect, it } from "bun:test"
-import { infraFault, judge, type RunResult } from "./cloud-chief-turn-proof.ts"
+import { infraFault, judge, notJudged, type RunResult } from "./cloud-chief-turn-proof.ts"
 
 const run = (label: string, replies: string[]): RunResult => ({ label, exit: "exit 0", replies, timeout: null, why: "" })
 
@@ -18,6 +18,15 @@ describe("Chief turn proof: infra faults are not judged", () => {
     const replies = ["(turn failed on claude: You've hit your weekly limit · resets Dec 2, 3am (UTC))"]
     expect(judge("proof", run("proof", replies))).toBe(false)
     expect(infraFault(null, replies)).toContain("shared Claude credential")
+  })
+
+  it("does not judge a proof whose exec staging cut, when the resend brought no reply", () => {
+    const cut = 'exec: HTTP 503 "vm_unavailable"'
+    expect(notJudged(run("control", []), { ...run("proof", []), cut })).toContain("staging")
+    expect(notJudged(run("control", []), run("proof", []))).toBeNull()
+    expect(notJudged(run("control", []), { ...run("proof", ["(turn failed on claude: not signed in)"]), cut })).toBeNull()
+    expect(notJudged(run("control", ["OK"]), { ...run("proof", []), cut })).toBeNull()
+    expect(notJudged(run("control", []), run("proof", ["OK"]))).toBeNull()
   })
 
   it("judges the code's own failures", () => {
