@@ -77,11 +77,20 @@ head's update-branch re-ran the whole full tier only to re-prove the change its 
 status or runs answer, a run still going, a red one, a commit of its own or `full-ci` keeps the full tier. Leo:
 "de facto, im asking for 99% fewer minutes of ci time, period."
 
+Same-patch rule (goal ci-min-per-pr-30): into feat-cmux-next, a head whose own change (the diff from its merge base with
+feat-cmux-next, compared without line numbers) is the same as the previous head's, and whose previous head's every
+Actions run passed, gets the tier `none` as well: a rebase, a force-push of the same commits onto a newer base, or a
+base merge with resolved conflicts. Over the last 50 merged cmux PRs, 144 heads (42% of their job-minutes) carried
+the same own patch as an earlier head of their PR, most of them a rebase rather than a plain base merge, which the
+green-head rule does not see. It shares that rule's switch, its labels and its `cmux/land-tier` pending. The two
+diffs come from the compare API (`contents: read`); a compare of 300 files or more, a file without a patch, or an
+unread answer keeps the head's usual tier.
+
 Switches: the repository variable CI_FULL_CI_ONE_SHOT=0 makes `full-ci` sticky again (every head of a labelled PR
 full); the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
-off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_CARRY=0 turns the land carry rule
+off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
@@ -136,7 +145,7 @@ def full_ci_applies(event: dict, one_shot: str | None = None) -> bool:
     this is its own `labeled` event, the base is not feat-cmux-next, or ONE_SHOT (default $CI_FULL_CI_ONE_SHOT, on)
     is 0. The workflows' `if:` gates read the same three conditions (tests/test_feat_ci_guard_group.py FULL_CI_ON)."""
     pr = event.get("pull_request") or {}
-    if FULL_CI not in {str(label.get("name") or "") for label in pr.get("labels") or []}:
+    if FULL_CI not in labels_of(event):
         return False
     switch = os.environ.get(ONE_SHOT_VAR, "1") if one_shot is None else one_shot
     return ((switch or "1").strip() == "0" or str((pr.get("base") or {}).get("ref") or "") != LAND_BASE
@@ -198,6 +207,44 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
     return data["workflow_runs"]
 
 
+def own_patch_key(repo: str, base: str, sha: str, token: str) -> str | None:
+    """A key for the change commit SHA makes over its merge base with BASE: each changed file's name, status and
+    added and removed lines, without the hunk line numbers a newer base shifts (what `git patch-id` ignores too).
+    None when the compare cannot be read whole."""
+    if not (re.fullmatch(r"[\w.-]+/[\w.-]+", repo) and re.fullmatch(r"[0-9a-f]{40}", sha) and token
+            and re.fullmatch(r"[\w./-]+", base)):
+        return None
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import deadline_http  # the router's sparse checkout carries it beside this file
+        req = urllib.request.Request(
+            f"{API}/repos/{repo}/compare/{urllib.parse.quote(base, safe='')}...{sha}?per_page=300", headers={
+                "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28"})
+        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        data = json.loads(body) if status == 200 else None
+    except Exception:  # fail open: an unread diff keeps the usual tier
+        return None
+    return patch_key(data)
+
+
+def patch_key(compare: dict | None) -> str | None:
+    """own_patch_key's key for one compare answer, or None when it is not whole: no files, 300 or more (the
+    API's cap), or a changed file with no patch (binary or too large)."""
+    files = compare.get("files") if isinstance(compare, dict) else None
+    if not isinstance(files, list) or not files or len(files) >= 300:
+        return None
+    parts = []
+    for item in files:
+        if not isinstance(item, dict) or not isinstance(item.get("patch"), str):
+            return None
+        lines = [line for line in item["patch"].splitlines() if line[:1] in ("+", "-")]
+        parts.append("\0".join([str(item.get("filename") or ""), str(item.get("previous_filename") or ""),
+                                 str(item.get("status") or ""), *lines]))
+    import hashlib
+    return hashlib.sha256("\1".join(sorted(parts)).encode()).hexdigest()
+
+
 def land_status_at(repo: str, sha: str, token: str) -> str | None:
     """The state of the `cmux/land-tier` commit status at SHA (success, pending, ...), "" when it has none, or None
     when it cannot be read."""
@@ -218,6 +265,21 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
     states = [str(item.get("state") or "") for item in data["statuses"]
               if isinstance(item, dict) and item.get("context") == LAND_STATUS]
     return states[0] if states else ""  # the combined status lists each context's newest status once
+
+
+def labels_of(event: dict) -> set[str]:
+    """The PR's labels for EVENT: the payload's list, plus the label a `labeled` event added. GitHub fills the payload's
+    list when it sends the event, not when the label went on, so a label taken off right after (land-judge's full-ci
+    pulse on a lane VM, label_lane_pulse: added and taken off 2 s later) is missing from it. cmux#53671 at c52da39d,
+    2026-11-26 14:13Z: the pulse's `labeled` run read no full-ci, routed the land-affected cheap tier, skipped pr
+    pipeline, and land-judge refused matrix_missing again; every lane VM land of an iOS link PR stopped there."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
 
 
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0",
@@ -264,7 +326,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     if full_ci_applies(event, one_shot):
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
@@ -278,6 +340,11 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
                         f"run passed: nothing runs until a new commit, {LAND_LABEL} (the land), or {FULL_CI}; "
                         f"{LAND_STATUS} stays pending")
+    if (not landing and facts and facts.get("same_patch_green") is True
+            and green_rule_applies(event, green_switch, land_switch, one_shot)):
+        return "none", (f"this head carries the same change as {str(facts.get('before') or '')[:10]} (rebased or "
+                        f"merged onto a newer base), whose every run passed: nothing runs until a new change, "
+                        f"{LAND_LABEL} (the land), or {FULL_CI}; {LAND_STATUS} stays pending")
     if (sync_switch or "1").strip() != "0" and not landing and event.get("action") == "synchronize"\
             and sync_merge(facts):
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
@@ -362,6 +429,24 @@ def head_facts(event: dict, depth: int = 30) -> dict | None:
     return {"base_merge_only": True, "own_last": None, "by_github": by_github, "previous": previous}
 
 
+def same_patch_facts(event: dict) -> dict:
+    """{"before", "same_patch_green"} for a synchronize event: whether the head's own change equals the previous
+    head's (`before`) and every run at `before` passed. Reads nothing when `before` is not a commit."""
+    pr = event.get("pull_request") or {}
+    sha = str((pr.get("head") or {}).get("sha") or "")
+    before = str(event.get("before") or "")
+    base = str((pr.get("base") or {}).get("ref") or "")
+    if not (re.fullmatch(r"[0-9a-f]{40}", before) and re.fullmatch(r"[0-9a-f]{40}", sha) and before != sha):
+        return {}
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    key = own_patch_key(repo, base, sha, token)
+    if key is None or own_patch_key(repo, base, before, token) != key:
+        return {"before": before, "same_patch_green": False}
+    runs = runs_at(repo, before, token)
+    return {"before": before, "same_patch_green": runs is not None and green_previous(runs)}
+
+
 def decide(event_name: str, event: dict) -> tuple[str, str]:
     """tier() for this run: its switches from the environment, the head's facts read only when they can matter."""
     switch = os.environ.get("CI_DRAFT_CHEAP_TIER", "1")
@@ -383,6 +468,9 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
             runs = runs_at(os.environ.get("GITHUB_REPOSITORY", ""), str(facts.get("previous") or ""),
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
+    if green_wanted and not (facts and facts.get("previous_green")) and (
+            idle_switch.strip() == "0" or not idle(facts, time.time())):
+        facts = {**(facts or {}), **same_patch_facts(event)}
     if facts and facts.get("base_merge_only") and carry_wanted:
         repo = os.environ.get("GITHUB_REPOSITORY", "")
         previous = str(facts.get("previous") or "")
