@@ -33,8 +33,8 @@ const selectAndReview: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(`${comparePane} [data-review-state="reviewed"]`));
 };
 
+// The Compare pane reconnects and replays on its own: the play only waits for it.
 const reconnectAndReplay: Play = async (ctx) => {
-  await ctx.click({ selector: `${comparePane} [data-replay-banner] button` });
   await ctx.waitFor(() => ctx.document.querySelector(`${comparePane} [data-replay-state="replayed"]`));
   await ctx.waitFor(() =>
     ctx.document
@@ -106,7 +106,7 @@ export default componentEntry<TournamentRunBoardProps>({
       play: selectAndReview,
     },
     "reconnect-replay": {
-      note: "Deterministic receipt: the disconnected Compare pane replays the exact recovered fixture through event 151.",
+      note: "Deterministic receipt: the disconnected Compare pane replays the exact recovered fixture through event 151 on its own.",
       props: { ...props, disconnected: true },
       play: reconnectAndReplay,
     },
