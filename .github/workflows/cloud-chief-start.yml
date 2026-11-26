@@ -56,6 +56,11 @@ jobs:
         env:
           CARGO_NET_RETRY: "10"
           CARGO_HTTP_TIMEOUT: "120"
+          # Match cloud-journey-pr's check profile. Run 45862969979 was canceled
+          # while compiling cloud_call's generated client, before any live step.
+          CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+          CARGO_INCREMENTAL: "0"
           CC_x86_64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
           # This binary only has to run for the check. The shipping profile (fat LTO, one codegen unit)
