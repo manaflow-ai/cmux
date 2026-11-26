@@ -166,7 +166,8 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
     uploads.set_link(mac_id.clone(), Some(link));
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("silent.bin");
-    let size = 48 * MIB + 11;
+    // Stay above bundle-v1's 256 MiB ceiling so this exercises resumable upload ACKs.
+    let size = cmux_mobile_link::bundle_link::MAX_BUNDLE_BYTES + 8 * MIB + 11;
     file_of(&source, size);
     let spec = UploadSpec {
         upload_id: None,
@@ -183,7 +184,7 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
     assert_eq!(frozen.stage, UploadStage::Uploading);
     // Bounded: the engine gives up on the silent attempt and tries again (or waits for the Mac),
     // with the person able to cancel all along; never an endless send.
-    let noticed = until("a retry after the Mac went silent", ack_stall * 4, || {
+    let noticed = until("a retry after the Mac went silent", ack_stall + Duration::from_secs(10), || {
         let now = progress(&uploads);
         now.attempt > frozen.attempt || now.stage != UploadStage::Uploading
     })
@@ -194,10 +195,9 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
         !matches!(stage, UploadStage::Failed | UploadStage::Cancelled | UploadStage::Done),
         "a silent Mac is retried, not failed: {stage:?}"
     );
-    tokio::time::sleep(ack_stall * 2).await;
     signal(&child, libc::SIGCONT);
 
-    let path = tokio::time::timeout(Duration::from_secs(120), uploads.wait(id.clone()))
+    let path = tokio::time::timeout(Duration::from_secs(180), uploads.wait(id.clone()))
         .await
         .expect("finished after the Mac answered again")
         .expect("uploaded");

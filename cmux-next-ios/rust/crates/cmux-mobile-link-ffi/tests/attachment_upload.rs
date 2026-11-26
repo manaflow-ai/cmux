@@ -251,13 +251,17 @@ async fn a_replaced_link_resumes_the_upload() {
     patterned_file(&source, size);
     let timings = Timings { backoff_start: Duration::from_millis(50), ..Timings::default() };
     let (uploads, _recorder) = engine(timings);
-    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
-    let id = uploads.start(spec(&rig, "resume.bin"), source.to_str().unwrap().into());
+    // A stable Mac key may happen to share the one-shot prefix. Only the exact `link-<UUID>`
+    // convention used by Swift's direct-link caller is one-shot.
+    let upload_mac_id = "link-stable".to_owned();
+    uploads.set_link(upload_mac_id.clone(), Some(rig.handle.clone()));
+    let id = uploads
+        .start(spec_for_mac(&rig, upload_mac_id.clone(), "resume.bin"), source.to_str().unwrap().into());
     until("some bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.acked_bytes > 2 * MIB))
         .await;
-    uploads.set_link(rig.mac_id.clone(), None);
+    uploads.set_link(upload_mac_id.clone(), None);
     let second = connect(&rig.base_url, &rig.mac_id, Transport::WireGuard).await;
-    uploads.set_link(rig.mac_id.clone(), Some(second));
+    uploads.set_link(upload_mac_id, Some(second));
     let path = uploads.wait(id.clone()).await.expect("uploaded");
     assert_eq!(sha256(Path::new(&path)), sha256(&source));
     let last = uploads.progress(id).unwrap();

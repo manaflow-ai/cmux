@@ -326,7 +326,8 @@ impl AttachmentUploads {
     pub fn reserve(&self, spec: UploadSpec) -> String {
         let id =
             spec.upload_id.filter(|id| !id.is_empty()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let one_shot = spec.mac_id.starts_with("link-");
+        let one_shot =
+            spec.mac_id.strip_prefix("link-").is_some_and(|uuid| uuid::Uuid::parse_str(uuid).is_ok());
         let progress = UploadProgress {
             upload_id: id.clone(),
             stage: UploadStage::Compressing,
