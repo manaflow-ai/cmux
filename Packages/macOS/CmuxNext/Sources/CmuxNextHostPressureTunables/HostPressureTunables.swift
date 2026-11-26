@@ -1,4 +1,5 @@
 public import CmuxNextDesignTokens
+@_exported public import CmuxNextHostPressure
 
 /// What Debug Settings shows instead of the host's real level (captures, design review).
 public nonisolated enum HostPressureForce: String, Sendable, CaseIterable, TunableChoice {
