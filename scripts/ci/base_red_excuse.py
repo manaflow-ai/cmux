@@ -3018,6 +3018,13 @@ PR_ONLY_PEERS = 3  # other PRs' heads that must fail the same job at the same st
 PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed runs of the red run's event listed
 PR_ONLY_PEER_READS = 10  # job lists read among them at most
 PR_ONLY_RED = frozenset({"failure", "timed_out", "startup_failure"})
+# A peer run that ended with no verdict (skipped: a labeled or edited event the workflow's own `if:` turns away;
+# cancelled: superseded by the PR's next push) is passed over: it neither spends one of PR_ONLY_PEER_READS nor stands
+# for its PR's newest run. pr-router.yml (no feat-cmux-next run) had 17 skipped and 1 cancelled among its 30 newest
+# completed pull_request runs on 2026-11-26 12:58Z, so the ten reads met few failed runs, and #58337 and #58408 needed
+# LAND_JUDGE_OVERRIDE for a 'pr pipeline / linux' red that failed the same way on #56579, #58486 and #58590.
+# land-judge's pr_only_peer_excuse got the same rule (leo-workspace#12031).
+PR_ONLY_NO_VERDICT_RUN = frozenset({"skipped", "cancelled", "neutral", "stale", "action_required"})
 # A repo path a workflow names: two or more segments, not a variable's ($RUNNER_TEMP/x), a URL's or another path's
 # tail. Kept when it is under .github/ or scripts/, or names a script or config file (its extension).
 WORKFLOW_PATH = re.compile(r"(?<![\w$/.:@{}-])(?:\./)?((?:[\w-][\w.-]*/)+[\w.-]*[\w-])")
@@ -3100,6 +3107,8 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
     for run in runs[:PR_ONLY_PEER_RUNS]:
         if len(matched) >= PR_ONLY_PEERS or reads >= PR_ONLY_PEER_READS:
             break
+        if str(run.get("conclusion") or "").lower() in PR_ONLY_NO_VERDICT_RUN:
+            continue  # no verdict: no read spent, and the PR's newest run with one still stands for it
         theirs = [str(pull.get("number")) for pull in run.get("pull_requests") or [] if isinstance(pull, dict)
                   and ((pull.get("base") or {}).get("ref")) == base]
         tested = str(run.get("head_sha") or "")
@@ -7417,6 +7426,29 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     return sorted(errors)[0].strip()
 
 
+def lost_runner_notes(repo: str, job: dict, github) -> list:
+    """JOB's check-run annotations for lost_runner_log, or [] when they cannot be read."""
+    try:
+        notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+    except (Refused, KeyError, ValueError):
+        return []
+    return notes if isinstance(notes, list) else []
+
+
+def worker_crash(repo: str, name: str, job: dict, github, notes: list | None = None) -> None:
+    """Refuses JOB, a red with no step failed, as one its runner refused when its annotations (NOTES, else read now)
+    say its runner's worker crashed under it (test_reds.runner_worker_crashed: cmux#50809's and cmux#50827's
+    react-apps-base-check, the runner's disk full). In merge_hold's words for a job its runner refused at setup, the
+    red glaeda-gh reruns once per (head, run): Infra's words stopped the land own_red."""
+    if any(step.get("conclusion") == "failure" for step in job.get("steps") or [] if isinstance(step, dict)):
+        return  # a failed step keeps its verdict, and costs no annotations read
+    if notes is None:
+        notes = lost_runner_notes(repo, job, github)
+    if why := test_reds.runner_worker_crashed(job, notes):
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: {why}); it gets re-run, "
+                      "never excused")
+
+
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
@@ -7424,15 +7456,14 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     question: a runner shut down under a job prints its notice there and leaves a failed step behind
     (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
+        worker_crash(repo, name, job, github)
         raise infra(name, job, why)
     try:
         text = github.log(repo, job)
     except Refused as error:
-        try:
-            notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
-        except (Refused, KeyError, ValueError):
-            notes = []
-        if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
+        notes = lost_runner_notes(repo, job, github)
+        worker_crash(repo, name, job, github, notes)
+        if why := test_reds.lost_runner(job, notes, str(error)):
             raise infra(name, job, why) from None
         raise
     if why := test_reds.lost_runner(job, (), text):
