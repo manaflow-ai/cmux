@@ -6119,6 +6119,10 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
+                  "schemas/tab-group-rules/",
+                  # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
+                  "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
