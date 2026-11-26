@@ -25,6 +25,10 @@ def guard_script() -> str:
 
 
 class PublicationGuardTests(unittest.TestCase):
+    @property
+    def runs(self):
+        return int(self.counter.read_text())
+
     def run_guard(self, behaviour: str, timeout: int = 240):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
@@ -33,6 +37,7 @@ class PublicationGuardTests(unittest.TestCase):
             counter = Path(tmp, "n")
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "COUNTER": str(counter)}
             script = guard_script().replace("time.sleep(10 * (attempt + 1))", "pass").replace("timeout=240", f"timeout={timeout}")
+            self.counter = counter
             result = subprocess.run([sys.executable, "-I", "-c", script, "o/r", "nightly", SHA, "5"],
                                     capture_output=True, text=True, env=env)
             return result
@@ -58,6 +63,12 @@ class PublicationGuardTests(unittest.TestCase):
                            'if [ "$n" = 0 ]; then sleep 5; fi; '
                            f"echo '{body}'", timeout=1)
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.runs, 2, "the timed-out gh call must be retried once")
+
+    def test_a_timeout_keeps_the_refusal_gh_printed_first(self):
+        r = self.run_guard('echo "gh: API rate limit exceeded (HTTP 403)" >&2; sleep 5', timeout=1)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("rate limit exceeded", r.stderr)
 
     def test_persistent_403_fails_with_the_reason(self):
         r = self.run_guard('echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1')
