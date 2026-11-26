@@ -301,10 +301,30 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN, "behind": INT, "fallback": TOKEN, "path": TOKEN}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
 PUBLIC_BOOLS = ("lacks", "shared", "host")
+# Count maps a kept line may keep (machines.spare.claim, cmux-platform Scaler.ts claimSpare): `skipped` counts the
+# spares the claim passed over by fixed reason, `ms` the claim's cumulative ms per fixed step. Each key prints only as a
+# token that is not id-like and each value only as an int; anything else in the map is dropped. Without them the
+# 2026-11-26 06:26Z app-chat probe row's claim line said only spares and team, not why it created.
+PUBLIC_COUNTS = ("skipped", "ms")
+COUNT_KEYS_MAX = 32
+
+
+def counts(v):
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    for k, n in v.items():
+        if len(out) >= COUNT_KEYS_MAX:
+            break
+        if isinstance(k, str) and base.TOKEN_OK.match(k) and not base.ID_LIKE.search(k):
+            n = base.typed(INT, n)
+            if n is not None:
+                out[k] = n
+    return out
 
 
 # cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
@@ -364,6 +384,11 @@ def public_log(j):
     for k in PUBLIC_BOOLS:
         if isinstance(j.get(k), bool):
             out[k] = j[k]
+    if msg == "machines.spare.claim":
+        for k in PUBLIC_COUNTS:
+            v = counts(j.get(k))
+            if v is not None:
+                out[k] = v
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"

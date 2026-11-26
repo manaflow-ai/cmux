@@ -363,6 +363,23 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_spare_claim_keeps_why_it_created_and_where_its_time_went(self):
+        # 2026-11-26 06:26Z app-chat production probe: 52.1 s first reply, and the claim line kept no reason.
+        row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "machine": VM, "spares": 2,
+                               "skipped": {"refreshing": 1, "image": 1, VM: 3, "Free Text": 1, "stale": "x"},
+                               "ms": {"read": 12, "total": 40, "lost": -1}, "behind": 1, "fallback": "all_skipped",
+                               "path": "created"}))
+        self.assertEqual(row["log"], {"msg": "machines.spare.claim", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "spares": 2, "behind": 1,
+                                      "fallback": "all_skipped", "path": "created",
+                                      "skipped": {"refreshing": 1, "image": 1}, "ms": {"read": 12, "total": 40}})
+        self.assertNotIn(VM, json.dumps(row))
+
+    def test_count_maps_stay_on_the_claim_line_only(self):
+        row = logs.line(event({"msg": LISTED, "team": TEAM, "skipped": {"refreshing": 1}, "ms": {"total": 3}}))
+        self.assertNotIn("skipped", row["log"])
+        self.assertNotIn("ms", row["log"])
+
     def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
         # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
         # line counts how often an op outlives its request.
