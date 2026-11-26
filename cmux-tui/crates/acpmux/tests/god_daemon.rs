@@ -2508,7 +2508,13 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .and_then(|p| oldest_seq(&p))
         .zip(last_before_restart)
         .is_some_and(|(seq, before)| seq > before);
+    let _ = rpc.call("_acpmux/perf", json!({"op": "on"}));
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
+    let snap = rpc
+        .call("_acpmux/perf", json!({"op": "snapshot"}))
+        .map(|v| v.to_string())
+        .unwrap_or_else(|e| e.to_string());
+    eprintln!("PROBE-PERF {label} restart {}", snap.chars().take(30000).collect::<String>());
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
     // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
@@ -2528,7 +2534,13 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let second_attach_ms = ms(daemon.spawned);
     rpc.notes.clear();
     let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let _ = rpc.call("_acpmux/perf", json!({"op": "on"}));
     let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
+    let snap = rpc
+        .call("_acpmux/perf", json!({"op": "snapshot"}))
+        .map(|v| v.to_string())
+        .unwrap_or_else(|e| e.to_string());
+    eprintln!("PROBE-PERF {label} second {}", snap.chars().take(30000).collect::<String>());
     let (_, second_peak_rss) = daemon.rss();
     drop(rpc);
     daemon.stop();
