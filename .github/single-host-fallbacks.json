@@ -220,6 +220,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "read only for a fork's pull request; unset, those jobs take GitHub-hosted ubuntu-24.04 (many hosts, not one), and every other run takes cmux-linux",
+      "after_minutes": 5
+    },
     "LINUX_ARM64_RUNNER": {
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
@@ -345,6 +349,16 @@
   },
   "nightly_workflow_marker": "nightly",
   "nightly_terminal_labels": {
+    "cmux-mac": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Mac pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying cmux-mac"
+    },
+    "xcode-27.0": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying Xcode 27.0"
+    },
     "glaeda-gateway-xcode-26.6": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
       "after_minutes": 10,
@@ -588,10 +602,13 @@
     "ios-internal-nightly.yml:pick-archive-runner.fallback": {
       "labels": [
         "vars.MACOS_RUNNER_26",
-        "blacksmith-6vcpu-macos-26"
+        "blacksmith-6vcpu-macos-26",
+        "cmux-mac",
+        "xcode-27.0"
       ],
+      "array_pin": "glaeda-runner-",
       "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
-      "empty_falls_back_to": "the archive's final [cmux-mac, xcode-27.0] capability selector."
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [

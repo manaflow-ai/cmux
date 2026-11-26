@@ -16,10 +16,14 @@
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
+//! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
+//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
+//! from Browser's selection rules),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
@@ -30,6 +34,7 @@
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
+//! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -38,6 +43,8 @@
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);
+//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
+//! addresses, keysyms, security choice, version, authentication responses);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -47,16 +54,18 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), agent cursor visibility
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
@@ -82,6 +91,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod auto_namer;
 mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
@@ -91,16 +101,19 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
+mod dock_model;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
 mod notification_rings;
+mod onboarding;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -112,8 +125,10 @@ pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
 mod tab_groups;
+mod tab_layout;
 mod tab_strip;
 pub mod typed;
+mod vnc;
 pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
@@ -171,23 +186,29 @@ type Respond = fn(&[u8], &[u8]) -> Result<Vec<u8>, i32>;
 /// an operation answers it; `module_handlers_tests` keeps every operation to one module, save the
 /// overlaps it names (`cloud_machine_repo_*`: `cloud_bootstrap` before `cloud_machine`).
 const MODULE_HANDLERS: &[(&str, Handles, Respond)] = &[
+    ("auto_namer", auto_namer::handles, auto_namer::respond),
     ("browser_rules", browser_rules::handles, browser_rules::respond),
     ("cloud_bootstrap", cloud_bootstrap::handles, cloud_bootstrap::respond),
     ("cloud_config", cloud_config::handles, cloud_config::respond),
     ("cloud_handler", cloud_handler::handles, cloud_handler::respond),
     ("cloud_handoff", cloud_handoff::handles, cloud_handoff::respond),
     ("cloud_hybrid", cloud_hybrid::handles, cloud_hybrid::respond),
+    ("cloud_launch", cloud_launch::handles, cloud_launch::respond),
     ("cloud_machine", cloud_machine::handles, cloud_machine::respond),
     ("cloud_move", cloud_move::handles, cloud_move::respond),
     ("cloud_sequence", cloud_sequence::handles, cloud_sequence::respond),
     ("cloud_task", cloud_task::handles, cloud_task::respond),
+    ("dock_model", dock_model::handles, dock_model::respond),
     ("notification_rings", notification_rings::handles, notification_rings::respond),
+    ("onboarding", onboarding::handles, onboarding::respond),
     ("pane_focus", pane_focus::handles, |_, request| pane_focus::respond(request)),
     ("pane_placement", pane_placement::handles, pane_placement::respond),
     ("screen", screen::handles, screen::respond),
     ("tab_discard", tab_discard::handles, tab_discard::respond),
     ("tab_groups", tab_groups::handles, tab_groups::respond),
+    ("tab_layout", tab_layout::handles, tab_layout::respond),
     ("tab_strip", tab_strip::handles, tab_strip::respond),
+    ("vnc", vnc::handles, vnc::respond),
     ("window_rules", window_rules::handles, window_rules::respond),
 ];
 
@@ -632,6 +653,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_focus_core::wire::ChildWindowKeyRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_input_world" => {
