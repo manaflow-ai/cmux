@@ -131,8 +131,30 @@ fn seeds_hold_the_delivery_invariants() {
     let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+    let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
+        if trace_leaks {
+            let (alive, built) = world::left_alive();
+            let count = |d: &str| std::fs::read_dir(d).map_or(0, |r| r.count());
+            let mut names: BTreeMap<String, usize> = BTreeMap::new();
+            if let Ok(tasks) = std::fs::read_dir("/proc/self/task") {
+                for t in tasks.flatten() {
+                    let n = std::fs::read_to_string(t.path().join("comm")).unwrap_or_default();
+                    *names.entry(n.trim().to_owned()).or_default() += 1;
+                }
+            }
+            let rss = std::fs::read_to_string("/proc/self/status")
+                .unwrap_or_default()
+                .lines()
+                .find(|l| l.starts_with("VmRSS"))
+                .map(str::to_owned)
+                .unwrap_or_default();
+            eprintln!(
+                "leak seed {seed}: hubs alive {alive}/{built} fds {} {rss} threads {names:?}",
+                count("/proc/self/fd")
+            );
+        }
         simulated += run.simulated;
         if let Err(failure) = invariants::check(&run) {
             let known =
