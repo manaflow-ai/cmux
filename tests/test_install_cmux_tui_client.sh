@@ -293,6 +293,38 @@ cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
 echo "PASS: a rate-limited attestation lookup is retried, then verified"
 
+# A spent installation quota (run 45583224796, every retry 403'd) no longer holds
+# the install: the attestation bundles are read without the token and verified
+# offline with --bundle. A bundle that does not verify admits nothing.
+manifest_digest="$(slice_sha "$SERVE/manifest.json")"
+printf '{"attestations":[{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}}]}' \
+  > "$SERVE/sha256:$manifest_digest"
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$TEST_DIR/AnonymousBundle.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/anonymous-bundle.log" 2>&1 || {
+    echo "FAIL: a drained API quota failed the install although the bundle reads without a token" >&2
+    cat "$TEST_DIR/anonymous-bundle.log" >&2
+    exit 1
+  }
+cmp "$CLIENT" "$TEST_DIR/AnonymousBundle.app/Contents/Resources/bin/cmux-tui"
+grep -q "^curl https://api.github.com/repos/manaflow-ai/cmux/attestations/sha256:$manifest_digest\$" "$EVENTS"
+grep -q "^gh attestation verify .*manifest.* --bundle .*anon-0.sigstore.json --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 2 ]
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES=1 install_remote "$TEST_DIR/AnonymousRejected.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/anonymous-rejected.log" 2>&1 && {
+    echo "FAIL: installed from a token-less bundle that did not verify" >&2
+    exit 1
+  }
+if grep -q 'apple-darwin' "$EVENTS"; then
+  echo "FAIL: downloaded a slice after a token-less bundle did not verify" >&2
+  exit 1
+fi
+rm -f "$SERVE/sha256:$manifest_digest"
+echo "PASS: a drained API quota verifies the bundle read without the token; a bad bundle admits nothing"
+
 # A real verification failure is final on the first answer.
 FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
   --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {

@@ -244,6 +244,34 @@ class SuiteSelectionTests(unittest.TestCase):
 class WorkflowWiringTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_a_dispatch_never_replaces_a_pending_full_suite_run(self):
+        # GitHub keeps one pending run per concurrency group and cancels it when
+        # a newer one queues. Two gates that each missed the other's pending run
+        # cancelled main's full suite before it started a job (45844217549,
+        # 45845203890, 45845498645 on 2026-11-26), so every dispatch has a group
+        # of its own, while pushes and pull requests keep theirs.
+        import yaml
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_ci_pr_runs_cancel_superseded import resolve
+
+        group = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["concurrency"]["group"]
+
+        def resolved(event, run_id):
+            context = {"github": {"workflow": "CI", "ref": "refs/heads/main", "event_name": event,
+                                  "run_id": run_id, "event": {"action": None}}}
+            return resolve(group, context)
+
+        self.assertNotEqual(resolved("workflow_dispatch", 1), resolved("workflow_dispatch", 2))
+        self.assertEqual(resolved("push", 1), resolved("push", 2))
+        self.assertEqual(resolved("push", 1), "CI-refs/heads/main")
+
+    def test_the_gate_reads_on_the_app_token(self):
+        # The job token's hour ran out and the 15:25Z schedule gate on
+        # 2026-11-26 failed open into a dispatch.
+        gate = self.text.split("        id: gate\n", 1)[1].split("        run: |\n", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}", gate)
+        self.assertLess(self.text.index("id: app-token"), self.text.index("id: gate"))
+
     def test_push_completion_schedule_and_manual_triggers(self):
         self.assertRegex(self.text, r'(?m)^  push:\n    branches: \[main\]$')
         self.assertRegex(self.text, r'(?m)^  schedule:\n    - cron: "23 \*/3 \* \* \*"$')

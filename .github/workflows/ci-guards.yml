@@ -609,6 +609,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cloud_vm_skill_coverage.py
 
+      - name: Test the production probe team plan grant
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cloud_probe_team_grant.py
+
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
@@ -840,6 +844,10 @@ jobs:
       - name: Validate Release helper architecture handoff
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ci_release_helper_archs.py
+
+      - name: Validate Classic Release compile script with isolated stubs
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_classic_release_compile_script.py
 
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
@@ -1288,6 +1296,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
+      - name: Validate the nightly-next tick bounds and retries its checkouts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_checkout_retry.py
+
+      - name: Validate the nightly-next tick bounds its promotion request
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_request_bound.py
+
       - name: Validate production drift issue updates are sticky
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_iroh_drift_issue.py
@@ -1723,6 +1739,7 @@ jobs:
           python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_nightly_next_unsigned_resume.py
           python3 tests/test_nightly_next_rolling.py
+          python3 tests/test_nightly_fast_pass.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
