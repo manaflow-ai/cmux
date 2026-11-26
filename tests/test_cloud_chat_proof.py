@@ -192,7 +192,8 @@ class CloudChatProofTests(unittest.TestCase):
                     patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(SystemExit) as stopped:
                     runpy.run_path(str(SCRIPT), run_name="__main__")
-            expected_launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock"]
+            expected_launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock",
+                               "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
             if grant:
                 self.assertEqual(len(configs), 1, "The CLI and the launch read one scratch cmux.json")
                 expected_launch += ["--env", f"CMUX_NEXT_CONFIG_FILE={configs[0]}"]

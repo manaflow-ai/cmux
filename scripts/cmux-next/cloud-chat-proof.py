@@ -685,6 +685,10 @@ launch = [open_tool, "-W", "-g", "-n"]
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 # `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+# A NIGHTLY or release holds one copy per user (SingleInstanceGuard: a flock on its Application Support
+# instance.lock); a second launch hands off to the copy already running on the Mac and exits before it binds
+# this socket, so `app identify` never reached it (kinds run 45821171663, job 139987363954). Opt out, as a test run.
+launch.extend(["--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
     launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])
