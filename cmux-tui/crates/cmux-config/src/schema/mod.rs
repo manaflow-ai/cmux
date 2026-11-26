@@ -389,7 +389,7 @@ impl Schema {
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         SCHEMA.get_or_init(|| {
-            let parsed = Schema::parse_embedded(&EMBEDDED.inflate());
+            let parsed = Schema::parse_embedded(EMBEDDED.inflate());
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
             let schema = parsed.expect("the embedded settings schema parses");
             // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
@@ -405,16 +405,22 @@ impl Schema {
 
     /// Parses the embedded document, keeping every row's compact JSON in one
     /// text that lives as long as the process (the embedded schema is a
-    /// process-wide `OnceLock`), so `text` itself can be dropped.
-    fn parse_embedded(text: &str) -> Result<Schema, String> {
-        let mut kept = String::with_capacity(text.len() / 2);
+    /// process-wide `OnceLock`); `text` is dropped once parsed.
+    fn parse_embedded(text: String) -> Result<Schema, String> {
+        // The compact rows are about half the pretty document (1.7 of 3.2 MB):
+        // reserve 3/5 so the buffer never doubles while `text` is still alive
+        // (that took the parse peak from 7.7 to 10 MB), and give back the
+        // slack only after `text` is gone.
+        let mut kept = String::with_capacity(text.len() / 5 * 3);
         let mut spans = Vec::new();
-        let mut schema = Schema::parse_keeping(text, |_, compact| {
+        let parsed = Schema::parse_keeping(&text, |_, compact| {
             spans.push(kept.len()..kept.len() + compact.len());
             kept.push_str(&compact);
             // An empty box does not allocate; the slice replaces it below.
             RowText::Owned(Box::default())
-        })?;
+        });
+        drop(text);
+        let mut schema = parsed?;
         let kept: &'static str = Box::leak(kept.into_boxed_str());
         for (row, span) in schema.rows.iter_mut().zip(spans) {
             row.raw = RowText::Embedded(&kept[span]);
