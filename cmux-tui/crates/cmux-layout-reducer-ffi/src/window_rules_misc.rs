@@ -1,11 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
-//! `window_update_*`, `window_editors_*`, `window_keybind_*`, `window_server_*`): their tables and refusals.
+//! `window_update_*`, `window_editors_*`, `window_keybind_*`, `window_server_*`, `window_crash_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, cloud_pairing, editors, files, history, keybind_route, launch,
-    launch_recovery, notifications, remote, restore, screen_share, server, update_idle,
+    appearance, browser, cloud_pairing, crash_report, editors, files, history, keybind_route,
+    launch, launch_recovery, notifications, remote, restore, screen_share, server, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -157,7 +157,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 12] = [
+const DOMAINS: [&[u8]; 13] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -170,6 +170,7 @@ const DOMAINS: [&[u8]; 12] = [
     b"window_update_",
     b"window_keybind_",
     b"window_server_",
+    b"window_crash_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -402,6 +403,147 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             }
             let request: Request = read(request)?;
             value(cloud_pairing::refusal(request.stage, &request.failure))?
+        }
+        // A crash report's file name (`<bundle>-<name>-<stamp>.json`).
+        b"window_crash_file_name" => {
+            #[derive(Deserialize)]
+            struct Request {
+                bundle: String,
+                name: String,
+                date: crash_report::Stamp,
+            }
+            let request: Request = read(request)?;
+            json!({ "name": crash_report::file_name(&request.bundle, &request.name, &request.date) })
+        }
+        // The reports to delete so the folder keeps `retain` (default 100).
+        b"window_crash_prune" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                files: Vec<crash_report::Listed>,
+                #[serde(default)]
+                retain: Option<usize>,
+            }
+            let request: Request = read(request)?;
+            json!({ "delete": crash_report::prune(&request.files, request.retain.unwrap_or(crash_report::RETAIN)) })
+        }
+        // The newest macOS report of `executable` written since `afterMs` (`name` null: none).
+        b"window_crash_system_log" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                files: Vec<crash_report::Listed>,
+                executable: String,
+                after_ms: i64,
+            }
+            let request: Request = read(request)?;
+            json!({ "name": crash_report::system_log(&request.files, &request.executable, request.after_ms) })
+        }
+        // What Show Crash Logs opens.
+        b"window_crash_log_target" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                previous_system_log: bool,
+                #[serde(default)]
+                previous_report: bool,
+                #[serde(default)]
+                system_logs: Vec<crash_report::Listed>,
+                #[serde(default)]
+                reports: Vec<crash_report::Listed>,
+                executable: String,
+            }
+            let r: Request = read(request)?;
+            value(crash_report::log_target(
+                r.previous_system_log,
+                r.previous_report,
+                &r.system_logs,
+                &r.reports,
+                &r.executable,
+            ))?
+        }
+        // A Chromium failure's report object and file name part; `version` joins the bundle's two versions.
+        b"window_crash_chromium_report" => {
+            #[derive(Deserialize)]
+            struct Request {
+                record: crash_report::Chromium,
+                writer: crash_report::Writer,
+            }
+            let request: Request = read(request)?;
+            let (report, name) = crash_report::chromium_report(&request.record, &request.writer);
+            json!({ "report": report, "name": name })
+        }
+        // An app crash's report object.
+        b"window_crash_app_report" => {
+            #[derive(Deserialize)]
+            struct Request {
+                crash: crash_report::AppCrash,
+                writer: crash_report::Writer,
+            }
+            let request: Request = read(request)?;
+            json!({ "report": crash_report::app_report(&request.crash, &request.writer) })
+        }
+        // The writer's version (`unknown` when the bundle names none).
+        b"window_crash_version" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                short: Option<String>,
+                #[serde(default)]
+                build: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "version": crash_report::version(request.short.as_deref(), request.build.as_deref()) })
+        }
+        // A crash's cause line (`cause` null: none) and the restart notice's cut of it.
+        b"window_crash_cause" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                exception_summary: Option<String>,
+                #[serde(default)]
+                signal: Option<i32>,
+                #[serde(default)]
+                signal_name: Option<String>,
+                #[serde(default)]
+                home: String,
+            }
+            let r: Request = read(request)?;
+            let cause = crash_report::cause(
+                r.exception_summary.as_deref(),
+                r.signal,
+                r.signal_name.as_deref(),
+                &r.home,
+            );
+            let notice = cause.as_deref().map(crash_report::notice_cause);
+            json!({ "cause": cause, "notice": notice })
+        }
+        // The crashed build the Report button names.
+        b"window_crash_build" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                marker_version: Option<String>,
+                #[serde(default)]
+                marker_commit: Option<String>,
+                #[serde(default)]
+                system_version: Option<String>,
+                running_version: String,
+                #[serde(default)]
+                running_commit: Option<String>,
+            }
+            let r: Request = read(request)?;
+            value(crash_report::crashed_build(
+                r.marker_version.as_deref(),
+                r.marker_commit.as_deref(),
+                r.system_version.as_deref(),
+                &r.running_version,
+                r.running_commit.as_deref(),
+            ))?
         }
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;
