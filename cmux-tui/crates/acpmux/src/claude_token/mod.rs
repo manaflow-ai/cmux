@@ -14,7 +14,8 @@
 
 pub mod pty;
 pub mod store;
-#[cfg(test)]
+// The sign-in runs Claude in a pty, unix only (pty.rs).
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::HashMap;

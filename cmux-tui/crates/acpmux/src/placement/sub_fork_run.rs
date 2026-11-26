@@ -505,6 +505,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
     }
 }
 
-#[cfg(test)]
+// Shares sub_fork's test fakes, which are unix-only.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;
