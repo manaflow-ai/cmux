@@ -301,6 +301,14 @@ public final class UpdaterService {
     /// Sparkle relaunch.
     @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () async -> Bool, _ declined: @escaping @MainActor () -> Void,
                                                      _ inFront: @escaping @MainActor () -> Void) -> Void)?
+    /// Quits and reopens the app in front once it exits, with its launch home (``UpdateRelaunchBehind``
+    /// with `inBackground` false): the first closure runs just before the quit (false: the install
+    /// was taken over, so no quit), the second when the app did not quit. Nil lets Sparkle relaunch.
+    @ObservationIgnored public var reopenInFront: ((_ willQuit: @escaping @MainActor () async -> Bool,
+                                                    _ declined: @escaping @MainActor () -> Void) -> Void)?
+    /// The `open` options that bring the app back in its launch home (``RelaunchHome``); empty for
+    /// a launch in the account's own home.
+    @ObservationIgnored public var launchHomeOptions: () -> [String] = { RelaunchHome.openArguments() }
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// Holds an automatic install while a modal, sheet, menu or composition is up (``UpdateRelaunchMoment``).

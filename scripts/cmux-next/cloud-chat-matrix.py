@@ -609,6 +609,8 @@ class Matrix:
         self.claude_token = claude_login_cache.token_from(self.env) if args.cache_claude_login else ""
         self.env.pop(claude_login_cache.TOKEN_ENV, None)
         self.cached_logins: list[str] = []
+        # The Claude connections this run added (claude_login_cache.connect), removed with the logins.
+        self.added_connections: list[dict] = []
         self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -728,6 +730,16 @@ class Matrix:
                 code, err = claude_login_cache.store(self.cli, self.env, entry, self.claude_token)
                 if code != 0:
                     return f"cache claude login: exit {code} ({clean(err, 300)})"
+            # A cached login is not a connection: the start gate runs a Claude chat only when one serves Cloud
+            # (or the team's gateway does). Add it as this account's Claude connection, as Set up Claude does.
+            code, err, added = claude_login_cache.connect(self.cli, self.env, self.claude_token,
+                                                          f"matrix {self.args.tag}")
+            if added:
+                self.added_connections.append(added)
+            elif code != 0:
+                return f"add claude connection: exit {code} ({clean(err, 300)})"
+            else:
+                return "add claude connection: the answer named no connection"
         return ""
 
     def remove_logins(self) -> list[str]:
@@ -738,6 +750,11 @@ class Matrix:
             code, err = claude_login_cache.remove(self.cli, self.env, entry)
             if code != 0:
                 left.append(f"{entry}: exit {code} ({clean(err, 200)})")
+        while self.added_connections:
+            added = self.added_connections.pop()
+            code, err = claude_login_cache.disconnect(self.cli, self.env, added)
+            if code != 0:
+                left.append(f"connection {added['id']}: exit {code} ({clean(err, 200)})")
         return left
 
     def quit(self) -> None:
