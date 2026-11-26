@@ -176,6 +176,7 @@ jobs:
             scripts/ci/pr_router.json
             scripts/ci/job-inputs-always.json
             scripts/ci/same_tree_reuse.json
+            .gitmodules
           persist-credentials: false
 
       # The freshness guard and the changed paths need the true merge base: the
