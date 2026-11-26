@@ -1,5 +1,4 @@
-import CmuxNextBrowser
-import CmuxNextMacScreen
+import CmuxNextBrowserCore
 import Foundation
 
 extension MacScreenPages {
@@ -9,7 +8,7 @@ extension MacScreenPages {
     /// (Return and its modified opens), the New Tab page's opens and
     /// `newTab.submit` (CLI, MCP, palette). Such text is never loaded, searched or
     /// sent to an agent: the link carried a room secret.
-    nonisolated static func pairingLinkRefusal(for text: String) -> String? {
+    nonisolated public static func pairingLinkRefusal(for text: String) -> String? {
         let found = BrowserURLResolver.containsPairingLink(text)
             || text.removingPercentEncoding.map(BrowserURLResolver.containsPairingLink) == true
         return found ? pairingLinkRefusal : nil
