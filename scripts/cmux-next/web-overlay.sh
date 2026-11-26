@@ -701,6 +701,8 @@ PY
     remote=origin tree="$state/follow" repo="$ROOT"
     # Fetch into the repo that owns the checkout, which another clone may have made.
     [[ -e "$tree/.git" ]] && repo="$tree"
+    # A fleet ci-step checkout has no `origin` remote: fetch from the repo's URL.
+    git -C "$repo" remote get-url origin >/dev/null 2>&1 || remote="${CMUX_TRY_PR_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
     git -C "$repo" fetch -q "$remote" "refs/pull/$pr/head"
     head="$(git -C "$repo" rev-parse FETCH_HEAD)"
     # The dev server runs the head's own code (its Vite config and dev-server plugins) on this Mac.

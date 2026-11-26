@@ -292,6 +292,13 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
+def fetch_remote(repo: Path) -> str:
+    """origin, or the repo's URL for a checkout with none (a fleet ci-step checkout, as try-pr.sh)."""
+    if git(repo, "remote", "get-url", "origin", check=False):
+        return "origin"
+    return os.environ.get("CMUX_TRY_PR_REMOTE", "https://github.com/manaflow-ai/cmux.git")
+
+
 def have_commit(repo: Path, sha: str) -> bool:
     """SHA is in REPO, fetched from origin when it is not yet."""
     def present() -> bool:
@@ -299,7 +306,7 @@ def have_commit(repo: Path, sha: str) -> bool:
                               capture_output=True).returncode == 0
     if present():
         return True
-    subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", sha], capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "fetch", "-q", fetch_remote(repo), sha], capture_output=True)
     return present()
 
 
@@ -468,7 +475,7 @@ def app_commit(app: Path, repo: Path = ROOT) -> str:
             # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
             shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
             subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
-                            "origin", "feat-cmux-next"], capture_output=True)
+                            fetch_remote(repo), "+refs/heads/feat-cmux-next:" + BASE_REF], capture_output=True)
             full = resolve()
         if not SHA.fullmatch(full):
             raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")

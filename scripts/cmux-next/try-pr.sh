@@ -118,7 +118,11 @@ if [[ -n "$stop" ]]; then
 fi
 
 base_ref="${CMUX_TRY_PR_BASE:-feat-cmux-next}"
-git -C "$ROOT" fetch -q origin "refs/pull/$pr/head" "refs/heads/$base_ref"
+# A fleet ci-step checkout has no `origin` remote (step 30da0da5a4fd): fetch from the repo's URL.
+remote=origin
+git -C "$ROOT" remote get-url origin >/dev/null 2>&1 || remote="${CMUX_TRY_PR_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
+# The base goes to origin/BASE either way: hot-apply.py reads it there.
+git -C "$ROOT" fetch -q "$remote" "refs/pull/$pr/head" "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
 head="$(git -C "$ROOT" rev-parse "FETCH_HEAD")"
 base="$(git -C "$ROOT" merge-base "$head" "origin/$base_ref")"
 
