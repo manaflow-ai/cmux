@@ -600,8 +600,35 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: images/cmux-vm
+      # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and
+      # 45551813915 failed, and their report died on "API rate limit exceeded for installation"). Optional: a
+      # ref without these files reports with the job token alone.
+      - name: Check out the failure report tools
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .incident-report
+          sparse-checkout: |
+            /.github/actions/spare-issue-tokens/
+            /scripts/ci/gh-spare
+            /scripts/ci/incident_report.cjs
+          sparse-checkout-cone-mode: false
+      - name: Mint spare issue tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.incident-report/.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Record the roll
         env:
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
+          GH_SPARE_WAIT_SECONDS: "420"  # inside the job's 10 min
           TOKEN: ${{ github.token }}
           PLAN: ${{ needs.plan.outputs.plan }}
           CANDIDATE: ${{ needs.bake.outputs.candidate }}
@@ -615,6 +642,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # gh through gh-spare: spare tokens, then the reset, when GitHub refuses one for its rate limit.
+          gh() { if [ -x "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" ]; then "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" "$@"; else command gh "$@"; fi; }
           set -euo pipefail
           now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gate=failed

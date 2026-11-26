@@ -1300,9 +1300,38 @@ jobs:
           gh workflow run cmux-vm.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f action=deploy-production \
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
           echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
+      # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and
+      # 45551813915 failed, and their report died on "API rate limit exceeded for installation"). Optional: a
+      # ref without these files reports with the job token alone.
+      - name: Check out the failure report tools
+        if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .incident-report
+          sparse-checkout: |
+            /.github/actions/spare-issue-tokens/
+            /scripts/ci/gh-spare
+            /scripts/ci/incident_report.cjs
+          sparse-checkout-cone-mode: false
+      - name: Mint spare issue tokens
+        id: spare
+        if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
+        continue-on-error: true
+        uses: ./.incident-report/.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Record the production smoke and any rollback
         if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
         env:
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
+          GH_SPARE_WAIT_SECONDS: "300"  # after the smoke, inside the job's 15 min
           TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
           ROLL: ${{ steps.roll.outputs.run }}
@@ -1319,6 +1348,8 @@ jobs:
           RETRY: ${{ steps.retry.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # gh through gh-spare: spare tokens, then the reset, when GitHub refuses one for its rate limit.
+          gh() { if [ -x "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" ]; then "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" "$@"; else command gh "$@"; fi; }
           set -euo pipefail
           now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           # A retry whose dispatch failed leaves nothing to verify the rollback: as loud as rollback_failed.

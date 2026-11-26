@@ -140,6 +140,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_workflow_file_size.py
 
+      - name: Failure reports outlive an exhausted GitHub token
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: |
+          python3 tests/test_gh_spare.py
+          node --test tests/incident_report.test.cjs
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
