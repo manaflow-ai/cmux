@@ -37,7 +37,7 @@ import Testing
         var all: [String] { notes.withLock { $0 } }
         var chatNoted: RemoteAcpmuxWire.ChatNoted {
             { [self] summary, host in
-                self.notes.withLock { $0.append("\(host) \(summary["sessionId"] as? String ?? "?") \(summary["title"] as? String ?? "-")") }
+                notes.withLock { $0.append("\(host) \(summary["sessionId"] as? String ?? "?") \(summary["title"] as? String ?? "-")") }
             }
         }
     }

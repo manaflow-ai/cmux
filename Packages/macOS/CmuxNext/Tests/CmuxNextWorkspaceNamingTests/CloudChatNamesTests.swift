@@ -203,8 +203,6 @@ struct CloudChatNamesTests {
         #expect(AgentTurnStateStore.plainName("\u{202E}evil\u{202C}\r\n\tname  ") == "evil name")
     }
 
+    /// Read and written from observation's onChange (a Sendable closure), so not main-actor state like the suite.
+    private nonisolated final class Changed: @unchecked Sendable { var fired = false }
 }
-
-/// `nonisolated`: the target's default isolation is the main actor, and the observation's Sendable `onChange` could
-/// not set a main-actor `fired` (a compile error in the whole test build).
-nonisolated private final class Changed: @unchecked Sendable { var fired = false }
