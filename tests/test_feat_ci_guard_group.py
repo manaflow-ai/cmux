@@ -32,6 +32,9 @@ import docs_only_paths  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
+# The one-shot full-ci read (scripts/ci/head_tier.py full_ci_applies): an alternation that only turns a job on.
+FULL_CI_ONE_SHOT = ("(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' "
+                    "|| (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))")
 LAND_TIER = "(github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 
 
@@ -57,6 +60,8 @@ def runs_ci_group(job: dict) -> bool:
     # The land tier (tests/test_head_tier.py) runs it at the head handed to land, and the label guard
     # (tests/test_ci_label_events_skip_full_ci.py) skips only other labels' events: neither keeps it off feat-cmux-next.
     condition = condition.replace(LAND_TIER, "")
+    # The one-shot full-ci read adds runs (the label's own event, other bases); it never keeps a job off feat-cmux-next.
+    condition = condition.replace(FULL_CI_ONE_SHOT, "")
     condition = re.sub(r"!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
                        r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*?github\.event\.label\.name\)\)", "",
                        condition)
