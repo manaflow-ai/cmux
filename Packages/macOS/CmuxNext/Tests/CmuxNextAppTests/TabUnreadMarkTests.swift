@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextNotifications
 import Testing
 
 /// Mark Tab Unread's rules (`TabUnreadMark`): what a toggle does, and which

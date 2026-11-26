@@ -44,7 +44,7 @@ enum NotificationHandlers {
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
             }
-            try TabUnreadMark.toggle(tab, pane: pane.pane, context: context)
+            try TabUnreadMark.toggle(tab, daemon: context.services.daemon(for: pane.pane)) { try NotificationHandlers.acknowledge([tab.surface], context) }
         })
         registry.bind("notificationOpen", run: { invocation in
             guard let row = try panel.row(invocation) else { return try run(.jumpToUnread, context) }

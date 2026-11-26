@@ -38,8 +38,7 @@ extension StatusBehaviorSettings {
     ///   - visibility: Where its terminal is for the user now (`.hidden` when this client has no tab for it).
     /// - Returns: True when the run posts a notification.
     public func notifies(_ run: FinishedStatusRun, visibility: TerminalVisibility) -> Bool {
-        let seconds = Double(run.durationMs ?? 0) / 1000
-        guard seconds >= runNotifyMinimumSeconds else { return false }
-        return runNotifyWhenVisible || !visibility.isVisible
+        StatusNotices.runNotifies(durationMs: run.durationMs, minimumSeconds: runNotifyMinimumSeconds,
+                                  whenVisible: runNotifyWhenVisible, visibility: visibility)
     }
 }

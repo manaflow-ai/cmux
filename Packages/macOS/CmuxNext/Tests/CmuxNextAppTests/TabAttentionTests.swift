@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextNotifications
 import CmuxNextRemote
 import CmuxNextSidebar
 import CmuxNextWakeups

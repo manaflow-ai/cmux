@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextNotifications
 import Observation
 
 extension NotificationCenterService {

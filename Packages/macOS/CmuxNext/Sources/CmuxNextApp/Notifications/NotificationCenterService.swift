@@ -290,7 +290,7 @@ final class NotificationCenterService {
               let model = content.paneModel(key: pane.rawValue), !model.tabs.isEmpty else { return nil }
         // The tab the strip shows, which its ring is drawn for (``shownTab(of:)``).
         let shown = content.panes[pane]?.stripModel.selectedID?.rawValue ?? controller.state.selection.selection(in: model.id)
-        let tab = (model.tabs.first { $0.id == shown } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
+        let tab = model.tabs[NotificationNotices.shownIndex(count: model.tabs.count, selected: model.tabs.firstIndex { $0.id == shown }, defaultIndex: model.defaultTabIndex) ?? 0].id
         let strip = content.panes[pane]?.view.stripView
         let onStrip = strip.map { $0.window === host && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.contains($0.convert(inHost, from: nil)) } ?? false
         return (tab, onStrip, pane)

@@ -106,16 +106,17 @@ package final class AttentionBanners {
             .map { host.isIncognito($0) } ?? false
         guard let decision = self.decision(item) else { return }
         host.note("attention \(item.tabId) \(decision)")
-        if decision.desktop {
+        let delivery = NotificationNotices.delivery(desktop: decision.desktop, sound: decision.sound)
+        if delivery.banner {
             posted.insert(AttentionBannerLifecycle.attentionBannerID(item))
             let content = host.bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .localizedModule),
                                                        posterSubtitle: nil, body: item.reason, workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
             host.desktop.post(id: AttentionBannerLifecycle.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
-                              surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory,
+                              surface: nil, workspace: nil, defaultSound: delivery.defaultSound, category: DesktopNotifier.attentionCategory,
                               incognito: incognito)
         }
-        if let sound = decision.sound, sound != "default" || !decision.desktop {
-            host.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop)
+        if let sound = decision.sound, let banner = delivery.play {
+            host.soundGate.player.play(sound, volume: decision.soundVolume, banner: banner)
         }
         let seen = self.arrival(item)
         if AgentStatusAnnouncement.speaks(decision, bannersDenied: host.desktop.authorization == "denied",
@@ -143,7 +144,7 @@ package final class AttentionBanners {
                     level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent, workspace: keys.soundRule)
             }
         }
-        if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }
+        arrival.soundEvent = NotificationNotices.soundEvent(.attention, classified: arrival.soundEvent)
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         return arrival
@@ -153,13 +154,16 @@ package final class AttentionBanners {
     /// only for a banner this launch posted whose request is still the tab's live mark. A banner
     /// from an earlier launch, or one a newer request on the tab replaced, opens nothing.
     package func show(banner: String) -> Bool {
-        guard let tab = AttentionBannerLifecycle.attentionTab(banner: banner) else { return false }
-        guard let shared = host?.attentionTabs else { return true }
-        guard posted.contains(banner), shared.items.contains(where: { AttentionBannerLifecycle.attentionBannerID($0) == banner }) else {
-            host?.note("attention banner \(banner): its request is gone")
-            return true
+        let shared = host?.attentionTabs
+        let (show, tab) = NotificationNotices.attentionShow(banner: banner, shared: shared != nil, posted: posted.contains(banner),
+                                                            marked: shared?.items.map(\.tabId) ?? [])
+        switch show {
+        case .notOurs: return false
+        case .nothing: return true
+        case .gone: host?.note("attention banner \(banner): its request is gone")
+        case .open:
+            if let shared, let tab, !shared.open(tab) { host?.note("attention banner \(banner): the tab is gone") }
         }
-        if !shared.open(tab) { host?.note("attention banner \(banner): the tab is gone") }
         return true
     }
 }

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextNotifications
 import CmuxNextWindowRules
 import enum CmuxNextLayout.ChatColumnPlacement
 
@@ -148,7 +149,7 @@ extension TabHandlers {
                 }
                 return
             }
-            try TabUnreadMark.toggle(tab, pane: pane, context: ctx)
+            try TabUnreadMark.toggle(tab, daemon: ctx.services.daemon(for: pane)) { try NotificationHandlers.acknowledge([tab.surface], ctx) }
         })
         registry.bind("reloadTab", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
