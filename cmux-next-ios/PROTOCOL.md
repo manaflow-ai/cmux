@@ -1187,6 +1187,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   another file. A changed or removed published file is refused; the receipt never
   authorizes a replacement file at that path. Uploads without `upload_id` retain the
   legacy reply framing and interruption behavior.
+  Since 2026-11-24 a resumable upload may also carry `sha256`: the whole file's
+  SHA-256, 64 hexadecimal characters (either case; anything else closes
+  `bad_request`). The host keeps an index of the finished uploads of each upload
+  folder, `.parts/.sha256-<folder name>/<sha256>`, one file per hash naming the
+  stored file. When the index names a file that is still a regular file in that
+  folder with `size` bytes and the same SHA-256 (the host hashes it again), the
+  host answers `{"path","size","deduped":true}\n` at once, before any `have`,
+  and closes `eof` without reading data; it removes this upload's part. A stale
+  entry is removed and the upload proceeds as usual. The phone sends `sha256`
+  and waits up to 3 seconds for the host's first reply before its first byte; a
+  host that ignores the field answers `have` as above, and one older still
+  (no first reply) is sent the file from byte 0 after the wait. The index is
+  scoped to one upload folder, so a phone never learns of another phone's files.
 - `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
   upload or a file open as sealed, content-defined chunks (cmux-tui
   `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one

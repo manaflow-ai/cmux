@@ -18,7 +18,7 @@ use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link_ffi::{
     AttachmentUploads, CmuxMobileError, ConnectRequest, LinkHandle, Timings, Transport, UploadObserver,
-    UploadProgress, UploadSpec, UploadStage, VideoPlan, connect_inner, video_plan,
+    UploadProgress, UploadSpec, UploadStage, VideoPlan, connect_inner, image_plan, video_plan,
 };
 use sha2::{Digest, Sha256};
 
@@ -343,6 +343,75 @@ async fn a_wait_that_starts_after_the_upload_ended_still_gets_its_result() {
     );
 }
 
+/// Uploads `source` as a new attachment; its stored path and the payload bytes it sent.
+async fn send_once(uploads: &AttachmentUploads, rig: &UploadRig, source: &Path, name: &str) -> (String, u64) {
+    let id = uploads.start(spec(rig, name), source.to_str().unwrap().into());
+    let path = uploads.wait(id.clone()).await.expect("uploaded");
+    let last = uploads.progress(id).unwrap();
+    assert_eq!(last.stage, UploadStage::Done);
+    assert_eq!(last.acked_bytes, last.total_bytes);
+    (path, last.sent_bytes)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_re_upload_of_the_same_file_crosses_no_bytes_and_finishes() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("photo.heic");
+    let size = 8 * MIB + 321;
+    patterned_file(&source, size);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let (first_path, first_sent) = send_once(&uploads, &rig, &source, "photo.heic").await;
+    assert_eq!(first_sent, size);
+    // The same picture picked again (a new attachment, same bytes).
+    let started = Instant::now();
+    let (again_path, again_sent) = send_once(&uploads, &rig, &source, "photo.heic").await;
+    eprintln!(
+        "dedup wire payload: first send {first_sent} bytes, re-send {again_sent} bytes ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(again_sent, 0, "the re-send crossed payload bytes");
+    assert_eq!(again_path, first_path, "the Mac answers its stored copy");
+    assert_eq!(sha256(Path::new(&again_path)), sha256(&source));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_deleted_or_changed_stored_copy_falls_back_to_a_full_upload() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("clip.mov");
+    let size = 3 * MIB + 77;
+    patterned_file(&source, size);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let (first, _) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    std::fs::remove_file(&first).unwrap();
+    let (second, sent) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    assert_eq!(sent, size, "a deleted copy is sent again whole");
+    assert_eq!(sha256(Path::new(&second)), sha256(&source));
+    // Same size, other bytes: the Mac re-hashes and takes the bytes again.
+    std::fs::write(&second, vec![0_u8; size as usize]).unwrap();
+    let (third, sent) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    assert_eq!(sent, size, "a changed copy is sent again whole");
+    assert_eq!(sha256(Path::new(&third)), sha256(&source));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_re_encoded_image_lands_under_the_name_the_encoder_gave_it() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("IMG_0001.jpg");
+    patterned_file(&source, 300_000);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let id = uploads.reserve(spec(&rig, "IMG_0001.HEIC"));
+    uploads.file_ready_as(id.clone(), source.to_str().unwrap().into(), "IMG_0001.jpg".into());
+    let path = uploads.wait(id).await.expect("uploaded");
+    assert!(path.ends_with("/IMG_0001.jpg"), "{path}");
+    assert_eq!(sha256(Path::new(&path)), sha256(&source));
+}
+
 fn plan(width: u32, height: u32, seconds: u64, bytes: u64) -> VideoPlan {
     video_plan(width, height, seconds * 1000, bytes, "hevc".into())
 }
@@ -369,4 +438,31 @@ fn video_plan_sends_small_or_modest_originals_and_reencodes_the_rest() {
     // The 25 MiB edge.
     assert!(!plan(3840, 2160, 10, 25 * MIB).reencode);
     assert!(plan(3840, 2160, 10, 25 * MIB + 1).reencode);
+}
+
+#[test]
+fn image_plan_sends_small_originals_and_downscales_the_rest_to_a_2048px_jpeg() {
+    let jpeg = |w, h, bytes| image_plan(w, h, bytes, "jpeg".into());
+    // At both edges: as is.
+    let edge = jpeg(1290, 2048, 2 * MIB);
+    assert_eq!((edge.reencode, edge.max_long_side), (false, 2048));
+    // An iPhone screenshot (1179 x 2556) is longer than 2048: downscaled.
+    assert!(jpeg(1179, 2556, 600_000).reencode);
+    assert!(!jpeg(1920, 1080, 900_000).reencode);
+    let small = jpeg(800, 600, 200_000);
+    assert_eq!((small.reencode, small.max_long_side, small.quality), (false, 800, 1.0));
+    // The 2 MiB edge at a small size: re-encoded at its own size, never upscaled.
+    let heavy = jpeg(2000, 1500, 2 * MIB + 1);
+    assert_eq!((heavy.reencode, heavy.max_long_side, heavy.quality), (true, 2000, 0.85));
+    // A 12 MP HEIC photo (4032 x 3024, about 2.5 MB): a 2048px JPEG, portrait too.
+    let photo = image_plan(4032, 3024, 2_500_000, "heic".into());
+    assert_eq!((photo.reencode, photo.max_long_side, photo.quality), (true, 2048, 0.85));
+    assert!(photo.reason.contains("heic"), "{}", photo.reason);
+    assert_eq!(image_plan(3024, 4032, 1_000_000, "heic".into()).max_long_side, 2048);
+    // The long-side edge.
+    assert!(!jpeg(2048, 10, 1).reencode);
+    assert!(jpeg(2049, 10, 1).reencode);
+    // Unknown size and big: the 2048px cap.
+    let unknown = jpeg(0, 0, 10 * MIB);
+    assert_eq!((unknown.reencode, unknown.max_long_side), (true, 2048));
 }

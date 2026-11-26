@@ -47,8 +47,8 @@ mod terminal_projection;
 mod window_layout;
 
 pub use attachment_upload::{
-    AttachmentUploads, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage, VideoPlan,
-    video_plan,
+    AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
+    VideoPlan, image_plan, video_plan,
 };
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,

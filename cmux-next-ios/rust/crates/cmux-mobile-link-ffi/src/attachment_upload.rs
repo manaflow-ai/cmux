@@ -11,6 +11,12 @@
 //! final object (maybe without a newline) and never `have`: every retry then starts at byte 0.
 //! During `Compressing`, `acked_bytes` / `total_bytes` carry the encoder's progress in
 //! thousandths (`total_bytes` is 1000).
+//!
+//! Whole-file dedup: the engine hashes the file (SHA-256, on a blocking thread) before its first
+//! attempt and sends `sha256` in the `upload` open. A Mac that already has that file answers the
+//! final `{"path","size","deduped":true}` at once, so the engine waits for the Mac's first reply
+//! (`have` or the final) before its first byte. A Mac that never answers first (hostd before
+//! resumable uploads) costs that wait once (`Timings::first_reply`); later attempts don't wait.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -30,6 +36,9 @@ const MAX_VIDEO_BYTES_ORIGINAL: u64 = 25 << 20;
 const MAX_ORIGINAL_BITS_PER_SECOND: u64 = 12_000_000;
 const MAX_LONG_SIDE: u32 = 1920;
 const HEVC_PRESET: &str = "AVAssetExportPresetHEVC1920x1080";
+const MAX_IMAGE_LONG_SIDE: u32 = 2048;
+const MAX_IMAGE_BYTES_ORIGINAL: u64 = 2 << 20;
+const IMAGE_JPEG_QUALITY: f64 = 0.85;
 
 /// Every time bound of the engine; tests shorten them.
 #[doc(hidden)]
@@ -43,6 +52,9 @@ pub struct Timings {
     pub backoff_max: Duration,
     pub give_up: Duration,
     pub progress_interval: Duration,
+    /// How long a fresh attempt that sent `sha256` waits for the Mac's first reply before its
+    /// first byte.
+    pub first_reply: Duration,
 }
 
 impl Default for Timings {
@@ -56,6 +68,7 @@ impl Default for Timings {
             backoff_max: Duration::from_secs(10),
             give_up: Duration::from_secs(300),
             progress_interval: Duration::from_millis(100),
+            first_reply: Duration::from_secs(3),
         }
     }
 }
@@ -145,6 +158,41 @@ pub fn video_plan(width: u32, height: u32, duration_ms: u64, bytes: u64, codec: 
     VideoPlan { reencode: true, max_long_side: MAX_LONG_SIDE, preset: HEVC_PRESET.into(), reason: why }
 }
 
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ImagePlan {
+    pub reencode: bool,
+    /// The long side the encoder makes (the original's when sent as is; never larger than it).
+    pub max_long_side: u32,
+    /// JPEG quality, 0...1, of the re-encode; 1 when the original goes.
+    pub quality: f64,
+    pub reason: String,
+}
+
+/// Sizes a picked image to what an agent needs (design/attachment-upload.md, Next, item 2): the
+/// original when its long side is <= 2048 px and it is <= 2 MiB; otherwise a JPEG (q 0.85) with
+/// the long side at most 2048 px. HEIC in, JPEG out: agents read JPEG. A width or height of 0
+/// means unknown.
+#[uniffi::export]
+pub fn image_plan(width: u32, height: u32, bytes: u64, format: String) -> ImagePlan {
+    let long_side = width.max(height);
+    let fits = long_side <= MAX_IMAGE_LONG_SIDE;
+    if fits && bytes <= MAX_IMAGE_BYTES_ORIGINAL {
+        return ImagePlan {
+            reencode: false,
+            max_long_side: long_side,
+            quality: 1.0,
+            reason: format!("{long_side}px {format} of {bytes} bytes is small enough to send as is"),
+        };
+    }
+    let reason = if fits {
+        format!("{bytes} bytes of {format} is heavier than 2 MiB")
+    } else {
+        format!("{long_side}px {format} is larger than 2048px")
+    };
+    let target = if long_side == 0 { MAX_IMAGE_LONG_SIDE } else { long_side.min(MAX_IMAGE_LONG_SIDE) };
+    ImagePlan { reencode: true, max_long_side: target, quality: IMAGE_JPEG_QUALITY, reason }
+}
+
 type UploadResult = Result<String, CmuxMobileError>;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -165,11 +213,16 @@ struct State {
     /// Counts every advance, so the run loop can tell an attempt made progress.
     epoch: u64,
     file_ready: bool,
+    /// The file's SHA-256 (lowercase hex), sent so the Mac can answer with a copy it has.
+    sha256: Option<String>,
+    /// This Mac sent no first reply in time: an older hostd, so attempts no longer wait for one.
+    silent_mac: bool,
 }
 
 struct Upload {
     mac_id: String,
-    name: String,
+    /// The name on the Mac; `file_ready_as` may change it before the first attempt.
+    name: Mutex<String>,
     cwd: Option<String>,
     state: Mutex<State>,
     result: watch::Sender<Option<UploadResult>>,
@@ -180,6 +233,10 @@ struct Upload {
 }
 
 impl Upload {
+    fn name(&self) -> String {
+        lock(&self.name).clone()
+    }
+
     /// Edits the state; tells the observer when the stage changed, `force`, or the interval passed.
     /// Nothing changes once the upload ended.
     fn edit(&self, force: bool, edit: impl FnOnce(&mut State)) {
@@ -334,7 +391,7 @@ impl AttachmentUploads {
         };
         let upload = Arc::new(Upload {
             mac_id: spec.mac_id,
-            name: spec.name,
+            name: Mutex::new(spec.name),
             cwd: spec.cwd,
             state: Mutex::new(State {
                 progress: progress.clone(),
@@ -345,6 +402,8 @@ impl AttachmentUploads {
                 last_advance: Instant::now(),
                 epoch: 0,
                 file_ready: false,
+                sha256: None,
+                silent_mac: false,
             }),
             result: watch::channel(None).0,
             task: Mutex::new(None),
@@ -387,6 +446,18 @@ impl AttachmentUploads {
         if lock(&upload.state).progress.stage.terminal() {
             handle.abort();
         }
+    }
+
+    /// `file_ready` under another name on the Mac: the platform encoder made a different file
+    /// (a HEIC photo re-encoded as `IMG_1.jpg`, `image_plan`).
+    pub fn file_ready_as(&self, upload_id: String, path: String, name: String) {
+        if let Some(upload) = self.get(&upload_id)
+            && !name.is_empty()
+            && !lock(&upload.state).file_ready
+        {
+            *lock(&upload.name) = name;
+        }
+        self.file_ready(upload_id, path);
     }
 
     /// `reserve` and `file_ready`.
@@ -463,7 +534,7 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
     let size = match tokio::fs::metadata(&path).await {
         Ok(meta) => meta.len(),
         Err(_) => {
-            return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name));
+            return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name()));
         }
     };
     upload.edit(true, |st| {
@@ -472,6 +543,16 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         st.progress.stage = UploadStage::WaitingForMac;
         st.last_advance = Instant::now();
     });
+    let (hashing, hash_path) = (Arc::clone(&upload), path.clone());
+    let hashed = tokio::task::spawn_blocking(move || {
+        file_sha256(&hash_path, || lock(&hashing.state).progress.stage.terminal())
+    });
+    match hashed.await {
+        Ok(Ok(Some(hash))) => lock(&upload.state).sha256 = Some(hash),
+        // Cancelled while hashing.
+        Ok(Ok(None)) => return,
+        _ => return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name())),
+    }
     let timings = upload.timings.clone();
     let mut links = core.link_channel(&upload.mac_id).subscribe();
     let mut backoff = timings.backoff_start;
@@ -540,6 +621,29 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         }
         backoff = (backoff * 2).min(timings.backoff_max);
     }
+}
+
+/// The SHA-256 of the file at `path`, lowercase hex, read 1 MiB at a time; `None` once `stop`
+/// says the upload ended.
+fn file_sha256(path: &std::path::Path, stop: impl Fn() -> bool) -> std::io::Result<Option<String>> {
+    use std::fmt::Write as _;
+    let mut file = std::fs::File::open(path)?;
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        if stop() {
+            return Ok(None);
+        }
+        match file.read(&mut buffer)? {
+            0 => break,
+            n => context.update(&buffer[..n]),
+        }
+    }
+    let mut hex = String::with_capacity(64);
+    for byte in context.finish().as_ref() {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    Ok(Some(hex))
 }
 
 /// A reply of the Mac.
@@ -660,20 +764,24 @@ async fn attempt(
     total: u64,
 ) -> Outcome {
     let timings = &upload.timings;
-    let (offset, use_cwd) = {
+    let (offset, use_cwd, sha256, silent_mac) = {
         let st = lock(&upload.state);
-        (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd)
+        (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd, st.sha256.clone(), st.silent_mac)
     };
     upload.edit(true, |st| {
         st.progress.attempt += 1;
         st.progress.stage = UploadStage::Uploading;
     });
     let mut args = serde_json::json!({
-        "name": upload.name,
+        "name": upload.name(),
         "size": total.to_string(),
         "upload_id": lock(&upload.state).progress.upload_id,
         "offset": offset.to_string(),
     });
+    let wait_first = sha256.is_some() && offset == 0 && !silent_mac;
+    if let Some(hash) = sha256 {
+        args["sha256"] = hash.into();
+    }
     let sent_cwd = match upload.cwd.as_deref().filter(|c| use_cwd && c.starts_with('/')) {
         Some(cwd) => {
             args["cwd"] = cwd.into();
@@ -702,7 +810,20 @@ async fn attempt(
         Ok::<_, std::io::Error>(file)
     })
     .await;
-    let Ok(Ok(mut file)) = opened else { return unreadable(&upload.name) };
+    let Ok(Ok(mut file)) = opened else { return unreadable(&upload.name()) };
+
+    if wait_first {
+        // The Mac may already have this file: hear it before sending any byte.
+        match tokio::time::timeout(timings.first_reply, events.recv()).await {
+            Ok(Some(event)) => {
+                if let Some(outcome) = handle(upload, event, &mut state) {
+                    return outcome;
+                }
+            }
+            Ok(None) => return Outcome::Retry,
+            Err(_) => lock(&upload.state).silent_mac = true,
+        }
+    }
 
     if offset > 0 {
         let deadline = tokio::time::Instant::now() + timings.have;
@@ -740,7 +861,7 @@ async fn attempt(
             let want = CHUNK.min(usize::try_from(total - position).unwrap_or(CHUNK));
             let (back, chunk) = match tokio::task::spawn_blocking(move || read_chunk(file, want)).await {
                 Ok((file, Ok(chunk))) if !chunk.is_empty() => (file, chunk),
-                _ => return unreadable(&upload.name),
+                _ => return unreadable(&upload.name()),
             };
             file = back;
             let count = chunk.len() as u64;

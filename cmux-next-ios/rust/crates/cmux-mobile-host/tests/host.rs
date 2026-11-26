@@ -1250,6 +1250,104 @@ async fn resumable_upload_reports_a_resume_gap() {
     assert_eq!(code, "resume_gap");
 }
 
+/// The lines of a finished resumable upload's replies.
+fn reply_lines(reply: &[u8]) -> Vec<serde_json::Value> {
+    reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect()
+}
+
+/// Sends `bytes` whole as a resumable upload with `sha256`; the final reply.
+async fn upload_with_hash(
+    link: &cmux_mobile_link::Link,
+    id: &str,
+    name: &str,
+    bytes: &[u8],
+    hash: &str,
+) -> serde_json::Value {
+    let mut upload = link
+        .open(
+            "upload",
+            serde_json::json!({"name": name, "size": bytes.len().to_string(), "upload_id": id, "offset": "0", "sha256": hash}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    let first = next_line(&mut upload, &mut buffer).await;
+    if first.get("path").is_some() {
+        return first;
+    }
+    assert_eq!(first, serde_json::json!({"have": 0}));
+    upload.send(Bytes::copy_from_slice(bytes)).await.unwrap();
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
+    let mut lines = reply_lines(&buffer);
+    lines.extend(reply_lines(&reply));
+    lines.into_iter().find(|line| line.get("path").is_some()).expect("final")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_with_a_known_sha256_answers_the_stored_copy_without_bytes() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let bytes = vec![0x7e_u8; (1 << 20) + 9];
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let first =
+        upload_with_hash(&connected.link, "44444444-4444-4444-4444-444444444444", "a.bin", &bytes, &hash)
+            .await;
+    assert!(first.get("deduped").is_none(), "{first}");
+    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
+
+    // Same content, a new upload (another name too): the stored copy, at once, before any byte.
+    let mut again = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "b.bin", "size": bytes.len().to_string(), "upload_id": "55555555-5555-5555-5555-555555555555", "offset": "0", "sha256": hash.to_uppercase()}),
+        )
+        .await
+        .unwrap();
+    let (reply, code) = drain(&mut again).await;
+    assert_eq!(code, "eof");
+    let lines = reply_lines(&reply);
+    assert_eq!(lines.len(), 1, "no have, no ack: {lines:?}");
+    assert_eq!(lines[0]["path"], first["path"]);
+    assert_eq!(lines[0]["deduped"], true);
+    assert_eq!(lines[0]["size"], bytes.len());
+
+    // The stored file changed (same size): the bytes cross again, into a new file.
+    std::fs::write(&stored, vec![0x00_u8; bytes.len()]).unwrap();
+    let third =
+        upload_with_hash(&connected.link, "66666666-6666-6666-6666-666666666666", "a.bin", &bytes, &hash)
+            .await;
+    assert!(third.get("deduped").is_none(), "{third}");
+    let third_path = std::path::PathBuf::from(third["path"].as_str().unwrap());
+    assert_ne!(third_path, stored);
+    assert_eq!(std::fs::read(&third_path).unwrap(), bytes);
+
+    // Deleted: full again.
+    std::fs::remove_file(&third_path).unwrap();
+    let fourth =
+        upload_with_hash(&connected.link, "77777777-7777-7777-7777-777777777777", "a.bin", &bytes, &hash)
+            .await;
+    assert!(fourth.get("deduped").is_none(), "{fourth}");
+    assert_eq!(std::fs::read(fourth["path"].as_str().unwrap()).unwrap(), bytes);
+
+    // A malformed hash is refused.
+    let mut bad = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "c.bin", "size": "3", "upload_id": "88888888-8888-8888-8888-888888888888", "sha256": "../etc"}),
+        )
+        .await
+        .unwrap();
+    let (_, code) = drain(&mut bad).await;
+    assert_eq!(code, "bad_request");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn old_phone_upload_reply_has_legacy_framing() {
     let fixture = fixture(FakeOptions::default()).await;
