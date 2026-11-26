@@ -391,6 +391,7 @@ jobs:
           sparse-checkout: |
             scripts
             cmux-helper.entitlements
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
