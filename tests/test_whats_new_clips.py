@@ -38,7 +38,8 @@ class SettingsStepTests(unittest.TestCase):
         self.schema = Path(folder.name) / "settings-schema.json"
         self.schema.write_text(json.dumps({"rows": [
             {"key": "mobile.autoApprovePhones", "agent_settable": False, "agent_refusal": "userOnly"},
-            {"key": "home.chiefBubbleStyle", "agent_settable": True, "agent_refusal": None}]}))
+            {"key": "home.chiefBubbleStyle", "agent_settable": True, "agent_refusal": None}],
+            "page": {"categories": [{"id": "appearance", "lead": ["looksGallery"], "trail": ["customizeLibrary"]}]}}))
 
     def problems(self, *steps):
         return clips.settings_problems(list(steps), self.schema)
@@ -53,8 +54,16 @@ class SettingsStepTests(unittest.TestCase):
     def test_open_settings_names_a_row_that_is_there(self):
         step = {"title": "Settings", "rpc": {"method": "action.run", "params": {
             "action": "openSettings", "arguments": {"setting": "updates.gone"}, "focus": True}}}
-        self.assertTrue(any("no row updates.gone" in p for p in self.problems(step)))
+        self.assertTrue(any("no row or card updates.gone" in p for p in self.problems(step)))
         self.assertEqual(self.problems({**step, "optional": "the before app has no updates.gone"}), [])
+
+    def test_open_settings_names_a_card_that_is_there(self):
+        def opening(key):
+            return {"title": "Card", "rpc": {"method": "action.run", "params": {
+                "action": "openSettings", "arguments": {"setting": key}, "focus": True}}}
+        for key in ("card.looksGallery", "card.customizeLibrary", "card.looksGallery.install"):
+            self.assertEqual(self.problems(opening(key)), [], key)
+        self.assertTrue(any("no row or card card.gone" in p for p in self.problems(opening("card.gone"))))
 
     def test_a_user_only_row_is_never_set(self):
         self.assertTrue(any("agents may not change mobile.autoApprovePhones" in p for p in self.problems(

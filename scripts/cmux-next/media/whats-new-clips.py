@@ -243,8 +243,25 @@ def settings_rows(schema: Path | None = None) -> dict[str, dict]:
     return {row["key"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("key"), str)}
 
 
+def settings_cards(schema: Path | None = None) -> set[str]:
+    """The card ids Settings can open as `card.<id>` (webviews settingsLinks.ts): each category's lead and trail."""
+    path = SETTINGS_SCHEMA if schema is None else schema
+    try:
+        categories = json.loads(path.read_text()).get("page", {}).get("categories", [])
+    except (OSError, ValueError, AttributeError):
+        return set()
+    return {card for category in categories if isinstance(category, dict)
+            for card in (category.get("lead") or []) + (category.get("trail") or []) if isinstance(card, str)}
+
+
+def settings_target_exists(key: str, rows: dict, cards: set[str]) -> bool:
+    if key.startswith("card."):
+        return key[len("card."):].split(".", 1)[0] in cards  # card.customizeDoctor.recover focuses inside its card
+    return key in rows
+
+
 def settings_problems(steps: list[dict], schema: Path | None = None) -> list[str]:
-    rows, out = settings_rows(schema), []
+    rows, cards, out = settings_rows(schema), settings_cards(schema), []
     for step in steps:
         title, rpc, command = step.get("title"), step.get("rpc"), step.get("cmux")
         if isinstance(rpc, dict) and rpc.get("method") == "action.run" and isinstance(rpc.get("params"), dict):
@@ -254,9 +271,9 @@ def settings_problems(steps: list[dict], schema: Path | None = None) -> list[str
                            'give the rpc params "focus": true')
             arguments = params.get("arguments") or params.get("args") or {}
             key = arguments.get("setting") if isinstance(arguments, dict) else None
-            if params.get("action") == "openSettings" and rows and isinstance(key, str) and key not in rows \
+            if params.get("action") == "openSettings" and rows and isinstance(key, str) and not settings_target_exists(key, rows, cards) \
                     and not step.get("optional"):
-                out.append(f"step {title!r}: Settings has no row {key}")
+                out.append(f"step {title!r}: Settings has no row or card {key}")
         if isinstance(command, list) and len(command) >= 3 and command[:1] == ["settings"] \
                 and command[1] in ("set", "reset") and isinstance(command[2], str):
             row = rows.get(command[2])
