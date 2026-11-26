@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(os)
 import os
+#else
+import Synchronization
+#endif
 
 /// A bounded map from a string to its ``SentryScrubber/scrub(_:)`` result,
 /// shared by every copy of one scrubber (Sentry calls `beforeSend` and
@@ -51,3 +55,19 @@ public final class SentryScrubMemo: Sendable {
         capacity > 0 && text.utf8.count <= Self.maximumLength
     }
 }
+
+#if !canImport(os)
+/// Linux has no `os` module: the same lock surface over a `Mutex`, so the memo
+/// stays checked `Sendable` there too (the Linux package lane builds this target).
+final class OSAllocatedUnfairLock<State: Sendable>: Sendable {
+    private let mutex: Mutex<State>
+
+    init(initialState: State) {
+        mutex = Mutex(initialState)
+    }
+
+    func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
+        try mutex.withLock { try body(&$0) }
+    }
+}
+#endif
