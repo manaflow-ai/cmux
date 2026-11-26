@@ -441,7 +441,8 @@ mod tests {
         assert_eq!(extra["cwd"], "/work/project///");
         assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
         assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        assert!(extra.get("forkSeq").is_some());
+        // An unforked chat's null forkSeq rides as a missing key, like every other null.
+        assert!(extra.get("forkSeq").is_none());
         assert!(extra.get("spawnedBy").is_none());
         assert!(extra.get("queue").is_none());
         assert!(extra.get("usageStats").is_none());
