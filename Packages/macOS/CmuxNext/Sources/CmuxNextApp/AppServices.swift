@@ -137,6 +137,7 @@ final class AppServices {
     )  // first read in init (no IUO)
     /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
     private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
+    private(set) lazy var wallpaperBadge = AccountWallpaperBadge(auth: cloud.auth, avatars: .shared) // a live wallpaper's badge: the signed-in account, on every window's and pane's backdrop
     var showcase = ShowcaseState()
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
@@ -320,8 +321,8 @@ final class AppServices {
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
         }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
-        // A chat's page made after its agent started using an app gets the card then.
-        agentTabs.onTabSession = { [weak router] in router?.replayChats() }
+        agentTabs.onTabSession = { [weak router] in router?.replayChats() } // a chat's page made after its agent started using an app gets the card then
+        ComputerUseFloatingPreview().follow(daemon.store, menu: menuBarExtra) { [weak self] in self?.settings?.snapshot.computerUse.floatingPreview ?? false }
         return router
     }
 
