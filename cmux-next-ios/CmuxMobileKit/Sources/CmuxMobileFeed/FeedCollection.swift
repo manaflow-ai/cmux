@@ -1322,6 +1322,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         trace("drag at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
+        #if DEBUG
+        FeedShiftProbe.shared.dragBegan()
+        #endif
         // The person took over: a jump to the top in flight ends where they caught it.
         jumpingToTop = false
         #if DEBUG

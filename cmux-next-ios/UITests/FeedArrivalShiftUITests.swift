@@ -12,9 +12,15 @@ import XCTest
 ///   deceleration undoes).
 /// - `RestOffTop`: the apply-with-anchor at rest (the control: it held before the fix too).
 /// - `RestJustBelowTop`: the old 60 pt "at top" band, where no anchor was kept.
+/// - `RestJustBelowTop` places the list 20 pt below the top through the probe
+///   (`CMUX_MOBILE_FEED_SHIFT_OFFSET`): green-43's 30 pt drag read as a tap and opened a row.
 /// - `HeaderOffTop`: a header re-measure off the top with no anchor (a refresh error comes and goes).
-/// - `FingerResting`: a finger on the glass, not moving (tracking, offset still) while rows arrive
-///   (Aziz's recording, 109.59 s: every row moved down one row with the list still).
+/// - `FingerResting`: a finger on the glass, creeping a few points over seconds as a real resting
+///   finger does, while rows arrive (Aziz's recording, 109.59 s: every row moved down one row with
+///   the list still). A finger held perfectly still never moves the pan, so it never undid a
+///   correction: feed15-red-7 passed it on the old build. A creeping one does, every frame.
+/// - `RestAfterFling`: one slow fling, then the list looks still while it decelerates for seconds
+///   below a point a frame (Aziz's recording: the near-rest jumps, the pill rising as rows moved).
 /// - `SettleFrame`: rows arriving as a deceleration ends, or just after (the settle frame): what
 ///   waited applies with its restore in one pass, never a frame with the rows shown before it.
 /// - `HeaderDuringDrag`: the header changes height (a refresh error comes and goes every 0.5 s) while
@@ -41,6 +47,7 @@ final class FeedArrivalShiftUITests: XCTestCase {
     @MainActor func testRestJustBelowTopPressure84() { run(.restJustBelowTop, liveHz: 12) }
     @MainActor func testHeaderOffTopFeedLive() { run(.headerOffTop, liveHz: 3) }
     @MainActor func testFingerRestingPressure84() { run(.fingerResting, liveHz: 12) }
+    @MainActor func testRestAfterFlingPressure84() { run(.restAfterFling, liveHz: 12) }
     @MainActor func testSettleFramePressure84() { run(.settleFrame, liveHz: 12) }
     @MainActor func testHeaderDuringDragFeedLive() { run(.headerDuringDrag, liveHz: 3) }
     @MainActor func testOnScreenResizeGuard() { run(.onScreenResize, liveHz: 0) }
@@ -51,7 +58,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case restOffTop = "RestOffTop (apply with anchor at rest)"
         case restJustBelowTop = "RestJustBelowTop (the 60 pt at-top band, no anchor)"
         case headerOffTop = "HeaderOffTop (header re-measure off the top, no anchor)"
-        case fingerResting = "FingerResting (a finger on the glass, not moving, while rows arrive)"
+        case fingerResting = "FingerResting (a finger on the glass, creeping a few points, while rows arrive)"
+        case restAfterFling = "RestAfterFling (the list looks still while a slow fling's deceleration runs out)"
         case settleFrame = "SettleFrame (rows arriving as a deceleration ends)"
         case headerDuringDrag = "HeaderDuringDrag (the header changes height while the finger drags and the list flings)"
         case onScreenResize = "OnScreenResize guard (Show more below the first row: the first row stays)"
@@ -75,6 +83,7 @@ final class FeedArrivalShiftUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_PROBE"] = "1"
         if which == .headerOffTop { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "1.5" }
         if which == .headerDuringDrag { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "0.5" }
+        if which == .restJustBelowTop { app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_OFFSET"] = "20" }
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
         defer { app.terminate() }
@@ -87,10 +96,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         // Placing the list, before the load starts.
         switch which {
         case .restJustBelowTop:
-            // A few points below the true top: a short slow drag with a hold, so it stops where it is.
-            let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -30)),
-                        withVelocity: XCUIGestureVelocity(60), thenHoldForDuration: 0.6)
+            // At the top; the probe moves it 20 pt down when the signal comes.
+            break
         default:
             for _ in 0..<4 { app.swipeUp(velocity: .fast) }
         }
@@ -110,8 +117,15 @@ final class FeedArrivalShiftUITests: XCTestCase {
                 Thread.sleep(forTimeInterval: 1.2)
             }
         case .fingerResting:
-            // Down and still for 8 s: the touch is held, the offset does not move.
-            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 8)
+            // Down for about 8 s, creeping 24 pt at 3 pt/s (past the pan's slop, then a point every
+            // few frames), then held: rows arrive the whole time.
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -24)),
+                       withVelocity: XCUIGestureVelocity(3), thenHoldForDuration: 1)
+        case .restAfterFling:
+            // One slow fling, then 8 s: the deceleration's tail runs below a point a frame.
+            app.swipeUp(velocity: .slow)
+            Thread.sleep(forTimeInterval: 8)
         case .settleFrame:
             // Short slow flings that come to rest every 0.7 s, under three rows a second: arrivals
             // land in and just after the frame each deceleration ends.
