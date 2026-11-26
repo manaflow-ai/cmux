@@ -78,6 +78,7 @@ mod closed_tmp;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
+mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
 pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
@@ -1103,6 +1104,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// The live sessions' last rendered rows, reused while their inputs are equal (`live_rows.rs`).
+    pub(super) live_row_cache: StdMutex<live_rows::LiveRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
     pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
@@ -1116,6 +1119,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Live rows rendered because their inputs moved or none were kept (tests).
+    #[cfg(test)]
+    pub(super) live_row_renders: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
@@ -1763,6 +1769,7 @@ impl Hub {
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
+            live_row_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
@@ -1770,6 +1777,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            live_row_renders: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
