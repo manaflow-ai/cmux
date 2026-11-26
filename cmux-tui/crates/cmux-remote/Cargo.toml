@@ -74,6 +74,7 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-wire-lockstep.workspace = true
 # The tests bootstrap with this build's real identity, as the binary does.
 cmux-build-identity.workspace = true
 cmux-relay = { path = "../cmux-relay" }

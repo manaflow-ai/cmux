@@ -182,15 +182,32 @@ impl FrameFlags {
     /// Daemon response to a liveness probe on the control lane, stream zero.
     pub const HEARTBEAT_RESPONSE: Self = Self(1 << 8);
 
-    const KNOWN: u16 = Self::RELIABLE.0
-        | Self::OPEN.0
-        | Self::FIN.0
-        | Self::RESET.0
-        | Self::ACK_ONLY.0
-        | Self::REPLAY.0
-        | Self::SESSION_CLOSE.0
-        | Self::HEARTBEAT_REQUEST.0
-        | Self::HEARTBEAT_RESPONSE.0;
+    /// Every flag the decoder accepts, with its stable name for wire diagnostics.
+    pub const NAMED: &'static [(&'static str, Self)] = &[
+        ("reliable", Self::RELIABLE),
+        ("open", Self::OPEN),
+        ("fin", Self::FIN),
+        ("reset", Self::RESET),
+        ("ack-only", Self::ACK_ONLY),
+        ("replay", Self::REPLAY),
+        ("session-close", Self::SESSION_CLOSE),
+        ("heartbeat-request", Self::HEARTBEAT_REQUEST),
+        ("heartbeat-response", Self::HEARTBEAT_RESPONSE),
+    ];
+
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "const fn loop: i < NAMED.len() bounds the index, and iterators are not const"
+    )]
+    const KNOWN: u16 = {
+        let mut mask = 0;
+        let mut i = 0;
+        while i < Self::NAMED.len() {
+            mask |= Self::NAMED[i].1.0;
+            i += 1;
+        }
+        mask
+    };
 
     pub const fn empty() -> Self {
         Self(0)

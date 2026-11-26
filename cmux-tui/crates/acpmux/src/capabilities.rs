@@ -87,6 +87,22 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
+/// One opt-in a client names in its `initialize` params (`_meta.acpmux.<flag>: true`,
+/// `server/requests.rs` `note_initialize`), and the notifications the daemon sends it only then.
+/// A client that did not name the flag hears the older form of the same news.
+pub struct ClientOptIn {
+    pub flag: &'static str,
+    pub gates: &'static [&'static str],
+}
+
+/// Every client opt-in the daemon reads; the wire manifest (`spec/wire/acpmux.json`) lists each as
+/// capability `client:<flag>`.
+pub const CLIENT_OPT_INS: &[ClientOptIn] = &[
+    ClientOptIn { flag: "chunkDeltas", gates: &[method::MUX_CHUNK] },
+    ClientOptIn { flag: "peerRowBatches", gates: &[method::MUX_PEER_ROWS_CHANGED] },
+    ClientOptIn { flag: "sessionChangedDelta", gates: &[method::MUX_SESSION_PATCH] },
+];
+
 /// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
 /// labels (`hub/composers.rs`), a guarded one too (`hub/transfer_guard.rs` `bundle_path_kind`).
 pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";

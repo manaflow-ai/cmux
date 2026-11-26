@@ -294,6 +294,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The wire lockstep: the manifest snapshot and the old-against-new runs (tests/wire_lockstep.rs).
+cmux-wire-lockstep.workspace = true
 cmux-build-space = { workspace = true, features = ["testing"] }
 # Seeded-secret tests: gated clients send to a local capture server (hub/forum_hosted.rs).
 cmux-egress = { workspace = true, features = ["capture"] }

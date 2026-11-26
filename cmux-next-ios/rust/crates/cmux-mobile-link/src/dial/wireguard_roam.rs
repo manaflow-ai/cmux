@@ -547,7 +547,7 @@ enum Escalated {
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
-enum RoamMessage {
+pub enum RoamMessage {
     /// This side's endpoints now; `gen` grows with every announcement.
     Endpoints {
         generation: u64,

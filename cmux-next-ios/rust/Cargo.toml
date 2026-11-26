@@ -18,6 +18,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+cmux-wire-lockstep = { path = "../../cmux-tui/crates/cmux-wire-lockstep" }
 # Auto chats from the phone with no Mac (plans/cmux-next/auto-mode/DESIGN.md, slice E), and the
 # shared core they use: the Cloud store's wire types and the store as a trait.
 cmux-mobile-auto = { path = "crates/cmux-mobile-auto" }

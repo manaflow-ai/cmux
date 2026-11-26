@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// several encrypted remote frames into one WebSocket message.
 pub const MAX_RELAY_BATCH_BYTES: usize = 1024 * 1024;
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RelayRole {
@@ -13,6 +14,7 @@ pub enum RelayRole {
     Client,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RelayPermission {
@@ -21,16 +23,19 @@ pub enum RelayPermission {
     Join,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CircuitId(pub String);
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct LaneToken(pub String);
 
 /// Canonical scope carried by HMAC relay tickets. Provider authorization is
 /// deliberately separate from daemon/device authentication.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelayTicketClaims {
     pub version: u8,
@@ -120,6 +125,7 @@ impl RelayTicketClaims {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RelayControl {

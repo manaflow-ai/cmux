@@ -100,6 +100,11 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
             m::MUX_FILE_PUT_CANCEL,
         ],
     },
+    // A window of chunks in flight, the finish right behind them (`hub/file_uploads/window.rs`).
+    PeerFeature {
+        id: crate::hub::file_uploads::window::FEATURE,
+        gates: &["param:_acpmux/file_put_finish#chunksInFlight"],
+    },
     PeerFeature {
         id: crate::hub::journal_restore::PAGES_FEATURE,
         gates: &["field:_meta.acpmux#throughSeq"],
@@ -159,6 +164,10 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     // `server/fork_through.rs` `RETARGET_FEATURE` (private to the server).
     PeerFeature { id: "sessionForkRetarget", gates: &[] },
     PeerFeature { id: crate::hub::fork_subagent::FEATURE, gates: &[] },
+    // `acp.session.fork`'s `requestId` was already on the wire with `beforePromptId`; the feature
+    // lets a client send it without one, so it gates no new name (`server/fork_through.rs`
+    // `FORK_REQUEST_FEATURE`, private to the server).
+    PeerFeature { id: "forkRequestId", gates: &[] },
     // Sent to a link that listed it in its own `initialize` (`server/client_features.rs`).
     PeerFeature { id: crate::server::client_features::UNSENT_FEATURE, gates: &[m::MUX_UNSENT] },
     PeerFeature { id: crate::link_v2::FEATURE, gates: &[m::MUX_V2] },

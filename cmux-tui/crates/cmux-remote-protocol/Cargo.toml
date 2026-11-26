@@ -19,3 +19,7 @@ serde_json.workspace = true
 # Wire types only parse and serialize UUIDs. Random UUID generation belongs in
 # native clients so this crate remains usable by the Cloudflare Worker target.
 uuid = { version = "1", default-features = false, features = ["serde"] }
+
+[dev-dependencies]
+cmux-wire-lockstep.workspace = true
+schemars = { version = "1.2", features = ["uuid1"] }

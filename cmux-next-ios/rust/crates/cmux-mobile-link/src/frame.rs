@@ -12,48 +12,54 @@ use tokio_util::codec::{Decoder, Encoder};
 pub const MAX_PAYLOAD: usize = 256 * 1024;
 const HEADER: usize = 4 + 4 + 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum FrameType {
-    Open = 0,
-    Data = 1,
-    Close = 2,
-    Ping = 3,
-    Pong = 4,
-    DeflatedData = 5,
-    /// A chunk of a numbered message on a channel whose messages also travel
-    /// as datagrams (`crate::classes`): sent only to a peer that listed
-    /// [`crate::classes::CLASSES_LANE`].
-    Sequenced = 6,
-    /// A sequenced channel frame (reliable links only, both sides offered
-    /// `reliable`): `u64 seq | u8 inner type | inner payload`.
-    Seq = 7,
-    /// Channel 0, reliable links only: `u32 count | (u32 channel, u64 seq)*`.
-    Ack = 8,
-    /// Channel 0, reliable links only: a carrier's opening (new or resume).
-    Hello = 9,
-    /// Channel 0, reliable links only: the link ends on purpose (a carrier
-    /// that just drops is resumed instead).
-    Bye = 10,
+// The encoder, decoder and compatibility manifest share the same discriminants.
+macro_rules! frame_types {
+    ($($variant:ident = $number:literal => $name:literal),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum FrameType { $($variant = $number),+ }
+
+        impl FrameType {
+            pub(crate) fn from_u8(value: u8) -> Option<Self> {
+                match value {
+                    $($number => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+
+            #[cfg(feature = "testing")]
+            pub const ALL: &[Self] = &[$(Self::$variant),+];
+
+            #[cfg(feature = "testing")]
+            pub const fn wire_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => concat!("frame:", $name, "=", stringify!($number)),)+
+                }
+            }
+        }
+    };
 }
 
-impl FrameType {
-    pub(crate) fn from_u8(value: u8) -> Option<Self> {
-        Some(match value {
-            0 => Self::Open,
-            1 => Self::Data,
-            2 => Self::Close,
-            3 => Self::Ping,
-            4 => Self::Pong,
-            5 => Self::DeflatedData,
-            6 => Self::Sequenced,
-            7 => Self::Seq,
-            8 => Self::Ack,
-            9 => Self::Hello,
-            10 => Self::Bye,
-            _ => return None,
-        })
-    }
+frame_types! {
+    Open = 0 => "open",
+    Data = 1 => "data",
+    Close = 2 => "close",
+    Ping = 3 => "ping",
+    Pong = 4 => "pong",
+    DeflatedData = 5 => "deflated-data",
+    // A chunk of a numbered message on a channel whose messages also travel as datagrams
+    // (`crate::classes`): sent only to a peer that listed [`crate::classes::CLASSES_LANE`].
+    Sequenced = 6 => "sequenced",
+    // A sequenced channel frame (reliable links only, both sides offered `reliable`):
+    // `u64 seq | u8 inner type | inner payload`.
+    Seq = 7 => "seq",
+    // Channel 0, reliable links only: `u32 count | (u32 channel, u64 seq)*`.
+    Ack = 8 => "ack",
+    // Channel 0, reliable links only: a carrier's opening (new or resume).
+    Hello = 9 => "hello",
+    // Channel 0, reliable links only: the link ends on purpose (a carrier that just drops is
+    // resumed instead).
+    Bye = 10 => "bye",
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

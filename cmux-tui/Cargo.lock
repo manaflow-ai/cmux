@@ -96,6 +96,7 @@ dependencies = [
  "cmux-vault-egress",
  "cmux-wallpaper",
  "cmux-wg",
+ "cmux-wire-lockstep",
  "cmux-worktree-care",
  "dhat",
  "diffy",
@@ -2886,6 +2887,7 @@ dependencies = [
  "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-wg",
+ "cmux-wire-lockstep",
  "diffy",
  "flate2",
  "fs4",
@@ -2934,6 +2936,8 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-braid-class",
+ "cmux-wire-lockstep",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "uuid",
@@ -3368,6 +3372,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chacha20poly1305",
+ "cmux-wire-lockstep",
  "libc",
  "proptest",
 ]
@@ -4010,6 +4015,14 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-wire-lockstep"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -8941,6 +8954,7 @@ dependencies = [
  "schemars_derive 1.2.2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

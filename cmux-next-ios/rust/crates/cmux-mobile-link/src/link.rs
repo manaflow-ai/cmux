@@ -69,7 +69,7 @@ pub const PARK_SERVICE: &str = "_link.park";
 /// The `close` code that accepts a park.
 pub const PARKED: &str = "parked";
 /// Park argument advertising lossless, independently deflated data frames.
-const PARK_ENCODING: &str = "deflate-v1";
+pub const PARK_ENCODING: &str = "deflate-v1";
 /// The longest hold a side grants; a longer ask is cut to this.
 pub const MAX_PARK_HOLD: Duration = Duration::from_secs(10 * 60);
 /// The tunnel holds its connections this much past the park, so the link's
@@ -256,12 +256,12 @@ const FOREGROUND_RESEND_CAP: Duration = Duration::from_millis(1500);
 const DATAGRAM_PING_ATTEMPTS: u8 = 5;
 /// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
 /// attempt number. A pong echoes the ping's nonce and attempt.
-const DATAGRAM_PING: u8 = 1;
+pub const DATAGRAM_PING: u8 = 1;
 /// How long a link stays quiet (nothing heard, no datagram ping sent)
 /// before [`Link::prewake`] sends: a radio that heard or sent this recently
 /// is still awake.
 const PREWAKE_QUIET: Duration = Duration::from_secs(1);
-const DATAGRAM_PONG: u8 = 2;
+pub const DATAGRAM_PONG: u8 = 2;
 const DATAGRAM_LEN: usize = 10;
 
 /// Pings and pongs as unreliable datagrams beside the link's stream (on

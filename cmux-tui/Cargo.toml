@@ -79,6 +79,7 @@ members = [
     "crates/cmux-bundle",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
+    "crates/cmux-wire-lockstep",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
@@ -557,6 +558,7 @@ cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
+cmux-wire-lockstep = { path = "crates/cmux-wire-lockstep" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }

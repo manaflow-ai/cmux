@@ -1,0 +1,1272 @@
+{
+  "protocol": "acpmux",
+  "format": 1,
+  "negotiated_in": "initialize: the reply's _meta.acpmux.capabilities (daemon surfaces, by id) and _meta.acpmux.features (feature:<id>, read by peer links and the CLI); the params' _meta.acpmux.<flag>: true (client:<flag>, a client's opt-ins)",
+  "legacy": [
+    "field:_meta.acpmux#adopt",
+    "field:_meta.acpmux#agentSessionId",
+    "field:_meta.acpmux#answeredBy",
+    "field:_meta.acpmux#approverDecision",
+    "field:_meta.acpmux#argv",
+    "field:_meta.acpmux#author",
+    "field:_meta.acpmux#autoPlace",
+    "field:_meta.acpmux#beforePromptId",
+    "field:_meta.acpmux#callerKind",
+    "field:_meta.acpmux#callerProtocol",
+    "field:_meta.acpmux#callerSession",
+    "field:_meta.acpmux#cancelToken",
+    "field:_meta.acpmux#chunkDeltas",
+    "field:_meta.acpmux#class",
+    "field:_meta.acpmux#cliHost",
+    "field:_meta.acpmux#compression",
+    "field:_meta.acpmux#context",
+    "field:_meta.acpmux#createKey",
+    "field:_meta.acpmux#createdBy",
+    "field:_meta.acpmux#cwd",
+    "field:_meta.acpmux#decisionNonce",
+    "field:_meta.acpmux#disallowedTools",
+    "field:_meta.acpmux#dispatchSource",
+    "field:_meta.acpmux#effort",
+    "field:_meta.acpmux#env",
+    "field:_meta.acpmux#ephemeral",
+    "field:_meta.acpmux#features",
+    "field:_meta.acpmux#forceAdmit",
+    "field:_meta.acpmux#forwardProjection",
+    "field:_meta.acpmux#fromAgent",
+    "field:_meta.acpmux#fromHarness",
+    "field:_meta.acpmux#fromSessionId",
+    "field:_meta.acpmux#githubBroker",
+    "field:_meta.acpmux#harness",
+    "field:_meta.acpmux#harnessFrom",
+    "field:_meta.acpmux#host",
+    "field:_meta.acpmux#ifNameTaken",
+    "field:_meta.acpmux#inlineParts",
+    "field:_meta.acpmux#localAppToken",
+    "field:_meta.acpmux#mcpServers",
+    "field:_meta.acpmux#messageId",
+    "field:_meta.acpmux#messageSender",
+    "field:_meta.acpmux#mode",
+    "field:_meta.acpmux#model",
+    "field:_meta.acpmux#name",
+    "field:_meta.acpmux#notice",
+    "field:_meta.acpmux#observer",
+    "field:_meta.acpmux#parent",
+    "field:_meta.acpmux#peer",
+    "field:_meta.acpmux#peerHops",
+    "field:_meta.acpmux#peerRowBatches",
+    "field:_meta.acpmux#personDecision",
+    "field:_meta.acpmux#personKey",
+    "field:_meta.acpmux#personVerified",
+    "field:_meta.acpmux#placeRedirect",
+    "field:_meta.acpmux#policy",
+    "field:_meta.acpmux#pr",
+    "field:_meta.acpmux#preset",
+    "field:_meta.acpmux#promptFileText",
+    "field:_meta.acpmux#promptId",
+    "field:_meta.acpmux#promptSuggestion",
+    "field:_meta.acpmux#provenance",
+    "field:_meta.acpmux#reportTo",
+    "field:_meta.acpmux#requestId",
+    "field:_meta.acpmux#requireAsking",
+    "field:_meta.acpmux#requireFullAccess",
+    "field:_meta.acpmux#resend",
+    "field:_meta.acpmux#restricted",
+    "field:_meta.acpmux#route",
+    "field:_meta.acpmux#senderHarness",
+    "field:_meta.acpmux#senderHarnessChecked",
+    "field:_meta.acpmux#sessionChangedDelta",
+    "field:_meta.acpmux#sessionCreatedAt",
+    "field:_meta.acpmux#spawnToolCallId",
+    "field:_meta.acpmux#startLater",
+    "field:_meta.acpmux#steer",
+    "field:_meta.acpmux#steerNow",
+    "field:_meta.acpmux#steerOnly",
+    "field:_meta.acpmux#supersede",
+    "field:_meta.acpmux#surface",
+    "field:_meta.acpmux#tags",
+    "field:_meta.acpmux#teamMessage",
+    "field:_meta.acpmux#throwaway",
+    "field:_meta.acpmux#topic",
+    "field:_meta.acpmux#via",
+    "field:_meta.acpmux#vmBoundary",
+    "field:_meta.acpmux#waitStart",
+    "field:_meta.acpmux#workflowAllowedTools",
+    "field:_meta.acpmux#workspaceId",
+    "field:_meta.acpmux#worktree",
+    "method:_acpmux/account/readiness",
+    "method:_acpmux/account/remove",
+    "method:_acpmux/account/set",
+    "method:_acpmux/account/sign_in",
+    "method:_acpmux/account/sign_in.cancel",
+    "method:_acpmux/account/sign_in.finish",
+    "method:_acpmux/account/sign_out",
+    "method:_acpmux/account/switch",
+    "method:_acpmux/account/usage",
+    "method:_acpmux/accounts",
+    "method:_acpmux/app_reply",
+    "method:_acpmux/approvers",
+    "method:_acpmux/approvers_set",
+    "method:_acpmux/attachments_held",
+    "method:_acpmux/audit",
+    "method:_acpmux/auto_session/leftover",
+    "method:_acpmux/auto_session/set",
+    "method:_acpmux/auto_session/transcript",
+    "method:_acpmux/auto_session/wake",
+    "method:_acpmux/bg/list",
+    "method:_acpmux/bg/output",
+    "method:_acpmux/bg/start",
+    "method:_acpmux/bg/stop",
+    "method:_acpmux/briefs",
+    "method:_acpmux/browser_sign_in_complete",
+    "method:_acpmux/browser_sign_in_start",
+    "method:_acpmux/browser_workspace_source_set",
+    "method:_acpmux/browser_workspaces",
+    "method:_acpmux/callers",
+    "method:_acpmux/chat/route.set",
+    "method:_acpmux/chat_fork",
+    "method:_acpmux/chat_move",
+    "method:_acpmux/chat_open",
+    "method:_acpmux/chat_place",
+    "method:_acpmux/chat_place_set",
+    "method:_acpmux/chat_projects",
+    "method:_acpmux/chat_resolve",
+    "method:_acpmux/chat_roots",
+    "method:_acpmux/chat_roots_record",
+    "method:_acpmux/chat_settings",
+    "method:_acpmux/chat_settled",
+    "method:_acpmux/chat_transcript",
+    "method:_acpmux/chat_transcript_find",
+    "method:_acpmux/chat_transcript_page",
+    "method:_acpmux/chats",
+    "method:_acpmux/chats_search",
+    "method:_acpmux/chats_warm",
+    "method:_acpmux/chats_watch",
+    "method:_acpmux/chats_window",
+    "method:_acpmux/chats_window_close",
+    "method:_acpmux/cold_archive",
+    "method:_acpmux/complete",
+    "method:_acpmux/composer_set",
+    "method:_acpmux/composers",
+    "method:_acpmux/computer_use_call",
+    "method:_acpmux/computer_use_machines",
+    "method:_acpmux/computer_use_state",
+    "method:_acpmux/connections",
+    "method:_acpmux/connections/chatgpt.begin",
+    "method:_acpmux/connections/chatgpt.cancel",
+    "method:_acpmux/connections/chatgpt.import",
+    "method:_acpmux/connections/chatgpt.token",
+    "method:_acpmux/connections/chatgpt.wait",
+    "method:_acpmux/connections/claude_token.add",
+    "method:_acpmux/connections/claude_token.begin",
+    "method:_acpmux/connections/claude_token.cancel",
+    "method:_acpmux/connections/claude_token.code",
+    "method:_acpmux/connections/claude_token.wait",
+    "method:_acpmux/connections/credential",
+    "method:_acpmux/connections/key.add",
+    "method:_acpmux/connections/key.check",
+    "method:_acpmux/connections/order.set",
+    "method:_acpmux/connections/remove",
+    "method:_acpmux/connections/spread.set",
+    "method:_acpmux/context",
+    "method:_acpmux/context_override",
+    "method:_acpmux/defaults",
+    "method:_acpmux/detach_parent",
+    "method:_acpmux/device_enroll",
+    "method:_acpmux/device_hello",
+    "method:_acpmux/directories",
+    "method:_acpmux/dispatch",
+    "method:_acpmux/export",
+    "method:_acpmux/felt_snapshot",
+    "method:_acpmux/forum/ack",
+    "method:_acpmux/forum/announce",
+    "method:_acpmux/forum/post",
+    "method:_acpmux/forum/reply",
+    "method:_acpmux/forum/rules",
+    "method:_acpmux/forum/search",
+    "method:_acpmux/github/pr_state",
+    "method:_acpmux/github/pr_wait",
+    "method:_acpmux/github_action",
+    "method:_acpmux/github_app_lease",
+    "method:_acpmux/github_rest",
+    "method:_acpmux/goal/get",
+    "method:_acpmux/goal/set",
+    "method:_acpmux/goal/update",
+    "method:_acpmux/harness/add",
+    "method:_acpmux/harness/doctor",
+    "method:_acpmux/harness/icon",
+    "method:_acpmux/harness/remove",
+    "method:_acpmux/harness/restore",
+    "method:_acpmux/harness/secret/set",
+    "method:_acpmux/harness/update",
+    "method:_acpmux/history",
+    "method:_acpmux/host_health",
+    "method:_acpmux/host_notice",
+    "method:_acpmux/host_overload",
+    "method:_acpmux/hunk_summary",
+    "method:_acpmux/import",
+    "method:_acpmux/inbox_digest",
+    "method:_acpmux/inbox_relay",
+    "method:_acpmux/inbox_reply",
+    "method:_acpmux/inbox_subscription_remove",
+    "method:_acpmux/inbox_subscription_set",
+    "method:_acpmux/inbox_subscriptions",
+    "method:_acpmux/inbox_thread",
+    "method:_acpmux/inbox_threads",
+    "method:_acpmux/journal_restore",
+    "method:_acpmux/keep",
+    "method:_acpmux/keys_mint",
+    "method:_acpmux/mac_approver_set",
+    "method:_acpmux/mac_approvers",
+    "method:_acpmux/machine.tunnel.attach",
+    "method:_acpmux/machine.tunnel.detach",
+    "method:_acpmux/machine.tunnel.rekey",
+    "method:_acpmux/machine_consent_refused",
+    "method:_acpmux/machine_files_call",
+    "method:_acpmux/machine_info",
+    "method:_acpmux/mail/ack",
+    "method:_acpmux/mail/read",
+    "method:_acpmux/mail/send",
+    "method:_acpmux/mail/wait",
+    "method:_acpmux/mesh_control",
+    "method:_acpmux/move_targets",
+    "method:_acpmux/new_chat_picks_set",
+    "method:_acpmux/offer_session",
+    "method:_acpmux/owner_phone_changed",
+    "method:_acpmux/pair_issue",
+    "method:_acpmux/pair_list",
+    "method:_acpmux/pair_redeem",
+    "method:_acpmux/pair_revoke",
+    "method:_acpmux/pair_set",
+    "method:_acpmux/pair_ticket_new",
+    "method:_acpmux/peer_add",
+    "method:_acpmux/peer_lease",
+    "method:_acpmux/peer_reconnect",
+    "method:_acpmux/peer_remove",
+    "method:_acpmux/peer_snapshot",
+    "method:_acpmux/peer_snapshots_clear",
+    "method:_acpmux/peer_status",
+    "method:_acpmux/peers",
+    "method:_acpmux/perf",
+    "method:_acpmux/person_enroll",
+    "method:_acpmux/place",
+    "method:_acpmux/place_chat",
+    "method:_acpmux/plan/build",
+    "method:_acpmux/plan/compare",
+    "method:_acpmux/plan/keep",
+    "method:_acpmux/presets",
+    "method:_acpmux/project_new",
+    "method:_acpmux/protocol",
+    "method:_acpmux/race/cancel",
+    "method:_acpmux/race/get",
+    "method:_acpmux/race/list",
+    "method:_acpmux/race/start",
+    "method:_acpmux/race/stats",
+    "method:_acpmux/register",
+    "method:_acpmux/registry",
+    "method:_acpmux/reload_config",
+    "method:_acpmux/report",
+    "method:_acpmux/request_state",
+    "method:_acpmux/resolve",
+    "method:_acpmux/retention",
+    "method:_acpmux/review_brief",
+    "method:_acpmux/review_queue",
+    "method:_acpmux/review_verdict",
+    "method:_acpmux/role",
+    "method:_acpmux/route/add",
+    "method:_acpmux/route/default.set",
+    "method:_acpmux/route/edit",
+    "method:_acpmux/route/remove",
+    "method:_acpmux/route/restore",
+    "method:_acpmux/route/show",
+    "method:_acpmux/route/test",
+    "method:_acpmux/run_elsewhere/plan",
+    "method:_acpmux/run_elsewhere/start",
+    "method:_acpmux/schema",
+    "method:_acpmux/scorecard",
+    "method:_acpmux/secret_request",
+    "method:_acpmux/secret_run",
+    "method:_acpmux/send_queue",
+    "method:_acpmux/send_status",
+    "method:_acpmux/session_search",
+    "method:_acpmux/sessions/restart_harness",
+    "method:_acpmux/set_default_policy",
+    "method:_acpmux/set_directories",
+    "method:_acpmux/set_policy",
+    "method:_acpmux/set_rules",
+    "method:_acpmux/set_tools",
+    "method:_acpmux/set_turn_cap",
+    "method:_acpmux/share_host_status",
+    "method:_acpmux/shutdown",
+    "method:_acpmux/stats",
+    "method:_acpmux/steer",
+    "method:_acpmux/step_now",
+    "method:_acpmux/subsession/answer",
+    "method:_acpmux/subsession/get",
+    "method:_acpmux/subsession/limits",
+    "method:_acpmux/subsession/list",
+    "method:_acpmux/subsession/retry",
+    "method:_acpmux/subsession/send",
+    "method:_acpmux/subsession/start",
+    "method:_acpmux/subsession/stop",
+    "method:_acpmux/succeed",
+    "method:_acpmux/surgery",
+    "method:_acpmux/tag",
+    "method:_acpmux/tailnet/join",
+    "method:_acpmux/tailnet/login",
+    "method:_acpmux/tailnet/logout",
+    "method:_acpmux/tailnet/placement",
+    "method:_acpmux/tailnet/start",
+    "method:_acpmux/tailnet/state",
+    "method:_acpmux/task_list/get",
+    "method:_acpmux/task_list/set",
+    "method:_acpmux/task_new",
+    "method:_acpmux/tasks",
+    "method:_acpmux/trace/spans",
+    "method:_acpmux/trace/status",
+    "method:_acpmux/transfer_abort",
+    "method:_acpmux/transfer_commit",
+    "method:_acpmux/transfer_finish",
+    "method:_acpmux/transfer_forget",
+    "method:_acpmux/transfer_preflight",
+    "method:_acpmux/transfer_read",
+    "method:_acpmux/turn_attestation",
+    "method:_acpmux/uploads_keep",
+    "method:_acpmux/vm_host",
+    "method:_acpmux/wait",
+    "method:_acpmux/watch_take_over",
+    "method:_acpmux/web_modes",
+    "method:_acpmux/web_token_rotate",
+    "method:_acpmux/workspace_purge",
+    "method:_acpmux/workspace_roots_set",
+    "method:agent/credentials.update",
+    "method:authenticate",
+    "method:catalog.get",
+    "method:catalog.refresh",
+    "method:chat.fix_from_link",
+    "method:chat.fix_from_link.prepare",
+    "method:session/close",
+    "method:session/delete",
+    "method:session/fork",
+    "method:session/list",
+    "method:session/load",
+    "method:session/request_permission",
+    "notify:_acpmux/admission_waiting",
+    "notify:_acpmux/cancel_refused",
+    "notify:_acpmux/chat_changed",
+    "notify:_acpmux/chats_lagged",
+    "notify:_acpmux/chats_window_changed",
+    "notify:_acpmux/machine_join_progress",
+    "notify:catalog.changed",
+    "param:_acpmux/account/remove#account",
+    "param:_acpmux/account/sign_in#account",
+    "param:_acpmux/account/sign_in#family",
+    "param:_acpmux/account/sign_in#name",
+    "param:_acpmux/account/sign_in#sessionId",
+    "param:_acpmux/account/sign_in.cancel#loginId",
+    "param:_acpmux/account/sign_in.cancel#sessionId",
+    "param:_acpmux/account/sign_in.finish#code",
+    "param:_acpmux/account/sign_in.finish#loginId",
+    "param:_acpmux/account/sign_in.finish#sessionId",
+    "param:_acpmux/account/sign_out#account",
+    "param:_acpmux/account/switch#account",
+    "param:_acpmux/agent_hold#held",
+    "param:_acpmux/agent_hold#sessionId",
+    "param:_acpmux/agent_home#sessionId",
+    "param:_acpmux/agent_home_resolve#accept",
+    "param:_acpmux/agent_home_resolve#drop",
+    "param:_acpmux/agent_home_resolve#sessionId",
+    "param:_acpmux/agent_login/api_key#agent",
+    "param:_acpmux/agent_login/api_key#key",
+    "param:_acpmux/agent_login/api_key#sessionId",
+    "param:_acpmux/agent_login/cancel#loginId",
+    "param:_acpmux/agent_login/cancel#sessionId",
+    "param:_acpmux/agent_login/finish#code",
+    "param:_acpmux/agent_login/finish#loginId",
+    "param:_acpmux/agent_login/finish#sessionId",
+    "param:_acpmux/agent_login/start#agent",
+    "param:_acpmux/agent_login/start#sessionId",
+    "param:_acpmux/agent_pair_resume#peerSessionId",
+    "param:_acpmux/agent_pair_resume#sessionId",
+    "param:_acpmux/app_reply#replyId",
+    "param:_acpmux/app_reply#replyTo",
+    "param:_acpmux/app_reply#sessionId",
+    "param:_acpmux/app_reply#text",
+    "param:_acpmux/app_reply#threadId",
+    "param:_acpmux/app_reply#to",
+    "param:_acpmux/archive#archived",
+    "param:_acpmux/archive#opId",
+    "param:_acpmux/archive#sessionId",
+    "param:_acpmux/attach#afterSeq",
+    "param:_acpmux/attach#attending",
+    "param:_acpmux/attach#beforeSeq",
+    "param:_acpmux/attach#eventStream",
+    "param:_acpmux/attach#kinds",
+    "param:_acpmux/attach#limit",
+    "param:_acpmux/attach#maxBytes",
+    "param:_acpmux/attach#omitTimeBreakdown",
+    "param:_acpmux/attach#quietHidden",
+    "param:_acpmux/attach#sessionId",
+    "param:_acpmux/attach#settled",
+    "param:_acpmux/attach#timeBreakdownVersion",
+    "param:_acpmux/attach#visible",
+    "param:_acpmux/attach#waitLogs",
+    "param:_acpmux/attachment#id",
+    "param:_acpmux/attachment#sessionId",
+    "param:_acpmux/bookmark_get#sessionId",
+    "param:_acpmux/bookmark_set#bookmarked",
+    "param:_acpmux/bookmark_set#seq",
+    "param:_acpmux/bookmark_set#sessionId",
+    "param:_acpmux/btw#inline",
+    "param:_acpmux/btw#model",
+    "param:_acpmux/btw#question",
+    "param:_acpmux/btw#sessionId",
+    "param:_acpmux/btw#targetHarness",
+    "param:_acpmux/chat/route.set#routeId",
+    "param:_acpmux/chat/route.set#sessionId",
+    "param:_acpmux/chat/route.set#when",
+    "param:_acpmux/customize_run#run",
+    "param:_acpmux/detach#sessionId",
+    "param:_acpmux/draft_get#sessionId",
+    "param:_acpmux/draft_set#sessionId",
+    "param:_acpmux/draft_set#text",
+    "param:_acpmux/events#afterSeq",
+    "param:_acpmux/events#beforeSeq",
+    "param:_acpmux/events#kinds",
+    "param:_acpmux/events#limit",
+    "param:_acpmux/events#maxBytes",
+    "param:_acpmux/events#promptIndex",
+    "param:_acpmux/events#sessionId",
+    "param:_acpmux/events#sinceSeen",
+    "param:_acpmux/events#subagent",
+    "param:_acpmux/handoff_discard#handoffId",
+    "param:_acpmux/handoff_draft#capsule",
+    "param:_acpmux/handoff_draft#checkpoint",
+    "param:_acpmux/handoff_draft#draftKey",
+    "param:_acpmux/handoff_draft#handoffId",
+    "param:_acpmux/handoff_draft#revision",
+    "param:_acpmux/handoff_get#handoffId",
+    "param:_acpmux/handoff_get#sessionId",
+    "param:_acpmux/handoff_prepare#handoffKey",
+    "param:_acpmux/handoff_prepare#harness",
+    "param:_acpmux/handoff_prepare#memoryRefs",
+    "param:_acpmux/handoff_prepare#sessionId",
+    "param:_acpmux/handoff_start#capsule",
+    "param:_acpmux/handoff_start#checkpoint",
+    "param:_acpmux/handoff_start#handoffId",
+    "param:_acpmux/handoff_start#promptId",
+    "param:_acpmux/handoff_start#revision",
+    "param:_acpmux/harness/health#autoUpdate",
+    "param:_acpmux/harness/health#checkLatest",
+    "param:_acpmux/harness/health#refresh",
+    "param:_acpmux/harness/health#rescan",
+    "param:_acpmux/harness/health#view",
+    "param:_acpmux/harness/inventory/watch#enabled",
+    "param:_acpmux/harness/update/plan#cli",
+    "param:_acpmux/harness/update/prepare#cli",
+    "param:_acpmux/harness_enable#folder",
+    "param:_acpmux/harness_enable#id",
+    "param:_acpmux/harnesses#cwd",
+    "param:_acpmux/here#scope",
+    "param:_acpmux/here/beat#activity",
+    "param:_acpmux/here/beat#device",
+    "param:_acpmux/here/beat#deviceKind",
+    "param:_acpmux/here/beat#idleMs",
+    "param:_acpmux/here/beat#leave",
+    "param:_acpmux/here/beat#scopes",
+    "param:_acpmux/here/beat#seq",
+    "param:_acpmux/inbox_thread#markRead",
+    "param:_acpmux/inbox_thread#sessionId",
+    "param:_acpmux/inbox_thread#threadId",
+    "param:_acpmux/kill#cancelFork",
+    "param:_acpmux/kill#cancelToken",
+    "param:_acpmux/kill#expectRevision",
+    "param:_acpmux/kill#purge",
+    "param:_acpmux/kill#sessionId",
+    "param:_acpmux/mail/ack#messageId",
+    "param:_acpmux/mail/ack#recipient",
+    "param:_acpmux/mail/read#after",
+    "param:_acpmux/mail/read#limit",
+    "param:_acpmux/mail/read#recipient",
+    "param:_acpmux/mail/send#body",
+    "param:_acpmux/mail/send#id",
+    "param:_acpmux/mail/send#metadata",
+    "param:_acpmux/mail/send#recipient",
+    "param:_acpmux/mail/send#sender",
+    "param:_acpmux/mail/send#target",
+    "param:_acpmux/mail/wait#after",
+    "param:_acpmux/mail/wait#limit",
+    "param:_acpmux/mail/wait#recipient",
+    "param:_acpmux/mail/wait#timeoutMs",
+    "param:_acpmux/markRead#sessionId",
+    "param:_acpmux/markUnread#readThrough",
+    "param:_acpmux/markUnread#sessionId",
+    "param:_acpmux/mcp/reconnect#server",
+    "param:_acpmux/mcp/reconnect#sessionId",
+    "param:_acpmux/memory_resolve#accept",
+    "param:_acpmux/memory_resolve#dismiss",
+    "param:_acpmux/memory_resolve#file",
+    "param:_acpmux/memory_resolve#offerId",
+    "param:_acpmux/memory_resolve#sessionId",
+    "param:_acpmux/models#localOnly",
+    "param:_acpmux/models#probe",
+    "param:_acpmux/models#refresh",
+    "param:_acpmux/move_targets#source",
+    "param:_acpmux/move_targets#sourceKind",
+    "param:_acpmux/native_history#before",
+    "param:_acpmux/native_history#mark",
+    "param:_acpmux/native_history#sessionId",
+    "param:_acpmux/offer_respond#childSessionId",
+    "param:_acpmux/offer_respond#offerId",
+    "param:_acpmux/offer_respond#outcome",
+    "param:_acpmux/offer_respond#sessionId",
+    "param:_acpmux/peer_reconnect#force",
+    "param:_acpmux/peer_reconnect#name",
+    "param:_acpmux/peer_reconnect#wait",
+    "param:_acpmux/peer_snapshot#host",
+    "param:_acpmux/peer_snapshot#limit",
+    "param:_acpmux/peer_snapshot#maxBytes",
+    "param:_acpmux/peer_snapshot#sessionId",
+    "param:_acpmux/permission_chat_revoke#sessionId",
+    "param:_acpmux/permission_group_respond#decision",
+    "param:_acpmux/permission_group_respond#decisionKey",
+    "param:_acpmux/permission_group_respond#groupId",
+    "param:_acpmux/permission_group_respond#revision",
+    "param:_acpmux/permission_group_respond#sessionId",
+    "param:_acpmux/permission_groups#groupId",
+    "param:_acpmux/permission_groups#sessionId",
+    "param:_acpmux/permission_respond#annotations",
+    "param:_acpmux/permission_respond#answers",
+    "param:_acpmux/permission_respond#optionId",
+    "param:_acpmux/permission_respond#permissionId",
+    "param:_acpmux/permission_respond#sessionId",
+    "param:_acpmux/prewarm#credentials",
+    "param:_acpmux/prewarm#cwd",
+    "param:_acpmux/prewarm#harness",
+    "param:_acpmux/prewarm#model",
+    "param:_acpmux/prewarm#release",
+    "param:_acpmux/prewarm#reserveHome",
+    "param:_acpmux/prewarm#shapes",
+    "param:_acpmux/prewarm#wait",
+    "param:_acpmux/prewarm#workspaceId",
+    "param:_acpmux/process/background#sessionId",
+    "param:_acpmux/process/background#toolCallId",
+    "param:_acpmux/process/kill#processId",
+    "param:_acpmux/process/kill#sessionId",
+    "param:_acpmux/process/kill#signal",
+    "param:_acpmux/process/list#calls",
+    "param:_acpmux/process/list#cursor",
+    "param:_acpmux/process/list#endedWithin",
+    "param:_acpmux/process/list#limit",
+    "param:_acpmux/process/list#recent",
+    "param:_acpmux/process/list#sessionId",
+    "param:_acpmux/process/tail#fromByte",
+    "param:_acpmux/process/tail#maxBytes",
+    "param:_acpmux/process/tail#processId",
+    "param:_acpmux/process/tail#sessionId",
+    "param:_acpmux/prompt_coach#coachId",
+    "param:_acpmux/prompt_coach#sessionId",
+    "param:_acpmux/prompts_delete#name",
+    "param:_acpmux/prompts_save#name",
+    "param:_acpmux/prompts_save#text",
+    "param:_acpmux/queue_approve#promptId",
+    "param:_acpmux/queue_approve#revision",
+    "param:_acpmux/queue_approve#sessionId",
+    "param:_acpmux/queue_approve#turnId",
+    "param:_acpmux/queue_decline#promptId",
+    "param:_acpmux/queue_decline#sessionId",
+    "param:_acpmux/queue_edit#images",
+    "param:_acpmux/queue_edit#index",
+    "param:_acpmux/queue_edit#op",
+    "param:_acpmux/queue_edit#promptId",
+    "param:_acpmux/queue_edit#sessionId",
+    "param:_acpmux/queue_edit#text",
+    "param:_acpmux/queue_get#promptId",
+    "param:_acpmux/queue_get#sessionId",
+    "param:_acpmux/queue_remove#promptId",
+    "param:_acpmux/queue_remove#sessionId",
+    "param:_acpmux/release_to_watch#sessionId",
+    "param:_acpmux/resolve#exactSessionId",
+    "param:_acpmux/resolve#query",
+    "param:_acpmux/resolve#sessionId",
+    "param:_acpmux/retry#sessionId",
+    "param:_acpmux/retry#subagentId",
+    "param:_acpmux/route/list#sessionId",
+    "param:_acpmux/secret_submit#keepAs",
+    "param:_acpmux/secret_submit#secretId",
+    "param:_acpmux/secret_submit#sessionId",
+    "param:_acpmux/secret_submit#value",
+    "param:_acpmux/seen#seq",
+    "param:_acpmux/seen#sessionId",
+    "param:_acpmux/session/auth#refresh",
+    "param:_acpmux/session/auth#sessionId",
+    "param:_acpmux/session/auth#target",
+    "param:_acpmux/sessions#cursor",
+    "param:_acpmux/sessions#excludeStatus",
+    "param:_acpmux/sessions#limit",
+    "param:_acpmux/sessions#localOnly",
+    "param:_acpmux/sessions#orderBy",
+    "param:_acpmux/sessions#peer",
+    "param:_acpmux/sessions#pendingOnly",
+    "param:_acpmux/sessions#status",
+    "param:_acpmux/sessions#topLevelOnly",
+    "param:_acpmux/sessions#usage",
+    "param:_acpmux/sessions#withTools",
+    "param:_acpmux/set_tools#enabled",
+    "param:_acpmux/set_tools#id",
+    "param:_acpmux/set_tools#sessionId",
+    "param:_acpmux/side#chat",
+    "param:_acpmux/side#sessionId",
+    "param:_acpmux/start_mode#cwd",
+    "param:_acpmux/start_mode#harness",
+    "param:_acpmux/start_mode#preset",
+    "param:_acpmux/stash_drop#chat",
+    "param:_acpmux/stash_drop#id",
+    "param:_acpmux/stash_get#chat",
+    "param:_acpmux/stash_get#id",
+    "param:_acpmux/stash_list#chat",
+    "param:_acpmux/stash_move#chat",
+    "param:_acpmux/stash_move#to",
+    "param:_acpmux/stash_push#attachments",
+    "param:_acpmux/stash_push#chat",
+    "param:_acpmux/stash_push#replaces",
+    "param:_acpmux/stash_push#text",
+    "param:_acpmux/subagent_stop#sessionId",
+    "param:_acpmux/subagent_stop#subagentSessionId",
+    "param:_acpmux/subagent_transcript#after",
+    "param:_acpmux/subagent_transcript#agentId",
+    "param:_acpmux/subagent_transcript#before",
+    "param:_acpmux/subagent_transcript#limit",
+    "param:_acpmux/subagent_transcript#runId",
+    "param:_acpmux/subagent_transcript#sessionId",
+    "param:_acpmux/subagents#ended",
+    "param:_acpmux/subagents#sessionId",
+    "param:_acpmux/subsession/limits#maxRunning",
+    "param:_acpmux/subsession/limits#sessionId",
+    "param:_acpmux/subsession/limits#workspaceId",
+    "param:_acpmux/sync/pull#vv",
+    "param:_acpmux/sync/push#delta",
+    "param:_acpmux/turn_frames#index",
+    "param:_acpmux/turn_frames#look",
+    "param:_acpmux/turn_frames#sessionId",
+    "param:_acpmux/turn_frames#sinceSeq",
+    "param:_acpmux/turn_frames#turnId",
+    "param:_acpmux/turn_shots#sessionId",
+    "param:_acpmux/turn_shots#turnId",
+    "param:_acpmux/typing#on",
+    "param:_acpmux/typing#sessionId",
+    "param:_acpmux/usage#known",
+    "param:_acpmux/view#attending",
+    "param:_acpmux/view#cutoverSeq",
+    "param:_acpmux/view#seenSeq",
+    "param:_acpmux/view#sessionId",
+    "param:_acpmux/view#visible",
+    "param:_acpmux/warm#limit",
+    "param:_acpmux/warm#sessionIds",
+    "param:_acpmux/watch#afterSeq",
+    "param:_acpmux/watch#cursor",
+    "param:_acpmux/watch#enabled",
+    "param:_acpmux/watch#limit",
+    "param:_acpmux/watch#listEpoch",
+    "param:_acpmux/watch#withTools",
+    "param:_acpmux/watch_take_over#ifLive",
+    "param:_acpmux/watch_take_over#sessionId",
+    "param:acp.session.fork#beforePromptId",
+    "param:acp.session.fork#cancelToken",
+    "param:acp.session.fork#harness",
+    "param:acp.session.fork#live",
+    "param:acp.session.fork#mode",
+    "param:acp.session.fork#model",
+    "param:acp.session.fork#requestId",
+    "param:acp.session.fork#sessionId",
+    "param:acp.session.fork#subagentId",
+    "param:acp.session.fork#throughSeq",
+    "param:acp.trust.get#cwd",
+    "param:acp.trust.get#peer",
+    "param:acp.trust.get#sessionId",
+    "param:acp.trust.set#cwd",
+    "param:acp.trust.set#level",
+    "param:acp.trust.set#peer",
+    "param:acp.trust.set#sessionId",
+    "param:initialize#clientCapabilities",
+    "param:initialize#clientInfo",
+    "param:initialize#protocolVersion",
+    "param:session/cancel#sessionId",
+    "param:session/new#additionalDirectories",
+    "param:session/new#cwd",
+    "param:session/new#mcpServers",
+    "param:session/prompt#prompt",
+    "param:session/prompt#sessionId",
+    "param:session/prompt#steer",
+    "param:session/set_config_option#configId",
+    "param:session/set_config_option#sessionId",
+    "param:session/set_config_option#value",
+    "param:session/set_mode#modeId",
+    "param:session/set_mode#sessionId",
+    "param:session/set_model#modelId",
+    "param:session/set_model#sessionId"
+  ],
+  "capabilities": {
+    "acp.session.fork.subagent.v1": [
+      "method:acp.session.fork"
+    ],
+    "acpmux-v1": [
+      "method:_acpmux/archive",
+      "method:_acpmux/ask",
+      "method:_acpmux/attach",
+      "method:_acpmux/attachment",
+      "method:_acpmux/bookmark_get",
+      "method:_acpmux/bookmark_set",
+      "method:_acpmux/detach",
+      "method:_acpmux/draft_get",
+      "method:_acpmux/draft_set",
+      "method:_acpmux/events",
+      "method:_acpmux/harness_enable",
+      "method:_acpmux/harnesses",
+      "method:_acpmux/info",
+      "method:_acpmux/kill",
+      "method:_acpmux/markUnread",
+      "method:_acpmux/models",
+      "method:_acpmux/permission_respond",
+      "method:_acpmux/prewarm",
+      "method:_acpmux/route/list",
+      "method:_acpmux/secret_submit",
+      "method:_acpmux/sessions",
+      "method:_acpmux/side",
+      "method:_acpmux/status",
+      "method:_acpmux/view",
+      "method:_acpmux/warm",
+      "method:_acpmux/watch",
+      "method:initialize",
+      "method:session/cancel",
+      "method:session/new",
+      "method:session/prompt",
+      "method:session/set_config_option",
+      "method:session/set_mode",
+      "method:session/set_model",
+      "notify:_acpmux/event",
+      "notify:_acpmux/harnesses_changed",
+      "notify:_acpmux/lagged",
+      "notify:_acpmux/permission_pending",
+      "notify:_acpmux/prompt_accepted",
+      "notify:_acpmux/session_changed",
+      "notify:session/update"
+    ],
+    "agent-channels-v1": [
+      "method:_acpmux/channel/close",
+      "method:_acpmux/channel/connect",
+      "method:_acpmux/channel/listen",
+      "method:_acpmux/channel/open",
+      "method:_acpmux/channel/send",
+      "method:_acpmux/channel/unlisten",
+      "notify:_acpmux/channel/closed",
+      "notify:_acpmux/channel/data",
+      "notify:_acpmux/channel/opened"
+    ],
+    "agent-hold-v1": [
+      "method:_acpmux/agent_hold"
+    ],
+    "agent-home-v1": [
+      "method:_acpmux/agent_home",
+      "method:_acpmux/agent_home_resolve"
+    ],
+    "agent-login-v1": [
+      "method:_acpmux/agent_login/api_key",
+      "method:_acpmux/agent_login/cancel",
+      "method:_acpmux/agent_login/finish",
+      "method:_acpmux/agent_login/start"
+    ],
+    "agent-pairs-v1": [
+      "method:_acpmux/agent_pair_resume"
+    ],
+    "agent-session-turn-rewind-v1": [
+      "method:agent-session-turn-abandon",
+      "method:agent-session-turn-prepare"
+    ],
+    "attach-hold-v1": [
+      "method:_acpmux/attach"
+    ],
+    "autocloud-fill-v1": [
+      "notify:_acpmux/fill"
+    ],
+    "btw-guest-v1": [
+      "method:_acpmux/btw"
+    ],
+    "btw-inline-v1": [
+      "method:_acpmux/btw"
+    ],
+    "cancel-request-v1": [
+      "method:$/cancel_request"
+    ],
+    "chat-pin-v1": [
+      "method:_acpmux/pin"
+    ],
+    "chat-presence-v1": [
+      "method:_acpmux/typing",
+      "notify:_acpmux/presence"
+    ],
+    "chunk-deltas-v1": [
+      "method:_acpmux/attach",
+      "method:initialize",
+      "notify:_acpmux/chunk",
+      "notify:_acpmux/event"
+    ],
+    "client:chunkDeltas": [
+      "notify:_acpmux/chunk"
+    ],
+    "client:peerRowBatches": [
+      "notify:_acpmux/peer_rows_changed"
+    ],
+    "client:sessionChangedDelta": [
+      "notify:_acpmux/session_patch"
+    ],
+    "codex-external-access-v1": [
+      "method:session/new",
+      "method:session/prompt"
+    ],
+    "connections-events-v1": [
+      "notify:_acpmux/connections.changed"
+    ],
+    "cost-ledger-v1": [
+      "method:_acpmux/ledger"
+    ],
+    "customize-run-v1": [
+      "method:_acpmux/customize_run"
+    ],
+    "draft-stash-v1": [
+      "method:_acpmux/stash_drop",
+      "method:_acpmux/stash_get",
+      "method:_acpmux/stash_list",
+      "method:_acpmux/stash_move",
+      "method:_acpmux/stash_push"
+    ],
+    "durable-watches-v1": [
+      "method:_acpmux/watch_add",
+      "method:_acpmux/watch_ls",
+      "method:_acpmux/watch_rm"
+    ],
+    "elevation-cards-v1": [
+      "method:_acpmux/elevation_request",
+      "method:_acpmux/secret_submit"
+    ],
+    "feature:agent_login": [
+      "method:_acpmux/agent_login/api_key",
+      "method:_acpmux/agent_login/cancel",
+      "method:_acpmux/agent_login/finish",
+      "method:_acpmux/agent_login/start"
+    ],
+    "feature:approverDecisions": [
+      "field:_meta.acpmux#approverDecisions"
+    ],
+    "feature:cancelRequest": [
+      "method:$/cancel_request"
+    ],
+    "feature:cancelRequestV2": [
+      "method:$/cancel_request"
+    ],
+    "feature:filePut": [
+      "method:_acpmux/file_put"
+    ],
+    "feature:filePutChunks": [
+      "method:_acpmux/file_put_begin",
+      "method:_acpmux/file_put_cancel",
+      "method:_acpmux/file_put_chunk",
+      "method:_acpmux/file_put_finish"
+    ],
+    "feature:filePutWindow": [
+      "param:_acpmux/file_put_finish#chunksInFlight"
+    ],
+    "feature:harnessInventory": [
+      "notify:_acpmux/harness_inventory"
+    ],
+    "feature:harnessInventoryRefresh": [
+      "method:_acpmux/harness/inventory/refresh"
+    ],
+    "feature:harnessInventoryWatch": [
+      "method:_acpmux/harness/inventory/watch"
+    ],
+    "feature:harnessUpdatePlan": [
+      "method:_acpmux/harness/update/plan"
+    ],
+    "feature:harnessUpdatePrepare": [
+      "method:_acpmux/harness/update/prepare"
+    ],
+    "feature:journalRestorePages": [
+      "field:_meta.acpmux#throughSeq"
+    ],
+    "feature:linkControls": [
+      "method:_acpmux/controls",
+      "notify:_acpmux/control"
+    ],
+    "feature:listStream": [
+      "method:_acpmux/v2"
+    ],
+    "feature:mediaRead": [
+      "method:_acpmux/media_open",
+      "method:_acpmux/media_range"
+    ],
+    "feature:nativeHistory": [
+      "method:_acpmux/native_history"
+    ],
+    "feature:peerStateEvents": [
+      "notify:_acpmux/peer_state_changed"
+    ],
+    "feature:permissionGroups": [
+      "method:_acpmux/permission_chat_revoke",
+      "method:_acpmux/permission_group_respond",
+      "method:_acpmux/permission_groups"
+    ],
+    "feature:personChallenge": [
+      "method:_acpmux/person_prove"
+    ],
+    "feature:personHolds": [
+      "method:_acpmux/person_holds"
+    ],
+    "feature:personStop": [
+      "field:_meta.acpmux#personStop"
+    ],
+    "feature:processes": [
+      "method:_acpmux/process/background",
+      "method:_acpmux/process/kill",
+      "method:_acpmux/process/list",
+      "method:_acpmux/process/tail",
+      "notify:_acpmux/process_update"
+    ],
+    "feature:promptAccepted": [
+      "notify:_acpmux/prompt_accepted"
+    ],
+    "feature:promptWithdraw": [
+      "method:_acpmux/prompt_withdraw",
+      "method:_acpmux/steer_withdraw"
+    ],
+    "feature:queueApproval": [
+      "method:_acpmux/queue_approve",
+      "method:_acpmux/queue_decline"
+    ],
+    "feature:queueEdit": [
+      "method:_acpmux/queue_edit",
+      "method:_acpmux/queue_remove"
+    ],
+    "feature:queueGet": [
+      "method:_acpmux/queue_get"
+    ],
+    "feature:releaseToWatch": [
+      "method:_acpmux/release_to_watch"
+    ],
+    "feature:senderToken": [
+      "field:_meta.acpmux#senderToken"
+    ],
+    "feature:sessionAuth": [
+      "method:_acpmux/session/auth"
+    ],
+    "feature:sessionHold": [
+      "method:_acpmux/fleet_hold",
+      "method:_acpmux/session_hold"
+    ],
+    "feature:sessionPause": [
+      "method:_acpmux/pause",
+      "method:_acpmux/wake"
+    ],
+    "feature:sessionResume": [
+      "method:session/resume"
+    ],
+    "feature:steerInterrupt": [
+      "field:_meta.acpmux#interrupt"
+    ],
+    "feature:stopIfIdle": [
+      "param:_acpmux/kill#ifIdle"
+    ],
+    "feature:subagentTranscript": [
+      "method:_acpmux/subagent_transcript"
+    ],
+    "feature:trustGate": [
+      "method:acp.trust.get",
+      "method:acp.trust.set"
+    ],
+    "feature:unsentSeq": [
+      "notify:_acpmux/unsent"
+    ],
+    "feature:uploadFrames": [
+      "method:_acpmux/file_put_data",
+      "method:_acpmux/file_put_status"
+    ],
+    "feature:uploadResume": [
+      "method:_acpmux/file_put_status"
+    ],
+    "feature:worktreeCare": [
+      "method:_acpmux/worktree/clean",
+      "method:_acpmux/worktree/report",
+      "method:_acpmux/worktree/restore"
+    ],
+    "folder-trust-v1": [
+      "method:acp.trust.get",
+      "method:acp.trust.set"
+    ],
+    "harness-health-v1": [
+      "method:_acpmux/harness/health"
+    ],
+    "here-v1": [
+      "method:_acpmux/here",
+      "method:_acpmux/here/beat"
+    ],
+    "info-rows-v1": [
+      "method:_acpmux/info",
+      "method:_acpmux/status"
+    ],
+    "machine-consent-v1": [
+      "method:_acpmux/machine_consent_get",
+      "method:_acpmux/machine_consent_set"
+    ],
+    "machine-enroll-v1": [
+      "method:_acpmux/machine_enroll",
+      "method:_acpmux/machine_leave_if_auto"
+    ],
+    "machine-join-ssh-v1": [
+      "method:_acpmux/machine_candidates",
+      "method:_acpmux/machine_join_ssh"
+    ],
+    "machine-routes-v1": [
+      "method:_acpmux/machine_route_probe",
+      "method:_acpmux/machine_routes"
+    ],
+    "machine-signed-in-v1": [
+      "method:_acpmux/machine_signed_in"
+    ],
+    "machine.vault.egress.v1": [
+      "method:_acpmux/vault_status"
+    ],
+    "machine.vault.pull.v1": [
+      "method:_acpmux/vault_forget",
+      "method:_acpmux/vault_pull",
+      "method:_acpmux/vault_status"
+    ],
+    "mark-read-v1": [
+      "method:_acpmux/markRead"
+    ],
+    "mcp-connect-v1": [
+      "method:_acpmux/mcp_connect_answer",
+      "method:_acpmux/mcp_connect_request"
+    ],
+    "mcp-reconnect-v1": [
+      "method:_acpmux/mcp/reconnect"
+    ],
+    "memory-inbox-v1": [
+      "method:_acpmux/memory_resolve"
+    ],
+    "native-history-v1": [
+      "method:_acpmux/native_history"
+    ],
+    "op-once-v1": [
+      "method:_acpmux/archive",
+      "method:_acpmux/rename"
+    ],
+    "peer-row-batches-v1": [
+      "method:_acpmux/watch",
+      "method:initialize",
+      "notify:_acpmux/peer_rows_changed"
+    ],
+    "peer-state-events-v1": [
+      "notify:_acpmux/peer_state_changed"
+    ],
+    "permission-groups-v1": [
+      "method:_acpmux/permission_chat_revoke",
+      "method:_acpmux/permission_group_respond",
+      "method:_acpmux/permission_groups"
+    ],
+    "place-redirect-v1": [
+      "method:session/new"
+    ],
+    "process-census-v1": [
+      "method:_acpmux/process/census"
+    ],
+    "processes-v1": [
+      "method:_acpmux/process/background",
+      "method:_acpmux/process/kill",
+      "method:_acpmux/process/list",
+      "method:_acpmux/process/tail",
+      "notify:_acpmux/process_update"
+    ],
+    "prompt-coach-v1": [
+      "method:_acpmux/prompt_coach"
+    ],
+    "prompt-library-v1": [
+      "method:_acpmux/prompts_delete",
+      "method:_acpmux/prompts_list",
+      "method:_acpmux/prompts_save"
+    ],
+    "queue-approval-v1": [
+      "method:_acpmux/queue_approve",
+      "method:_acpmux/queue_decline"
+    ],
+    "queue-edit-v1": [
+      "method:_acpmux/queue_edit",
+      "method:_acpmux/queue_remove"
+    ],
+    "queue-get-v1": [
+      "method:_acpmux/queue_get"
+    ],
+    "queue-text-v1": [
+      "method:_acpmux/queue_text"
+    ],
+    "read-through-v1": [
+      "method:_acpmux/seen"
+    ],
+    "remote-pipe-v1": [
+      "method:_acpmux/remote.pipe"
+    ],
+    "send-fanout-v1": [
+      "method:_acpmux/send_fanout"
+    ],
+    "session-auth-v1": [
+      "method:_acpmux/session/auth"
+    ],
+    "session-changed-delta-v1": [
+      "method:initialize",
+      "notify:_acpmux/session_changed",
+      "notify:_acpmux/session_patch"
+    ],
+    "session-changed-delta-v2": [
+      "method:_acpmux/session_resync",
+      "method:initialize",
+      "notify:_acpmux/session_patch"
+    ],
+    "session-files-v1": [
+      "method:_acpmux/session_files"
+    ],
+    "session-handoff-v1": [
+      "method:_acpmux/handoff_discard",
+      "method:_acpmux/handoff_draft",
+      "method:_acpmux/handoff_get",
+      "method:_acpmux/handoff_prepare",
+      "method:_acpmux/handoff_start"
+    ],
+    "session-idle-facts-v1": [
+      "method:_acpmux/sessions"
+    ],
+    "session-list-filters-v1": [
+      "method:_acpmux/sessions"
+    ],
+    "session-list-follow-v1": [
+      "method:_acpmux/watch",
+      "notify:_acpmux/session_changed"
+    ],
+    "session-list-pending-v1": [
+      "method:_acpmux/sessions"
+    ],
+    "session-list-top-level-v1": [
+      "method:_acpmux/sessions"
+    ],
+    "session-messages-v1": [
+      "notify:_acpmux/message"
+    ],
+    "session-offers-v1": [
+      "method:_acpmux/offer_respond"
+    ],
+    "session-usage-v1": [
+      "method:_acpmux/usage"
+    ],
+    "settled-attach-v1": [
+      "method:_acpmux/attach"
+    ],
+    "start-mode-v1": [
+      "method:_acpmux/start_mode",
+      "notify:_acpmux/start_mode_changed"
+    ],
+    "state-sync-v1": [
+      "method:_acpmux/sync/pull",
+      "method:_acpmux/sync/push"
+    ],
+    "subagent-list-v1": [
+      "method:_acpmux/subagents"
+    ],
+    "subagent-resume-v1": [
+      "method:_acpmux/retry",
+      "notify:session/update"
+    ],
+    "subagent-retry-v1": [
+      "method:_acpmux/retry"
+    ],
+    "subagent-retry-v2": [
+      "method:_acpmux/retry",
+      "notify:session/update"
+    ],
+    "subagent-stop-v1": [
+      "method:_acpmux/subagent_stop"
+    ],
+    "subagent-transcript-v1": [
+      "method:_acpmux/subagent_transcript"
+    ],
+    "subsession-resume-v1": [
+      "method:_acpmux/retry"
+    ],
+    "team-audit-v1": [
+      "method:_acpmux/team_audit"
+    ],
+    "team-listen-v1": [
+      "method:_acpmux/team/listen"
+    ],
+    "team-messaging-v1": [
+      "method:_acpmux/team/ack",
+      "method:_acpmux/team/inbox",
+      "method:_acpmux/team/read",
+      "method:_acpmux/team/send"
+    ],
+    "transcript-rows-v1": [
+      "method:_acpmux/rows",
+      "notify:_acpmux/rows_lagged",
+      "notify:_acpmux/rows_patch"
+    ],
+    "transfer-composers-v1": [
+      "method:_acpmux/transfer_receive",
+      "method:_acpmux/transfer_write"
+    ],
+    "transfer-history-later-v1": [
+      "method:_acpmux/transfer_history",
+      "method:_acpmux/transfer_history_export",
+      "method:_acpmux/transfer_history_have",
+      "method:_acpmux/transfer_prepare",
+      "method:_acpmux/transfer_stage_finish"
+    ],
+    "transfer-images-v1": [
+      "method:_acpmux/transfer_receive",
+      "method:_acpmux/transfer_write"
+    ],
+    "transfer-live-v1": [
+      "method:_acpmux/transfer_digest",
+      "method:_acpmux/transfer_end_stale",
+      "method:_acpmux/transfer_progress",
+      "method:_acpmux/transfer_stage",
+      "method:_acpmux/transfer_write"
+    ],
+    "transfer-precopy-v1": [
+      "method:_acpmux/transfer_base",
+      "method:_acpmux/transfer_begin",
+      "method:_acpmux/transfer_prepare",
+      "method:_acpmux/transfer_receive",
+      "method:_acpmux/transfer_stage",
+      "method:_acpmux/transfer_stage_finish"
+    ],
+    "trigger-chat-v1": [
+      "method:trigger/chat.ensure",
+      "method:trigger/chat.send",
+      "method:trigger/chat.status"
+    ],
+    "turn-frames-v1": [
+      "method:_acpmux/turn_frames"
+    ],
+    "turn-retry-v1": [
+      "method:_acpmux/retry"
+    ],
+    "turn-shots-v1": [
+      "method:_acpmux/turn_shots"
+    ],
+    "who-else-v1": [
+      "method:_acpmux/who_else"
+    ],
+    "workflow-agents-v1": [
+      "notify:session/update"
+    ],
+    "workflows-index-v1": [
+      "method:_acpmux/workflows"
+    ]
+  }
+}

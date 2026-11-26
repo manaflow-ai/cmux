@@ -503,6 +503,78 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# Transport lockstep (cmux-tui/crates/cmux-wire-lockstep): each wire protocol's manifest (cmux-tui/spec/wire/*.json,
+# printed by the protocol's own snapshot test) at this merge commit against the base's (HEAD^1). Red on a message one
+# side would send that the other never said it knows: a new name not behind a new capability, a capability whose
+# contract changed under the same id, a capability or legacy name dropped unretired, a hard version an old peer can no
+# longer decode. Leo, 2026-11-24: "of course acpmux/cmux protocols need to be able to work in lockstep with these".
+[step.wire-lockstep]
+job = "linux"
+timeout = 300
+title = "Wire protocols stay in lockstep, old against new"
+about = "every message acpmux, cmux-mobile-link or cmux-remote adds is behind a new capability negotiated in the handshake, so an old peer and a new one still talk in both directions"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/spec/wire/**",
+  "cmux-tui/crates/cmux-wire-lockstep/**",
+  "cmux-tui/crates/acpmux/spec/**",
+  "cmux-tui/crates/acpmux/src/capabilities.rs",
+  "cmux-tui/crates/acpmux/src/protocol/**",
+  "cmux-tui/crates/acpmux/src/peer_*.rs",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-remote/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+  "cmux-next-ios/PROTOCOL.md",
+]
+run = '''
+cd cmux-tui
+cargo test --locked -p cmux-wire-lockstep
+cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root .. --base HEAD^1 --export-base "$RUNNER_TEMP/wire-base"
+'''
+
+# The protocols' own old-against-new tests: the new code against a peer emulated from the PR base's wire
+# manifest (exported by wire-lockstep-check), in both directions, and each manifest's snapshot test, so a stale
+# manifest is caught too. They compile acpmux, cmux-remote and cmux-mobile-link from an empty target, so the
+# step is routed only by the protocol crates themselves and runs alone: a pull request into feat-cmux-next skips
+# acpmux's full suite (cmux-tui-spec.yml acpmux-tests), and this is the one place its wire is checked on the PR.
+[step.wire-lockstep-peers]
+job = "linux"
+alone = true
+timeout = 1800
+title = "Old and new peers talk in both directions"
+about = "acpmux, cmux-remote, cmux-mobile-link and the relay frame run their new code against a peer that knows only the PR base's messages, both ways, and fail on a message the other side never listed; each protocol's wire manifest matches its code"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/spec/wire/**",
+  "cmux-tui/crates/cmux-wire-lockstep/**",
+  "cmux-tui/crates/acpmux/spec/**",
+  "cmux-tui/crates/acpmux/src/capabilities.rs",
+  "cmux-tui/crates/acpmux/src/protocol/**",
+  "cmux-tui/crates/acpmux/src/peer*.rs",
+  "cmux-tui/crates/acpmux/tests/wire_lockstep.rs",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-remote/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+  "cmux-tui/crates/cmux-transport/src/relay_frame.rs",
+  "cmux-tui/crates/cmux-transport/tests/wire_lockstep.rs",
+]
+run = '''
+export CMUX_WIRE_BASE_DIR="$(mktemp -d)"
+cd cmux-tui
+# Do not run peer tests against a partial export: missing base files fall back to the head.
+cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root .. --base HEAD^1 --export-base "$CMUX_WIRE_BASE_DIR" || exit $?
+rc=0
+cargo test --locked -p cmux-remote-protocol --lib wire_lockstep || rc=1
+cargo test --locked -p cmux-remote --lib wire_lockstep || rc=1
+cargo test --locked -p acpmux --test wire_lockstep || rc=1
+cargo test --locked -p cmux-transport --test wire_lockstep || rc=1
+cd ../cmux-next-ios/rust
+cargo test --locked -p cmux-mobile-link --test wire_lockstep || rc=1
+exit "$rc"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
 # push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.

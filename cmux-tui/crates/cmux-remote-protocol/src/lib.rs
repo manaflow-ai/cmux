@@ -37,18 +37,19 @@ pub use rpc::{
     ByteString, ComputerUseAction, ComputerUseCapability, ComputerUseFeature,
     ComputerUseInvocation, ComputerUseInvocationId, ComputerUseOutput, ComputerUseResult,
     DiffFormat, DirectoryEntry, FileKind, FilePrecondition, FileStat, GitChange, GitStatus,
-    KeyAction, MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
-    MUX_LINE_ZLIB_MIN_BYTES, MUX_LINE_ZLIB_V1_FEATURE, OperationId, PageCursor, PatchFileAction,
-    PatchFileResult, PointerAction, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId,
-    ProcessIo, ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
-    ProcessReplayRange, ProcessSignal, ProcessState, ProcessTerminalColor, ProcessTerminalCursor,
-    ProcessTerminalCursorStyle, ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot,
-    ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,
-    RouteId, RoutePolicy, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
-    SealedSecret, SearchMatch, Service, ServiceControl, StructuredDiffHunkV1,
-    StructuredDiffLineKind, StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
-    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
-    WorkspaceId, WorkspaceRequest, WorkspaceResponse,
+    KeyAction, MUX_CONTROL_LINE_CODECS, MUX_INPUT_MAGIC, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
+    MUX_LINE_MAGIC, MUX_LINE_ZLIB_MAGIC, MUX_LINE_ZLIB_MIN_BYTES, MUX_LINE_ZLIB_V1_FEATURE,
+    OperationId, PageCursor, PatchFileAction, PatchFileResult, PointerAction, ProcessDescriptor,
+    ProcessEnvironment, ProcessEvent, ProcessId, ProcessIo, ProcessIoKind, ProcessLifetime,
+    ProcessOutputStream, ProcessOutputTruncationReason, ProcessReplayRange, ProcessSignal,
+    ProcessState, ProcessTerminalColor, ProcessTerminalCursor, ProcessTerminalCursorStyle,
+    ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot, ProcessTerminalStyledRun,
+    ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId, RouteId, RoutePolicy,
+    RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, SealedSecret, SearchMatch,
+    Service, ServiceControl, StructuredDiffHunkV1, StructuredDiffLineKind, StructuredDiffLineV1,
+    StructuredDiffV1, StructuredFileDiffV1, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED, WorkspaceId, WorkspaceRequest,
+    WorkspaceResponse,
 };
 
 /// Maximum serialized server-to-client message accepted by remote session
@@ -60,3 +61,6 @@ pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// Keep this separate from [`REMOTE_SESSION_MESSAGE_MAX_BYTES`], because
 /// render attach responses need the larger server-to-client budget.
 pub const REMOTE_CLIENT_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+#[cfg(test)]
+mod wire_lockstep;

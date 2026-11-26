@@ -63,6 +63,9 @@ pub mod multipath;
 mod paths;
 pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
+#[cfg(feature = "testing")]
+#[doc(hidden)]
+pub use roam::RoamMessage;
 use roam::apply_multipath_to_live_sessions;
 pub use roam::{
     network_changed, portmap_use, rehome, relay_hold_port, resume_session, roam_timeline, route_destinations,

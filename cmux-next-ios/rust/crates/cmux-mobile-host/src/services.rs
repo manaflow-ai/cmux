@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::names::HostService;
 use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -87,14 +88,15 @@ pub async fn serve(
         peer = peer.device_id,
         "channel opened"
     );
-    let gate = if config.pairing.is_none() || service == "auth" {
+    let host_service = HostService::parse(&service);
+    let gate = if config.pairing.is_none() || host_service == Some(HostService::Auth) {
         crate::pairing::Gate::Paired
     } else {
         link.gate().await
     };
     // A machine (not a phone) opens only what the person granted it on this Mac,
     // read again at every open so a removed or narrowed peer loses it at once.
-    let machine_grants = if service == "auth" || gate != crate::pairing::Gate::Paired {
+    let machine_grants = if host_service == Some(HostService::Auth) || gate != crate::pairing::Gate::Paired {
         None
     } else {
         machine_grants(&config, &peer, &link)
@@ -127,8 +129,8 @@ pub async fn serve(
             return;
         }
     }
-    let result = match service.as_str() {
-        "auth" => {
+    let result = match host_service {
+        Some(HostService::Auth) => {
             crate::pairing::note_phone_app(&peer.device_id, &args, peer.path_name());
             crate::pairing::serve(
                 config.pairing.as_ref(),
@@ -147,36 +149,40 @@ pub async fn serve(
         _ if gate != crate::pairing::Gate::Paired => {
             Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)"))
         }
-        "echo" => echo(&sender, receiver).await,
-        "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
-        "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &peer, &args, &sender, receiver).await,
-        "cloud-directory" => cloud_directory(&sender, &args).await,
-        "catch-up" => crate::catch_up::serve(&config, &peer, &args, &sender).await,
-        "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
-        "file" => file(&config, &args, &sender, false).await,
-        "file-preview" => file(&config, &args, &sender, true).await,
-        "upload" => upload(&config, &peer, &args, &sender, receiver).await,
-        "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
-        "version" => version(&config, &sender).await,
-        crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
-        "machine" => {
+        Some(HostService::Echo) => echo(&sender, receiver).await,
+        Some(HostService::Daemon) => daemon(&config, &peer, &args, &sender, receiver).await,
+        Some(HostService::Chief) => chief(&config, &peer, &sender, receiver).await,
+        Some(HostService::Acpmux) => acpmux(&config, &peer, &args, &sender, receiver).await,
+        Some(HostService::CloudDirectory) => cloud_directory(&sender, &args).await,
+        Some(HostService::CatchUp) => crate::catch_up::serve(&config, &peer, &args, &sender).await,
+        Some(HostService::CloudAcpmux) => cloud_acpmux(&sender, receiver, &args).await,
+        Some(HostService::File) => file(&config, &args, &sender, false).await,
+        Some(HostService::FilePreview) => file(&config, &args, &sender, true).await,
+        Some(HostService::Upload) => upload(&config, &peer, &args, &sender, receiver).await,
+        Some(HostService::Bundle) => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
+        Some(HostService::Version) => version(&config, &sender).await,
+        Some(HostService::Lan) => crate::lan::enroll(&peer, &args, &sender).await,
+        Some(HostService::Machine) => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
             let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
             crate::machine::serve(&sender, &name, &grants).await
         }
-        "needs-you" => crate::needs_you::serve(&sender, receiver).await,
-        "pair-requests" => {
+        Some(HostService::NeedsYou) => crate::needs_you::serve(&sender, receiver).await,
+        Some(HostService::PairRequests) => {
             crate::pair_requests::serve(config.pairing.as_ref(), &peer.device_id, &link, &args, &sender)
                 .await
                 .map_err(|(code, reason)| Refusal::new(code, reason))
         }
-        "appearance" => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
-        "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
-        "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
-        "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
-        "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
-        "phone-frames" => {
+        Some(HostService::Appearance) => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
+        Some(HostService::AppearanceWallpaper) => crate::appearance::serve_wallpaper(&sender, &args).await,
+        Some(HostService::Browser) => {
+            crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await
+        }
+        Some(HostService::Surface) => {
+            crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await
+        }
+        Some(HostService::Localhost) => crate::localhost::serve(&args, &sender, receiver).await,
+        Some(HostService::PhoneFrames) => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
                 &peer.device_id,
@@ -187,12 +193,12 @@ pub async fn serve(
             )
             .await
         }
-        "tabs" => {
+        Some(HostService::Tabs) => {
             let tabs = &*crate::tab_snapshots::TABS;
             let socket = Some(config.daemon_socket());
             crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
         }
-        _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
+        None => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
         Ok(()) => sender.close("eof", "").await,
@@ -328,8 +334,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     out
 }
 
-async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), Refusal> {
-    let reply = serde_json::json!({
+/// Response on a version channel, including features enabled on this host.
+pub fn version_reply(config: &ServiceConfig) -> Value {
+    serde_json::json!({
         "hostd": env!("CARGO_PKG_VERSION"),
         // 2: control frames ahead of data, any frame counts as life, the
         // reader never stalls on one full channel, the `version` service.
@@ -338,8 +345,11 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
         // removes this Mac (4002 `removed`) it stays off until allowed again on the Mac.
         // `browser-stream-v1`: it streams browser tabs (`browser`).
         "capabilities": capabilities(config),
-    });
-    let _ = sender.send(Bytes::from(reply.to_string())).await;
+    })
+}
+
+async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), Refusal> {
+    let _ = sender.send(Bytes::from(version_reply(config).to_string())).await;
     Ok(())
 }
 
