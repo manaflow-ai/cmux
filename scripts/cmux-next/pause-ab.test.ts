@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, parseReportState, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -137,7 +137,7 @@ describe("idle decision per gap", () => {
     expect(line).toContain('"why":"workload"');
     expect(line).toContain("39735");
     expect(line).toContain("\\|x");
-    expect(gapLine("m", { turn: 1, gap_s: 20, resumed: false, resume_ms: null, reply_ms: null })).toBe("| m | 1 | 20 | n/a | n/a |");
+    expect(gapLine("m", { turn: 1, gap_s: 20, resumed: false, resume_ms: null, reply_ms: null })).toBe("| m | 1 | 20 | n/a | n/a | n/a |");
   });
 });
 
@@ -211,5 +211,20 @@ describe("a failed create on the drill account", () => {
   test("the sweep takes a replacement's name too", () => {
     const old = (Date.UTC(2026, 10, 26, 9, 0)).toString(36);
     expect(stalePauseAbMachines([{ id: "a", name: `pause-ab-${old}-aggressive-1r`, status: "running" }], now).map((m) => m.id)).toEqual(["a"]);
+  });
+});
+
+describe("parseReportState", () => {
+  test("the report's daemon block, last outcome and acpmux processes", () => {
+    const state = JSON.stringify({ last_report: { reason: "activity", ok: true, applied: true, at: 1, status: 200 }, daemon: { version: "0.1.0+abc", capabilities: ["activity", "activity-turns", "activity-turn-end"] } });
+    const r = parseReportState(`${state}\n@@acpmux\n2213 /home/cmux/.cmux/bin/acpmux 0123456789ab acpmux 0.1.0\n`);
+    expect(r.capabilities).toEqual(["activity", "activity-turns", "activity-turn-end"]);
+    expect(r.acpmux).toEqual(["2213 /home/cmux/.cmux/bin/acpmux 0123456789ab acpmux 0.1.0"]);
+    expect(reportLine(r)).toBe("reported caps activity,activity-turns,activity-turn-end; daemon 0.1.0+abc; last activity ok=true applied=true status=200; acpmux 2213 /home/cmux/.cmux/bin/acpmux 0123456789ab acpmux 0.1.0");
+  });
+  test("an unreadable state file is kept verbatim", () => {
+    const r = parseReportState("cat: /run/cmux-vm-agent/state.json: No such file or directory\n@@acpmux\n");
+    expect(r.capabilities).toBeNull();
+    expect(reportLine(r)).toBe("report state unreadable: cat: /run/cmux-vm-agent/state.json: No such file or directory; acpmux none");
   });
 });

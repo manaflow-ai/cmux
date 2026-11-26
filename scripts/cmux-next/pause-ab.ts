@@ -165,13 +165,16 @@ export type MachineResult = {
   id: string | null;
   effective_policy: string | null;
   policy_refused: string | null;
+  /** The daemon block of the guest's last report (GUEST_REPORT_STATE), read after turn 1's reply. */
   capabilities: string[] | null;
+  /** The row's daemon capabilities (cloud.machine.connect_info), kept apart from the report's. */
+  bind_capabilities?: string[] | null;
   turn_end_advertised: boolean | null;
   daemon_version: string | null;
   guest_update_start: GuestUpdate | null;
   guest_update_end: GuestUpdate | null;
   turns_ok: number;
-  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null }[];
+  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null; report?: string | null }[];
   /** The host's idle decision after the tail (idleHeldBy), read without touching the guest. */
   tail_kept: string | null;
   samples: Sample[];
@@ -293,10 +296,41 @@ const GUEST_UPDATE = `${GUEST_CMUX}out=$(sudo -n "$cx" host update status --json
  * (cmux-host cloud/workload.rs) counts a LISTEN socket a non-system process owns, so this names which one held it. */
 export const GUEST_LISTENERS = `{ sudo -n ss -ltnpH 2>/dev/null || ss -ltnpH; } | awk '{print $4, $6}' | head -n 20`;
 
+/** What the guest's cmux-host last reported (cmux-host cloud/role.rs write_state: `/run/cmux-vm-agent/state.json`, 0644,
+ * never a secret) and the acpmux processes whose `acp_activity` lines it counts. Run 45821066460 read "activity-turn-end
+ * 0/1" for both arms from `cloud.machine.connect_info`, the row's daemon block (bind time, possibly behind the report);
+ * Pause.ts turnEndWindow reads the report's own block, so that is the one the drill names now. */
+export const GUEST_REPORT_STATE = `cat /run/cmux-vm-agent/state.json 2>&1 | head -c 4000; echo; echo "@@acpmux"; ` +
+  `for p in $(pgrep -x acpmux); do e=$(readlink /proc/$p/exe 2>/dev/null); echo "$p $e $(sha256sum "$e" 2>/dev/null | cut -c1-12) $("$e" --version 2>/dev/null | head -1)"; done`;
+
+export type ReportState = { capabilities: string[] | null; version: string | null; last: string | null; acpmux: string[]; error: string | null };
+
+/** Parse GUEST_REPORT_STATE's output; a missing or unreadable state file is kept as `error`. */
+export function parseReportState(out: string): ReportState {
+  const [head, tail = ""] = out.split("@@acpmux");
+  const acpmux = tail.split("\n").map((l) => l.trim()).filter(Boolean);
+  try {
+    const j = JSON.parse(head.trim());
+    const caps = j?.daemon?.capabilities;
+    const lr = j?.last_report;
+    return {
+      capabilities: Array.isArray(caps) ? caps.map(String) : null,
+      version: j?.daemon?.version != null ? String(j.daemon.version) : null,
+      last: lr ? `${lr.reason ?? "?"} ok=${lr.ok} applied=${lr.applied} status=${lr.status ?? "none"}` : null,
+      acpmux, error: null,
+    };
+  } catch {
+    return { capabilities: null, version: null, last: null, acpmux, error: head.trim().slice(0, 200) || "empty" };
+  }
+}
+
+export const reportLine = (r: ReportState): string => r.error !== null ? `report state unreadable: ${r.error}; acpmux ${r.acpmux.join(", ") || "none"}` :
+  `reported caps ${r.capabilities?.join(",") ?? "none"}; daemon ${r.version ?? "?"}; last ${r.last ?? "none"}; acpmux ${r.acpmux.join(", ") || "none"}`;
+
 /** One gap's line in the per-gap table. */
 export function gapLine(name: string, t: MachineResult["turns"][number]): string {
   const cell = (v: string | null | undefined) => (v ?? "n/a").replace(/\|/g, "\\|").replace(/\n/g, "; ");
-  return `| ${name} | ${t.turn} | ${t.gap_s} | ${cell(t.kept)} | ${cell(t.listeners)} |`;
+  return `| ${name} | ${t.turn} | ${t.gap_s} | ${cell(t.kept)} | ${cell(t.listeners)} | ${cell(t.report)} |`;
 }
 
 /** One reading of the guest updater, its parts kept apart: the binary running, what the updater applied, the
@@ -420,8 +454,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       `${markdownTable(rows)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
       results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
       `\n\n## Idle decision per gap (\`cloud.machine.get\` at the gap's end; guest listeners when awake)\n\n` +
-      `| machine | turn | gap s | idle decision | listeners (addr, owner) |\n|---|---|---|---|---|\n` +
-      results.flatMap((r) => [...r.turns.map((t) => gapLine(r.name, t)), `| ${r.name} | tail | ${tailS} | ${(r.tail_kept ?? "n/a").replace(/\|/g, "\\|")} | n/a |`]).join("\n") +
+      `| machine | turn | gap s | idle decision | listeners (addr, owner) | guest report at turn end |\n|---|---|---|---|---|---|\n` +
+      results.flatMap((r) => [...r.turns.map((t) => gapLine(r.name, t)), `| ${r.name} | tail | ${tailS} | ${(r.tail_kept ?? "n/a").replace(/\|/g, "\\|")} | n/a | n/a |`]).join("\n") +
       `\n\n## Steps\n\n| status | step | ms | detail |\n|---|---|---|---|\n${steps}\n`);
   };
 
@@ -509,13 +543,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } catch (e) {
         turn.error = String((e as Error)?.message ?? e).slice(0, 300);
       }
+      // What the guest reported once the turn ended (the report Pause.ts reads), before the gap starts.
+      const rs = parseReportState((await exec(GUEST_REPORT_STATE, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }))).stdout);
+      turn.report = reportLine(rs);
       if (i === 0) {
         const info = await api.read("cloud.machine.connect_info", { machine: id }).catch(() => null);
-        if (info?.daemon) {
-          r.capabilities = Array.isArray(info.daemon.capabilities) ? info.daemon.capabilities : null;
-          r.turn_end_advertised = r.capabilities ? r.capabilities.includes(TURN_END_CAPABILITY) : null;
-          r.daemon_version = info.daemon.version ?? null;
-        }
+        if (info?.daemon) r.bind_capabilities = Array.isArray(info.daemon.capabilities) ? info.daemon.capabilities : null;
+        r.capabilities = rs.capabilities;
+        r.turn_end_advertised = rs.capabilities ? rs.capabilities.includes(TURN_END_CAPABILITY) : null;
+        r.daemon_version = rs.version ?? info?.daemon?.version ?? null;
       }
       // The stub's listener would hold the idle clock for the whole gap: stop it, restart it with the next message.
       const st = await exec(stubStop(), 30_000).catch((e: Error) => ({ stdout: `stop failed: ${e.message.slice(0, 120)}` }));
@@ -694,7 +730,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     usageAfter = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
     J.record({
       step: "idle decision per gap", status: "pass", ms: 0,
-      detail: results.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
+      detail: results.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}${t.report ? ` [${t.report}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
     });
     J.record({ step: "result", status: results.every((r) => r.turns_ok === r.turns.length) ? "pass" : "fail", ms: windowEnd - windowStart, detail: markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ") });
   } catch {
