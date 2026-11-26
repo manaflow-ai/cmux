@@ -1,5 +1,84 @@
 {
   "protocol": "acpmux",
   "base": 1,
-  "revisions": []
+  "revisions": [
+    {
+      "rev": 2,
+      "note": "#55935 removed the agent to-do list: taskList on sessions, turn.planStep, and the _acpmux/task_list/get and _acpmux/task_list/set messages. Old peers get taskList and planStep as null (the old schema allowed both).",
+      "changes": [
+        {
+          "message": "event:_acpmux/session_changed",
+          "op": "remove",
+          "path": "/session/taskList",
+          "default": null
+        },
+        {
+          "message": "event:_acpmux/session_changed",
+          "op": "remove",
+          "path": "/session/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/attach",
+          "op": "remove",
+          "path": "/data/session/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/attach",
+          "op": "remove",
+          "path": "/data/session/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/sessions",
+          "op": "remove",
+          "path": "/data/sessions/*/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/sessions",
+          "op": "remove",
+          "path": "/data/sessions/*/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/watch",
+          "op": "remove",
+          "path": "/data/sessions/*/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/watch",
+          "op": "remove",
+          "path": "/data/sessions/*/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "request:_acpmux/task_list/get",
+          "op": "remove",
+          "path": "/*untyped*",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/task_list/get",
+          "op": "remove",
+          "path": "/data/*untyped*",
+          "default": null
+        },
+        {
+          "message": "request:_acpmux/task_list/set",
+          "op": "remove",
+          "path": "/*untyped*",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/task_list/set",
+          "op": "remove",
+          "path": "/data/*untyped*",
+          "default": null
+        }
+      ]
+    }
+  ]
 }
