@@ -257,6 +257,8 @@ struct FrameLog {
     idr_reason: Option<&'static str>,
     /// With a resolution ladder: the picture this frame was encoded at.
     picture: Option<Picture>,
+    /// The congestion controller's target for this frame.
+    target_kbps: u32,
 }
 
 impl Timing {
@@ -293,6 +295,10 @@ impl Timing {
             fields.insert("height".into(), p.height.into());
             fields.insert("eighths".into(), p.eighths.into());
             fields.insert("max_qp".into(), p.max_qp.into());
+            // The budget the ladder sized this picture for: target over pixels at the fps
+            // cap is the bits per pixel per frame the ladder holds at or above its floor.
+            fields.insert("fps".into(), p.fps.into());
+            fields.insert("target_kbps".into(), log.target_kbps.into());
         }
         line
     }
@@ -876,6 +882,7 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
             picture: req.picture,
+            target_kbps: req.target_kbps,
         });
         self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
