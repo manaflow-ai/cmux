@@ -6098,6 +6098,7 @@ class InheritedCompileRed(unittest.TestCase):
 
     def setUp(self):
         self.receipts = {self.PR_HEAD: "fail", self.MERGE_BASE: "fail", self.TIP: "pass"}
+        self.superseded_by: dict[str, str] = {}
         self.status = {"context": "cmux-next/compile", "state": "failure", "target_url": self.SOURCE_RUN,
                        "description": "The app did not compile in SwiftPM Release (-Onone); see the log"}
         self.gh = FakeGitHub()
@@ -6119,6 +6120,14 @@ class InheritedCompileRed(unittest.TestCase):
                                f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
                 return status_answer(route, [self.status])
+            # The GitHub path (github_compile_red), read only when the receipts gave no base verdict: this base has no
+            # cmux-next/compile status anywhere, so it cannot decide either and says so.
+            if "commits?sha=feat-cmux-next" in route:
+                self.gh.routes.append(route)
+                return []
+            if "/statuses?per_page=100&page=1" in route:
+                self.gh.routes.append(route)
+                return status_answer(route, [])
             return original(route, paginate=paginate)
 
         self.gh.json = json
@@ -6126,7 +6135,12 @@ class InheritedCompileRed(unittest.TestCase):
         def receipt(repo, sha):
             self.assertEqual(repo, REPO)
             state = self.receipts.get(sha)
-            return None if state is None else {"repo": repo, "sha": sha, "state": state}
+            if state is None:
+                return None
+            found = {"repo": repo, "sha": sha, "state": state}
+            if sha in self.superseded_by:
+                found["superseded_by"] = self.superseded_by[sha]
+            return found
 
         patch = unittest.mock.patch.object(excuse, "compile_receipt", receipt)
         patch.start()
@@ -6166,6 +6180,31 @@ class InheritedCompileRed(unittest.TestCase):
     def test_a_merge_base_with_no_receipt_does_not_excuse(self):
         del self.receipts[self.MERGE_BASE]
         with self.assertRaisesRegex(excuse.Refused, "reads no receipt"):
+            self.judge_status()
+
+    def test_a_merge_base_read_as_superseded_is_no_verdict_and_follows_the_tip_that_covers_it(self):
+        """cmux#50979 (2026-11-25): its head 2e7dd1d9 changed only Swift, the fleet receipt failed on a cmux-tui crate
+        the PR does not touch, and the merge-base fc7c32be read "superseded" -- the controller's word for a push tip it
+        will not check because a newer tip's check covers this commit (fleet_compile_result.judge). That is no verdict
+        about the merge-base, yet it was read as "the red is this head's". The receipt that covers it decides."""
+        covering = "d" * 40
+        self.receipts[self.MERGE_BASE] = "superseded"
+        self.superseded_by[self.MERGE_BASE] = covering
+        self.receipts[covering] = "fail"
+        audit = "\n".join(self.judge_status())
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn(f"{covering[:12]}", audit)
+        self.assertIn(f"merge-base {self.MERGE_BASE[:12]}", audit)
+        # The covering tip compiled: then the red really is this head's.
+        self.receipts[covering] = "pass"
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge_status()
+
+    def test_a_superseded_merge_base_naming_no_covering_tip_lets_github_decide(self):
+        """No `superseded_by` to follow, so the receipts gave no base verdict: GitHub answers the same question
+        (github_compile_red) instead of the refusal claiming the red is the head's."""
+        self.receipts[self.MERGE_BASE] = "superseded"
+        with self.assertRaisesRegex(excuse.Refused, "names no covering tip"):
             self.judge_status()
 
     def test_an_unread_receipt_refuses(self):
