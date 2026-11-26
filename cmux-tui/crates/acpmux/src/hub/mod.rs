@@ -399,6 +399,7 @@ mod successors;
 mod surge_triage;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
+mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;

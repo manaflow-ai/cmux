@@ -355,7 +355,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
-        // only when it says no (off, not a stored Claude conversation, nothing to mask, too
+        // only when it says no (off, not a stored Claude or Codex conversation, nothing to mask, too
         // little to mask) or fails.
         if self.cold_wake_surgery(session, tokens, line).await {
             self.inbox_review(session);
