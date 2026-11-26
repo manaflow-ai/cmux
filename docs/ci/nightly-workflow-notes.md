@@ -1,4 +1,4 @@
-# nightly.yml notes
+# nightly.yml notes (frozen: a new note is its own file in [`docs/ci/nightly-workflow-notes/`](nightly-workflow-notes/README.md))
 
 Long comments moved out of `.github/workflows/nightly.yml` to keep it under GitHub's workflow file size limit
 (tests/test_ci_workflow_file_size.py). Each note's line in the workflow reads `# Why: docs/ci/nightly-workflow-notes.md#note-N`.
@@ -99,7 +99,7 @@ resolve-nightly-cmux-tui-client, Leave the build slot to a newer nightly-next pu
 
 A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047 of the older c31b2b678, dispatched 18 s before the push). It runs before any build job starts, so no started build is left. A push run leaves a moved head at once only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'.
 
-Latest wins at the slot: a stale run waits here for a newer promotion when feat-cmux-next has moved past its commit. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. It waits up to 6 min (YIELD_MINUTES). Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
+Latest wins at the slot: a stale run reads nightly-next once, with no wait (2026-11-25, "no slot handoff waits": run 45562645699 sat 6.2 min polling), and leaves only if a newer commit is already promoted. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
 
 Latest wins at nightly-next-one's slot too (2026-11-14). With the one job on, resolve's check runs before the slot (nightly-next-one-push), and a push run P2(C) may then wait ~30 min there while D and E land; admitted, it built C. So nightly-next-one's first step after the whole-Mac claim, "Leave the push slot to a newer nightly-next push", runs the same script with IN_SLOT=1: a run that waited YIELD_STALE_MINUTES or more at the slot (since its resolve job ended), while feat-cmux-next has commits after its own, waits up to YIELD_MINUTES for the tick's promotion. Main's tick counts a run in that step as building nothing (nightly_next_rolling.LEAVE_ONE_STEP), so it promotes the newest buildable commit; that push's nightly-next-one queues behind this running one (no pending job is replaced), and this run leaves: it sets LEFT_SLOT=1 in the job's env, every later build and publish step has `!env.LEFT_SLOT` in its `if` (cleanup steps still run), the job ends green with output left=true, and published-build and attest-nightly-remote-daemon skip. Nothing is cancelled. A run admitted at once builds at once. tests/test_nightly_next_push_slot_at_build.py.
 
@@ -454,3 +454,19 @@ build_sha equals the red sha; the Mac's own check stays the publish guard's inpu
 skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
 waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
 test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
+
+## note-52
+
+Above `check-nightly-app-store-shelf:` in `.github/workflows/nightly.yml`.
+
+No nightly whose App Store shelf is broken (Leo, 2026-11-16: "if i click install it means it works"). The
+App Store shelf workflow (`app-store-shelf.yml`) ran only on pull requests and pushes that touch the shelf's
+paths, and nothing read it before a publish: a tree whose shelf was red could still reach the feed
+(feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
+`scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
+14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
+The final publication gate (`nightly_publish_guard.py shelf-verdict`) refuses a build without it green:
+publish-nightly reads the job through its needs; nightly-next-one, which does not wait on it, reads the job
+in this run (`SHELF_SOURCE=run`), waiting up to 30 min for it to finish; a recovered build needs it green
+in the run that built it. Route: resolve-nightly-cmux-tui-client's `cmux-linux`, since it has no secret
+and the cargo build would otherwise take a nightly Mac.

@@ -94,6 +94,8 @@ RATCHET_PATH = "plans/cmux-next/arch-ratchet.json"
 EXCEPTIONS_DIR = "plans/cmux-next/arch-exceptions"
 COUNTS_DIR = "scripts/cmux-next"
 COUNTS_SCRIPT = f"{COUNTS_DIR}/arch_counts.py"
+# arch_counts.py loads its git reads from git_batch.py beside it (#53561), so a count exports both when the commit has it.
+COUNTS_HELPER = f"{COUNTS_DIR}/git_batch.py"
 COUNTS_METHOD = "arch_counts"
 # The first fetch (count_files): what a count before method v5 reads (the CmuxNext sources, the layer map) and what
 # this script reads (the ratchet file, the count script), with every Package.swift of the commit (MANIFEST_NAME):
@@ -101,7 +103,7 @@ COUNTS_METHOD = "arch_counts"
 # closure), which the second fetch brings. (path, suffix, recursive); suffix None: exactly this file.
 FIRST_PATHS = (("Packages/macOS/CmuxNext/Sources", ".swift", True),
                ("plans/cmux-next", ".json", False),
-               (COUNTS_SCRIPT, None, False))
+               (COUNTS_SCRIPT, None, False), (COUNTS_HELPER, None, False))
 MANIFEST_NAME = "Package.swift"
 STATE_KEY = "arch_history"
 ISSUE_KEY = "arch_issue"
@@ -270,7 +272,7 @@ def read_paths_at(dl, root, sha, listing):
     if script is None:
         return None
     with tempfile.TemporaryDirectory(prefix="arch-report-paths-") as tree:
-        export_file(dl, root, script, COUNTS_SCRIPT, tree)
+        export_counts_script(dl, root, listing, tree)
         try:
             proc = run(dl, [sys.executable, "-I", os.path.join(tree, COUNTS_SCRIPT), "--repo", root, "--rev", sha,
                             "--read-paths"], cwd=tree, capture_output=True, text=True, env=count_env())
@@ -299,7 +301,7 @@ def count_files(dl, root, sha, listing=None):
     paths = read_paths_at(dl, root, sha, listing)
     if paths is None:
         return first
-    paths += [(COUNTS_SCRIPT, None, False), (RATCHET_PATH, None, False)]
+    paths += [(COUNTS_SCRIPT, None, False), (COUNTS_HELPER, None, False), (RATCHET_PATH, None, False)]
     files = [(oid, name) for oid, name in listing if wanted(name, paths)]
     have = set(first)
     prefetch_blobs(dl, root, [f for f in files if f not in have])
@@ -327,6 +329,13 @@ def prefetch_blobs(dl, root, files):
         input="".join(f"{oid}\n" for oid in oids), capture_output=True, text=True, check=True)
     log(f"fetched {len(oids)} blob(s) in one fetch, {time.monotonic() - started:.1f} s")
     return len(oids)
+
+
+def export_counts_script(dl, root, files, dest):
+    """Write the commit's COUNTS_SCRIPT, and COUNTS_HELPER when FILES ([(oid, path)]) has it, into dest."""
+    for oid, name in files:
+        if name in (COUNTS_SCRIPT, COUNTS_HELPER):
+            export_file(dl, root, oid, name, dest)
 
 
 def export_file(dl, root, oid, name, dest):
@@ -514,7 +523,7 @@ def counts_at(dl, root, sha, files):
     if script is None:
         raise CountError(f"{COUNTS_SCRIPT} is not in the commit (the ratchet-file slice has not landed there)")
     with tempfile.TemporaryDirectory(prefix="arch-report-") as tree:
-        export_file(dl, root, script, COUNTS_SCRIPT, tree)
+        export_counts_script(dl, root, files, tree)
         # -I: the contract makes arch_counts.py self-contained (standard library only), so neither its directory
         # nor PYTHON* nor the user site is on the path.
         try:

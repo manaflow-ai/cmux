@@ -551,3 +551,19 @@ fn a_session_attaches_once_and_a_relayed_one_never() {
     assert!(matches!(relayed.call("status", &json!({}), "c"), Outcome::Output(_)));
     assert!(relayed_worker.attaches.lock().unwrap().is_empty());
 }
+
+#[test]
+fn routable_machines_are_reachable_ready_and_not_the_locked_one() {
+    let data = json!({"machines": [
+        {"name": "studio", "reachable": true, "computer_use": "ready"},
+        {"name": "air", "reachable": true, "computer_use": "off"},
+        {"name": "mini", "reachable": false, "computer_use": "unknown"},
+        {"name": "hubbed", "reachable": true, "via": "hub", "computer_use": "unknown"},
+        {"name": "cosmic", "reachable": true, "computer_use": "ready"},
+    ]});
+    assert_eq!(routable_in(&data, None), ["studio", "cosmic"]);
+    assert_eq!(routable_in(&data, Some("studio")), ["cosmic"]);
+    assert!(routable_in(&json!({}), None).is_empty());
+    assert_eq!(caller(FakeDaemon::new(Vec::new())).routable_machines(None), ["studio"]);
+    assert!(caller(FakeDaemon::new(Vec::new())).routable_machines(Some("studio")).is_empty());
+}

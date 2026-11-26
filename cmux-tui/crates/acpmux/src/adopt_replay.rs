@@ -17,11 +17,15 @@ use crate::adopt_tools::{PastTool, ToolResult};
 
 #[path = "adopt_replay_page.rs"]
 mod page;
+#[path = "transcript_page.rs"]
+mod transcript_page;
 pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
 };
 pub(crate) use page::{claude_page_with_turns_open, newest_prompt_start_open};
+pub(crate) use transcript_page::transcript_page_from;
+pub use transcript_page::{TranscriptPage, transcript_page};
 
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.
@@ -92,6 +96,7 @@ pub struct Fold {
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
     tool_items: bool,
+    answer_limit: usize,
     /// What the last line folded was, as a reader that starts later sees it ([`ItemLine`]).
     last: ItemLine,
 }
@@ -111,6 +116,12 @@ pub enum ItemLine {
 impl Fold {
     /// An empty fold of a `family` (`claude`, `codex`) transcript.
     pub fn new(family: &str, tools: bool) -> Self {
+        Self::with_answer_limit(family, tools, MAX_ANSWER)
+    }
+
+    /// A fold for a terminal page. Terminal pages are searched independently and keep the
+    /// complete answer text up to the page/reply bound rather than the adopted-chat preview cap.
+    pub(crate) fn with_answer_limit(family: &str, tools: bool, answer_limit: usize) -> Self {
         Self {
             codex: family == "codex",
             tools,
@@ -120,6 +131,7 @@ impl Fold {
             items_settled: 0,
             current: false,
             tool_items: false,
+            answer_limit,
             last: ItemLine::Other,
         }
     }
@@ -127,40 +139,50 @@ impl Fold {
     /// Folds one line (a record; anything that does not parse is skipped).
     pub fn line(&mut self, line: &[u8]) {
         self.last = ItemLine::Other;
-        let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
+        if let Ok(record) = serde_json::from_slice::<Value>(line) {
+            self.record(&record);
+        }
+    }
+
+    fn record(&mut self, record: &Value) {
+        self.last = ItemLine::Other;
+        let answer_limit = self.answer_limit;
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
         if !self.codex {
-            for step in claude_steps(&record, at) {
+            for step in claude_steps(record, at) {
                 if self.tools || matches!(step, Step::Prompt(_) | Step::Answer(_)) {
-                    add(&mut self.turns, step, at);
+                    add_limited(&mut self.turns, step, at, answer_limit);
                 }
             }
             return;
         }
-        let kinds = has_item_kinds(&record);
+        let kinds = has_item_kinds(record);
         let was_current = self.current;
         self.current = self.current || kinds;
         if kinds {
             self.last = ItemLine::Annotated;
         }
-        if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
-            self.tool_items = self.tool_items || item;
-            if self.tools && (item || !self.tool_items) {
-                // With the turns that are being read: event messages, else items.
+        if let Some(step) = codex_tool_step(record, at, &mut self.tool_items) {
+            if self.tools {
                 let into = if self.current || self.turns_seen() > 0 {
                     &mut self.turns
                 } else {
                     &mut self.items
                 };
-                add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
+                add_limited(into, step, at, answer_limit);
             }
-        } else if let Some(step) = codex_step(&record) {
-            add(&mut self.turns, step, at);
-        } else if let Some(step) = codex_item_step(&record) {
+        } else if let Some(step) = codex_step(record) {
+            add_limited(&mut self.turns, step, at, answer_limit);
+        } else if let Some(step) = codex_item_step(record) {
             if was_current && !kinds && matches!(step, Step::Prompt(_)) {
                 self.last = ItemLine::PlainPrompt;
             }
-            add(if self.current { &mut self.turns } else { &mut self.items }, step, at);
+            add_limited(
+                if self.current { &mut self.turns } else { &mut self.items },
+                step,
+                at,
+                answer_limit,
+            );
         }
     }
 
@@ -280,6 +302,10 @@ pub fn record_time(record: &Value) -> Option<u64> {
 /// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER; a tool call
 /// joins the last one (once: a call recorded again replaces it), and a result settles its call.
 fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
+    add_limited(turns, step, at, MAX_ANSWER);
+}
+
+fn add_limited(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>, answer_limit: usize) {
     match step {
         Step::Prompt(text) => turns.push(PastTurn {
             prompt: text,
@@ -309,8 +335,8 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
                 turn.answer.push_str("\n\n");
             }
             turn.answer.push_str(&text);
-            if turn.answer.len() > MAX_ANSWER {
-                let mut cut = MAX_ANSWER;
+            if turn.answer.len() > answer_limit {
+                let mut cut = answer_limit;
                 while !turn.answer.is_char_boundary(cut) {
                     cut -= 1;
                 }
@@ -393,10 +419,52 @@ pub(crate) fn queued_by_person(text: &str) -> bool {
 /// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
 /// or subagent finishes, `peer` for another session's `<cross-session-message>`).
 pub(crate) fn from_person(record: &Value) -> bool {
-    match record.pointer("/origin/kind") {
-        None | Some(Value::Null) => true,
-        Some(kind) => kind.as_str() == Some("human"),
+    line_origin(record) == LineOrigin::Person
+}
+
+/// Who a Claude Code user line is from, decided by its `origin.kind` and never by its text. The one
+/// classification the transcript model shares: a line from the harness (a task notification: a
+/// subagent or background command ended; a peer's message) is a tool-call-like event of the turn it
+/// came in, folded with the turn's work, not a message the person typed (Leo, 2026-11-24: "we can
+/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LineOrigin {
+    /// No origin, or `human`: the person's own words, a fixed point that never folds.
+    Person,
+    /// `task-notification`: a subagent or background task ended; work of the turn.
+    TaskNotification,
+    /// `peer`: another session's `<cross-session-message>`.
+    Peer,
+    /// An origin this build does not know: never the person's.
+    Other,
+}
+
+impl LineOrigin {
+    /// Whether the line is harness-injected work the transcript folds like a tool call.
+    #[cfg(test)]
+    pub(crate) fn is_tool_like(self) -> bool {
+        matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
     }
+}
+
+/// The origin of a Claude Code user line (`origin.kind`).
+pub(crate) fn line_origin(record: &Value) -> LineOrigin {
+    match record.pointer("/origin/kind") {
+        None | Some(Value::Null) => LineOrigin::Person,
+        Some(kind) => match kind.as_str() {
+            Some("human") => LineOrigin::Person,
+            Some("task-notification") => LineOrigin::TaskNotification,
+            Some("peer") => LineOrigin::Peer,
+            _ => LineOrigin::Other,
+        },
+    }
+}
+
+/// Read legacy tool events until the first current item-completed tool update.
+fn codex_tool_step(record: &Value, at: Option<u64>, tool_items: &mut bool) -> Option<Step> {
+    let (tool, item) = crate::adopt_tools::codex_tool(record, at)?;
+    *tool_items |= item;
+    (item || !*tool_items).then(|| tool.map_or_else(Step::ToolResult, Step::Tool))
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.
@@ -502,4 +570,46 @@ pub(crate) fn text_of(content: &Value) -> Option<String> {
 /// An RFC 3339 time (`2026-10-02T09:00:00.000Z`) in ms since the epoch.
 fn parse_ms(text: &str) -> Option<u64> {
     cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
+}
+
+#[cfg(test)]
+mod line_origin_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn of(record: Value) -> LineOrigin {
+        line_origin(&record)
+    }
+
+    #[test]
+    fn origin_decides_never_the_text() {
+        // A notification's text on a human line is the person's; a person's words under a
+        // task-notification origin are the harness's.
+        let text =
+            "<task-notification><summary>Subagent disconnected</summary></task-notification>";
+        assert_eq!(of(json!({"message": {"content": text}})), LineOrigin::Person);
+        assert_eq!(
+            of(json!({"origin": {"kind": "human"}, "message": {"content": text}})),
+            LineOrigin::Person
+        );
+        assert_eq!(
+            of(json!({"origin": {"kind": "task-notification"}, "message": {"content": "fix it"}})),
+            LineOrigin::TaskNotification
+        );
+        assert_eq!(of(json!({"origin": {"kind": "peer"}})), LineOrigin::Peer);
+        assert_eq!(of(json!({"origin": {"kind": "channel"}})), LineOrigin::Other);
+        assert_eq!(of(json!({"origin": null})), LineOrigin::Person);
+    }
+
+    #[test]
+    fn harness_lines_are_tool_like_and_never_the_person() {
+        for kind in ["task-notification", "peer"] {
+            let record = json!({"origin": {"kind": kind}});
+            assert!(line_origin(&record).is_tool_like());
+            assert!(!from_person(&record));
+        }
+        assert!(!LineOrigin::Person.is_tool_like());
+        assert!(!LineOrigin::Other.is_tool_like());
+        assert!(!from_person(&json!({"origin": {"kind": "channel"}})));
+    }
 }

@@ -182,6 +182,19 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # A slow notarization fails the job (the loop retries it) instead of handing an artifact to a later run.
         self.assertEqual(notarize["env"]["CMUX_NOTARY_PENDING_ON_TIMEOUT"], "false")
 
+    def test_it_joins_the_acpmux_build_before_release(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        join = names.index("Finish building in-tree acpmux for the compilation cache")
+        release = names.index("Build nightly app (Release)")
+        self.assertLess(join, release, "nightly-next-one must join acpmux before the Release build")
+        self.assertEqual(steps[join].get("run"), "bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join")
+        self.assertIn("steps.nightly-product.outputs.hit != 'true'", one_line(steps[join].get("if")))
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_join = next(step for step in split_steps
+                          if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
+        self.assertEqual(split_join.get("run"), steps[join].get("run"))
+
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
             condition = one_line(self.jobs[name].get("if"))
@@ -329,6 +342,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(steps[probe]["env"]["KEY"], key)
         self.assertEqual(steps[mark]["env"]["KEY"], key)
         split = workflow()["jobs"]["build-nightly-ghostty-cli-helper"]["steps"]
+        for install_steps in (steps, split):
+            install = next(s for s in install_steps if s.get("name") == "Install Zig")["run"]
+            cache = 'export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"'
+            self.assertLess(install.index(cache), install.index("./scripts/install-zig-ci.sh"))
+        self.assertGreater(int(self.job["env"]["ZIG_DOWNLOAD_BUDGET_SECONDS"]), 480)
         split_restore = next(s for s in split if s.get("name") == "Cache Zig packages")
         self.assertEqual(split_restore["with"], steps[restore]["with"])
         self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")

@@ -3,7 +3,7 @@
 // replaced never ends its successor.
 import { afterEach, expect, test } from "bun:test";
 
-type Posted = { id: number; kind: string };
+type Posted = { id: number; kind: string; file?: Blob };
 const made: FakeWorker[] = [];
 class FakeWorker {
   onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -56,6 +56,31 @@ test("the bundled page sends the job to image-worker.js beside it and takes its 
   expect(worker.url.href).toBe("cmux-agent://pane/image-worker.js");
   worker.answer({ id: worker.posted[0]!.id, value: { mimeType: "image/png", data: "AAAA" } });
   expect(await result).toEqual({ mimeType: "image/png", data: "AAAA" });
+});
+
+test("a disk link starts one thumbnail-only job on display and keeps its File out of the draft", async () => {
+  const { localImagePreview, previewForFile } = await pool();
+  const file = new File(["pixels"], "photo.png", { type: "image/png" });
+  const chip = { path: "/tmp/photo.png", [localImagePreview]: previewForFile(file) };
+  expect(made).toHaveLength(0);
+  expect(JSON.parse(JSON.stringify(chip))).toEqual({ path: chip.path });
+  const read = { ...chip }[localImagePreview];
+  const result = read();
+  expect(read()).toBe(result);
+  const worker = made[0]!;
+  expect(worker.posted).toEqual([{ id: 1, kind: "fileThumb", file }]);
+  const thumb = { url: "data:image/png;base64,AA==", width: 80, height: 40 };
+  worker.answer({ id: 1, value: thumb });
+  expect(await result).toEqual(thumb);
+  expect(decodedOnPage).toBe(0);
+});
+
+test("a disk thumbnail never decodes on the page when the worker cannot draw", async () => {
+  const { previewForFile } = await pool();
+  const result = previewForFile(new Blob(["pixels"]))();
+  made[0]!.answer({ id: made[0]!.posted[0]!.id, value: undefined, unsupported: true });
+  expect(await result).toBeUndefined();
+  expect(decodedOnPage).toBe(0);
 });
 
 test("a worker that cannot draw hands its job to the page, and no worker starts again", async () => {

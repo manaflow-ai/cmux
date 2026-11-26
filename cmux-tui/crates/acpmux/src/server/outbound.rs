@@ -35,7 +35,8 @@
 //!
 //! Two lanes (cmuxterm-hq `docs/design/remote-cloud-durability.md` 4.6, F18): the answer to a
 //! cheap read ([`is_cheap_read`]: identify, the session list, host health, status, the peer list
-//! the agent pane probes the daemon's liveness with) goes in the
+//! the agent pane probes the daemon's liveness with), or to a read an agent's tool call waits on
+//! ([`is_tool_read`]), goes in the
 //! read lane, which the pump takes before anything else; every other line keeps its order in the
 //! bulk lane. So the pump never lets the bulk lane hold more than [`BULK_WINDOW`] bytes in the
 //! transport's channel: a replay of thousands of lines stays here, where a read answered after it
@@ -74,6 +75,7 @@ pub(crate) fn is_cheap_read(method: &str) -> bool {
             | method::MUX_STATUS
             | method::MUX_HARNESS_HEALTH
             | "_acpmux/host_health"
+            | "_acpmux/host_overload"
             // The agent pane's liveness probe (webviews `direct.ts` `probeDaemon`): the pane gives
             // its socket up when this goes unanswered for 15 s, so behind a huge chat's replay a
             // busy but alive daemon had every pane cut and reattach at once.
@@ -81,10 +83,51 @@ pub(crate) fn is_cheap_read(method: &str) -> bool {
     )
 }
 
+/// Whether `method` is a read an agent's tool call waits on (`last`, `send_status`, `bg_output`,
+/// `who_else`, a far machine's `machine_read`), whose answer goes in the read lane too (Leo,
+/// 2026-11-25: "if we own the transport layer, could we also optimize for these cases?"). On a
+/// peer link the far daemon answers these on the connection that carries its chats' replays and
+/// streams, so in the bulk lane a tool call waited behind every replay line queued before it:
+/// p99 1592 ms under 24 MiB of replays at 16 MiB/s (`outbound_queue_tests/flood_interactive.rs`).
+/// Each is a page or a status read whole by the caller: a history or event page is merged by
+/// `seq` (`agent_session_attach.rs` `bound_page`), so it needs no line ahead of it to have
+/// arrived. `_acpmux/attach`, `wait` and `info` stay in order: their answers mark a stream position.
+pub(crate) fn is_tool_read(method: &str) -> bool {
+    use crate::rpc::method;
+    matches!(
+        method,
+        method::MUX_EVENTS
+            | method::MUX_HISTORY
+            | method::MUX_SEND_STATUS
+            | method::MUX_RESOLVE
+            | method::MUX_SESSION_SEARCH
+            | method::MUX_WHO_ELSE
+            | method::MUX_MACHINE_INFO
+            | method::MUX_MACHINE_FILES_CALL
+            | method::MUX_COMPUTER_USE_STATE
+            | method::MUX_BG_OUTPUT
+            | method::MUX_BG_LIST
+            | method::MUX_GOAL_GET
+            | method::MUX_WATCH_LS
+            | method::MUX_INBOX_THREADS
+            | method::MUX_INBOX_THREAD
+            | method::MUX_RACE_GET
+            | method::MUX_RACE_LIST
+            | method::MUX_GITHUB_PR_STATE
+            | method::MUX_CHAT_TRANSCRIPT_PAGE
+            | method::MUX_CHAT_TRANSCRIPT_FIND
+    )
+}
+
+/// Whether the answer to a request for `method` goes ahead of the bulk lane.
+pub(super) fn reads_ahead(method: &str) -> bool {
+    is_cheap_read(method) || is_tool_read(method)
+}
+
 /// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one.
 pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>) -> Lane {
     match (msg, reply_to) {
-        (Message::Response { .. }, Some(m)) if is_cheap_read(m) => Lane::Read,
+        (Message::Response { .. }, Some(m)) if reads_ahead(m) => Lane::Read,
         _ => Lane::Bulk,
     }
 }

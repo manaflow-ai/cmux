@@ -17,6 +17,7 @@ final class CloudMachineSession {
     var machine: CloudMachine
     /// Its create's auto-size pick, which a list read's ``machine`` lacks: a hand-off's `size`.
     var sizePick: CloudSizePick?
+    @ObservationIgnored var answeredAt: ContinuousClock.Instant? // when a create's or spare claim's answer gave ``machine``; nil for a list's
     let daemon: DaemonService
     @ObservationIgnored let appLink: CloudLinkSession
     /// A workspace close already said this machine is kept (it says so once, not on every close).
@@ -76,6 +77,7 @@ final class CloudMachineSession {
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
     @ObservationIgnored var resumer: (@MainActor (String, CloudLinkOrigin) async throws -> Void)?
+    @ObservationIgnored var waking: (@MainActor @Sendable (Bool) -> Void)? // a start card's "Waking machine" while its settle waits (CloudStartChat, ask-259986a6c4)
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a
@@ -328,12 +330,11 @@ final class CloudMachineSession {
         applyRecord(record.listed(over: machine, connectedSinceRead: connects != connectsAtRead))
     }
 
-    /// Reads the record again before an attach decides, when it may be
-    /// stale: a machine with no daemon connection that does not read
-    /// paused (the idle auto-pause may have parked it while the app's copy
-    /// still says running).
+    /// Reads the record again before an attach decides, when it may be stale: a machine with no daemon connection that
+    /// does not read paused (the idle auto-pause may have parked it while the app's copy still says running). Not one a
+    /// create's or claim's answer gave as running just now (``answeredAt``, Rust's `rereads_record`): a claimed spare's `connect.resume`.
     func refreshIfMaybePaused() async {
-        guard daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
+        guard daemon.connection == nil, machine.status != .paused, !disconnected, let refresher, CloudMoveCore().rereadsRecord(running: machine.status == .running, answeredAgo: answeredAt.map { $0.duration(to: .now) }) else { return }
         await refresher(true)
     }
 

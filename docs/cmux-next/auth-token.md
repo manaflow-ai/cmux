@@ -73,3 +73,21 @@ socket. By default that is every process of your macOS user (socket mode
 `automation`). In `cmuxOnly` mode it is only processes started inside cmux. The
 token lasts minutes, but anyone who copies it can use it until it expires, so
 don't paste it into logs or chats.
+
+## Hosted tools in agent chats
+
+Every agent chat gets cmux's hosted MCP server (`cmux-hosted`) by default. It
+gives the agent the tools of your cmux account: GitHub through your cmux
+connectors and the remote MCP servers you added. To turn it off, set
+`agents.hostedMcp.enabled` to `false` in cmux.json, or start the daemon with
+`CMUX_HOSTED_MCP=0`.
+
+- On a Mac, the server asks the app for a token the way `cmux auth token` does
+  and keeps it in memory only, never in a file, an env, argv or a log. If you
+  aren't signed in, the chat lists no hosted tools. The server waits a minute
+  before it asks the app again.
+- On a cmux Cloud machine, no token is on the machine for this. The server
+  sends each MCP message as an `mcp.call` line over the machine agent's socket.
+  The agent adds the machine's own sign-in and sends the message to the
+  platform's `/mcp`, so the bearer never leaves the agent. A tool call that
+  takes the platform longer than 20 s fails with `integration.unreachable`.

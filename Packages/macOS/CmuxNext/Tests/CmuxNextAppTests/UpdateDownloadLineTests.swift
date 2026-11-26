@@ -34,6 +34,26 @@ import Testing
         #expect(ofOffsets.count == 1, "\"of\" moves as the received count grows: \(ofOffsets.sorted())")
     }
 
+    /// Every other counting percent in the update flow keeps its width too: going back's notice and the
+    /// Channels switch's button (both draw tabular digits), and Getting the Newest keeps its detail line
+    /// from before the first byte, so the card does not grow a line when bytes start.
+    @Test func everyUpdatePercentKeepsItsWidthWhileItCounts() throws {
+        var revert: Set<Int> = [], channels: Set<Int> = []
+        for whole in [0, 1, 7, 42, 99, 100] {
+            let fraction = Double(whole) / 100
+            let back = try #require(RevertNotice(RevertProgress(step: .downloading, fraction: fraction)).detail)
+            revert.insert(Int((Self.width(back) * 4).rounded()))
+            let label = BuildSwitchProgress(build: "1", stage: .download, fraction: fraction).label
+            channels.insert(Int((Self.width(label) * 4).rounded()))
+        }
+        #expect(revert.count == 1, "going back's percent changes width as it counts: \(revert.sorted())")
+        #expect(channels.count == 1, "the Channels switch's percent changes width as it counts: \(channels.sorted())")
+        let before = UpdateCard.gettingNewest(nil, pulled: false).presentation(version: "1.0.0", build: "100")
+        let counting = UpdateCard.gettingNewest(.downloading(received: Self.mb, expected: Self.expected), pulled: false)
+            .presentation(version: "1.0.0", build: "100")
+        #expect(before.detail != nil && counting.detail != nil, "Getting the Newest gains a detail line when bytes start")
+    }
+
     @Test func bothCountsReadInTheSizesUnitWithOneDecimal() throws {
         let text = try #require(UpdateTransfer.downloading(received: 115 * Self.mb, expected: Self.expected).bytesText)
         #expect(text.contains("115.0 MB"), "a whole count drops its decimal: \(text)")

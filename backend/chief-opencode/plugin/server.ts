@@ -26,7 +26,7 @@
 import { appendFileSync } from "node:fs"
 import { Plugin, Rpc } from "@opencode/plugin/effect"
 import { Effect, Schedule, Schema, Stream } from "effect"
-import { readOptions, GATEWAY, EFFORTS, KNOWN, modelInfo, isNoReply, clip, oneLine, systemPrompt, formatMessage, toolActivity } from "./chief.ts"
+import { readOptions, GATEWAY, EFFORTS, KNOWN, modelInfo, isNoReply, clip, oneLine, systemPrompt, formatMessage, toolActivity, TURN_CHECKS } from "./chief.ts"
 import type { Json, Usage, Read, Initialized } from "./chief.ts"
 
 // ---------------------------------------------------------------- RPC (host -> brain)
@@ -243,7 +243,8 @@ export default Plugin.define({
         yield* activity(s, "Thinking")
         const text = [
           ...(older.length > 0 ? [`Earlier in this conversation (for context):\n${older.map((m) => formatMessage(read.conversation, m)).join("\n")}\n\nNew:`] : []),
-          fresh.map((m) => formatMessage(read.conversation, m)).join("\n\n")
+          fresh.map((m) => formatMessage(read.conversation, m)).join("\n\n"),
+          `\n<turn-checks>\n${TURN_CHECKS}\n</turn-checks>`
         ].join("\n")
         yield* ctx.session.prompt({ sessionID: s.session as never, text, metadata: { cmux_run: s.run }, delivery: "queue" }).pipe(
           Effect.catchCause((cause) => finish(s, "failed", `prompt refused: ${String(cause).slice(0, 300)}`))
