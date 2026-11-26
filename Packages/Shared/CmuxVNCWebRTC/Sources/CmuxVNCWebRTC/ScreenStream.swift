@@ -431,6 +431,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
         }
         var last: (buffer: CVPixelBuffer, crop: CGRect)?
         var lastPush = DispatchTime.now()
+        /// When the screen last changed (the source's last picture) or the encoder last needed a fresh one (a
+        /// quality step, the viewer's refresh): the idle refresh backs off from here (``idleRefreshDue``).
+        var lastChange = DispatchTime.now()
         var displays: [CGSize] = []
         var current = 0
         var quality = ScreenQuality.auto
@@ -647,7 +650,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
                     session.lock.withLock { session.captured += 1 }
-                    self?.push(buffer, crop: crop, session: session)
+                    self?.push(buffer, crop: crop, session: session, change: true)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
                         session.displays = sizes
@@ -680,14 +683,19 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
-        // Idle refresh: capture sends nothing while the screen is still, but a
-        // lost keyframe or a quality step needs a frame to encode.
+        // Idle refresh: capture sends nothing while the screen is still, but the encoder sharpens a still picture
+        // over the next few frames, a lost keyframe needs a frame to answer it, and a quality step needs one to take
+        // effect. Backing off (``idleRefreshDue``): soon after a change, then every 4 s, so a still screen costs
+        // almost nothing on the wire (RFD 0088 slice 3b) where a refresh every 500 ms kept encoding it.
         session.add(Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500)) // idle refresh period
+                try? await Task.sleep(for: .milliseconds(250)) // idle refresh check period
                 guard let self else { return }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
-                    guard let last = session.last, DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > 450_000_000 else { return nil }
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    guard let last = session.last,
+                          Self.idleRefreshDue(sinceChangeNs: now &- session.lastChange.uptimeNanoseconds,
+                                              sincePushNs: now &- session.lastPush.uptimeNanoseconds) else { return nil }
                     return (last.buffer, last.crop)
                 }
                 if let stale { push(stale.0, crop: stale.1, session: session) }
@@ -695,10 +703,33 @@ public final class ScreenStreamHost: @unchecked Sendable {
         })
     }
 
-    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
+    /// Whether a still screen gets its last picture encoded again: once the last push is older than half the time
+    /// since the screen last changed, at least 450 ms and at most 4 s apart. So after a change a refresh comes at
+    /// about 0.5, 1, 2, 4 s, then every 4 s (0.25 fps): the first few let the encoder sharpen the still picture, the
+    /// rest bound how long a lost keyframe takes to repair.
+    static func idleRefreshDue(sinceChangeNs: UInt64, sincePushNs: UInt64) -> Bool {
+        let interval = min(max(sinceChangeNs / 2, idleRefreshMinimumNs), idleRefreshMaximumNs)
+        return sincePushNs >= interval
+    }
+
+    static let idleRefreshMinimumNs: UInt64 = 450_000_000
+    static let idleRefreshMaximumNs: UInt64 = 4_000_000_000
+
+    /// Restarts the idle refresh's back-off: the encoder needs a fresh picture soon (a quality step, the viewer
+    /// asked). Pushes the last picture at once.
+    private func refreshSoon(_ session: Session) {
+        let last = session.lock.withLock { () -> (buffer: CVPixelBuffer, crop: CGRect)? in
+            session.lastChange = .now()
+            return session.last
+        }
+        if let last { push(last.buffer, crop: last.crop, session: session) }
+    }
+
+    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session, change: Bool = false) {
         session.lock.withLock {
             session.last = (buffer, crop)
             session.lastPush = .now()
+            if change { session.lastChange = session.lastPush }
         }
         session.video.push(buffer, crop: crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
     }
@@ -916,6 +947,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if applyQuality(session) { sendDisplays(session) }
             return
         }
+        if input.t == "refresh" { refreshSoon(session) } // and the backend's own refresh below (VNC asks for a full update)
         deliver(input, to: session.backend)
     }
 
@@ -1005,6 +1037,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.link.applyVideo(quality, source: size, frameRate: fps)
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
+        refreshSoon(session) // a still screen shows the new settings now, not at the next back-off step
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
     }
