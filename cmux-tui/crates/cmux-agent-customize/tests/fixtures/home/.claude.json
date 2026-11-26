@@ -24,9 +24,11 @@
     "__PROJECT__": {
       "allowedTools": [],
       "mcpServers": {},
-      "enabledMcpjsonServers": [],
+      "enabledMcpjsonServers": [
+        "fixture-project",
+        "zz-another-approved-server"
+      ],
       "disabledMcpjsonServers": [],
-      "disabledMcpServers": [],
       "hasTrustDialogAccepted": true
     }
   }

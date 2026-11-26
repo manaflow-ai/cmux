@@ -106,7 +106,16 @@ fn claude(homes: &Homes, file: &Path, name: &str, enabled: bool) -> Result<(), T
         None => Members(Vec::new()),
     };
     overrides.set(name, if enabled { None } else { raw_string("off") });
-    let value = if overrides.0.is_empty() {
+    // An emptied `skillOverrides` goes, unless the person had the key before cmux's last write
+    // (an empty object they wrote stays as they wrote it).
+    let had_key = || {
+        homes
+            .edits
+            .before_last_write(file)
+            .and_then(|prior| Members::parse(&prior).ok())
+            .is_some_and(|prior| prior.get("skillOverrides").is_some())
+    };
+    let value = if overrides.0.is_empty() && !had_key() {
         None
     } else {
         Some(
@@ -164,7 +173,25 @@ fn codex(
         .iter()
         .position(|rule| rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()));
     let named = rules.iter().any(|rule| rule.get("name").and_then(|n| n.as_str()) == Some(name));
-    if enabled && !named {
+    // A path rule the person had before cmux's last write stays (set back to on in place).
+    let theirs = || {
+        homes
+            .edits
+            .before_last_write(file)
+            .and_then(|prior| prior.parse::<toml_edit::DocumentMut>().ok())
+            .is_some_and(|prior| {
+                prior
+                    .get("skills")
+                    .and_then(|s| s.get("config"))
+                    .and_then(|c| c.as_array_of_tables())
+                    .is_some_and(|rules| {
+                        rules.iter().any(|rule| {
+                            rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str())
+                        })
+                    })
+            })
+    };
+    if enabled && !named && !theirs() {
         if let Some(index) = existing {
             rules.remove(index);
             if rules.is_empty() {
@@ -181,7 +208,7 @@ fn codex(
     }
     match existing.and_then(|index| rules.get_mut(index)) {
         Some(rule) => {
-            rule["enabled"] = toml_edit::value(enabled);
+            set_bool_keeping_decor(rule, "enabled", enabled);
         }
         None => {
             let mut rule = toml_edit::Table::new();
@@ -194,4 +221,18 @@ fn codex(
         .edits
         .replace(file, &doc.to_string())
         .map_err(|e| ToggleError::Write(file.to_path_buf(), e))
+}
+
+/// Sets `key` to `on`, in place with its comments and spacing when it is already there.
+pub(crate) fn set_bool_keeping_decor(table: &mut toml_edit::Table, key: &str, on: bool) {
+    match table.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+        Some(existing) => {
+            let decor = existing.decor().clone();
+            *existing = toml_edit::Value::from(on);
+            *existing.decor_mut() = decor;
+        }
+        None => {
+            table.insert(key, toml_edit::value(on));
+        }
+    }
 }

@@ -26,6 +26,8 @@ use cmux_agent_customize::{Agent, Homes};
 
 /// The project folder's key in `~/.claude.json`, filled in once the fixture has a real path.
 const PROJECT_PLACEHOLDER: &str = "__PROJECT__";
+/// HOME's real path in `.codex/config.toml` (a `[[skills.config]]` path rule).
+const HOME_PLACEHOLDER: &str = "__HOME__";
 
 /// The agent files the round-trips must leave byte for byte, relative to HOME.
 const WATCHED: &[&str] = &[
@@ -37,6 +39,7 @@ const WATCHED: &[&str] = &[
     "work/repo/.claude/settings.json",
     ".claude/skills/fixture-review/SKILL.md",
     ".codex/skills/fixture-deploy/SKILL.md",
+    ".codex/skills/fixture-lint/SKILL.md",
 ];
 
 struct Home {
@@ -59,6 +62,9 @@ impl Home {
         let text = fs::read_to_string(&state).unwrap();
         fs::write(&state, text.replace(PROJECT_PLACEHOLDER, &project.display().to_string()))
             .unwrap();
+        let codex = home.join(".codex/config.toml");
+        let text = fs::read_to_string(&codex).unwrap();
+        fs::write(&codex, text.replace(HOME_PLACEHOLDER, &home.display().to_string())).unwrap();
         Self { _root: root, home, project }
     }
 
@@ -217,11 +223,19 @@ fn mcp_off_then_on_round_trips_byte_for_byte() {
     let paths = home.mcp_paths();
     let options = home.mcp_options();
     let before = home.snapshot();
-    for (agent, name) in [(Agent::Claude, "fixture-stdio"), (Agent::Codex, "fixture-codex-stdio")] {
+    // fixture-stdio: `disabledMcpServers` is absent and must stay absent. fixture-project: a
+    // project server in an approved list whose order must hold. fixture-codex-http: an
+    // `enabled = true` line the person wrote, comment and all.
+    for (agent, name, scope) in [
+        (Agent::Claude, "fixture-stdio", McpScope::User),
+        (Agent::Claude, "fixture-project", McpScope::Project),
+        (Agent::Codex, "fixture-codex-stdio", McpScope::User),
+        (Agent::Codex, "fixture-codex-http", McpScope::User),
+    ] {
         let target = Target {
             agent,
             name: name.to_owned(),
-            scope: Some(McpScope::User),
+            scope: Some(scope),
             project: Some(home.project.clone()),
         };
         let enabled = |paths: &Paths| {
@@ -304,15 +318,16 @@ fn skills_list_both_agents() {
         seen,
         vec![
             (skills::Agent::Codex, "fixture-deploy", true),
+            (skills::Agent::Codex, "fixture-lint", true),
             (skills::Agent::Claude, "fixture-review", true),
         ]
     );
     assert!(listing.problems.is_empty(), "{:?}", listing.problems);
 }
 
-/// The fixture's Claude settings hold no `skillOverrides`: turning the last override back on drops
-/// the then-empty object, so a file that started with `"skillOverrides": {}` comes back without it
-/// (on and off cannot tell an empty object the person wrote from one cmux emptied).
+/// Claude: the person's empty `"skillOverrides": {}` stays. Codex: fixture-deploy has a path rule
+/// the person wrote (set back in place, comment kept); fixture-lint has none, so the rule cmux adds
+/// to turn it off goes again on enable.
 #[test]
 fn skills_off_then_on_round_trips_byte_for_byte() {
     let home = Home::new();
@@ -321,6 +336,7 @@ fn skills_off_then_on_round_trips_byte_for_byte() {
     for (agent, rel) in [
         (skills::Agent::Claude, ".claude/skills/fixture-review/SKILL.md"),
         (skills::Agent::Codex, ".codex/skills/fixture-deploy/SKILL.md"),
+        (skills::Agent::Codex, ".codex/skills/fixture-lint/SKILL.md"),
     ] {
         let path = home.home.join(rel);
         let change = |enabled| SetEnabled {
