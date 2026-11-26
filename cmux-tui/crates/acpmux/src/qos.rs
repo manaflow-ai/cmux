@@ -12,7 +12,7 @@
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | the host's disk I/O at `IOPOL_UTILITY`; its harness back at the default disk tier ([`default_disk_io`]) and the daemon's CPU priority, as a shell in a terminal runs: a `normal` harness (the default) stays there, a `background` one (opt-in) goes to nice +11 and background class once its session's start is over (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | the host's disk I/O at `IOPOL_UTILITY`; its harness back at the default disk tier ([`default_disk_io`]) and the daemon's CPU priority, as a shell in a terminal runs: a `normal` harness (the default) stays at the terminal's class, a `dynamic` one (opt-in) goes to background class only while the Mac is contended, and a `background` one (opt-in) stays there once its start is over (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
 //! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
@@ -36,9 +36,9 @@
 //! An agent's turns are work a person waits on too (2026-11-24: over 130 sessions on one Mac, a
 //! NEXT agent's tests took 37 s at the median against 11 s in a terminal, and its slowest builds
 //! 220 s against 52 s; one 1-commit rebase took 87 minutes at 0% CPU, waiting on a throttled
-//! disk), so by default the harness stays there for good, as a terminal's shell does. Only a
-//! `background` session's harness is lowered once its start is over ([`AGENT_NICE`] and
-//! background class, `cpu_class::CpuClass::enter`).
+//! disk). The default `normal` class keeps the terminal's CPU class and normal disk I/O. An
+//! opt-in `dynamic` class temporarily adds background class only while the host is contended. A
+//! `background` session's harness stays lowered once its start is over.
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -77,8 +77,8 @@ pub enum Tier {
     /// Agent work: background-task runners and every tool they run.
     Agent,
     /// Agent hosts: the daemon's CPU tier, disk I/O at utility. Their harnesses run at the
-    /// daemon's tier and the default disk tier; a `background` session's harness goes below once
-    /// its start is over (`cpu_class::CpuClass::enter`).
+    /// daemon's tier and the default disk tier; a `dynamic` session's harness goes to background
+    /// class while contended and a `background` session stays there (`cpu_class::CpuClass::enter`).
     AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,

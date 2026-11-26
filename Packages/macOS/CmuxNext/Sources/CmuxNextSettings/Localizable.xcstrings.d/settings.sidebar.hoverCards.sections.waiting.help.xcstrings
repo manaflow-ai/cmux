@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.hoverCards.sections.waiting.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When an agent waited for your input or finished its turn, in the card's history."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントが入力を待った時刻やターンを完了した時刻をカードの履歴に表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "متى انتظر الوكيل إدخالك أو أنهى دوره، في سجل البطاقة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada je agent čekao vaš unos ili završio svoj red, u historiji kartice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvornår en agent ventede på dit input eller blev færdig, i kortets historik."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wann ein Agent auf deine Eingabe gewartet oder seinen Zug beendet hat, im Verlauf der Karte."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuándo un agente esperó tu respuesta o terminó su turno, en el historial de la tarjeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quand un agent a attendu votre réponse ou terminé son tour, dans l'historique de la carte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando un agente ha atteso il tuo input o ha finito il turno, nella cronologia della scheda."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលដែលភ្នាក់ងាររង់ចាំការបញ្ចូលរបស់អ្នក ឬបញ្ចប់វេន ក្នុងប្រវត្តិកាត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 입력을 기다리거나 차례를 마친 시각을 카드 기록에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når en agent ventet på svaret ditt eller ble ferdig, i kortets historikk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kiedy agent czekał na Twoją odpowiedź lub zakończył turę, w historii karty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando um agente esperou sua resposta ou concluiu a vez, no histórico do cartão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда агент ждал вашего ответа или закончил ход, в истории карточки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อเอเจนต์รอข้อมูลจากคุณหรือทำรอบเสร็จ ในประวัติของการ์ด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir ajanın girdinizi beklediği veya sırasını bitirdiği zaman, kartın geçmişinde."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли агент чекав на вашу відповідь або завершив хід, в історії картки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi tác tử chờ bạn nhập hoặc xong lượt, trong lịch sử của thẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理等待你的输入或完成回合的时间，显示在卡片历史中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理等待你的輸入或完成回合的時間，顯示在卡片歷史中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

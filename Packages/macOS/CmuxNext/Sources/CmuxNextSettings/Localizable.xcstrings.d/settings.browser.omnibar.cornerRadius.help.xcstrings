@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.omnibar.cornerRadius.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Theme uses the standard bar radius. Capsule rounds the ends fully."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مطابقة السمة تستخدم نصف القطر القياسي للشريط. الكبسولة تجعل الطرفين مستديرين بالكامل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prema temi koristi standardni radijus trake. Kapsula potpuno zaobljuje krajeve."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Følg tema bruger linjens standardradius. Kapsel runder enderne helt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie Thema verwendet den Standardradius der Leiste. Kapsel rundet die Enden vollständig ab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Igual que el tema usa el radio estándar de la barra. Cápsula redondea por completo los extremos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comme le thème utilise le rayon standard de la barre. Capsule arrondit entièrement les extrémités."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come il tema usa il raggio standard della barra. Capsula arrotonda completamente le estremità."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「テーマに合わせる」は標準のバーの半径を使います。「カプセル」は両端を完全に丸めます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដូចធីមប្រើកាំស្តង់ដាររបស់របារ។ កន្សោមធ្វើឱ្យចុងទាំងពីរមូលទាំងស្រុង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "테마에 맞춤은 표준 막대 반경을 사용합니다. 캡슐은 양 끝을 완전히 둥글게 만듭니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Følg tema bruker feltets standardradius. Kapsel runder endene helt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak motyw używa standardowego promienia paska. Kapsuła w pełni zaokrągla końce."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Igual ao tema usa o raio padrão da barra. Cápsula arredonda totalmente as pontas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Как в теме» использует стандартный радиус строки. «Капсула» полностью скругляет края."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตามธีมจะใช้รัศมีมาตรฐานของแถบ แคปซูลจะทำให้ปลายทั้งสองโค้งมนเต็มที่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Temaya uy, standart çubuk yarıçapını kullanır. Kapsül, uçları tamamen yuvarlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Як у темі» використовує стандартний радіус рядка. «Капсула» повністю заокруглює краї."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Theo chủ đề dùng bán kính chuẩn của thanh. Viên nang bo tròn hoàn toàn hai đầu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“匹配主题”使用标准栏圆角。“胶囊”会将两端完全变圆。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「符合主題」使用標準列圓角。「膠囊」會將兩端完全變圓。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
