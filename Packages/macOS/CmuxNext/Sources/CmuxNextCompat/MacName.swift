@@ -1,3 +1,4 @@
+#if canImport(SystemConfiguration)
 import Foundation
 import SystemConfiguration
 
@@ -145,3 +146,4 @@ public struct MacName: Sendable {
         return raw.split(separator: ".").first.map(String.init) ?? raw
     }
 }
+#endif
