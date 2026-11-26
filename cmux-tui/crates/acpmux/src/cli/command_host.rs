@@ -448,7 +448,11 @@ pub struct HypervisorOpts {
     #[arg(long, value_name = "DIR")]
     pub pods_dir: Option<PathBuf>,
     /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
-    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`.
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
+    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
+    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
+    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
+    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
     #[arg(long, value_name = "PROGRAM")]
     pub pod_init: Option<String>,
     /// An argument for --pod-init; repeat for more.
@@ -462,6 +466,12 @@ pub struct HypervisorOpts {
     /// harness installed under a home (`~/.local/share/claude`); repeat for more.
     #[arg(long = "pod-bind", value_name = "PATH")]
     pub pod_bind: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorSourceKind {
+    Spool,
+    Hub,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -494,6 +504,13 @@ pub enum HypervisorCmd {
         /// One pass, then exit.
         #[arg(long)]
         once: bool,
+        /// Where commands come from: the local spool `apply` writes, or the hub's command
+        /// lease for this joined machine (`acpmux machine join` first; its own credential).
+        #[arg(long, value_enum, default_value_t = HypervisorSourceKind::Spool)]
+        source: HypervisorSourceKind,
+        /// With --source hub: the most commands one lease takes (1 to 32).
+        #[arg(long, default_value_t = 8)]
+        lease_max: u32,
     },
     /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
     /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are
