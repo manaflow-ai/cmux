@@ -14,13 +14,9 @@ package enum AttachmentImageEncoder {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
               let typeIdentifier = CGImageSourceGetType(source) else { return nil }
         let frameCount = CGImageSourceGetCount(source)
-        // A GIF or APNG must retain all frames. Multi-image HEIC/Burst files can
-        // still use their first frame as a compact transfer representation.
-        if frameCount != 1,
-           typeIdentifier as String == UTType.gif.identifier ||
-           typeIdentifier as String == UTType.png.identifier {
-            return nil
-        }
+        // A multi-frame image must retain all frames. A thumbnail would silently
+        // turn animated WebP, TIFF, GIF, APNG, or a burst into a still image.
+        guard frameCount == 1 else { return nil }
         if typeIdentifier as String == UTType.png.identifier,
            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let width = properties[kCGImagePropertyPixelWidth] as? Int,

@@ -116,8 +116,7 @@ struct ChatComposer: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
-                attachments += files
-                for file in files { readVideo(file) }
+                appendPreparedFiles(files)
                 if let refused { store.clientError = refused }
             }
         }
@@ -247,15 +246,14 @@ struct ChatComposer: View {
                     } else if let original = file.data {
                         appendOptimizedImage(original, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
                     } else {
-                        attachments.append(AgentAttachment(kind: .image, name: file.name, fileURL: file.fileURL,
-                                                           byteCount: file.byteCount))
+                        appendOptimizedImage(fileURL: file.fileURL, name: file.name, byteCount: file.byteCount)
                     }
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)
-            attachments += files
+            appendPreparedFiles(files)
             if let refused { store.clientError = refused }
         }
     }
@@ -264,20 +262,61 @@ struct ChatComposer: View {
         store.composerAttachmentsChanged(attachments.filter { !optimizingImageIDs.contains($0.id) })
     }
 
+    private func appendPreparedFiles(_ files: [AgentAttachment]) {
+        for file in files {
+            if file.kind == .image, let data = file.data {
+                appendOptimizedImage(data, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
+            } else if file.kind == .image, let fileURL = file.fileURL {
+                appendOptimizedImage(fileURL: fileURL, name: file.name, byteCount: file.byteCount)
+            } else {
+                attachments.append(file)
+                readVideo(file)
+            }
+        }
+    }
+
     private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
         let id = UUID().uuidString
         attachments.append(AgentAttachment(id: id, kind: .image, name: name, data: data,
                                            fileURL: fileURL, byteCount: byteCount ?? data.count))
         optimizingImageIDs.insert(id)
         Task {
-            defer { optimizingImageIDs.remove(id) }
             let optimized = await AgentImageOptimizer.optimizeAsync(data)
-            guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = attachments.firstIndex(where: { $0.id == id }) else {
+                optimizingImageIDs.remove(id)
+                return
+            }
             attachments[index].data = optimized
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
+            optimizingImageIDs.remove(id)
             // Optimization mutates an attachment in place, so the ID-based change
             // observer does not fire. Reconcile the prestager after the MIME changes.
+            syncPreparedAttachments()
+        }
+    }
+
+    private func appendOptimizedImage(fileURL: URL, name: String, byteCount: Int?) {
+        let id = UUID().uuidString
+        attachments.append(AgentAttachment(id: id, kind: .image, name: name, fileURL: fileURL, byteCount: byteCount))
+        optimizingImageIDs.insert(id)
+        Task {
+            let data = await Task.detached(priority: .userInitiated) {
+                try? ScopedFile(fileURL).withAccess { url in
+                    try Data(contentsOf: url, options: .mappedIfSafe)
+                }
+            }.value
+            guard let data,
+                  let index = attachments.firstIndex(where: { $0.id == id }) else {
+                optimizingImageIDs.remove(id)
+                syncPreparedAttachments()
+                return
+            }
+            let optimized = await AgentImageOptimizer.optimizeAsync(data)
+            attachments[index].data = optimized
+            attachments[index].byteCount = optimized.count
+            attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
+            optimizingImageIDs.remove(id)
             syncPreparedAttachments()
         }
     }
@@ -298,6 +337,21 @@ struct ChatComposer: View {
             defer { access.close() }
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+            if isImage {
+                if size > inlineFileBytes {
+                    files.append(AgentAttachment(kind: .image, name: url.lastPathComponent,
+                                                 fileURL: url, byteCount: size))
+                    continue
+                }
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    refused = "Couldn't read \(url.lastPathComponent)."
+                    continue
+                }
+                files.append(AgentAttachment(kind: .image, name: url.lastPathComponent, data: data,
+                                             fileURL: url, byteCount: size))
                 continue
             }
             // A video stays by its URL whatever its size: its frames are read from there.

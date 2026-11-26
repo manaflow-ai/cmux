@@ -90,11 +90,24 @@ extension ComposerAttachment {
     @concurrent
     func transferPayload() async throws -> TransferPayload {
         try Task.checkCancellation()
-        guard kind == .image, let data, let encoded = AttachmentImageEncoder.encode(data) else {
-            return TransferPayload(payload: try payload(), name: name)
+        if kind == .image {
+            let sourceData: Data?
+            if let data {
+                sourceData = data
+            } else if let fileURL {
+                sourceData = try? ScopedFile(fileURL).withAccess { url in
+                    try Data(contentsOf: url, options: .mappedIfSafe)
+                }
+            } else {
+                sourceData = nil
+            }
+            if let sourceData, let encoded = AttachmentImageEncoder.encode(sourceData) {
+                let stem = (name as NSString).deletingPathExtension
+                return TransferPayload(payload: .data(encoded.data),
+                                       name: "\(stem.isEmpty ? "attachment" : stem).\(encoded.ext)")
+            }
         }
-        let stem = (name as NSString).deletingPathExtension
-        return TransferPayload(payload: .data(encoded.data), name: "\(stem.isEmpty ? "attachment" : stem).\(encoded.ext)")
+        return TransferPayload(payload: try payload(), name: name)
     }
 }
 #endif
