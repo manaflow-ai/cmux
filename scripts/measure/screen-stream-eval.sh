@@ -16,7 +16,7 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
+targets="rd,webrtc" samples=200 repeats=3 rig="" lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
@@ -35,6 +35,9 @@ for arg in "$@"; do
     # stage-table=LEGS (two Macs): the stage ledger, screen-share-vs.py run --legs LEGS, in place of the targets
     # (README.md, "Stage table on two Macs"): lan= on the shared Mac, viewer-of= on the viewing Mac.
     stage-table=*) stage_table="${arg#stage-table=}" ;;
+    # rig=ROOT (screen-share-vs-pair.sh): only the screen-share-vs.py rig at --root ROOT, in this Mac's grants
+    # (inside the launcher app below), until the rig's quit or the step ends. No eval runs.
+    rig=*) rig="${arg#rig=}" ;;
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
@@ -153,6 +156,7 @@ if [[ -n "$stage_table" ]]; then
   [[ -n "$lan$viewer_of" ]] || { echo "screen-stream-eval.sh: stage-table= runs on two Macs: lan= or viewer-of=, with peer-token=" >&2; exit 2; }
   [[ "$stage_table" =~ ^[a-z0-9=-]+(,[a-z0-9=-]+)*$ ]] || { echo "screen-stream-eval.sh: stage-table= is LINK or LINK=PROFILE, comma-separated" >&2; exit 2; }
 fi
+[[ -z "$rig" || "$rig" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "screen-stream-eval.sh: rig= is an absolute path" >&2; exit 2; }
 peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -164,6 +168,36 @@ if [[ "$input_frame_now" == 1 ]] && ! grep -q 'flag("input-frame-now")' cmux-tui
   exit 2
 fi
 here="$root/scripts/measure/screen-stream-eval"
+if [[ -n "$rig" ]]; then
+  # The rig is what posts the input and starts the host, so it, not the step, needs Screen Recording and
+  # Accessibility: inside the launcher app (the step's own processes hold neither) it runs the rig itself.
+  vs="$root/cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py"
+  [[ -n "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]] && exec /usr/bin/python3 -I "$vs" rig --root "$rig"
+  launch="$rig.launcher"
+  rm -rf "$launch"
+  mkdir -p "$launch"
+  app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") ||
+    { echo "screen-stream-eval.sh: rig=: the launcher app did not install ($(tail -1 "$launch/install.log"))" >&2; exit 3; }
+  open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --status \
+    >"$launch/open.log" 2>&1 || true
+  grants=$(cat "$launch/grants.json" 2>/dev/null)
+  echo "SCREEN-STREAM-EVAL-RIG app=$app grants=${grants:-none}"
+  grep -q '"accessibility":true' <<<"$grants" && grep -q '"screen_recording":true' <<<"$grants" || {
+    echo "screen-stream-eval.sh: rig=: $app lacks Screen Recording or Accessibility on this Mac; grant both to it once at the console ($grants)" >&2
+    exit 3
+  }
+  env_args=()
+  for var in PATH HOME TMPDIR USER LANG $(compgen -e | grep -E '^CMUX_' || true); do
+    [[ -n "${!var:-}" ]] && env_args+=(--env "$var=${!var}")
+  done
+  # The app ends the rig when this process is gone (the step killed it, or the step ended).
+  open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
+    --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "rig=$rig" || true
+  tail -n 40 "$launch/err.log" 2>/dev/null >&2
+  status=$(cat "$launch/status" 2>/dev/null || echo 3)
+  rm -rf "$launch"
+  exit "$status"
+fi
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
 # The run starts by removing $out and $work, so prebuilt tools may not live in either.
