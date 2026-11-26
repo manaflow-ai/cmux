@@ -4,11 +4,9 @@ Instrument is cmux's web component kit, at version `0.1.0` (`INSTRUMENT_VERSION`
 version is in `CHANGELOG.md`). 0.1.0 is the look the app draws today: every piece is the app's own
 component or a thin one over the app's own classes, so nothing here looks new.
 
-The pieces a customization page, a plugin or a web page composes instead of hand-rolled views.
-Built from them, a page follows the active theme in light and dark, the density and the design
-scale the app uses, and gets the app's menus, popovers and focus behavior.
-
-Import from `kit/index.ts` only; the files behind it may move.
+In cmux webviews, import the components from `kit/index.ts`. They follow the active theme, density
+and design scale, and provide the app’s menus, popovers and focus behavior. For an installed
+sidebar customization or extension, use the [scene API for that host](#which-kit-do-i-use).
 
 | Piece                            | What it is                                                                                                                                                                                    |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -155,6 +153,7 @@ import {
 
 <Row title={name} subtitle={branch} leading={<Icon name="terminal" size={16} row />} onSelect={open} />
 
+{/* oxlint-disable-next-line jsx-a11y/aria-role -- Panel uses role to choose its surface */}
 <Panel role="card">
   <Panel.Header icon={<Icon name="terminal" size={16} />}>{title}</Panel.Header>
   <Panel.Body>{detail}</Panel.Body>
@@ -224,6 +223,7 @@ Choose the API for the host that will render the view:
 For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
 Use the gallery above as a visual reference. A prompt for an agent:
 
-> Build a focus timer for my sidebar using the scene globals in the focus timer example.
-> Use the existing Panel, Row and Button styles and theme tones. Match the light and dark gallery examples,
-> then show the timer before and after I press Start.
+> Build a sidebar focus timer from the scene globals in the focus timer example. Start at 20 minutes
+> and offer 10, 20 and 40 minute presets. Use the existing Panel, Row and Button styles and theme
+> tones. Match the light and dark gallery examples. Show the countdown after Start and the reset
+> after Stop.
