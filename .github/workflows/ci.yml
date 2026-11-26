@@ -132,7 +132,7 @@ jobs:
     # secret), so it takes the persistent cmux-linux pool like the rest of Linux CI. Fork pull requests keep
     # their Blacksmith branch. It took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted runners
     # left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included
