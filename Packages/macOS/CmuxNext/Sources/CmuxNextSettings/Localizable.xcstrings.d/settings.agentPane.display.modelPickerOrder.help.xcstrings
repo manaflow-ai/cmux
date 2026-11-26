@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.modelPickerOrder.help" : {
+      "comment" : "Settings (search, palette, CLI): the help of the list that keeps the order of the harness tabs in the composer's model picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
