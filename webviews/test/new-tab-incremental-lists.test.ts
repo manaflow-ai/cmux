@@ -84,7 +84,9 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8])("kept lists equal a whole sort after each ch
     else if (step % 131 === 70) list = list.slice(2);
     else list = change(list, next, clock);
     expect(local.of(list)).toEqual(recentLocalFolders(list));
-    expect(omnibarFolders(projects, bar.of(list))).toEqual(omnibarFolders(projects, recentFolders(list, omnibarFolder)));
+    expect(omnibarFolders(projects, bar.of(list))).toEqual(
+      omnibarFolders(projects, recentFolders(list, omnibarFolder)),
+    );
     expect(recent.of(list).map((entry) => entry.sessionId)).toEqual(
       recentSessions(list).map((entry) => entry.sessionId),
     );
