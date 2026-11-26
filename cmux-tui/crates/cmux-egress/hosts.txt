@@ -38,6 +38,8 @@ api.open-meteo.com
 api.openai.com
 # the sign-in service
 api.stack-auth.com
+# the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine
+api.tailscale.com
 # the xAI API, when you give an agent an xAI API key
 api.x.ai
 # the Notion integration, only when an agent uses it in your signed-in browser

@@ -19,6 +19,7 @@ enum EgressHosts {
         "api.open-meteo.com",
         "api.openai.com",
         "api.stack-auth.com",
+        "api.tailscale.com",
         "api.x.ai",
         "app.notion.com",
         "app.slack.com",

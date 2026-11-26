@@ -117,6 +117,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `api.stack-auth.com` | connects | the sign-in service |
+| `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
