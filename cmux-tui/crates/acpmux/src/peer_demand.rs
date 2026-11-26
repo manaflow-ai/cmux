@@ -107,6 +107,7 @@ pub(crate) struct Demand {
     closes_idle: bool,
     used_at: StdMutex<Instant>,
     keeper: std::sync::OnceLock<Keeper>,
+    changed: tokio::sync::Notify,
 }
 
 impl std::fmt::Debug for Demand {
@@ -128,6 +129,7 @@ impl Default for Demand {
             closes_idle: start != Start::Dial,
             used_at: StdMutex::new(Instant::now()),
             keeper: std::sync::OnceLock::new(),
+            changed: tokio::sync::Notify::new(),
         }
     }
 }
@@ -141,6 +143,12 @@ impl Peer {
     /// Hands the peer what keeps its quiet link open ([`Keeper`]; `Hub::spawn_peer`).
     pub(crate) fn set_keeper(&self, keeper: Keeper) {
         let _ = self.wanted.demand.keeper.set(keeper);
+    }
+
+    /// Wake a parked demand wait when a setting changes whether this peer must stay connected.
+    pub(crate) fn demand_changed(&self) {
+        // Retain one wake if the state flips between the loop's check and its select setup.
+        self.wanted.demand.changed.notify_one();
     }
 
     /// The chats of this peer local clients asked to stream (`mark_attached`); a mark outlives
@@ -222,6 +230,9 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 return false;
             }
+            if !self.closes_idle() {
+                break;
+            }
             if self.in_use() {
                 break;
             }
@@ -232,6 +243,7 @@ impl Peer {
             tokio::select! {
                 biased;
                 _ = stopped.wait_for(|stopped| *stopped) => return false,
+                () = demand.changed.notified() => {},
                 () = self.next_ask_after(since) => {}
             }
         }
@@ -246,6 +258,9 @@ impl Peer {
     /// restart does, with no outage and no failed attempt, and the peer waits to be used.
     pub(super) fn idle_ended(&self) -> Option<super::PeerNotice> {
         tracing::info!(peer = %self.name, "the link went unused for {}s; it closes and reconnects on use", IDLE_CLOSE_AFTER.as_secs());
+        // A make-before-break dial may have opened while this link was idle. Parking the peer
+        // must drop that socket and its tunnel instead of retaining it until the next demand.
+        self.replacement.lock_or_recover().take();
         self.link_ended();
         self.open.store(false, Ordering::SeqCst);
         self.connected.store(false, Ordering::SeqCst);

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.agents.endpoint.hint.local" : {
+      "comment" : "Settings > Agents > Add > Endpoint (your own model endpoint); keep Claude Code, Opus, Sonnet, Haiku, OpenAI, Anthropic, https, http, /v1 and port numbers exactly",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "شغّل خادم النماذج على هذا الـ Mac أولًا. لا يحتاج إلى مفتاح."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prvo pokrenite server modela na ovom Macu. Ne treba mu ključ."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Start modelserveren på denne Mac først. Den kræver ingen nøgle."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starte zuerst den Modellserver auf diesem Mac. Er braucht keinen Schlüssel."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start the model server on this Mac first. It needs no key."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inicia primero el servidor de modelos en este Mac. No necesita clave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Démarrez d'abord le serveur de modèles sur ce Mac. Il ne demande pas de clé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avvia prima il server di modelli su questo Mac. Non serve una chiave."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "先にこの Mac でモデルサーバーを起動してください。キーは不要です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចាប់ផ្ដើមម៉ាស៊ីនមេម៉ូដែលលើ Mac នេះជាមុនសិន។ វាមិនត្រូវការសោទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "먼저 이 Mac에서 모델 서버를 시작하세요. 키는 필요 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Start modellserveren på denne Macen først. Den trenger ingen nøkkel."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najpierw uruchom serwer modeli na tym Macu. Nie wymaga klucza."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inicie primeiro o servidor de modelos neste Mac. Ele não precisa de chave."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сначала запустите сервер моделей на этом Mac. Ключ не нужен."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เริ่มเซิร์ฟเวอร์โมเดลบน Mac เครื่องนี้ก่อน ไม่ต้องใช้คีย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Önce bu Mac'te model sunucusunu başlatın. Anahtar gerekmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Спершу запустіть сервер моделей на цьому Mac. Ключ не потрібен."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hãy khởi động máy chủ mô hình trên máy Mac này trước. Không cần khóa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请先在本机启动模型服务器。无需密钥。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請先在本機啟動模型伺服器。不需要金鑰。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

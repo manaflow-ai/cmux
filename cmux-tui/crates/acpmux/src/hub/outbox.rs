@@ -421,12 +421,22 @@ pub struct OutboxState {
 /// The deliveries and the number of changes made to them.
 #[derive(Default)]
 struct Book {
+    /// Shared by all idle peer checks until the next change.
+    pending_targets: Option<Arc<PendingTargets>>,
     deliveries: BTreeMap<String, Delivery>,
     changes: u64,
     /// The deliveries changed since the last write: the next one journals them.
     dirty: BTreeSet<String>,
     /// The counters every change here moves (`outbox_stats.rs`).
     stats: super::outbox_stats::Counters,
+}
+
+/// Distinct destinations and pins of unfinished messages. Both keep a link alive when a
+/// previously pinned delivery's destination now resolves on another peer.
+#[derive(Default)]
+pub(super) struct PendingTargets {
+    pub(super) targets: HashSet<String>,
+    pub(super) pins: HashSet<String>,
 }
 
 /// What the files hold.
@@ -490,6 +500,7 @@ impl OutboxState {
             disk.snapshot_retry_at = 0;
         }
         let mut book = self.book();
+        book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
         book.stats = super::outbox_stats::read(path, crate::store::now_ms());
         // Attachments come back from beside the file; ones no waiting delivery names go.
@@ -640,18 +651,27 @@ impl OutboxState {
         })
     }
 
-    /// Each delivery not settled yet, as its target and the peer it is pinned to: what a peer's
-    /// quiet link is still kept for (`Hub::keeps_peer`). Never waits: None while a writer holds
-    /// the book (the link is kept then, and asked again on its next tick).
-    pub(crate) fn unsettled_targets(&self) -> Option<Vec<(String, Option<String>)>> {
-        let book = self.deliveries.try_lock()?;
-        Some(
-            book.deliveries
-                .values()
-                .filter(|d| !d.settled() && !d.projection_only() && !d.is_team_receipt())
-                .map(|d| (d.target.clone(), d.pin.as_ref().map(|p| p.peer.clone())))
-                .collect(),
-        )
+    /// One snapshot per changed book, shared by every quiet link. While the writer holds the
+    /// book, keep the link until it can check again.
+    pub(super) fn pending_targets(&self) -> Option<Arc<PendingTargets>> {
+        let mut book = self.deliveries.try_lock()?;
+        if let Some(targets) = &book.pending_targets {
+            return Some(Arc::clone(targets));
+        }
+        let mut targets = PendingTargets::default();
+        for d in book
+            .deliveries
+            .values()
+            .filter(|d| !d.settled() && !d.projection_only() && !d.is_team_receipt())
+        {
+            targets.targets.insert(d.target.clone());
+            if let Some(pin) = &d.pin {
+                targets.pins.insert(pin.peer.clone());
+            }
+        }
+        let targets = Arc::new(targets);
+        book.pending_targets = Some(Arc::clone(&targets));
+        Some(targets)
     }
 
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
@@ -1058,6 +1078,7 @@ impl OutboxState {
             book.dirty.extend(dirty);
             if let Some(id) = added {
                 book.deliveries.remove(id);
+                book.pending_targets = None;
             }
             return Err(e);
         }
@@ -1197,6 +1218,7 @@ fn read_saved(path: &Path) -> Saved {
 impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
+        self.pending_targets = None;
         let now = crate::store::now_ms();
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");

@@ -138,7 +138,7 @@ class BodyChecksTests(unittest.TestCase):
         wanted = {"scripts/ci/pr_capture_check.py", "scripts/cmux-next/media/path_map.py",
                   "scripts/ci/pr_design_spec_check.py", ".github/design-surfaces.json",
                   "scripts/ci/pr_perf_section_check.py", "scripts/ci/pr_cloud_backend_check.py",
-                  ".github/cloud-backend-paths.json", "ci/steps.toml", "scripts/ci/ci_steps.py"}
+                  ".github/cloud-backend-paths.json", "ci/steps.toml", "scripts/ci/ci_steps.py", ".gitmodules"}
         self.assertEqual(set(checkout["sparse-checkout"].split()), wanted)
 
     def test_it_runs_on_drafts_and_every_old_trigger(self):

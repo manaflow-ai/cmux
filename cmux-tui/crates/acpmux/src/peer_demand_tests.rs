@@ -51,6 +51,25 @@ async fn a_hundred_and_thirty_peers_started_lazily_dial_none_until_one_is_used()
     test_dial::clear();
 }
 
+/// Turning GitHub lending on after a saved peer is parked wakes it for its required startup link.
+#[tokio::test(start_paused = true)]
+async fn enabling_github_lending_wakes_a_lazily_parked_peer() {
+    test_dial::refuse_all();
+    let peer = lazily(|| built("lends-github"));
+    let run = tokio::spawn(peer.clone().run());
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(test_dial::attempts().is_empty(), "a parked peer dialed before lending");
+
+    peer.set_github_broker(true);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(test_dial::attempts().len(), 1, "lending wakes the startup dial");
+    assert!(!peer.idle_parked());
+
+    peer.stop();
+    run.await.unwrap();
+    test_dial::clear();
+}
+
 /// A peer neither saved nor started lazily (a lease, a test's) dials at once, as before.
 #[tokio::test(start_paused = true)]
 async fn a_peer_not_started_lazily_dials_at_once() {

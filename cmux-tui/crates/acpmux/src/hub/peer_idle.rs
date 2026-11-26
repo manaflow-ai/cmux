@@ -9,6 +9,50 @@ pub(super) fn live(summary: &Value) -> bool {
     matches!(summary.get("indicator").and_then(Value::as_str), Some("working" | "input"))
 }
 
+/// One route index for a shared outbox snapshot and the remote names it resolved against. Only
+/// short and former names can be shadowed by local sessions, so check those on their peer alone.
+#[derive(Default)]
+pub(super) struct PendingRoutes {
+    targets: Option<Arc<outbox::PendingTargets>>,
+    route_changes: u64,
+    #[cfg(test)]
+    routes_checked: usize,
+    direct: HashSet<String>,
+    shadowable: HashMap<String, Vec<(String, peers::RemoteName)>>,
+}
+
+impl PendingRoutes {
+    fn update(&mut self, targets: &Arc<outbox::PendingTargets>, rows: &remote_rows::RemoteRows) {
+        if self.route_changes == rows.route_changes
+            && self.targets.as_ref().is_some_and(|old| Arc::ptr_eq(old, targets))
+        {
+            return;
+        }
+        self.direct.clear();
+        self.shadowable.clear();
+        #[cfg(test)]
+        {
+            self.routes_checked += targets.targets.len();
+        }
+        for key in &targets.targets {
+            if let Some((row, name)) = peers::remote_match(rows, key) {
+                match name {
+                    peers::RemoteName::Direct => {
+                        self.direct.insert(row.peer.clone());
+                    }
+                    name => self
+                        .shadowable
+                        .entry(row.peer.clone())
+                        .or_default()
+                        .push((key.clone(), name)),
+                }
+            }
+        }
+        self.targets = Some(Arc::clone(targets));
+        self.route_changes = rows.route_changes;
+    }
+}
+
 impl Hub {
     /// Whether `peer`'s quiet link is still in use, so it stays open past the idle bound
     /// (`peer_demand.rs` `Keeper`): a connection attached to one of its chats (an open chat), or
@@ -19,12 +63,21 @@ impl Hub {
         if peer.attached_chats().iter().any(|id| router.hears(id)) {
             return true;
         }
-        // Read out of the book first: resolving takes the rows lock, never under the book's.
-        let Some(pending) = self.outbox.unsettled_targets() else { return true };
-        pending.iter().any(|(target, pinned)| {
-            pinned.as_deref() == Some(peer.name.as_str())
-                || self.resolve_remote(target).is_some_and(|(p, ..)| p.name == peer.name)
-        })
+        let Some(targets) = self.outbox.pending_targets() else { return true };
+        if targets.pins.contains(&peer.name) {
+            return true;
+        }
+        if targets.targets.is_empty() || self.peer(&peer.name).is_none() {
+            return false;
+        }
+        // A concurrent check is already indexing: keep this link for one more tick.
+        let Ok(mut routes) = self.pending_peer_routes.try_lock() else { return true };
+        routes.update(&targets, &self.remote_sessions.read());
+        routes.direct.contains(&peer.name)
+            || routes
+                .shadowable
+                .get(&peer.name)
+                .is_some_and(|names| names.iter().any(|(key, name)| name.available(self, key)))
     }
 
     /// Peer `peer`'s link closed because nothing used it (`PeerNotice::Idle`). Its chats stay
@@ -36,7 +89,11 @@ impl Hub {
         let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
             return;
         };
-        current.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+        {
+            let _rows = self.remote_sessions.fence();
+            current.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+            current.purge_tombstones.link_ended();
+        }
         self.peer_snapshots.flush(Some(peer));
         self.mark_peer_unreachable(peer, generation);
     }
@@ -127,7 +184,15 @@ mod tests {
         assert!(!hub.keeps_peer(&peer), "the chat closed");
 
         // A delivery for it waits, then settles.
-        let delivery = crate::hub::outbox::Delivery {
+        hub.outbox.add(delivery()).unwrap();
+        assert!(hub.keeps_peer(&peer), "a pending delivery keeps its link");
+        hub.outbox.update("d1", |d| d.state = crate::hub::outbox::State::Failed);
+        assert!(!hub.keeps_peer(&peer), "a settled one does not");
+        hub.begin_shutdown();
+    }
+
+    fn delivery() -> crate::hub::outbox::Delivery {
+        crate::hub::outbox::Delivery {
             id: "d1".into(),
             target: "box/chat-1".into(),
             request: json!({"sessionId": "box/chat-1", "_meta": {"acpmux": {"promptId": "p"}}}),
@@ -152,11 +217,94 @@ mod tests {
             accepted: None,
             created_at: 1,
             updated_at: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_thousand_quiet_peers_share_one_pass_over_a_thousand_pending_routes() {
+        let hub = former_names::tests::hub();
+        let dir = cmux_unix_socket::short_test_dir("acpmux-pending-routes");
+        let path = dir.path().join("outbox.json");
+        let mut deliveries = std::collections::BTreeMap::new();
+        let mut peers = Vec::new();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let mut rows = Vec::new();
+        for i in 0..1000 {
+            let host = format!("m{i}");
+            let id = format!("chat-{i}");
+            let peer = crate::peer::Peer::new(&host, "ws://127.0.0.1:9", None, None, tx.clone());
+            hub.peers.lock().unwrap().insert(host.clone(), Arc::clone(&peer));
+            peers.push(peer);
+            let receipt = crate::session_identity::SessionReceipt::new(&host, &id, None, 1);
+            let route = receipt.qualified_id();
+            rows.push((
+                route.clone(),
+                RemoteSession {
+                    peer: host,
+                    receipt,
+                    summary: json!({"name": id, "status": "idle"}).into(),
+                },
+            ));
+            let mut d = delivery();
+            d.id = id;
+            d.target = route;
+            d.pin = None;
+            deliveries.insert(d.id.clone(), d);
+        }
+        {
+            let mut saved = hub.remote_sessions.write();
+            for (key, row) in rows {
+                saved.insert(key, row);
+            }
+        }
+        std::fs::write(&path, serde_json::to_vec(&deliveries).unwrap()).unwrap();
+        assert_eq!(hub.outbox.open(&path).len(), 1000);
+        for _ in 0..2 {
+            assert!(peers.iter().all(|peer| hub.keeps_peer(peer)));
+        }
+        assert_eq!(hub.pending_peer_routes.lock().unwrap().routes_checked, 1000);
+        // A changed remote candidate, with no delivery change, invalidates the membership.
+        let gone = deliveries["chat-0"].target.clone();
+        hub.remote_sessions.write().remove(&gone);
+        assert!(!hub.keeps_peer(&peers[0]));
+        assert!(hub.keeps_peer(&peers[1]));
+        assert_eq!(hub.pending_peer_routes.lock().unwrap().routes_checked, 2000);
+        hub.begin_shutdown();
+    }
+
+    #[tokio::test]
+    async fn a_pending_former_name_follows_renames_and_local_shadowing_without_a_new_delivery() {
+        let hub = former_names::tests::hub();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let peer = crate::peer::Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert(peer.name.clone(), Arc::clone(&peer));
+        let mut d = delivery();
+        d.target = "old".into();
+        d.pin = None;
+        hub.outbox.add(d).unwrap();
+        let rename = |former: &[&str]| {
+            hub.remote_sessions.write().insert(
+                "box/chat".into(),
+                RemoteSession {
+                    peer: "box".into(),
+                    receipt: crate::session_identity::SessionReceipt::new("box", "chat", None, 1),
+                    summary: json!({"name":"current", "status":"idle", "formerNames": former})
+                        .into(),
+                },
+            );
         };
-        hub.outbox.add(delivery).unwrap();
-        assert!(hub.keeps_peer(&peer), "a pending delivery keeps its link");
-        hub.outbox.update("d1", |d| d.state = crate::hub::outbox::State::Failed);
-        assert!(!hub.keeps_peer(&peer), "a settled one does not");
+        rename(&[]);
+        assert!(!hub.keeps_peer(&peer));
+        rename(&["old"]);
+        assert!(hub.keeps_peer(&peer));
+        rename(&["different"]);
+        assert!(!hub.keeps_peer(&peer));
+        rename(&["old"]);
+        assert!(hub.keeps_peer(&peer));
+        let checked = hub.pending_peer_routes.lock().unwrap().routes_checked;
+        former_names::tests::chat(&hub, "local-id", "old");
+        assert!(!hub.keeps_peer(&peer));
+        assert_eq!(hub.pending_peer_routes.lock().unwrap().routes_checked, checked);
         hub.begin_shutdown();
     }
 

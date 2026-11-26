@@ -164,16 +164,19 @@ mod outbound;
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
+mod paused_files;
 pub mod peer_auth;
 mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
+mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
+mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
@@ -236,7 +239,6 @@ pub mod tailnet_ingress;
 #[cfg(all(unix, feature = "tailnet"))]
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
-mod task_list;
 mod team;
 mod trigger_authority;
 mod trigger_chat;

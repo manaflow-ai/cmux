@@ -393,12 +393,6 @@
     "agent-pane.code-block-diagram#muted-snug": [],
     "agent-pane.code-block-diagram#row-snug": [],
     "agent-pane.code-block-diagram#row-tall": [],
-    "agent-pane.coderouter-offer#claude-key": [],
-    "agent-pane.coderouter-offer#deepseek-key": [],
-    "agent-pane.coderouter-offer#moving": [],
-    "agent-pane.coderouter-offer#on-coderouter": [],
-    "agent-pane.coderouter-offer#rate-limited": [],
-    "agent-pane.coderouter-offer#sign-in": [],
     "agent-pane.compaction-note#account-switch": [],
     "agent-pane.compaction-note#failover": [],
     "agent-pane.compaction-note#policy-no-asking-mode": [
@@ -1954,20 +1948,6 @@
     "agent-pane.permission-panel#pending": [],
     "agent-pane.permission-panel#receipt": [],
     "agent-pane.permission-panel#uncertain": [],
-    "agent-pane.plan-list-looks#borderless": [],
-    "agent-pane.plan-list-looks#card": [],
-    "agent-pane.plan-list-looks#card-ended": [],
-    "agent-pane.plan-list-looks#card-midway": [],
-    "agent-pane.plan-list-looks#count": [],
-    "agent-pane.plan-list#activity-line": [
-      "center-line:row plan-5"
-    ],
-    "agent-pane.plan-list#finished": [
-      "center-line:row plan-9"
-    ],
-    "agent-pane.plan-list#running": [
-      "center-line:row plan-2"
-    ],
     "agent-pane.preview-card#gallery-stage": [],
     "agent-pane.preview-card#loaded": [],
     "agent-pane.preview-card#loopback-host": [],

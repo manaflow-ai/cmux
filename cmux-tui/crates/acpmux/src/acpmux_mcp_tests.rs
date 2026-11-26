@@ -104,7 +104,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "cancel",
             "machine_read",
             "machine_edit",
-            "machine_exec"
+            "machine_exec",
+            "machine_request"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1588,7 +1589,10 @@ fn every_tool_schema_fits_its_byte_budget() {
     const PER_TOOL: usize = 3 * 1024;
     let mut over = Vec::new();
     for (server, list, budget) in [
-        ("acpmux", tools(), 28 * 1024),
+        // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
+        // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
+        ("acpmux", tools(), 32 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {
         let mut total = 0;

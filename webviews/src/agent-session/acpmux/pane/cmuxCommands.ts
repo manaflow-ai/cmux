@@ -18,7 +18,7 @@ import {
 import { commandPlace } from "../commandPlace";
 import { PICKER_LABELS } from "../composerPickerModel";
 import { forkToTarget, switchForks } from "../conversation/messageMenu";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import type { AcpmuxDirectClient } from "../direct";
 import { isFastModeOption } from "../heldOptions";
 import type { SendGesture } from "../heldPrompt";
@@ -237,7 +237,7 @@ export function handleCmuxCommand(
     btwNotes.ask(
       sessionId,
       question,
-      [...turnRowsShown].reverse().find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
+      [...turnRowsShown].reverse().find((row) => ![WORKING, THINKING, DATE].includes(row.kind)),
       (question, sessionId) =>
         askBtwQuestion(client, question, sessionId, {
           inline: (question, sessionId) =>
