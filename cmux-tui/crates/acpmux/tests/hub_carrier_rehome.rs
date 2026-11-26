@@ -267,3 +267,78 @@ async fn hub_carrier_with_one_relay_named_nothing_moves() {
     );
     assert_eq!(p.b.serving_relay().as_deref(), Some(one.route().as_str()));
 }
+
+/// The platform's answers with one placed relay (RFD 0060 Weft move 4): `placed` carries that
+/// relay's own ticket for the same slot.
+struct PlacedTickets {
+    relay: String,
+    placed: String,
+    peers: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl Tickets for PlacedTickets {
+    async fn register(&self) -> Result<CarrierAnswer, String> {
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": "own-machine-slot-b", "ticket": "open-register",
+            "expires_at": 0, "peers": self.peers,
+            "placed": [{"relay": self.placed, "ticket": "placed-register"}],
+        }))
+        .unwrap())
+    }
+
+    async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        if !self.peers.iter().any(|k| k == peer) {
+            return Err("machine.not_found".into());
+        }
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": "own-machine-slot-b", "ticket": "open-connect",
+            "expires_at": 0, "peer_key": peer,
+            "placed": [{"relay": self.placed, "ticket": "placed-connect"}],
+        }))
+        .unwrap())
+    }
+}
+
+/// A host registers on the nearest placed relay beside the platform's relay, and a dialer goes
+/// over the placed one once it has measured it: with the platform's relay dead and only one
+/// relay named (no re-homing), the echo still comes, over the placed relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_registers_on_and_dials_the_nearest_placed_relay() {
+    let _ = HERMETIC;
+    let (platform, placed) = (relay().await, relay().await);
+    let (key_a, key_b) = (random_key(), random_key());
+    let timings = Timings {
+        control: Duration::from_secs(3),
+        handshake: Duration::from_secs(3),
+        peer_join: Duration::from_secs(2),
+        ..Timings::default()
+    };
+    let tickets = |peer: &[u8; 32]| PlacedTickets {
+        relay: platform.route(),
+        placed: placed.route(),
+        peers: vec![public(peer)],
+    };
+    let b = HubCarrier::new(Arc::new(tickets(&key_a)), key_b, timings);
+    let _serving = b.serve(echo_server().await);
+    let a = HubCarrier::new(Arc::new(tickets(&key_b)), key_a, timings);
+    let b_key = public(&key_b);
+    until_serving(&b, &platform.route(), Duration::from_secs(15)).await;
+
+    // The first dial goes the platform's way while the placed relay is measured behind it; once
+    // measured, dials go over the placed relay.
+    echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("first echo");
+    let started = Instant::now();
+    while a.relay_of(&b_key).as_deref() != Some(placed.route().as_str()) {
+        assert!(started.elapsed() < Duration::from_secs(15), "A never dialed the placed relay");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("echo while measuring");
+    }
+
+    // The platform's relay dies; B stays registered on it (one relay named, nothing re-homes),
+    // and the echo still comes over the placed relay.
+    platform.kill();
+    echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("echo over the placed relay");
+    assert_eq!(a.relay_of(&b_key).as_deref(), Some(placed.route().as_str()));
+    assert_eq!(b.stats().rehomes.load(Ordering::Relaxed), 0);
+}
