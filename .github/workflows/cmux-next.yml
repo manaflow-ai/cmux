@@ -4189,6 +4189,9 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh
+          bash scripts/cmux-next/tests/install-cmux-tui-client-require-companions.test.sh
+          bash scripts/cmux-next/tests/stamp-launchd-plists.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
 
