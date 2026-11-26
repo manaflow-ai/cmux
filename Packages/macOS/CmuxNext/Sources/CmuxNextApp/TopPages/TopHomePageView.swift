@@ -75,12 +75,8 @@ final class TopHomePageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
-        requestsObservation?.cancel()
-        unreadColorObservation?.cancel()
+        let observations = [rowsObservation, selectionObservation, chiefObservation, accountObservation, requestsObservation]
+        for observation in observations + [unreadColorObservation] { observation?.cancel() }
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
