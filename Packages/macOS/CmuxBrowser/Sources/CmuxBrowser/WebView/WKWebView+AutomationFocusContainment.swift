@@ -51,6 +51,25 @@ extension WKWebView {
         }
     }
 
+    /// Whether a cancel command no page handled (Escape) may go on from
+    /// this web view to its window, under the same rule as
+    /// ``browserTakeFocus(forward:)``.
+    ///
+    /// WebKit passes a command a page left unhandled up the responder
+    /// chain. For `cancel:` the window offers Escape to every view as a key
+    /// equivalent and sends `cancel:` to its first responder. With focus
+    /// elsewhere that is the user's terminal, and only a key sent to the
+    /// web view directly (automation) gets here. Every other command goes
+    /// on: WebKit takes a command that stops here as handled, and it must
+    /// keep resending a shortcut no page handled.
+    func passesUnhandledKeyCommandToWindow(_ selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.cancelOperation(_:)) || selector == Self.cancelSelector else { return true }
+        guard !isContainingAutomationFocus, let window, !(window is BrowserOffscreenRenderPanel) else { return false }
+        return isFirstResponderInside(window)
+    }
+
+    private static let cancelSelector = NSSelectorFromString("cancel:")
+
     private func isFirstResponderInside(_ window: NSWindow) -> Bool {
         guard let view = window.firstResponder as? NSView else { return false }
         return view === self || view.isDescendant(of: self)
