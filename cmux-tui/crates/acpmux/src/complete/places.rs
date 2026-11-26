@@ -32,10 +32,11 @@ impl Places {
     }
 
     /// `<acpmux home>/complete`, or a folder in the per-user temp dir when
-    /// the acpmux home is a guarded folder (`protected_folders`).
+    /// the acpmux home is a guarded folder or in the home folder's own git
+    /// repository (`protected_folders::unasked_refusal_in`).
     pub fn root_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
         let own = acpmux_home.join("complete");
-        if crate::protected_folders::refusal_in(&own, home).is_none() {
+        if crate::protected_folders::unasked_refusal_in(&own, home).is_none() {
             own
         } else {
             std::env::temp_dir().join("acpmux-oneshot")

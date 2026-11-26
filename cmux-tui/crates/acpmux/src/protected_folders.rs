@@ -5,6 +5,16 @@
 //! walks into all of them. Warming (`_acpmux/warm`) and the session pool
 //! (`_acpmux/prewarm` and the per-cwd entries) refuse these folders. A
 //! session a person creates names its folder and is not limited here.
+//!
+//! A home folder kept in git (a dotfiles repository, `~/.git`) counts as the
+//! home folder for an unasked agent in every folder it holds that has no
+//! repository of its own (`unasked_refusal_in`): git there names the home
+//! folder as its top level, and an agent's `git status` at start (Claude
+//! Code's) lists every untracked file of the home folder, the Photos library
+//! and Desktop included. acpmux's own folder is such a folder, so its
+//! unattended folder moves to the temp dir then. A chat the person opens
+//! there (`chats/open.rs`) and a chat store there (`~/.claude`) are not
+//! refused: `refusal_in` does not apply this.
 
 use std::path::{Path, PathBuf};
 
@@ -88,10 +98,25 @@ pub fn in_protected_location_in(path: &Path, home: Option<&Path>) -> bool {
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
 /// The folder is checked as spelled and with its symlinks resolved.
 pub fn unasked_refusal(cwd: &Path) -> Option<String> {
-    refusal_in(cwd, dirs::home_dir().as_deref())
+    unasked_refusal_in(cwd, dirs::home_dir().as_deref())
 }
 
-/// `unasked_refusal` for the user whose home folder is `home`.
+/// `unasked_refusal` for the user whose home folder is `home`: `refusal_in`,
+/// and a folder in the home folder's own repository (module text).
+pub fn unasked_refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
+    refusal_in(cwd, home).or_else(|| {
+        in_home_repository(cwd, home).map(|reason| {
+            format!(
+                "{} is {reason}; an agent starts there only when a person picks it",
+                cwd.display()
+            )
+        })
+    })
+}
+
+/// Why `cwd` is a guarded location (the root folder, the home folder, another
+/// volume, a privacy-protected folder), or `None` when it is not. The folder
+/// is checked as spelled and with its symlinks resolved.
 pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     if !cwd.is_absolute() {
         return Some(format!("{} is not an absolute folder", cwd.display()));
@@ -116,6 +141,35 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     guarded(&resolved, &homes).and_then(refused)
 }
 
+/// Whether git started in `cwd` takes the home folder's own repository for
+/// its work tree: `cwd` is below a home folder that has a `.git`, and no
+/// folder between them has one. As spelled and with symlinks resolved, on
+/// either spelling of the home folder. Only stats: no folder's contents are
+/// read. Called once `refusal_in` passed, so no guarded folder is looked in.
+fn in_home_repository(cwd: &Path, home: Option<&Path>) -> Option<&'static str> {
+    let home = home?;
+    let held = |path: &Path, home: &Path| {
+        if fold(path) == fold(home) || !path.starts_with(home) {
+            return false;
+        }
+        let mut folder = path;
+        while folder != home {
+            if std::fs::symlink_metadata(folder.join(".git")).is_ok() {
+                return false;
+            }
+            let Some(parent) = folder.parent() else { return false };
+            folder = parent;
+        }
+        std::fs::symlink_metadata(home.join(".git")).is_ok()
+    };
+    let resolved_home = std::fs::canonicalize(home).ok();
+    let resolved = std::fs::canonicalize(cwd).ok();
+    let hit = held(cwd, home)
+        || resolved_home.as_deref().is_some_and(|h| held(cwd, h))
+        || resolved.as_deref().zip(resolved_home.as_deref()).is_some_and(|(c, h)| held(c, h));
+    hit.then_some("in the home folder's git repository")
+}
+
 /// Why a spare (`hub/pool/`, the shape of a session the person already
 /// started in `cwd`) may not start there, or `None` when it may. As
 /// `unasked_refusal`, except that off macOS the home folder itself is
@@ -137,7 +191,7 @@ pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
 
 /// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
 pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
-    let refusal = refusal_in(cwd, home)?;
+    let refusal = unasked_refusal_in(cwd, home)?;
     let is_home = |h: &Path| {
         fold(cwd) == fold(h)
             || std::fs::canonicalize(cwd)
@@ -145,7 +199,8 @@ pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<
                 .zip(std::fs::canonicalize(h).ok())
                 .is_some_and(|(c, h)| fold(&c) == fold(&h))
     };
-    if !macos && home.is_some_and(is_home) {
+    // The home folder's repository counts as the home folder (module text).
+    if !macos && home.is_some_and(|h| is_home(h) || in_home_repository(cwd, Some(h)).is_some()) {
         return None;
     }
     Some(refusal)
@@ -154,8 +209,9 @@ pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<
 /// The folder for agents acpmux starts with no person asking (the model
 /// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
 /// empty of the person's files. Never the home folder: an agent scans its
-/// folder at start. When the acpmux home itself is guarded, a folder in the
-/// per-user temp dir. Created if missing.
+/// folder at start. When the acpmux home itself is guarded, or in the home
+/// folder's own repository, a folder in the per-user temp dir. Created if
+/// missing.
 pub fn unattended_cwd() -> PathBuf {
     unattended_cwd_in(&crate::config::home(), dirs::home_dir().as_deref())
 }
@@ -163,7 +219,7 @@ pub fn unattended_cwd() -> PathBuf {
 /// `unattended_cwd` for an acpmux home and a user home folder.
 pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     let own = acpmux_home.join("unattended");
-    let dir = if refusal_in(&own, home).is_none() {
+    let dir = if unasked_refusal_in(&own, home).is_none() {
         own
     } else {
         std::env::temp_dir().join("acpmux-unattended")
@@ -261,6 +317,43 @@ mod spare_tests {
         assert!(spare_refusal_in(Path::new("/"), Some(home), false).is_some());
         assert!(spare_refusal_in(Path::new("relative"), Some(home), false).is_some());
         assert!(spare_refusal_in(Path::new("/home/someone/work"), Some(home), false).is_none());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod home_repository_tests {
+    use super::*;
+
+    /// A home folder kept in git: a folder it holds with no repository of its own is refused for
+    /// an unasked agent (off macOS a spare may still start there, as in the home folder itself),
+    /// a repository of its own is not, and a person's own open is not limited.
+    #[test]
+    fn a_folder_in_the_home_folders_repository_is_refused_unasked() {
+        let home = std::env::temp_dir().join(format!("acpmux-homerepo-{}", uuid::Uuid::now_v7()));
+        let tools = home.join("itp-rs/tools");
+        let app = home.join("code/app");
+        std::fs::create_dir_all(&tools).unwrap();
+        std::fs::create_dir_all(app.join(".git")).unwrap();
+        let home_ref = Some(home.as_path());
+        assert_eq!(unasked_refusal_in(&tools, home_ref), None, "no ~/.git yet");
+        std::fs::create_dir_all(home.join(".git")).unwrap();
+        let refusal =
+            unasked_refusal_in(&tools, home_ref).expect("in the home folder's repository");
+        assert!(refusal.contains("home folder's git repository"), "{refusal}");
+        // An acpmux home under the home folder, as the daemon's own is.
+        let acpmux_home = home.join("daemon-home");
+        assert!(unasked_refusal_in(&acpmux_home.join("unattended"), home_ref).is_some());
+        assert_eq!(unasked_refusal_in(&app, home_ref), None, "a repository of its own");
+        assert_eq!(unasked_refusal_in(&app.join("src"), home_ref), None);
+        assert_eq!(refusal_in(&tools, home_ref), None, "a chat the person opens there");
+        assert!(spare_refusal_in(&tools, home_ref, true).is_some(), "macOS keeps the refusal");
+        assert_eq!(spare_refusal_in(&tools, home_ref, false), None);
+        // The unattended folder moves to the temp dir.
+        assert_eq!(
+            unattended_cwd_in(&acpmux_home, home_ref),
+            std::env::temp_dir().join("acpmux-unattended")
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
 
