@@ -41,7 +41,7 @@ impl Hub {
         let hub = self.clone();
         let session = session.clone();
         let (prompt_id, turn_id) = (prompt_id.to_owned(), turn_id.to_owned());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("urgent-steer", async move {
             for step in 1..=MAX_STEPS {
                 tokio::time::sleep(UNREAD_AFTER).await;
                 let waiting = session
