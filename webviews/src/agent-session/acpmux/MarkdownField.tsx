@@ -1000,7 +1000,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (
+      next?.query === told?.query &&
+      next?.length === told?.length &&
+      next?.leading === told?.leading &&
+      next?.mark === told?.mark
+    )
+      return;
     slashTold.current = next;
     tell(next);
   };

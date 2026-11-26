@@ -43,7 +43,7 @@ const ROW_ICON = rowIconSize(12);
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
   code: "sessionInfo.changes.code",
   tests: "sessionInfo.changes.tests",
-  generated: "sessionInfo.changes.generated",
+  generated: "sessionInfo.changes.generatedFiles",
   docs: "sessionInfo.changes.docs",
 };
 

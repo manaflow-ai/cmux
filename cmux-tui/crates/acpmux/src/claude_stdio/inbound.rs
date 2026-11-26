@@ -132,7 +132,7 @@ impl Translator {
                 // commands are sent again, tagged, when that changes the list.
                 if let Some(skills) = line.get("skills").and_then(Value::as_array) {
                     *self.skills.lock().await =
-                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        Some(skills.iter().filter_map(Value::as_str).map(str::to_owned).collect());
                     if let Some(u) = self.commands_update(false).await {
                         out.push(upd(u));
                     }

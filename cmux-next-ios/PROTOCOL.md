@@ -489,6 +489,9 @@ is forwarded, and the service never answers it.
   after its ping was counted lost does not take it back). `switches`: path
   changes since the link came up. `net`: `cellular` or `other` (the app's last
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+  `egress` (optional): `proxy` or `inspected` when this network's link
+  connections left through a proxy, or one that inspects TLS ("Corporate
+  networks"); absent when direct.
 - `echo`, `ack`, `spikeCount`, `spikes` (added 2026-11-24; absent when no key
   was typed): the keystroke round trips since the last stat, from the key's tap
   (`cmux-mobile-link/src/key_echo.rs`). `echo` (n, p50, p95, p99, max): tap to
@@ -712,7 +715,8 @@ split wins.
 A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
 answer; `off`: a debug mode), TURN (`none_offered`, `no_allocation`, with
 the TURN host) and the relay (`unavailable`, `peer_cannot`, `refused` with
-the HTTP status, `off`, `tls_rejected` with the TLS error, `unreachable`,
+the HTTP status, `off`, `proxy_refused` with the proxy's reason,
+`tls_rejected` with the TLS error, `unreachable`,
 `timeout`, `no_token`, `peer_absent`). When nothing from the Mac ever
 authenticated and the relay failed too (or the Mac's build has none), the
 dial ends with that record instead of waiting out its timeout: at once when
@@ -1710,9 +1714,9 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 
 ## Corporate networks
 
-The link's own connections (the signaling WebSocket, the HTTP API and TURN
-over TLS or TCP, on the phone and on the Mac's hostd) leave the device the
-way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
+The link's own connections (the signaling WebSocket, the HTTP API, TURN
+over TLS or TCP, and the WebSocket relay's join, on the phone and on the
+Mac's hostd) leave the device the way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
 
 - **TLS inspection.** A company network that inspects TLS re-signs every
   server's certificate with its own root, which an MDM profile (or Settings
@@ -1723,6 +1727,11 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   certificate the OS does not trust still fails. This is safe for the link
   because WireGuard authenticates and encrypts every byte end to end inside
   that TLS (SECURITY.md "Link transport").
+  A chain the OS trusts but the public web PKI bundled in the app does not
+  marks its host **inspected** (`egress::tls::inspected`); the connection
+  goes on unchanged. The link's `link_stat` carries `egress: "inspected"`
+  (or `"proxy"` for a proxy that does not inspect; absent when every link
+  connection went direct), cleared at each network change.
 - **Proxy only.** A network whose only way out is its HTTP proxy. Each
   connection asks the system for the proxies of its destination
   (`CFNetworkCopyProxiesForURL` for `https://host:port/` on iOS and macOS: a
@@ -1733,8 +1742,10 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   server's name, unresolved: the proxy resolves it), a SOCKS proxy with SOCKS5.
   Credentials the system's settings hold go along: HTTP Basic
   (`Proxy-Authorization`) and SOCKS5 user name and password (RFC 1929). The
-  answer is cached for 30 s per destination, and a PAC file gets 4 s to answer
-  (then direct, as CFNetwork does). Loopback is never proxied.
+  answer is cached for 30 s per destination and forgotten at a network change,
+  and a PAC file gets 4 s to answer (then direct, as CFNetwork does).
+  Loopback is never proxied. A destination name with a space or a control
+  character is refused before it reaches the proxy.
   - A proxy that asks for **NTLM or Kerberos (Negotiate)** fails the dial at
     once, before `wg-init`, with a sentence that names the proxy, the server
     and the schemes it asked for. The link does not do those: Apple exposes no

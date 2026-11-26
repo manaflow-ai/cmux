@@ -1022,6 +1022,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
       { name: "model", description: "", source: "cmux" },
       { name: "compact", description: "", source: "agent" },
       { name: "review-pr", description: "", source: "skill" },
+      // Computer use and browser use are listed only after `@`, never in the `/` menu.
+      ...toolSlashCommands((key) => key),
     ],
   });
   await act(async () => {
@@ -1033,6 +1035,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
     );
   await typePrompt("/");
   expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  await typePrompt("/comp");
+  expect(names()).toEqual(["/compact"]);
   await typePrompt("src/app");
   expect(names()).toEqual([]);
   const field = await typePrompt("fix it /");
@@ -1060,6 +1064,46 @@ test("a Codex skill typed without its `$` goes to the agent as `/$name`, other t
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks.length).toBe(1);
   expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
+});
+
+test("a `$` word opens the skills only while the chat starts on Codex", async () => {
+  const snapshot = noChat([], {
+    commands: [
+      { name: "$emil-color", description: "", source: "skill" },
+      { name: "review-pr", description: "", source: "skill" },
+    ],
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="codex" snapshot={snapshot} />);
+  });
+  await typePrompt("use this $");
+  expect(names().length).toBe(2);
+  await typePrompt("use this $emil");
+  expect(names().length).toBe(1);
+  // On Claude Code a `$` is a price or a shell variable: no menu. Its `/` still lists the skills.
+  await act(async () => root!.render(<div />));
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="claude" snapshot={snapshot} />);
+  });
+  await typePrompt("use this $");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  await typePrompt("use this /");
+  expect(names().length).toBe(2);
+  // A Codex profile under another id ("work") is Codex by its family.
+  await act(async () => root!.render(<div />));
+  const work = {
+    ...snapshot,
+    catalog: [...snapshot.catalog, { id: "work", name: "Work", models: [], family: "codex" }],
+  };
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="work" snapshot={work} />);
+  });
+  await typePrompt("use this $");
+  expect(names().length).toBe(2);
 });
 
 test("mid-prompt a Codex skill named like a command goes with its `$`, picked or not", async () => {

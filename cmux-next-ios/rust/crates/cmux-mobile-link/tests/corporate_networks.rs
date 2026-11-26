@@ -142,6 +142,10 @@ async fn a_company_tls_inspection_root_the_os_trusts_carries_the_link() {
         .expect("a link through the company's TLS inspection");
     assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
     assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    // The chain the OS trusts and the public web PKI does not marks the
+    // TURN host inspected (the path's telemetry), without failing anything.
+    let tls_host = turn.tls_address().rsplit_once(':').map(|(host, _)| host.to_owned()).unwrap();
+    assert!(cmux_mobile_link::egress::tls::inspected(&tls_host), "the inspected chain was not noticed");
     let refused = link(phone(TlsTrust::Bundled), options(), &Egress::default()).await;
     assert!(
         matches!(refused, Err(DialError::Transport(ref message)) if message.contains("TURN")),

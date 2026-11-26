@@ -487,6 +487,100 @@ async fn a_relay_reset_does_not_keep_the_session_on_the_relay() {
     connected.link.close("done");
 }
 
+/// A network whose only way out is its HTTP proxy (P6, PROTOCOL.md
+/// "Corporate networks"): the relay join leaves through `CONNECT`, as
+/// signaling and TURN over TLS do, with or without Basic sign-in, and the
+/// link rides the relay. "Proxy only" never goes around the proxy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_relay_goes_through_the_system_http_proxy() {
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    for auth in [ProxyAuth::None, ProxyAuth::Basic("ann@corp".into(), "s3cret:pw".into())] {
+        let proxy = TestProxy::start(auth.clone()).await;
+        let rig = rig(FakeOptions::default(), options(), true).await;
+        let phone = DialOptions {
+            force_relay: true,
+            relay: relay(&rig.server, &rig.phone_id),
+            egress: Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() },
+            ..options()
+        };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .unwrap_or_else(|error| panic!("{auth:?}: {error}"));
+        eprintln!("{auth:?}: relay through the proxy, link up in {:?}", started.elapsed());
+        echo(&connected.link, 2).await;
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay, "{auth:?}");
+        let service = rig.server.base_url.trim_start_matches("http://").trim_end_matches('/').to_owned();
+        assert!(
+            proxy.tunnels().contains(&service),
+            "{auth:?}: the join skipped the proxy: {:?}",
+            proxy.tunnels()
+        );
+        assert_eq!(proxy.refused(), 0, "{auth:?}");
+        connected.link.close("done");
+    }
+}
+
+/// A proxy the relay join cannot sign in to (NTLM or Kerberos only): the
+/// join fails at once as the proxy's refusal (407), not as a timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_proxy_the_relay_cannot_sign_in_to_is_a_refusal() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    let proxy = TestProxy::start(ProxyAuth::NtlmOrNegotiate).await;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() };
+    let started = std::time::Instant::now();
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("refused by the proxy");
+    assert!(matches!(failure, RelayFailure::Refused { status: 407, .. }), "{failure:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(server.relay_joins(), 0);
+}
+
+/// A network that needs a proxy with none set for the relay: the join fails
+/// at once as the proxy's refusal, not a service `403`, and is tried again
+/// (the proxy settings can change with the network).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { require_proxy: true, ..Egress::default() };
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("no proxy to carry it");
+    assert!(matches!(failure, RelayFailure::ProxyRefused { .. }), "{failure:?}");
+    assert!(!failure.is_final());
+    assert_eq!(server.relay_joins(), 0);
+}
+
 /// The Mac's network drops UDP, so its trickled answer takes its own TURN
 /// allocation after the tunnel starts, and that allocation is slow (its TLS
 /// connection takes 3.2 s, past the relay's 3 s). The relay waits for it: the
