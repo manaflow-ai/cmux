@@ -251,7 +251,8 @@ impl ShownPixels {
     /// `edge(_:)`: the device pixel the screen draws `value` on, rounded as Core Animation
     /// rounds a layer edge.
     pub fn edge(&self, value: f64) -> f64 {
-        if !(self.scale > 0.) {
+        // NaN parity with Swift: `guard scale > 0` also turns a NaN scale away.
+        if self.scale.is_nan() || self.scale <= 0. {
             return value;
         }
         ((value + self.shift) * self.scale + 0.5).floor() / self.scale - self.shift
@@ -762,7 +763,9 @@ pub fn undecided_lock(dx: f64, dy: f64, ended: bool, facts: ScrollFacts) -> Gest
     if ended {
         return GestureLock::Ended { forwards, consume_momentum: facts.claims_whole_gesture };
     }
-    if !(adx + ady > 0.) {
+    // NaN parity with Swift: a NaN delta stays undecided, as `guard adx + ady > 0` does.
+    let moved = adx + ady;
+    if moved.is_nan() || moved <= 0. {
         return GestureLock::Undecided { forwards };
     }
     let area = if dx < 0. { facts.area_forward } else { facts.area_back };
