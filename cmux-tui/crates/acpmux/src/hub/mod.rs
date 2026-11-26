@@ -65,8 +65,6 @@ mod capacity;
 mod capacity_retry;
 /// A chat waiting for capacity: the one calm state every client draws.
 pub(crate) mod capacity_wait;
-#[cfg(test)]
-mod worker_lock_tests;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
 mod catalog_reload;
@@ -497,6 +495,8 @@ mod web_control;
 mod web_token;
 mod wip_ref;
 mod work_below;
+#[cfg(test)]
+mod worker_lock_tests;
 mod workflow_activity;
 pub(crate) mod workflow_ci;
 pub(crate) mod workflow_index;
@@ -1601,8 +1601,9 @@ pub struct Hub {
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
-    /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
+    /// Each gateway's capacity gate: turns wait while it reports no account left (`capacity.rs`).
     pub(super) capacity: capacity::Gates,
+    /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
     pub(super) subagent_resumes: subagent_resume::Resumes,
