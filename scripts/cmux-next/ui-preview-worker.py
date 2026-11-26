@@ -95,8 +95,10 @@ SWIFT_SCENES = {
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
 SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
-WEB_SPARSE = ("webviews/", "design/", "first-party-apps/", "scripts/cmux-next/", "cmux-tui/frontends/",
-              "Resources/", "package.json", "bun.lock")
+# The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
+# postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
+# Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
+WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
 KEEP_H = 36
 # Bounds, seconds.
@@ -598,7 +600,7 @@ class Worker:
         if receipt.get("error"):
             lines.append(f"Partly: {receipt['error']}")
         if self.public:
-            lines.append(f"Read one: curl -s -o /tmp/ui-preview-{head}.png URL, then open it (tailnet only).")
+            lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
     def send(self, recipient: str, text: str) -> None:

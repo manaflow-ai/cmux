@@ -85,9 +85,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
     /// `sidebar.showLiveToggle`: the footer's Live button after the profile avatar (Leo 2026-11-24: "an icon
-    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). On by default; off
-    /// hides the button only.
-    public var showLiveToggle = true
+    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). Off by default
+    /// (Lawrence 2026-11-25: "keep things as minimal as possible"); off hides the button only.
+    public var showLiveToggle = false
     /// `presence.live`: whether this Mac is live to teammates and agents. The Live button shows and flips it.
     public var presenceLive = false
     /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
@@ -145,6 +145,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
     /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
     public var showAutomaticSessions = false
+    /// `sidebar.showAgentSessions`: sessions another session's agent started list in the sidebar, each nested under
+    /// the row of the session that started it. Off by default: they draw no row (Leo 2026-11-25 about the nested
+    /// helper sessions: "idk who asked for those in teh sidebar. it's weird"), except one that waits on the person
+    /// (a permission or a question) and one the person opened (selected); the parent chat lists them all.
+    public var showAgentSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

@@ -112,6 +112,15 @@ pub fn settle(look: SettleLook) -> Settle {
     }
 }
 
+impl Settle {
+    /// Whether the caller's start shows "Waking machine" under its machine step for this act: while it waits out a
+    /// pause or a resume in flight (Leo, 2026-11-25 09:50Z: "whoa what happened here", ask-259986a6c4). Never for a
+    /// refusal, so `CMUX_CLOUD_SETTLE=0` shows nothing new.
+    pub fn waking(self) -> bool {
+        matches!(self, Settle::WaitPausing | Settle::WaitStarting)
+    }
+}
+
 /// Whether the kill switch is off in `value` (the variable's value, if set).
 pub fn killed(value: Option<&str>) -> bool {
     value.is_some_and(|v| matches!(v.trim(), "0" | "false" | "off"))
