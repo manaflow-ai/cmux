@@ -247,7 +247,10 @@ jobs:
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
           run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
-          github-token: ${{ github.token }}
+          # A token sends the download through the REST API, which shares the repository's
+          # installation rate limit (6 point jobs failed on it 2026-11-26, e.g. job 139741648596).
+          # This run's own artifacts need none: the runner's artifact service reads them.
+          github-token: ${{ needs.plan.outputs.from_run != '' && github.token || '' }}
 
       # The x86_64 machines' half: a set of two claims under its own name (cmux-machine-linux-bytes.sh).
       - name: Upload the Linux binaries and point the channel
@@ -312,7 +315,10 @@ jobs:
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
           run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
-          github-token: ${{ github.token }}
+          # A token sends the download through the REST API, which shares the repository's
+          # installation rate limit (6 point jobs failed on it 2026-11-26, e.g. job 139741648596).
+          # This run's own artifacts need none: the runner's artifact service reads them.
+          github-token: ${{ needs.plan.outputs.from_run != '' && github.token || '' }}
 
       - name: Upload the Linux binaries and point the channel
         env:
