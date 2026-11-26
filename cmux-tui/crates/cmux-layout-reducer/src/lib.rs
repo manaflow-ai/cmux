@@ -965,6 +965,7 @@ pub mod floating_panes;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
+pub mod layout_model;
 pub mod new_placement;
 pub mod optimistic;
 pub mod pane_focus;
