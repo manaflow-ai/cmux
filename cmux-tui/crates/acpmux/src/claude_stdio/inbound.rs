@@ -950,6 +950,12 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's stop-hook continuations (`hub/stop_condition.rs`), likewise.
+                let continue_counts =
+                    Some(self.stop_continue.lock().await.turn_ended()).filter(|_| {
+                        self.stop_condition.load(Ordering::Relaxed)
+                            && crate::hub::stop_condition::continue_enabled()
+                    });
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -979,8 +985,18 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(counts) = continue_counts {
+                        hm.insert(
+                            crate::hub::stop_condition::CONTINUE_FEATURE.into(),
+                            counts.to_json(),
+                        );
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
