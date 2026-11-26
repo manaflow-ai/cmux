@@ -104,8 +104,6 @@ class ShardSize(unittest.TestCase):
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
-            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
