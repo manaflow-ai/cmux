@@ -1898,6 +1898,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -2681,6 +2682,16 @@ name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
  "serde",
  "serde_json",
 ]
