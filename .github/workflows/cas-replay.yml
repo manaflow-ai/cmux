@@ -117,9 +117,10 @@ jobs:
     # by the build), so a web merge costs one appcast read, not 750 MB of DMGs. PRs and dispatch
     # always replay.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # Three ~250 MB DMGs to fetch, about 10 s each to unpack to a ~750 MB tree, about 25 s each to
-    # hash and compress; about 3.5 GB of disk in RUNNER_TEMP.
-    timeout-minutes: 30
+    # Three ~250 MB DMGs to fetch and about 10 s each to unpack to a ~750 MB tree; cas-replay
+    # compresses every distinct chunk at zstd 19 on one core (the trees, then the DMGs), which is
+    # the long part. About 3.5 GB of disk in RUNNER_TEMP.
+    timeout-minutes: 60
     permissions:
       contents: read
       # The nightly.yml runs list, which names the published builds.
