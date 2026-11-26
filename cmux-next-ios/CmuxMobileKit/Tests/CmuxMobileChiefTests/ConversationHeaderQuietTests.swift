@@ -93,7 +93,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         // No window: a key window in the scene-less test host stalls the main actor for seconds.
         let controller = ConversationViewController(store: store)
         controller.loadViewIfNeeded()
-        #expect(Self.label("Connecting…", in: controller.view) != nil)
+        #expect(Self.label("Connecting…", in: controller.view) == nil, "never, however long (Leo 2026-11-22)")
     }
 
     /// The simulator read-back of Leo's flow (2026-11-16) with no paired Mac: a drop that comes
@@ -143,7 +143,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         await settle()
         capture("2-down-past-10s-one-line")
         #expect(store.connectionNoticeDue)
-        #expect(Self.label("Connecting…", in: controller.view) != nil)
+        #expect(Self.label("Connecting…", in: controller.view) == nil, "never, however long (Leo 2026-11-22)")
 
         // 3. Back: silent again.
         backend.up()
