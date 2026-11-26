@@ -89,6 +89,11 @@ extension BrowserChromeView {
     /// Whether an offer is on screen (tests, diagnostics).
     public var showsCookieImportOffer: Bool { currentCookieImportCard.map { !$0.isHidden && !$0.waitsForFocus } ?? false }
 
+    /// The card this chrome holds, for `browser.import_offer` (read-only); nil when it holds none.
+    public var cookieImportCardReadout: (showing: Bool, waitsForFocus: Bool, seen: Bool)? {
+        currentCookieImportCard.map { (showing: !$0.isHidden && !$0.waitsForFocus, waitsForFocus: $0.waitsForFocus, seen: $0.wasSeen) }
+    }
+
     /// Takes out, at once, the offer this chrome holds hidden for `state` (the tab moved to another pane).
     func takeHeldCookieOffer(for state: BrowserChromeTabState) -> BrowserCookieImportCard? {
         guard let card = currentCookieImportCard, card.heldFor === state else { return nil }

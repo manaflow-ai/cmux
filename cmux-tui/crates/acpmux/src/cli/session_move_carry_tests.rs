@@ -232,3 +232,32 @@ fn uncommitted_work_of_any_size_is_carried_whole() {
     let read = |d: &Path| std::fs::read(d.join("data/large.bin")).unwrap();
     assert!(read(dst.path()) == read(src.path()), "the large file arrives byte for byte");
 }
+
+/// Git trusts a file's size and time only when the file is older than the index, and reads one as
+/// old as the index again. The scratch index is a copy: with a newer time of its own it would
+/// trust them, and an edit that kept the size in the second the file was indexed would stay
+/// behind.
+#[test]
+fn an_edit_of_the_same_size_in_the_second_the_file_was_indexed_is_carried() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    // A file's change time cannot be set, so this checkout does not compare it. What is left is
+    // what git compares where times are whole seconds: the size and the time of the last write.
+    sh(src.path(), "git config core.trustctime false");
+    let (file, index) = (src.path().join("kept.txt"), src.path().join(".git/index"));
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    let stamp = |path: &Path| {
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(at).unwrap();
+    };
+    // The file is indexed in one second, and edited in that second with the size it had.
+    stamp(&file);
+    sh(src.path(), "git update-index --refresh");
+    stamp(&index);
+    std::fs::write(&file, "two\n").unwrap();
+    stamp(&file);
+
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert_eq!(carry.files, 1, "the edit is carried");
+    assert!(String::from_utf8_lossy(&carry.patch).contains("+two"));
+}
