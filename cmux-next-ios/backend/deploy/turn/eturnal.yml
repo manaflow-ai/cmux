@@ -6,7 +6,7 @@
 # Host: any box with cheap egress and a public IPv4 (Hetzner-class: about EUR 1 per TB beyond 20 TB
 # included per server in the EU). Not GCP, not Cloudflare: both bill every relayed byte.
 # Ports: udp+tcp 3478, udp 443, tcp 443 (TLS: the one enterprise networks that block UDP still pass),
-# udp 49152-65535. Clients try direct first, then these own-relay candidates in this order.
+# udp 49152-65535. Clients receive direct and own-relay candidates; the ICE agent chooses a viable path.
 eturnal:
   secret: "@ETURNAL_SECRET@"           # the same value as the Worker's TURN_SELF_SECRET (REST API credentials)
   listen:
