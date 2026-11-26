@@ -279,6 +279,12 @@ pub const RELAY_READY: &str = "ready";
 /// (no plain UDP and no TURN allocation); the peer joins too, without
 /// waiting for its own paths to fail.
 pub const RELAY_NOW: &str = "now";
+/// `relay`: this side joins the relay as its dial starts, beside the direct
+/// race (the phone when its tunnel starts, the Mac on the phone's offer), and
+/// sends its first handshake through it too; when both sides said so, the
+/// relay is up the moment direct UDP and TURN turn out not to work, rather
+/// than 3 s later. An older peer reads it as [`RELAY_READY`].
+pub const RELAY_FIRST: &str = "first";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):

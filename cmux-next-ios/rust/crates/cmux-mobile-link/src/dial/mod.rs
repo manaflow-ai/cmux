@@ -163,6 +163,11 @@ pub struct DialOptions {
     /// TURN allocation, and joins the relay at once, so the link rides it
     /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
     pub force_relay: bool,
+    /// Join the relay as the dial starts (`relay: "first"`, PROTOCOL.md
+    /// "WebSocket relay") when the peer offers that too, rather than 3 s
+    /// after nothing reached it. On by default; off dials as a build before
+    /// relay-first did (tests of the older join rules).
+    pub relay_first: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -331,6 +336,7 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            relay_first: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
