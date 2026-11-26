@@ -136,6 +136,76 @@ fn a_feed_that_is_not_an_object_is_refused() {
     assert!(feed::parse(b"not json", &feed::providers_used(&base())).is_err());
 }
 
+/// Every provider shape the old `Value`-tree read met, odd ones included: the streamed read
+/// keeps exactly what it kept.
+fn odd_feed_body() -> Vec<u8> {
+    let long = "x".repeat(201);
+    format!(
+        r#"{{
+        "google": {{"name": "Google", "models": {{"m": {{"id": "m", "name": "M"}}}}}},
+        "dup": {{"name": "First"}},
+        "dup": {{"name": "Second", "models": {{}}}},
+        "dup-gone": {{"name": "Kept?"}},
+        "dup-gone": 5,
+        "twice-named": {{"name": "One", "models": [], "name": "Two"}},
+        "text": "a provider that is a string",
+        "number": 12.5,
+        "negative": -3,
+        "flag": true,
+        "nothing": null,
+        "empty": {{}},
+        "array-empty": [],
+        "array-name": ["Array Name"],
+        "array-pair": ["Pair", {{"m": {{"id": "m", "name": "M"}}}}],
+        "array-long": ["Long", {{}}, 3],
+        "name-object": {{"name": {{"nested": [1, 2, {{"deep": null}}]}}, "models": 4}},
+        "name-blank": {{"name": "   "}},
+        "name-long": {{"name": "{long}"}},
+        "name-trimmed": {{"name": "  Spaced  ", "extra": {{"a": [true, false, null, "s", 1e300]}}}},
+        "openai": {{"name": "OpenAI", "models": {{"gpt": {{"id": "gpt", "name": "GPT", "tool_call": true}}}}}},
+        "weird-models": {{"name": "Weird", "models": ["not", "a", "map"]}}
+    }}"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn the_streamed_read_keeps_what_the_value_tree_read_kept() {
+    let keeps: Vec<std::collections::BTreeSet<String>> = vec![
+        feed::providers_used(&base()),
+        Default::default(),
+        [
+            "openai",
+            "google",
+            "dup",
+            "dup-gone",
+            "array-pair",
+            "array-name",
+            "array-long",
+            "text",
+            "weird-models",
+            "name-object",
+            "twice-named",
+            "absent",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+    ];
+    for body in [feed_body(), odd_feed_body()] {
+        for keep in &keeps {
+            let streamed = feed::parse(&body, keep).expect("the streamed read");
+            let tree = feed::parse_tree(&body, keep).expect("the tree read");
+            assert_eq!(streamed, tree, "keep {keep:?}");
+        }
+    }
+    for bad in [&b"[1,2]"[..], b"not json", b"{\"a\": {}} trailing", b"{\"a\": ", b"7", b"null"] {
+        let keep = feed::providers_used(&base());
+        assert!(feed::parse(bad, &keep).is_err());
+        assert!(feed::parse_tree(bad, &keep).is_err());
+    }
+}
+
 #[test]
 fn a_gzip_body_is_read_and_a_huge_one_is_refused() {
     use std::io::Write as _;

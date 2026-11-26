@@ -17,21 +17,23 @@
 //! per burst. The worker starts with the first activity, so a process that
 //! serves nothing (a CLI call) never starts it.
 //!
-//! Only glibc has `malloc_trim`: the musl builds and macOS compile this to
-//! nothing. musl's malloc never gives the pages back at all, so acpmux on Linux
+//! glibc trims with `malloc_trim`; macOS's system malloc keeps freed pages in
+//! its zones too, and `malloc_zone_pressure_relief` hands them back (the same
+//! call acpmux-core's eviction worker makes). The musl builds compile this to
+//! nothing: musl's malloc never gives the pages back at all, so acpmux on Linux
 //! runs on mimalloc, which purges freed pages itself (acpmux-standalone's
 //! main.rs, RFD 0156).
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 /// How long after the last activity the daemon gives its free pages back.
 pub const QUIET: Duration = Duration::from_secs(5);
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 struct Trimmer {
     /// Counts activity; the worker trims only when it did not move over a whole [`QUIET`].
     activity: AtomicU64,
@@ -41,14 +43,14 @@ struct Trimmer {
     wake: Condvar,
 }
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 static TRIMMER: OnceLock<&'static Trimmer> = OnceLock::new();
 
 /// Notes that the daemon did work that may have freed memory. Cheap: two
 /// atomic operations, plus a wake of the worker on the first activity after a
 /// trim.
 pub fn note_activity() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
     {
         let trimmer = TRIMMER.get_or_init(start);
         trimmer.activity.fetch_add(1, Ordering::Relaxed);
@@ -61,7 +63,7 @@ pub fn note_activity() {
     }
 }
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 fn start() -> &'static Trimmer {
     let trimmer: &'static Trimmer = Box::leak(Box::new(Trimmer {
         activity: AtomicU64::new(0),
@@ -77,7 +79,7 @@ fn start() -> &'static Trimmer {
     trimmer
 }
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 fn run(trimmer: &Trimmer, quiet: Duration, trim: impl Fn()) {
     loop {
         let mut guard = trimmer.lock.lock().unwrap_or_else(PoisonError::into_inner);
@@ -93,7 +95,7 @@ fn run(trimmer: &Trimmer, quiet: Duration, trim: impl Fn()) {
 }
 
 /// Returns once `quiet` passed with no activity.
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
 fn quiet_period(trimmer: &Trimmer, quiet: Duration) {
     let mut seen = trimmer.activity.load(Ordering::Relaxed);
     loop {
@@ -117,9 +119,18 @@ pub fn release_free_pages() {
         // zero returns every free whole page.
         let _ = unsafe { malloc_trim(0) };
     }
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: the thread-safe allocator API accepts NULL for every zone and zero for no
+        // goal (return all it can); no caller-owned pointer is passed. As acpmux-core's memory.rs.
+        let _ = unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
+    }
 }
 
-#[cfg(all(test, target_os = "linux", target_env = "gnu"))]
+#[cfg(all(test, any(all(target_os = "linux", target_env = "gnu"), target_os = "macos")))]
 mod tests {
     use super::*;
     use std::sync::Arc;
@@ -137,7 +148,7 @@ mod tests {
     fn note(trimmer: &Trimmer) {
         trimmer.activity.fetch_add(1, Ordering::Relaxed);
         if !trimmer.armed.swap(true, Ordering::AcqRel) {
-            drop(trimmer.lock.lock().unwrap());
+            drop(trimmer.lock.lock().unwrap_or_else(PoisonError::into_inner));
             trimmer.wake.notify_one();
         }
     }
