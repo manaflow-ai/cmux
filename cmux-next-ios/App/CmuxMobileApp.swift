@@ -19,7 +19,7 @@ struct CmuxMobileApp: App {
     @State private var auth: CmuxMobileAuthModel
     @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
-    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh).
+    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh) and in cmux Dev on a device (ios-device.sh).
     @State private var liveCode: LiveCodeRedraw
     #endif
 
@@ -88,7 +88,7 @@ struct CmuxMobileApp: App {
         if let trace = InputLatencyTrace.shared {
             ComposerDraftStore.mainThreadWrite = { trace.note("draft_file_write_main") }
         }
-        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // Swift live code in the simulator (ios-sim.sh) or on a device (ios-device.sh): watches the folder
         // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
         let liveCode = LiveCodeRedraw()
         liveCode.startFromEnvironment()
