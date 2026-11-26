@@ -141,6 +141,7 @@ on:
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:
