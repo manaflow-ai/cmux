@@ -33,8 +33,8 @@ pub fn speakable(markdown: &str, max_characters: usize, max_inline_code: usize) 
     let mut fence: Option<String> = None;
     let mut diff_run: Vec<String> = Vec::new();
     let flush = |kept: &mut Vec<String>, diff: &mut Vec<String>| {
-        if diff.len() == 1 {
-            kept.push(diff[0].clone());
+        if let [line] = diff.as_slice() {
+            kept.push(line.clone());
         }
         diff.clear();
     };
@@ -46,9 +46,9 @@ pub fn speakable(markdown: &str, max_characters: usize, max_inline_code: usize) 
             }
             continue;
         }
-        if line.starts_with("```") || line.starts_with("~~~") {
+        if let Some(marker) = ["```", "~~~"].into_iter().find(|marker| line.starts_with(marker)) {
             flush(&mut kept, &mut diff_run);
-            fence = Some(line[..3].to_string());
+            fence = Some(marker.to_string());
             continue;
         }
         if !line.is_empty() && line.chars().all(|c| "-*_= ".contains(c)) {
@@ -112,11 +112,11 @@ pub fn speakable(markdown: &str, max_characters: usize, max_inline_code: usize) 
     let count = out.chars().count();
     if count > max_characters {
         let mut prefix: String = out.chars().take(max_characters).collect();
-        if let Some(pos) = prefix.rfind(|c: char| ".!?".contains(c)) {
-            if prefix[..pos].chars().count() > max_characters / 3 {
-                prefix.truncate(pos + 1);
-                return Some(prefix);
-            }
+        if let Some(pos) = prefix.rfind(|c: char| ".!?".contains(c))
+            && prefix.get(..pos).is_some_and(|text| text.chars().count() > max_characters / 3)
+        {
+            prefix.truncate(pos + 1);
+            return Some(prefix);
         }
         prefix.push('…');
         return Some(prefix);
@@ -129,29 +129,32 @@ fn spoken_line(line: &str, max_inline_code: usize) -> String {
     loop {
         let before = s.clone();
         for p in ["# ", "## ", "### ", "#### ", "##### ", "###### ", "> "] {
-            if s.starts_with(p) {
-                s = s[p.len()..].to_string();
+            if let Some(rest) = s.strip_prefix(p) {
+                s = rest.to_string();
             }
         }
         if let Some(rest) = strip_list(&s) {
             s = rest;
         }
-        if let Some(a) = s.find("![") {
-            if let Some(b) = s[a..].find("](").map(|i| i + a) {
-                if let Some(end) = s[b..].find(')').map(|i| i + b) {
-                    s.replace_range(a..=end, "");
-                }
-            }
+        if let Some(a) = s.find("![")
+            && let Some(b) = s.get(a..).and_then(|tail| tail.find("](")).map(|i| i + a)
+            && let Some(end) = s.get(b..).and_then(|tail| tail.find(')')).map(|i| i + b)
+        {
+            s.replace_range(a..=end, "");
         }
         // Link labels survive while destinations disappear.
         while let Some(a) = s.find('[') {
-            let Some(close) = s[a + 1..].find(']').map(|i| i + a + 1) else { break };
-            if s[close + 1..].starts_with('(') {
-                if let Some(end) = s[close + 2..].find(')').map(|i| i + close + 2) {
-                    let label = s[a + 1..close].to_string();
-                    s.replace_range(a..=end, &label);
-                    continue;
-                }
+            let Some(close) = s.get(a + 1..).and_then(|tail| tail.find(']')).map(|i| i + a + 1)
+            else {
+                break;
+            };
+            if s.get(close + 1..).is_some_and(|tail| tail.starts_with('('))
+                && let Some(end) =
+                    s.get(close + 2..).and_then(|tail| tail.find(')')).map(|i| i + close + 2)
+            {
+                let Some(label) = s.get(a + 1..close).map(str::to_string) else { break };
+                s.replace_range(a..=end, &label);
+                continue;
             }
             break;
         }
@@ -162,7 +165,11 @@ fn spoken_line(line: &str, max_inline_code: usize) -> String {
         s = remove_underscore_emphasis(&s);
         for prefix in ["http://", "https://"] {
             while let Some(a) = s.find(prefix) {
-                let end = s[a..].find(char::is_whitespace).map(|i| a + i).unwrap_or(s.len());
+                let end = s
+                    .get(a..)
+                    .and_then(|tail| tail.find(char::is_whitespace))
+                    .map(|i| a + i)
+                    .unwrap_or(s.len());
                 s.replace_range(a..end, "a link");
             }
         }
@@ -174,24 +181,22 @@ fn spoken_line(line: &str, max_inline_code: usize) -> String {
 }
 
 fn strip_list(s: &str) -> Option<String> {
-    let bytes = s.as_bytes();
-    if bytes.len() >= 2
-        && (bytes[0] == b'-' || bytes[0] == b'*' || bytes[0] == b'+')
-        && bytes[1].is_ascii_whitespace()
+    if let [b'-' | b'*' | b'+', space, ..] = s.as_bytes()
+        && space.is_ascii_whitespace()
     {
-        let rest = s[2..].trim_start();
+        let rest = s.get(2..)?.trim_start();
         return Some(
-            if rest.starts_with("[x] ") || rest.starts_with("[X] ") || rest.starts_with("[ ] ") {
-                rest[4..].to_string()
-            } else {
-                rest.to_string()
-            },
+            ["[x] ", "[X] ", "[ ] "]
+                .into_iter()
+                .find_map(|prefix| rest.strip_prefix(prefix))
+                .unwrap_or(rest)
+                .to_string(),
         );
     }
-    let dot = s.find('.')?;
-    if dot > 0 && s[..dot].chars().all(|c| c.is_ascii_digit()) {
-        let rest = s[dot + 1..].trim_start();
-        if rest.len() != s[dot + 1..].len() {
+    let (number, tail) = s.split_once('.')?;
+    if !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()) {
+        let rest = tail.trim_start();
+        if rest.len() != tail.len() {
             return Some(rest.to_string());
         }
     }
@@ -224,17 +229,21 @@ fn remove_underscore_emphasis(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::new();
     let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '_' && (i == 0 || !chars[i - 1].is_alphanumeric()) {
-            if let Some(end) = (i + 1..chars.len()).find(|&j| {
-                chars[j] == '_' && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric())
-            }) {
-                out.extend(&chars[i + 1..end]);
-                i = end + 1;
-                continue;
-            }
+    while let Some(&character) = chars.get(i) {
+        if character == '_'
+            && !i
+                .checked_sub(1)
+                .and_then(|before| chars.get(before))
+                .is_some_and(|c| c.is_alphanumeric())
+            && let Some(end) = (i + 1..chars.len()).find(|&j| {
+                chars.get(j) == Some(&'_') && !chars.get(j + 1).is_some_and(|c| c.is_alphanumeric())
+            })
+        {
+            out.extend(chars.iter().skip(i + 1).take(end - i - 1));
+            i = end + 1;
+            continue;
         }
-        out.push(chars[i]);
+        out.push(character);
         i += 1;
     }
     out
@@ -280,5 +289,41 @@ mod tests {
             speakable("Use `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz` now", 1200, 10)
                 .unwrap();
         assert!(!s.contains("abcdefghijklmnopqrstuvwxyz"));
+    }
+
+    #[test]
+    fn unicode_markdown_boundaries() {
+        for (markdown, expected) in [
+            ("# Café\n\n[東京](https://例.jp) _naïve_", "Café. 東京 naïve."),
+            ("Before ![été](image.png) after", "Before after."),
+            ("- [x] résumé\n12. 東京", "résumé. 東京."),
+            ("_東京_ snake_case été_", "東京 snake_case été_."),
+            ("Go https://例.jp now", "Go a link now."),
+            ("~~~rust\n秘密\n~~~\nVoilà", "Voilà."),
+        ] {
+            assert_eq!(speakable(markdown, 1200, 40).as_deref(), Some(expected));
+        }
+        assert_eq!(speakable("Été. 東京 est là.", 8, 40).as_deref(), Some("Été."));
+    }
+
+    #[test]
+    fn malformed_markdown_and_utf8_prefixes() {
+        for (markdown, expected) in [
+            ("[東京]", "[東京]."),
+            ("[東京](", "[東京](."),
+            ("![été](", "![été](."),
+            ("_東京", "_東京."),
+            ("-東京", "-東京."),
+            ("12.東京", "12.東京."),
+        ] {
+            assert_eq!(speakable(markdown, 1200, 40).as_deref(), Some(expected));
+        }
+        let markdown = "# É\n![東京](é) [naïve](url) - [x] 🙂 _été_\n~~~\n秘\n~~~";
+        for end in markdown.char_indices().map(|(index, _)| index).chain([markdown.len()]) {
+            let prefix = markdown.get(..end).unwrap();
+            for limit in 0..=8 {
+                let _ = speakable(prefix, limit, limit);
+            }
+        }
     }
 }
