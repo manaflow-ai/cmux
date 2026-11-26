@@ -239,7 +239,7 @@ class GateTests(unittest.TestCase):
     """publish-nightly's real Final publication gate, with NIGHTLY_NEXT_WRITER=mac read from a fake gh."""
 
     def run_gate(self, *, check: str = "success", checked: str = BUILD, pairs: list | None = None,
-                 shelf: str = "success", shelf_sha: str = BUILD):
+                 shelf: str = "success", shelf_sha: str = BUILD, gates: str = ""):
         gate = next(s for s in jobs()["publish-nightly"]["steps"] if s.get("name") == "Final publication gate")
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -256,7 +256,7 @@ class GateTests(unittest.TestCase):
                        CHANNEL_RELEASE_TAG="nightly-next", GITHUB_OUTPUT=str(output),
                        GITHUB_STEP_SUMMARY=str(work / "summary"), RUNNER_TEMP=str(work),
                        PUBLISH_TOOLING=str(ROOT / "scripts"), WEBVIEW_CHECK=check, WEBVIEW_CHECK_SHA=checked,
-                       SHELF_CHECK=shelf, SHELF_CHECK_SHA=shelf_sha,
+                       SHELF_CHECK=shelf, SHELF_CHECK_SHA=shelf_sha, NIGHTLY_COMPONENT_GATES=gates,
                        NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "list.json"), NIGHTLY_KNOWN_BAD_GIT_URL="")
             result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
             result.output = dict(l.split("=", 1) for l in output.read_text().splitlines() if "=" in l)  # type: ignore[attr-defined]
@@ -268,12 +268,24 @@ class GateTests(unittest.TestCase):
         self.assertNotIn("refused", result.output, result.stdout)
 
     def test_red_webview_checks_refuse_with_a_reason(self):
+        # The hold, where NIGHTLY_COMPONENT_GATES=block keeps it (#56097).
+        for check, checked in (("failure", ""), ("skipped", ""), ("success", "d" * 40)):
+            with self.subTest(check=check):
+                result = self.run_gate(check=check, checked=checked, gates="block")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.output.get("refused"), "true")
+                self.assertIn("webview checks", result.output.get("refusal_reason", ""))
+
+    def test_red_webview_checks_publish_with_a_stale_part_warning(self):
+        # Leo, 2026-11-25: "are we able to decouple". Without NIGHTLY_COMPONENT_GATES=block a red webview check
+        # publishes the build and says so: a "Nightly stale part" warning naming the webview checks (#56097).
         for check, checked in (("failure", ""), ("skipped", ""), ("success", "d" * 40)):
             with self.subTest(check=check):
                 result = self.run_gate(check=check, checked=checked)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.output.get("refused"), "true")
-                self.assertIn("webview checks", result.output.get("refusal_reason", ""))
+                self.assertNotIn("refused", result.output, result.stdout)
+                self.assertIn("Nightly stale part::webview-checks", result.stdout)
+                self.assertIn("webview checks", result.stdout)
 
     def test_a_broken_app_store_shelf_refuses_with_a_reason(self):
         # The failing case: the shelf check red, skipped or on another commit publishes nothing.

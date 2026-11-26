@@ -57,7 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
+          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
         run: python3 scripts/ci/docs_only_paths.py --fallback-plan
 
   ci:
