@@ -23,8 +23,8 @@ import {
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
-  type CloudSurge,
   type CloudUsage,
+  type CloudSurge,
 } from "./ops";
 
 import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
@@ -406,7 +406,12 @@ export class MockCloudProvider implements PageClient {
 
   /** The account stream's event: the auth status plus the user. */
   private accountEvent() {
-    return { ...this.authStatus(), user: this.signedIn ? this.user : null };
+    // Signed out, the app's line under Sign In (a dev build's, as the gallery shows it).
+    return {
+      ...this.authStatus(),
+      user: this.signedIn ? this.user : null,
+      ...(!this.signedIn && { signInBackend: "Signs in to Development backend · dev-abc.cmux.dev" }),
+    };
   }
 
   private machine(params: Params): CloudMachine {
