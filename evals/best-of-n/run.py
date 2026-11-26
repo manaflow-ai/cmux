@@ -12,7 +12,7 @@ Each attempt's worktree is then scored on the hidden tests here, with no model i
 - win_rate_gain = pick - single, in solve-rate points (a ratio, 0..1).
 
     run.py setup --work DIR                      make DIR/repo, a git repo with every task's starter
-    run.py start --work DIR [--model M] [--attempts N] [--reviewer R] [--tasks a,b] [--diverse models|full]
+    run.py start --work DIR [--model M] [--attempts N] [--reviewer R] [--tasks a,b] [--diverse models|full] [--max-live K]
     run.py score --work DIR [--wait SECONDS] [--out FILE]
 
 `start` must run inside an authenticated acpmux agent session: the races' parent is a sub-session of it that works in
@@ -151,8 +151,46 @@ def hints_in_prompt(prompt: str, hints: list[str]) -> str:
             f"no other:\n{table}\n\n{prompt}")
 
 
+# acpmux refuses a lane's sub-session past agents.subsessions.maxLaneSessions (32 by default), and a race's candidates
+# and reviewer stay live sessions until the race is stopped. Starting every task's race at once (27 tasks x 5 sessions
+# on tasks_deep, 2026-11-26) had the cap refuse candidates in arbitrary order, so most races ran with 1-3 of their N
+# attempts and the run measured nothing. `start` now keeps at most max_live races in flight, stops each one that ends
+# (its worktrees stay for `score`), and re-queues a race the cap refused.
+LANE_CAP = int(os.environ.get("ACPMUX_MAX_LANE_SESSIONS") or 32)
+REFUSED = "fan-out cap"
+
+
+def default_max_live(attempts: int) -> int:
+    """Races in flight that fit the lane cap: each holds N candidates and a reviewer; the parent holds one slot."""
+    return max(1, (LANE_CAP - 2) // (attempts + 1))
+
+
+def refused(race: dict) -> bool:
+    return any(REFUSED in (c.get("error") or "") for c in race.get("candidates") or [])
+
+
+def settle(state: dict, name: str, wait: bool) -> bool:
+    """True once NAME's race has ended (stopped to free its sessions); a race the cap refused is dropped to rerun."""
+    while True:
+        race = race_show(state["parent"], state["races"][name])
+        if race.get("state") in TERMINAL or refused(race):
+            break
+        if not wait:
+            return False
+        time.sleep(15)
+    try:
+        acpmux("race", "stop", state["races"][name], "--parent", state["parent"])
+    except RuntimeError:
+        pass  # already stopped; score reads the saved record either way
+    if refused(race):
+        del state["races"][name]
+    else:
+        state.setdefault("settled", []).append(name)
+    return True
+
+
 def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | None, only: str | None,
-          diverse: str | None = None, emulate: bool = False) -> None:
+          diverse: str | None = None, emulate: bool = False, max_live: int | None = None) -> None:
     hinted = diverse in ("full", "plans")
     has_hint = "--hint" in subprocess.run(["acpmux", "race", "new", "--help"], capture_output=True, text=True).stdout
     if hinted and not has_hint and not emulate:
@@ -170,9 +208,25 @@ def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | No
                  "effort": effort, "diverse": diverse, "plan": plan(model, attempts, diverse),
                  "hints_emulated": hinted and not has_hint, "races": {}}
     # Only the tasks `setup` put in the repo (a set can grow after setup).
-    for name in [t for t in tasks(only) if (repo / t).is_dir()]:
+    max_live = max_live or default_max_live(attempts)
+    queue = [t for t in tasks(only) if (repo / t).is_dir()]
+    while queue:
+        name = queue.pop(0)
         if name in state["races"]:
-            continue
+            if name in state.get("settled", []) or not settle(state, name, wait=False):
+                continue
+            if name in state["races"]:
+                continue
+        live = [n for n in state["races"] if n not in state.get("settled", [])]
+        while len(live) >= max_live:
+            for n in live:
+                if settle(state, n, wait=False):
+                    if n not in state["races"]:
+                        queue.append(n)
+            state_file.write_text(json.dumps(state, indent=2))
+            live = [n for n in state["races"] if n not in state.get("settled", [])]
+            if len(live) >= max_live:
+                time.sleep(15)
         args = ["race", "new", "--parent", state["parent"], "--reviewer", reviewer, "--prompt-file",
                 str(work / f"{name}.prompt.md")]
         hints = [h for _, h in plan(model, attempts, diverse)]
@@ -189,7 +243,12 @@ def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | No
         race = acpmux(*args, timeout=300)
         state["races"][name] = race["id"]
         state_file.write_text(json.dumps(state, indent=2))
-        print(f"{name}: race {race['id']}")
+        print(f"{name}: race {race['id']}", flush=True)
+    for n in [n for n in state["races"] if n not in state.get("settled", [])]:
+        settle(state, n, wait=True)
+        if n not in state["races"]:
+            sys.exit(f"run.py: {n}'s race was refused by the lane cap at the end; run start again to rerun it")
+        state_file.write_text(json.dumps(state, indent=2))
     state_file.write_text(json.dumps(state, indent=2))
 
 
@@ -336,6 +395,8 @@ def main() -> None:
             p.add_argument("--diverse", choices=("models", "plans", "full"),
                            help="make attempts differ: models (per-attempt models), plans (--model with per-attempt "
                                 "plan hints), full (both)")
+            p.add_argument("--max-live", type=int,
+                           help="races in flight at once (default: what fits acpmux's lane session cap)")
             p.add_argument("--emulate-hints", action="store_true",
                            help="with no `race new --hint`, key the hints to each attempt's worktree in the prompt")
         if name == "score":
@@ -358,7 +419,7 @@ def main() -> None:
     if a.cmd == "start":
         if a.attempts < 2:
             sys.exit("run.py: --attempts must be at least 2 (a race needs two candidates)")
-        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks, a.diverse, a.emulate_hints)
+        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks, a.diverse, a.emulate_hints, a.max_live)
     else:
         doc = score(work, a.wait, a.out)
         print(json.dumps({k: v for k, v in doc.items() if k != "rows"}, indent=2))
