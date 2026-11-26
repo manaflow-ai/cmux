@@ -69,6 +69,12 @@ class ClassicNightlyPrBuildTest(unittest.TestCase):
         for job in gateway:
             self.assertTrue(job.endswith("-fleet"), job)
 
+    def test_gateway_job_keeps_the_runner_fallback_reachable(self) -> None:
+        match = re.search(r"(?ms)^  app-compile-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", WORKFLOW)
+        self.assertIsNotNone(match)
+        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
+
     def test_helper_check_matches_nightly_build(self) -> None:
         self.assertIn("cargo build -p cmux-tui --bin cmux-tui --release --locked", NIGHTLY)
         self.assertIn("cargo check -p cmux-tui --bin cmux-tui --release --locked", WORKFLOW)
