@@ -461,12 +461,15 @@ jobs:
             // build instead of three, after Apple's queue held all three past the wait in
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // The main-track NIGHTLY is arm64 only too (Leo, 2026-11-25: "i thought we were already skipping
+            // intel"; 2026-11-12: "WHY DO WE KEEP F***ING BUILDING INTEL MACS ALL THE F***ING TIME"). Only the
+            // RC channel still ships the three variants. Intel and universal ship from the stable release workflow.
+            const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
             // Compile only the slices these variants consume. nightly-next
             // ships arm64 only; compiling Intel here still paid for a second
             // whole-module Swift compile and both slices of the Rust helpers.
             const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
-            const feeds = track === 'nightly-next'
+            const feeds = track !== 'rc'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
@@ -1283,7 +1286,7 @@ jobs:
       - name: Build in-tree acpmux for the compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         env:
-          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+          CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: bash scripts/ci/nightly-steps/refresh-build-in-tree-acpmux.sh
 
       - name: Cache Swift packages
@@ -2393,11 +2396,11 @@ jobs:
         run: bash scripts/ci/nightly-steps/app-prefetch-pending-cmux-tui.sh start
 
       - &x21
-        name: Build in-tree acpmux for the compilation cache
+        name: Start building in-tree acpmux for the compilation cache
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && !env.LEFT_SLOT
         env:
           CMUX_NEXT_ACPMUX_ARCHS: ${{ needs.decide.outputs.compile_archs }}
-        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh
+        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh start
 
       - &x22
         name: Prepare the OptChat Chief cache key
@@ -2572,6 +2575,11 @@ jobs:
           if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
+
+      - &x33
+        name: Finish building in-tree acpmux for the compilation cache
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && !env.LEFT_SLOT
+        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join
 
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
@@ -7069,6 +7077,7 @@ jobs:
       - *x30
       - *x31
       - *x32
+      - *x33
       # Why: docs/ci/nightly-workflow-notes.md#note-48
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
