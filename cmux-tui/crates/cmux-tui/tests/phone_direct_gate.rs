@@ -286,7 +286,7 @@ impl Drop for Phone {
 /// (`cmux_cloud_phone_acp` `phone_prompt_mode`).
 fn claude_family_acpmux(vm: &Machine) {
     let claude = json!({"argv": ["python3", FAKE_AGENT], "family": "claude",
-        "env": {"FAKE_SESSION_PREFIX": "fake-session-", "FAKE_PICKER_MODES": "claude"}});
+        "env": {"FAKE_SESSION_PREFIX": "fake-session-", "FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}});
     let config = json!({"harnesses": {"claude": claude},
                         "defaultHarness": "claude",
                         "permissionPolicy": "ask",
