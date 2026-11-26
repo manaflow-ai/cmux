@@ -111,23 +111,46 @@ function samePicks(a: Summary, b: Summary): boolean {
 /// renders, so an entry told from the pending snapshot's rows would leave the committed row
 /// without its newer output (its output would go back) until the draw commits. The output goes
 /// through the pane's draw instead, which React folds into the pending one.
+///
+/// One transition draw at a time: a non-urgent snapshot that comes while one is pending is held,
+/// and only the newest held one draws, when the pending one commits. A new update in React's
+/// transition lanes restarts the render in progress, so a draw per replayed event (40 a second)
+/// threw away a whole-pane render each time one took longer than the gap between events, and under
+/// load the pane was mostly rendering work it then discarded ("React render: AcpmuxPane", 16% of
+/// the renderer main thread's long-task time, bench/replay-under-load.bench.ts --trace). Each commit
+/// still shows one snapshot whole, the newest one it had when its render started; a held snapshot
+/// is never lost, since the next commit draws it, and an urgent draw drops it (the urgent one is newer).
 export class PendingPaneDraw {
   private rows: readonly AcpmuxRow[] | undefined;
+  private held: { next: AcpmuxSnapshot; draw: () => void } | undefined;
   get pending(): boolean {
     return this.rows !== undefined;
   }
   /// The pane set `next` (urgent: at once, which overtakes any pending draw).
   drew(next: AcpmuxSnapshot, urgent: boolean): void {
     this.rows = urgent ? undefined : next.rows;
+    if (urgent) this.held = undefined;
   }
-  /// The pane committed `snapshot` (its layout effect).
+  /// Keeps `draw` of `next` until the pending draw commits, in place of any it held.
+  hold(next: AcpmuxSnapshot, draw: () => void): void {
+    this.held = { next, draw };
+  }
+  /// The pane committed `snapshot` (its layout effect), and a held draw starts. On any commit, not
+  /// only the pending draw's: a snapshot set around this lane (the host's, a restored tail) can
+  /// overtake the pending one, whose rows then never commit, and a held draw must not wait for them.
   committed(snapshot: AcpmuxSnapshot): void {
     if (snapshot.rows === this.rows) this.rows = undefined;
+    const held = this.held;
+    if (!held) return;
+    this.held = undefined;
+    this.drew(held.next, false);
+    startTransition(held.draw);
   }
 }
 
 /// Runs `draw` (the pane's `setSnapshot` of `next`) at once or as a transition, given the
-/// snapshot the pane last set (`drawn`), and records it in `pending`.
+/// snapshot the pane last set (`drawn`), and records it in `pending`. A transition while another
+/// is pending waits for its commit (PendingPaneDraw).
 export function drawPaneSnapshot(
   drawn: AcpmuxSnapshot | undefined,
   next: AcpmuxSnapshot,
@@ -135,6 +158,10 @@ export function drawPaneSnapshot(
   draw: () => void,
 ): void {
   const urgent = drawsAtOnce(drawn, next);
+  if (!urgent && pending.pending) {
+    pending.hold(next, draw);
+    return;
+  }
   pending.drew(next, urgent);
   if (urgent) draw();
   else startTransition(draw);
