@@ -41,7 +41,7 @@ use tokio::task::JoinHandle;
 
 use super::*;
 use crate::dial::portmap;
-use crate::dial::turn::LateTurn;
+use crate::dial::turn::{Allocated, LateTurn};
 
 /// Overlay UDP port of the roaming messages, next to the link's 7420.
 pub const ROAM_PORT: u16 = 7421;
@@ -573,6 +573,8 @@ pub(super) struct SessionParts {
     pub reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     pub options: DialOptions,
     pub stun: Vec<SocketAddr>,
+    /// Announcements already sent through signaling before the tunnel.
+    pub announced: u64,
     pub endpoints: Vec<String>,
     /// This side's TURN relayed addresses among `endpoints`, and those over
     /// TCP or TLS.
@@ -601,6 +603,9 @@ pub(super) struct Session {
     reach: Mutex<Option<mpsc::UnboundedReceiver<(SocketAddr, Carrier)>>>,
     options: DialOptions,
     stun: Mutex<Vec<SocketAddr>>,
+    /// Announcements sent through signaling before the tunnel (a dial's
+    /// trickled reflexive endpoints); the control task counts on from here.
+    announced: u64,
     /// This side's endpoints as last offered to the peer.
     endpoints: Mutex<Vec<String>>,
     /// Which of them are this side's TURN relayed addresses (all, over a
@@ -714,6 +719,7 @@ impl Session {
             reach: Mutex::new(Some(parts.reach)),
             options: parts.options,
             stun: Mutex::new(parts.stun),
+            announced: parts.announced,
             endpoints: Mutex::new(parts.endpoints),
             relayed: Mutex::new(parts.relayed),
             keeps_turn: AtomicBool::new(parts.keeps_turn),
@@ -818,6 +824,47 @@ impl Session {
     /// handshake retries would only run out the dial's timeout.
     pub(super) fn retry_missing_turn(self: &Arc<Self>) {
         self.retry_turn("no TURN allocation at dial; taking one", async { true });
+    }
+
+    /// Announce this side's endpoints as they stand (a dial whose offer
+    /// went out before its TURN allocation was in, which the tunnel
+    /// carries from its start).
+    pub(super) fn announce_current(&self) {
+        let endpoints = lock(&self.endpoints).clone();
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        self.announce(endpoints, relayed, relayed_tls);
+    }
+
+    /// The dial's TURN allocation, still being taken when the answer came:
+    /// once it is in, the tunnel carries it and the peer hears its address.
+    /// None, though a server is configured: the session takes one with
+    /// backoff ([`Session::retry_missing_turn`]).
+    pub(super) fn adopt_turn_when(self: &Arc<Self>, task: JoinHandle<Allocated>, timeline: Timeline) {
+        let weak = Arc::downgrade(self);
+        let roams = self.roams.load(Ordering::Relaxed);
+        tokio::spawn(async move {
+            let turn = task.await.ok().and_then(|allocated| allocated.carrier);
+            let Some(session) = weak.upgrade() else { return };
+            let Some(turn) = turn else {
+                if missed_turn(true, None, &session.options) {
+                    session.retry_missing_turn();
+                }
+                return;
+            };
+            timeline.mark(if turn.transport.is_stream() { "turn_tls_allocated" } else { "turn_allocated" });
+            let _one_at_a_time = session.roaming.lock().await;
+            if session.roams.load(Ordering::Relaxed) != roams || session.closed.load(Ordering::Relaxed) {
+                // A roam took its own allocation on the new network.
+                return;
+            }
+            let Ok(net) = session.net() else { return };
+            let mut endpoints = lock(&session.endpoints).clone();
+            let (relayed, relayed_tls) = relayed_of(Some(&turn));
+            endpoints.extend(relayed.iter().cloned());
+            session.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
+            let _ = net.refresh().await;
+            session.announce(endpoints, relayed, relayed_tls);
+        });
     }
 
     /// Once `start` says so, take a new TURN allocation, retrying with backoff
@@ -1023,13 +1070,21 @@ impl Session {
     /// clock as the answer's gather ([`StunClock`]) bounds it.
     pub(super) fn gather_after_answer(self: &Arc<Self>, port: u16, timeline: Timeline) {
         let session = Arc::clone(self);
-        tokio::spawn(async move { session.trickle(port, timeline).await });
+        tokio::spawn(async move { session.trickle(port, timeline, true).await });
     }
 
-    async fn trickle(self: &Arc<Self>, port: u16, timeline: Timeline) {
+    /// A dial whose answer came before its STUN servers did: the reflexive
+    /// half of the gather runs on in the tunnel (its TURN allocation is the
+    /// dial's own, [`Session::adopt_turn_when`]).
+    pub(super) fn gather_reflexive(self: &Arc<Self>, port: u16, timeline: Timeline) {
+        let session = Arc::clone(self);
+        tokio::spawn(async move { session.trickle(port, timeline, false).await });
+    }
+
+    async fn trickle(self: &Arc<Self>, port: u16, timeline: Timeline, take_turn: bool) {
         // This gather started with the tunnel's relay clock: the relay waits
         // for the TURN allocation it may take.
-        let mut gather = self.relay_shared.gathering_turn();
+        let mut gather = take_turn.then(|| self.relay_shared.gathering_turn());
         let roams = self.roams.load(Ordering::Relaxed);
         let stun = self.stun_servers().await;
         let asked = stun.len();
@@ -1051,17 +1106,22 @@ impl Session {
             found
         };
         let late = LateTurn::default();
-        let (reflexive, allocated) =
-            tokio::join!(reflexive, turn_beside_keeping(&self.options, false, turn_side, Some(&late)));
+        let turn = async {
+            match take_turn {
+                true => turn_beside_keeping(&self.options, false, turn_side, Some(&late)).await,
+                false => Allocated::default(),
+            }
+        };
+        let (reflexive, allocated) = tokio::join!(reflexive, turn);
         if let Some(refusal) = &allocated.refusal {
             tracing::warn!(%refusal, "this Mac's proxy refused TURN over TLS; a phone may not reach it");
         }
         let turn = allocated.carrier;
-        let blocked = asked > 0 && reflexive.is_empty();
+        let blocked = take_turn && asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
         let turn = if blocked { turn } else { None };
-        let turn_missed = missed_turn(blocked, turn.as_ref(), &self.options);
+        let turn_missed = take_turn && missed_turn(blocked, turn.as_ref(), &self.options);
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
             // A roam gathered on its own socket meanwhile.
@@ -1087,7 +1147,9 @@ impl Session {
             (relayed, relayed_tls) = relayed_of(Some(&turn));
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
-            gather.allocated();
+            if let Some(gather) = gather.as_mut() {
+                gather.allocated();
+            }
         } else if turn_missed {
             self.retry_turn_after("no TURN allocation at answer; taking one", async { true }, late);
         }
@@ -1095,7 +1157,7 @@ impl Session {
             self.announce(endpoints, relayed, relayed_tls);
         }
         timeline.mark("endpoints_trickled");
-        tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard answer gathered");
+        tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard endpoints trickled");
     }
 
     /// Hand `turn` to the underlay and watch its stream.
@@ -1214,6 +1276,7 @@ impl Session {
                 reach,
                 injected,
                 resignal,
+                generation: self.announced,
                 metered,
                 peer_mapped: Arc::clone(&self.peer_mapped),
                 signal: SignalTarget {
@@ -1614,6 +1677,8 @@ struct ControlChannels {
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
     resignal: mpsc::UnboundedReceiver<bool>,
+    /// Announcements already sent before this task (through signaling).
+    generation: u64,
     /// The reflexive address of this side's second socket (`None`: gone).
     metered: mpsc::UnboundedReceiver<Option<SocketAddr>>,
     /// Where the peer's mapped endpoints are kept (for `link_stat`).
@@ -1639,6 +1704,7 @@ async fn run_control(
         mut resignal,
         mut metered,
         peer_mapped,
+        generation,
         signal,
     } = channels;
     // This side's metered addresses, sent again every METERED_RESEND while
@@ -1648,7 +1714,7 @@ async fn run_control(
     let mut cleared_left = 0usize;
     // The latest announcement, for a resend through a new signaling socket.
     let mut latest: Option<RoamMessage> = None;
-    let mut generation = 0u64;
+    let mut generation = generation;
     let mut pending: Option<RoamMessage> = None;
     let mut resends = 0usize;
     let mut resend_at: Option<Instant> = None;
@@ -2195,6 +2261,7 @@ mod tests {
             peer_version: super::super::WG_VERSION,
             relay: None,
             relay_shared: Arc::new(RelayShared::default()),
+            announced: 0,
         });
         let (tx, rx) = mpsc::unbounded_channel();
         *lock(&session.announce) = Some(tx);

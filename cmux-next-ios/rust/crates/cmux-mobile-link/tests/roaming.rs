@@ -859,10 +859,16 @@ async fn wireguard_mac_takes_the_turn_allocation_its_stun_silent_roam_missed() {
     )
     .await;
     eprintln!("stun-silent Mac roam: {run:?}");
+    // By the server's relay range, not `is_relayed`: the allocation is
+    // released when the link closes, which races this check.
     let relayed = |endpoints: &[String]| {
-        endpoints
-            .iter()
-            .any(|endpoint| endpoint.parse::<std::net::SocketAddr>().is_ok_and(|addr| turn.is_relayed(&addr)))
+        let addrs: Vec<std::net::SocketAddr> = endpoints.iter().filter_map(|e| e.parse().ok()).collect();
+        let host_port = addrs.first().map(|addr| addr.port());
+        addrs.iter().any(|addr| {
+            addr.ip().is_loopback()
+                && Some(addr.port()) != host_port
+                && turn.relay_ports.contains(&addr.port())
+        })
     };
     assert!(!run.mac_endpoints_before.is_empty() && !relayed(&run.mac_endpoints_before), "{run:?}");
     // Its STUN wait (1.5 s) and allocation window (2 s) end well before 6 s.
@@ -1166,7 +1172,17 @@ async fn wireguard_link_closes_after_a_60s_blackout() {
     let run = blackout(Duration::from_secs(60), false).await;
     eprintln!("BLACKOUT 60s: {run:?}");
     assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
-    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+    // Both keepalives run out about together, and the signaling socket is not
+    // dark: when the Mac's fires first, its `bye` reaches the phone over
+    // signaling, the phone drops the tunnel, and its link reads "peer closed
+    // the link". Either way one side's keepalive ended it.
+    match run.phone_closed.as_deref() {
+        Some("keepalive timed out") => {}
+        Some("peer closed the link") => {
+            assert_eq!(run.mac_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+        }
+        other => panic!("the phone's link closed with {other:?}: {run:?}"),
+    }
 }
 
 static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
