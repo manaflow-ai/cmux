@@ -22,7 +22,8 @@ head's tree by scripts/ci/cargo_test_verdict.py's crate_inputs (the same graph t
 It never trades a test for speed. Every job runs when:
 
   - the event is not a pull request (a push to feat-cmux-next is the safety net: it runs everything), or the pull
-    request carries the full-ci label;
+    request carries the full-ci label (then a job whose input tree, result_key, is the base's is the one exception:
+    its verdict is the base's, which the push runs);
   - there is no usable base, or git cannot list the change, or the graph cannot be read;
   - the change touches this router, its map, or what it reads the graph with (SELF);
   - a changed path under cmux-tui/ is in no Cargo package, is no job's input, and is not a Markdown file: a path
@@ -249,14 +250,15 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
 
     if event != "pull_request":
         return everything(f"a {event} runs every job (the safety net)")
-    if FULL_LABEL in (labels or []):
-        return everything(f"the {FULL_LABEL} label")
+    full = FULL_LABEL in (labels or [])
     if changed is None or tree is None:
-        return everything("no usable base: the change cannot be listed")
+        return everything(f"the {FULL_LABEL} label" if full else "no usable base: the change cannot be listed")
     own = [path for path in changed if path in SELF]
     if own:
         result.router_changed = True
         return everything(f"the router changed ({own[0]})")
+    if full:
+        return same_tree_as_base(result, tree, base_tree, jobs_here, workspace_inputs, jobs, everything)
     graph = Graph(tree, workspace_inputs, jobs, base_tree)
     # The graph at the base too: a fixture a test reads at run time ("../" literal) counts only while it exists, so
     # a change that deletes it is no input of the head's graph, yet breaks the test that still names it.
@@ -276,6 +278,35 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         result.run.clear()
         result.why.clear()
         return everything(f"the crate graph could not be read ({str(why)[:200]})")
+    return result
+
+
+def same_tree_as_base(result: Route, tree: git_tree.GitTree, base_tree: git_tree.GitTree | None, jobs_here: list[Job],
+                      workspace_inputs: list[str], jobs: list[Job], everything) -> Route:
+    """The full-ci label on a pull request: every job runs but one whose input tree (result_key) at the head is the
+    one at the base. The change gives such a job the same files to build and test, so its verdict is the base's, and
+    the feat-cmux-next push runs it (the safety net). A swift-only pull request with the label ran the four heavy
+    cmux-tui spec inventory jobs (acpmux tests, the two simulations, the protocol IR check) about 55 runner-min a
+    head, 70.5k runner-min a day, red on most of them for base reds the change could not reach (2026-11-26)."""
+    why = f"the {FULL_LABEL} label"
+    if base_tree is None:
+        return everything(why)
+    try:
+        head_graph = Graph(tree, workspace_inputs, jobs, base_tree)
+        base_graph = Graph(base_tree, workspace_inputs, jobs)
+        for job in jobs_here:
+            key = result_key(head_graph, job)
+            same = key == result_key(base_graph, job)
+            result.run[job.workflow, job.id] = not same
+            result.why[job.workflow, job.id] = (
+                f"{why}, but its input tree is the base's ({key[:12]}): the verdict is the base's, and the "
+                "feat-cmux-next push runs it" if same else f"{why} (its input tree differs from the base's)")
+    except (git_tree.Unreadable, ValueError, KeyError) as error:
+        result.run.clear()
+        result.why.clear()
+        return everything(f"{why} (the base's input trees could not be read: {str(error)[:200]})")
+    if all(result.run.values()):
+        result.everything = why
     return result
 
 
