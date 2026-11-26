@@ -365,6 +365,9 @@ async function main(): Promise<number> {
         meta.sweep_settle = { swept: swept.length, ms: settled.ms, still_live: settled.left.length };
       }
     }
+    // The install token dies about 12 minutes after it is made (cloud-fork-placement.ts), and a slow parent outlives it:
+    // run 45771500411 took 736 s to bring the parent up and its mint answered 401 machine.unauthorized. Renew first.
+    await renew();
     const m0 = Date.now();
     const mint = () => http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",
