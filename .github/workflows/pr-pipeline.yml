@@ -37,10 +37,10 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
-    # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min): 337 min with 33 shared steps (17 waves), plus room for the checkout, so a slow step is reported
-    # by the runner, not cut here.
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
+    # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min,
+    # the acpmux instruction counts 40 min, the compile canary 30 min): 349 min with 37 shared steps (19 waves),
+    # plus room for the checkout, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 355
     permissions:
       contents: read
