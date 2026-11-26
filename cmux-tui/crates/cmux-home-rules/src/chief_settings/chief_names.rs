@@ -288,11 +288,11 @@ fn parse_iso(text: &str) -> Option<i64> {
         let part = text.get(from..from + len)?;
         if part.bytes().all(|b| b.is_ascii_digit()) { part.parse().ok() } else { None }
     };
-    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || !matches!(bytes[10], b'T' | b't')
-    {
+    let at = |index: usize| bytes.get(index).copied();
+    if at(4) != Some(b'-') || at(7) != Some(b'-') || !matches!(at(10), Some(b'T' | b't')) {
         return None;
     }
-    if bytes[13] != b':' || bytes[16] != b':' || bytes[19] != b'.' {
+    if at(13) != Some(b':') || at(16) != Some(b':') || at(19) != Some(b'.') {
         return None;
     }
     let (year, month, day) = (digits(0, 4)?, digits(5, 2)?, digits(8, 2)?);
@@ -307,19 +307,19 @@ fn parse_iso(text: &str) -> Option<i64> {
     }
     let mut index = 20;
     let start = index;
-    while index < bytes.len() && bytes[index].is_ascii_digit() {
+    while at(index).is_some_and(|byte| byte.is_ascii_digit()) {
         index += 1;
     }
     if index == start {
         return None;
     }
-    let fraction = &text[start..index];
-    let millis: i64 = format!("{fraction:0<3}")[..3].parse().ok()?;
+    let fraction = text.get(start..index)?;
+    let millis: i64 = format!("{fraction:0<3}").get(..3)?.parse().ok()?;
     let offset = match text.get(index..)? {
         "Z" | "z" => 0,
         zone if zone.len() == 6
-            && matches!(zone.as_bytes()[0], b'+' | b'-')
-            && zone.as_bytes()[3] == b':' =>
+            && matches!(zone.as_bytes().first(), Some(b'+' | b'-'))
+            && zone.as_bytes().get(3) == Some(&b':') =>
         {
             let hours = digits(index + 1, 2)?;
             let minutes = digits(index + 4, 2)?;

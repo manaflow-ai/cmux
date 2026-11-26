@@ -85,7 +85,7 @@ pub fn base_id(id: &str) -> &str {
         return id;
     }
     match id.rfind('[') {
-        Some(open) => &id[..open],
+        Some(open) => id.get(..open).unwrap_or(id),
         None => id,
     }
 }
@@ -136,7 +136,7 @@ fn display_name(model: &Model) -> String {
 /// "Opus 5.5 · 1M context" for `[1m]`; another suffix shows as the harness wrote it.
 fn variant_title(base: &str, id: &str, strings: &Strings) -> String {
     let start = id.rfind('[').map_or(0, |open| open + 1);
-    let mut suffix: String = id[start..].to_owned();
+    let mut suffix: String = id.get(start..).unwrap_or_default().to_owned();
     suffix.pop();
     let suffix = suffix.to_lowercase();
     let context =
@@ -198,7 +198,7 @@ fn rows(models: &[Model], chosen: Option<&str>, strings: &Strings) -> Vec<Row> {
             None
         }
         .unwrap_or(base);
-        let key = format!("{key_base}{}", &model.id[base.len()..]);
+        let key = format!("{key_base}{}", model.id.get(base.len()..).unwrap_or_default());
         let mut title = if is_plan {
             plan_title(model, strings)
         } else if release_family.is_some() {
@@ -224,9 +224,10 @@ fn rows(models: &[Model], chosen: Option<&str>, strings: &Strings) -> Vec<Row> {
         };
         if let Some(&index) = seen.get(&key) {
             let keeps_new = Some(model.id.as_str()) == chosen
-                || (Some(rows[index].item.value.as_str()) != chosen && is_alias(model, models));
-            if keeps_new {
-                rows[index].item.value = model.id.clone();
+                || (rows.get(index).map(|row| row.item.value.as_str()) != chosen
+                    && is_alias(model, models));
+            if keeps_new && let Some(row) = rows.get_mut(index) {
+                row.item.value = model.id.clone();
             }
             continue;
         }

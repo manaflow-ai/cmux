@@ -203,9 +203,9 @@ pub fn format(template: &str, args: &[&str]) -> String {
     let mut next = 0;
     let chars: Vec<char> = template.chars().collect();
     let mut i = 0;
-    while i < chars.len() {
-        if chars[i] != '%' {
-            out.push(chars[i]);
+    while let Some(&c) = chars.get(i) {
+        if c != '%' {
+            out.push(c);
             i += 1;
             continue;
         }
@@ -222,11 +222,11 @@ pub fn format(template: &str, args: &[&str]) -> String {
         }
         // %N$@
         let mut j = i + 1;
-        while j < chars.len() && chars[j].is_ascii_digit() {
+        while chars.get(j).is_some_and(char::is_ascii_digit) {
             j += 1;
         }
         if j > i + 1 && chars.get(j) == Some(&'$') && chars.get(j + 1) == Some(&'@') {
-            let digits: String = chars[i + 1..j].iter().collect();
+            let digits: String = chars.get(i + 1..j).unwrap_or_default().iter().collect();
             let index = digits.parse::<usize>().unwrap_or(0);
             out.push_str(index.checked_sub(1).and_then(|n| args.get(n)).copied().unwrap_or(""));
             i = j + 2;
