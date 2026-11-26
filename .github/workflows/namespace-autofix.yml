@@ -80,6 +80,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
         run: |
           set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
@@ -170,9 +172,25 @@ jobs:
             exit 0
           fi
 
+          # The fix rewrites the pull request's own lines, so its author is the
+          # pull request author (who already signs the CLA as its opener) and
+          # github-actions[bot] is a Co-authored-by, which never signs. A commit
+          # authored by github-actions[bot] failed CLA Assistant once the pull
+          # request targeted main (#53995): the bot cannot sign, and exempting
+          # bot-authored commits would trust author metadata anyone can write.
+          case "$PR_AUTHOR_ID" in
+            ''|*[!0-9]*) echo "::error::Pull request author id is not numeric: $PR_AUTHOR_ID"; exit 1 ;;
+          esac
+          case "$PR_AUTHOR_LOGIN" in
+            ''|*[!A-Za-z0-9_.\[\]-]*) echo "::error::Pull request author login is malformed: $PR_AUTHOR_LOGIN"; exit 1 ;;
+          esac
           git config user.name "cmux namespace autofix"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -c core.hooksPath=/dev/null commit -m "lint: apply namespace autofix"
+          GIT_AUTHOR_NAME="$PR_AUTHOR_LOGIN" \
+          GIT_AUTHOR_EMAIL="${PR_AUTHOR_ID}+${PR_AUTHOR_LOGIN}@users.noreply.github.com" \
+            git -c core.hooksPath=/dev/null commit \
+              -m "lint: apply namespace autofix" \
+              -m "Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
           auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           GIT_CONFIG_COUNT=1 \

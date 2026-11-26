@@ -1092,6 +1092,10 @@ jobs:
           python3 tests/test_cla_guard_git_reads.py
           python3 tests/test_cla_guard_api_reads.py
 
+      - name: Validate namespace autofix commits are authored by the pull request author
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_namespace_autofix_cla_author.py
+
       - name: Validate who may approve a CLA guard change
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cla_guard_trusted_reviewers.py
