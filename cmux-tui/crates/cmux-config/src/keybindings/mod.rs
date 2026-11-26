@@ -100,7 +100,11 @@ pub fn parse(source: &str) -> Parsed {
 /// One entry in keybindings.json form, checked as [`parse`] checks a file's
 /// entries (an extension's `contributes.keybindings`, cmux-app-manifest).
 pub fn parse_entry(item: &Value) -> Result<Entry, EntryDiagnostic> {
-    entry(0, item).map_err(|(problem, message)| EntryDiagnostic { index: Some(0), problem, message })
+    entry(0, item).map_err(|(problem, message)| EntryDiagnostic {
+        index: Some(0),
+        problem,
+        message,
+    })
 }
 
 fn unreadable(message: String) -> Parsed {
