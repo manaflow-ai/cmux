@@ -182,6 +182,7 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/browser-auth-flows-fixture/**
       - scripts/cmux-next/build_names.py
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
@@ -567,6 +568,7 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/browser-auth-flows-fixture/**
       - scripts/cmux-next/build_names.py
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
@@ -1777,6 +1779,7 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_typing_bench_launch_arm.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
             python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
+            python3 -I scripts/cmux-next/tests/test_browser_auth_fixture.py
             bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
             bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
@@ -2527,13 +2530,45 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      # Why: 2026-11-25-web-bundles-r2-first.md
+      - name: Look up the web bundles in R2
+        id: web-bundle-r2
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Look up the cached web bundles
+        id: web-bundle-cache
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' }}
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
+      # Why: 2026-11-25-web-bundles-r2-first.md
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
         continue-on-error: true
         env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: &bun-with
           bun-version: "1.4.4"
@@ -2541,57 +2576,46 @@ jobs:
 
       # Why: note-174
       - name: Give this job its own bun
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/private-bun.sh
 
       # Why: note-175
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
-      - name: Source key of the web bundles
-        id: web-bundle-key
-        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
-
-      - name: Look up the cached web bundles
-        timeout-minutes: 5
-        continue-on-error: true
-        id: web-bundle-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: web-bundles-out
-          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
-          enableCrossOsArchive: true
-
       # Why: note-176
       - name: Cache the webviews Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.web-bundle-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache the webviews Bun package cache (restore only off base branches)
-        if: ${{ (steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Build the web bundles for this source key
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh --out-root "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Cache the web bundles under this source key
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2600,7 +2624,7 @@ jobs:
 
       # Why: note-398
       - name: Hand the web bundles to this run's Mac jobs
-        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -2612,7 +2636,7 @@ jobs:
 
       # Why: note-399
       - name: Publish the web bundles to R2 (feat-cmux-next push)
-        if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
@@ -3971,6 +3995,11 @@ jobs:
       - name: Test the warm cargo target
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         run: bash scripts/ci/tests/pool-warm-target.test.sh
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      - name: Test the R2 workspace delta
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/cargo-target-delta.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
