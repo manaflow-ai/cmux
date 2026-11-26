@@ -374,8 +374,15 @@ PARTS = [
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
-    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
-    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    # goal: both parts feed NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max, so once due they go
+    # right after the build (part_order). Without it a part that failed in the newest tip went behind every stale
+    # part: both failed at b4a3f5019f7f (2026-11-25, "reads visible ..., not hidden", before cmux#57063), stored no
+    # row, and at tip c2b1760e0a63 sat 4th and 5th of 23 Linux parts behind one controller request a tick, so the
+    # two rows read the same values from 2026-11-25 02:20Z on.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
