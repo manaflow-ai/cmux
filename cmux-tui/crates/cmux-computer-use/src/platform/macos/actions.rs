@@ -1794,7 +1794,8 @@ fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax, before: &FocusBefore) -> bo
     }
 }
 
-/// Asks a Chromium app to show its pages to accessibility
+/// Asks a Chromium app (a browser, or an app that embeds Chromium pages:
+/// cmux's agent chats) to show its pages to accessibility
 /// ([`roles::web_accessibility_attribute`]), once per process, and waits
 /// (at most [`WEB_TREE_WAIT`]) for `win`'s web content to appear. It
 /// changes no focus, window or front app: it is what a screen reader asks.
@@ -1802,9 +1803,7 @@ pub(super) fn show_web_content(t: &Target, win: &Ax) {
     static DONE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i32>>> =
         std::sync::OnceLock::new();
     let pid = t.window.pid;
-    let Some(attr) =
-        roles::web_accessibility_attribute(roles::web_engine(app_bundle(t).as_deref()))
-    else {
+    let Some(attr) = roles::web_accessibility_attribute(app_bundle(t).as_deref()) else {
         return;
     };
     {
