@@ -59,8 +59,14 @@ def github_api(repo: str, token: str) -> Api:
 
 
 def tree_key(rev: str) -> str:
+    # --depth=1 only in a checkout that is already shallow (CI): in a full clone it would write .git/shallow
+    # for every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
+    shallow = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-shallow-repository"],
+        check=False, capture_output=True, text=True, timeout=30,
+    ).stdout.strip() == "true"
     subprocess.run(
-        ["git", "-C", str(ROOT), "fetch", "--no-tags", "--depth=1", "origin", rev],
+        ["git", "-C", str(ROOT), "fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", rev],
         check=False, capture_output=True, timeout=120,
     )
     out = subprocess.run(
