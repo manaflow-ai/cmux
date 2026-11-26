@@ -487,8 +487,10 @@ elif op == "events":
         if not evs: break
         for e in evs:
             m = e.get("msg") or {}
-            text = json.dumps(m)[:2000]
-            out.append({"seq": e.get("seq"), "kind": e.get("kind"), "promptId": m.get("promptId") or (m.get("_meta") or {}).get("promptId"), "text": text})
+            pid = m.get("promptId") or (m.get("_meta") or {}).get("promptId")
+            # Only a prompt's own records need their text (a run counts once by seq and text); the rest kept whole
+            # overran the exec's output and cut the JSON (run 45820934296's cut drill, 81 records: Unterminated string).
+            out.append({"seq": e.get("seq"), "kind": e.get("kind"), "promptId": pid, "text": json.dumps(m)[:2000] if pid else ""})
         after = max(x.get("seq") or 0 for x in evs)
         if len(evs) < 500: break
     print("@@json " + json.dumps(out))
@@ -502,7 +504,7 @@ export async function acpmuxOn(side: MoveSide, op: string, session: string, arg 
   const r = await side.exec(`${side.guest}C="$c" python3 -I -c ${shq(ACPMUX_PY)} ${shq(op)} ${shq(session)} ${shq(arg)} 2>&1`, 60_000);
   const m = /@@json (.*)$/m.exec(r.stdout);
   if (!m) throw new Error(`acpmux ${op} on ${side.name}: ${(r.stdout + r.stderr).trim().slice(-300)}`);
-  return JSON.parse(m[1]);
+  try { return JSON.parse(m[1]); } catch (e) { throw new Error(`acpmux ${op} on ${side.name}: ${(e as Error).message} in ${m[1].length} bytes`); }
 }
 
 /**
@@ -667,7 +669,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
       ctx.log(`move: ${run} ${r.outcome}: lost ${r.lost.join("; ") || "nothing"}; pump ${r.pump_first}${r.pump_retry !== "not run" ? ` then ${r.pump_retry}` : ""}; ${r.detail}`);
       if (r.outcome !== "pass") ctx.log(`move: ${run} seed ${plan.seed} trace:\n  ${r.trace.join("\n  ")}`);
       // Every side healthy before the next run, whatever this one did.
-      await bringBack(ctx, carriers, [localSide, cloudSide(0), cloudSide(1)], () => undefined).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
+      await bringBack(ctx, carriers, [localSide, cloudSide(0), cloudSide(1)], (s) => ctx.log(`move: after ${run}: ${s}`)).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
     }
   } finally {
     for (const c of carriers) c.stop();
@@ -686,6 +688,29 @@ async function waitIdentify(socket: string, ms: number): Promise<boolean> {
   return false;
 }
 
+const CARRIER_STALE_MS = 60_000;
+
+/**
+ * ctx.start, waiting out an operation already in flight: a pause the fault began can still read `pausing` when the run
+ * ends, and a start then answers cloud.machine.not_paused / operation_in_flight (run 45820934296's pause-src drill left
+ * 4 runs unmeasured to it, each breaking on a machine its own fault had paused).
+ */
+export async function startSettled(ctx: Pick<MoveContext, "status" | "start">, machine: string, note: (s: string) => void, deadlineMs = BACK_DEADLINE_MS, wait: (ms: number) => Promise<unknown> = sleep): Promise<void> {
+  const end = Date.now() + deadlineMs;
+  for (;;) {
+    try {
+      await ctx.start(machine);
+      return;
+    } catch (e) {
+      if (!/not_paused|operation_in_flight/.test(String((e as Error)?.message ?? e)) || Date.now() >= end) throw e;
+      const st = await ctx.status(machine).catch(() => "unread");
+      if (st === "running") return;
+      note(`${machine}: start refused while it reads ${st}; waiting for it to settle`);
+      await wait(2_000);
+    }
+  }
+}
+
 /** Brings every side back: the local machine and the carriers running, each Cloud machine running and answering. */
 export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ensureStub">, carriers: CarrierServe[], sides: MoveSide[], note: (s: string) => void): Promise<void> {
   for (const s of sides) {
@@ -701,9 +726,19 @@ export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ens
     const st = await ctx.status(s.machine!).catch((e: Error) => `unknown (${e.message})`);
     if (st !== "running") {
       note(`${s.name} is ${st}: starting it`);
-      await ctx.start(s.machine!);
+      await startSettled(ctx, s.machine!, note);
     }
-    const back = await waitIdentify(s.socket, BACK_DEADLINE_MS);
+    let back = await waitIdentify(s.socket, CARRIER_STALE_MS);
+    // A carrier that outlived its machine's daemon (a pause, or the guest updater's restart) can stop answering while a
+    // fresh dial answers in seconds (run 45820934296's pause-src drill: 8 runs unmeasured to it, then "carrier dial
+    // after resume" answered in 4 s). It is served again, as the app dials again.
+    const c = back ? undefined : carriers.find((x) => x.socket === s.socket);
+    if (c) {
+      note(`carrier ${c.machine}: no identify ${CARRIER_STALE_MS / 1000} s with the machine running; serving again`);
+      c.stop();
+      await c.start();
+      back = await waitIdentify(s.socket, BACK_DEADLINE_MS - CARRIER_STALE_MS);
+    }
     if (!back) throw new Error(`${s.name} (${s.machine}) does not answer identify ${BACK_DEADLINE_MS / 1000} s after it was brought back`);
     // A power-off ends the stub's process; a stub that does not answer is started again.
     await ctx.ensureStub(s.machine!);
@@ -944,13 +979,24 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const strand: string[] = [];
   if (survivor === a.dst && !landed.edit && editAt.length) strand.push(`edit only in the ${edit}`);
   if (survivor === a.dst && !landed.commit && commitAt.length) strand.push(`commit only in the ${commit}`);
+  // Every side was brought back before these reads, so a read that failed proves nothing either way: a loss it would
+  // explain is unmeasured, not a finding (run 45820934296's cut drill: "chat open nowhere" with both summaries
+  // unanswered, and "81 of 81 records" from an events read cut short; each pump had answered ok, moved).
+  const readErrs = [srcSum?.error ? `summary on ${a.src.name}: ${srcSum.error}` : "", dstSum?.error ? `summary on ${a.dst.name}: ${dstSum.error}` : "",
+    ...Object.entries(evErr).map(([n, e]) => `events on ${n}: ${e}`), draft.startsWith("unreadable") ? `draft: ${draft}` : ""].filter(Boolean);
+  const unproven = moveVerdict(lost, readErrs) === "unmeasured";
   return {
     run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill,
-    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
+    outcome: moveVerdict(lost, readErrs), lost: unproven ? [] : lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
     pump_first: pumpText(first), pump_retry: pumpText(retry), seen_ms: seenMs, fault_s: faultS,
-    detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}`,
+    detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}${unproven ? `; unproven (a read failed): ${lost.join("; ")}; ${readErrs.join("; ").slice(0, 400)}` : ""}`,
     trace,
   };
+}
+
+/** A loss counts only when every read behind it answered; one that failed leaves the run unmeasured. */
+export function moveVerdict(lost: string[], readErrs: string[]): MoveResult["outcome"] {
+  return !lost.length ? "pass" : readErrs.length ? "unmeasured" : "fail";
 }
 
 /** The results as a markdown table: direction × step × kill → what was lost. */
