@@ -24,8 +24,14 @@ const image = (id: string, data?: string): ComposerAttachment =>
     size: 3,
     ...(data ? { data } : {}),
   }) as ComposerAttachment;
-const file = (id: string): ComposerAttachment =>
-  ({ id, kind: "file", name: `${id}.txt`, mimeType: "text/plain", size: 3, data: "eA==" }) as ComposerAttachment;
+const file = (id: string): ComposerAttachment => ({
+  id,
+  kind: "document",
+  name: `${id}.pdf`,
+  mimeType: "application/pdf",
+  size: 3,
+  data: "eA==",
+});
 
 type Call = { method: string; params: Record<string, unknown> };
 
