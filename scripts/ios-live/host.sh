@@ -244,12 +244,26 @@ build_app() {
     app="$(cat "$root/live/app-path")"
   else
     build_kind=plain
-    xcodebuild -project "$src/cmux-next-ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration Demo \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath "$root/dd" -jobs "$jobs" \
-      CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-      COMPILER_INDEX_STORE_ENABLE=NO \
-      'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build >"$log" 2>&1 \
-      || { grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"; }
+    plain_build() {
+      xcodebuild -project "$src/cmux-next-ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration Demo \
+        -destination 'generic/platform=iOS Simulator' -derivedDataPath "$root/dd" -jobs "$jobs" \
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+        COMPILER_INDEX_STORE_ENABLE=NO \
+        'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build >"$log" 2>&1
+    }
+    if ! plain_build; then
+      # A slot's module cache can be left with truncated .pcm files (a build killed mid-write, a
+      # full disk): every later build then fails with "is not a valid module file". Set the cache
+      # aside (kept, not deleted) and build once more, which rebuilds it.
+      if grep -q "is not a valid module file" "$log" && [[ -d "$root/dd/ModuleCache.noindex" ]]; then
+        local aside="$root/dd/ModuleCache.noindex.bad-$(date -u +%Y%m%dT%H%M%SZ)"
+        echo "ios-live: truncated module cache; set aside as $aside, building again" >&2
+        mv "$root/dd/ModuleCache.noindex" "$aside"
+        plain_build || { grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"; }
+      else
+        grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"
+      fi
+    fi
     app="$root/dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
   fi
   ln -sf "$log" "$root/logs/build-latest.log"
@@ -306,6 +320,7 @@ launch_env_args() {  # the app's launch environment, as KEY=VALUE words
   grep -v '^[[:space:]]*\(#\|$\)' "$root/launch.env" || true
 }
 
+launch_args=()
 install_and_launch() {
   local words=() w
   while IFS= read -r w; do words+=("$w"); done < <(launch_env_args)
@@ -317,7 +332,7 @@ install_and_launch() {
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     local envs=()
     for w in ${words[@]+"${words[@]}"}; do envs+=("SIMCTL_CHILD_$w"); done
-    env ${envs[@]+"${envs[@]}"} xcrun simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null
+    env ${envs[@]+"${envs[@]}"} xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${launch_args[@]+"${launch_args[@]}"} >/dev/null
   fi
 }
 
@@ -641,8 +656,8 @@ except Exception: print(0)' "$root/state.json")" ;;
     IOS_SIM_SET="$sims" bash "$src/scripts/live-code/ios-sim.sh" undo "$root/live" ${2:+"$2"}
     if [[ "${2:-}" == --all ]]; then rm -rf "$root/live-patches"; else top="$(live_patch_top)"; [[ -z "$top" ]] || rm -f "$top"; fi ;;
 
-  relaunch)
-    owner="${1:?}"; ensure_device
+  relaunch)  # relaunch OWNER [ARG...]: the app again, with ARGs as its launch arguments (a plain build)
+    owner="${1:?}"; shift; launch_args=("$@"); ensure_device
     app="$(state_get app)"; bundle_id="$(state_get bundle_id)"; build_kind="$(state_get build_kind)"
     install_and_launch
     if [[ -n "$(live_patch_top)" && "$build_kind" == live-code ]]; then live_patch_apply "$(live_patch_top)" >/dev/null && echo "live patch re-applied"; fi

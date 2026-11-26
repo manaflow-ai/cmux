@@ -99,10 +99,12 @@ fn the_environment_beats_the_settings_file() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
     };
-    let file = json!({"agents": {"coldWake": {"enabled": false, "compactAboveTokens": 80_000}}});
+    let file = json!({"agents": {"coldWake": {
+        "enabled": false, "compact": true, "compactAboveTokens": 80_000
+    }}});
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT_ABOVE, "100000")]));
     assert_eq!(k, Knobs { enabled: true, compact: true, compact_above: 100_000 });
-    let k = settings_with(None, env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "0")]));
+    let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "0")]));
     assert_eq!((k.enabled, k.compact), (true, false), "ACPMUX_COLD_WAKE_COMPACT=0");
     let k = settings_with(None, env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "1")]));
     assert_eq!((k.enabled, k.compact), (true, true), "both turned on in the env");
