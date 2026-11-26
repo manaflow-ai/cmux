@@ -246,6 +246,14 @@ impl Gate {
         !matches!(self.state().phase, Phase::Open)
     }
 
+    /// Hold the gate state while a caller commits a turn claim. A capacity close that races the
+    /// final admission check then waits until the claim is visible, so it cannot let one more turn
+    /// start after the gateway reported exhaustion.
+    pub(super) fn admit_open(&self) -> Option<GateAdmission<'_>> {
+        let state = self.state();
+        matches!(state.phase, Phase::Open).then_some(GateAdmission { _state: state })
+    }
+
     pub(super) fn watch_backlog(self: &Arc<Self>) -> Option<Backlog> {
         let mut state = self.state();
         if matches!(state.phase, Phase::Open) {
@@ -264,6 +272,10 @@ impl Gate {
         self.changed.notify_one();
         Ticket { gate: self.clone(), key, ready }
     }
+}
+
+pub(super) struct GateAdmission<'a> {
+    _state: std::sync::MutexGuard<'a, State>,
 }
 
 pub(super) struct Backlog(Arc<Gate>);
@@ -614,6 +626,18 @@ mod capacity_gate_tests {
         assert_eq!(gate.state().backlog, 1);
         drop(backlog);
         assert_eq!(gate.state().backlog, 0);
+    }
+
+    #[test]
+    fn capacity_gate_admission_holds_state_until_claim() {
+        let gate = Arc::new(Gate::new(10));
+        gate.state().phase = Phase::Open;
+        let admission = gate.admit_open().expect("open gate admits");
+        assert!(gate.state.try_lock().is_err());
+        drop(admission);
+        assert!(gate.state.try_lock().is_ok());
+        gate.state().phase = Phase::Closed(20);
+        assert!(gate.admit_open().is_none());
     }
 
     #[test]

@@ -579,7 +579,11 @@ impl Hub {
                             || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance);
-                    let capacity_held = capacity_waits();
+                    // Keep the gate state locked through the claim. A concurrent 503 cannot close
+                    // the gate between this final open check and `ClaimedTurn::new` (review F1).
+                    let capacity_admission =
+                        self.capacity.get(capacity_route).map(|gate| gate.admit_open());
+                    let capacity_held = capacity_admission.as_ref().is_some_and(Option::is_none);
                     match guard {
                         Some(guard) if !queues && !capacity_held => {
                             ClaimedTurn::new(session, guard)
