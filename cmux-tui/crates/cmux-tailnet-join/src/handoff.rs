@@ -48,6 +48,20 @@ i=0; while pgrep -x tailscaled >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 50 ] && 
 const START: &str = "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then root systemctl enable --now tailscaled >&2; \
 else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock </dev/null >>/var/log/cmux-tailnet-tailscaled.log 2>&1 & fi";
 
+/// Once the node is `Running` on the new holder: start a WireGuard handshake from here to every
+/// online peer (a TSMP ping, `tailscale ping --tsmp`, one each, detached, at most 64 peers).
+///
+/// Why: the new holder's first map request carries its new disco key before it has found its
+/// own endpoints, so control can push peers the new disco key next to the old holder's
+/// endpoints. A peer (the user's laptop) drops its session on the disco change, sends one
+/// handshake to that dead path, and WireGuard retries only after REKEY_TIMEOUT (5 s), even
+/// though the right endpoint arrives under a second later: the laptop saw ~6 s instead of ~1 s
+/// on about half the moves (`testing/handoff-e2e.sh`). A handshake started from this side
+/// gives the peer a session at once. A TSMP ping runs through WireGuard but around the packet
+/// filter, so it works where the policy refuses this node dialing the user's devices; a disco
+/// ping does not start a handshake, so it does not help.
+const PEER_KICK: &str = "( tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
+
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
 /// machine's clock at the stop. The state file stays on the machine until [`forget_command`], so
 /// [`restore_command`] can bring the node back here if the move fails.
@@ -143,6 +157,8 @@ pub fn vm_adopt_script() -> String {
         JOIN_TIMEOUT_SECS * 10
     ));
     s.push_str("printf 'cmux-tailnet-online-at %s\\n' \"$(date +%s%3N)\"\n");
+    s.push_str(PEER_KICK);
+    s.push('\n');
     s.push_str("printf 'cmux-tailnet-joined '; tailscale status --json --peers=false | tr -d '\\n'; echo\n");
     s
 }
