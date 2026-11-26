@@ -247,6 +247,11 @@ impl Brain {
             }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor a task that later runs as the Chief's own note: an ask
+            // turn may only list the automations.
+            "mcp__optchat__automation" => {
+                return field("action").is_none_or(|a| a == "list");
+            }
             // Nor read or write a note about the owner: another person's
             // turn keeps loops only.
             "mcp__optchat__memory_read"
@@ -256,6 +261,13 @@ impl Brain {
             }
             // Nor search the owner's whole chat word for word.
             "mcp__optchat__recall" => return false,
+            // Nor change the owner's wake settings or set wakes for them;
+            // ending the turn with nothing is fine.
+            // (nor read them: they hold the owner's notes).
+            "mcp__optchat__check_ins"
+            | "mcp__optchat__follow_up"
+            | "mcp__optchat__follow_ups"
+            | "mcp__optchat__ask" => return false,
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.

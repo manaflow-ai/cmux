@@ -10,10 +10,41 @@ import { useT } from "./i18n";
 import type { AcpmuxUsageLimits } from "./model";
 import { planUsageLook } from "./planUsageLook.experiment";
 import { nativeExternalUrl } from "./session-info/native/links";
-import { planCreditsLabel, planName, planPercent, planResetLabel, planUsageUrl, planWindowName } from "./usageLimits";
+import {
+  planAheadOfPace,
+  planCreditsLabel,
+  planEvenPace,
+  planName,
+  planPercent,
+  planResetLabel,
+  planUsageUrl,
+  planWindowName,
+} from "./usageLimits";
 import "./planUsageCard.css";
 
 export type PlanUsageLook = "claude-bars" | "codex-rows" | "compact";
+
+type LimitWindow = AcpmuxUsageLimits["windows"][number];
+
+/// A window's bar with its even-pace mark: a thin tick where the bar would stand were the window
+/// spent evenly, and the bar in the warning color when the share used runs ahead of it. No mark
+/// without a reset time (planEvenPace).
+function PlanUsageBar({ limit, name, at }: { limit: LimitWindow; name: string; at: number }) {
+  const t = useT();
+  const pace = planEvenPace(limit, at);
+  const ahead = planAheadOfPace(limit, pace);
+  const pacePercent = pace === undefined ? undefined : Math.round(pace * 100);
+  const paceLabel = pacePercent === undefined ? undefined : t("planUsage.evenPace", { percent: pacePercent });
+  const label = [name, paceLabel, ahead ? t("planUsage.aheadOfPace") : undefined].filter(Boolean).join(", ");
+  return (
+    <span className="acpmux-plan-usage-meter" data-ahead={ahead || undefined} title={paceLabel}>
+      <progress className="acpmux-plan-usage-bar" aria-label={label} value={limit.usedPercent} max={100} />
+      {pacePercent !== undefined && (
+        <span className="acpmux-plan-usage-pace" style={{ insetInlineStart: `${pacePercent}%` }} aria-hidden="true" />
+      )}
+    </span>
+  );
+}
 
 export function PlanUsageCardBody({
   limits,
@@ -115,16 +146,14 @@ export function PlanUsageCardBody({
             <li key={limit.id} className="acpmux-plan-usage-window">
               <div className="acpmux-plan-usage-row">
                 <span className="acpmux-plan-usage-name">{name}</span>
-                {layout === "compact" && (
-                  <progress className="acpmux-plan-usage-bar" aria-label={name} value={limit.usedPercent} max={100} />
-                )}
+                {layout === "compact" && <PlanUsageBar limit={limit} name={name} at={at} />}
                 {layout !== "compact" && reset && <span className="acpmux-plan-usage-reset">{reset}</span>}
                 <span className="acpmux-plan-usage-value">{percent}</span>
               </div>
               {layout === "compact" ? (
                 reset && <div className="acpmux-plan-usage-reset">{reset}</div>
               ) : (
-                <progress className="acpmux-plan-usage-bar" aria-label={name} value={limit.usedPercent} max={100} />
+                <PlanUsageBar limit={limit} name={name} at={at} />
               )}
             </li>
           );

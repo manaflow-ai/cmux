@@ -40,20 +40,13 @@
     animation: none;
   }
 }
+/* The head and its title follow cardFit.css: the title is cut with an ellipsis, the buttons drop
+   under it in a narrow card (the row's height then grows, model.ts reads the card as measured). */
 .cv-coach__head {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-1, 4px);
-  min-width: 0;
   min-height: 24px;
 }
 .cv-coach__title {
-  flex: 1;
-  min-width: 0;
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .cv-coach__label {
   color: var(--agent-text);
@@ -85,7 +78,7 @@
 .cv-coach__action:hover,
 .cv-coach__toggle:hover {
   color: var(--agent-text);
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-coach__action:active,
 .cv-coach__toggle:active {

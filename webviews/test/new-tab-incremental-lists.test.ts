@@ -1,12 +1,12 @@
 // The New Tab page's chat-derived lists, kept at the cost of the chats that changed (sessionList.ts
-// `NewestFolders`, newTabModel.ts `RecentChats`), give what sorting every chat again gives
-// (`recentLocalFolders`, launchRows.ts `omnibarFolders`, `recentSessions`) after every change a chat
+// `FolderRecency`, newTabModel.ts `RecentChats`), give what sorting every chat again gives
+// (`recentLocalFolders`, `recentFolders` of launchRows.ts `omnibarFolder`, `recentSessions`) after every change a chat
 // list goes through: a working chat's event, a status flip, a chat archived, moved to another
 // folder or back in time, a child waiting on the person, chats added and removed.
 import { expect, test } from "bun:test";
 import { session } from "../src/gallery/fixtures/acpmux";
-import { NewestFolders, localFolderKey, recentLocalFolders } from "../src/agent-session/acpmux/sessionList";
-import { omnibarFolderKey, omnibarFolders, omnibarFoldersFrom } from "../src/agent-session/acpmux/newtab/launchRows";
+import { FolderRecency, recentFolders, recentLocalFolders } from "../src/agent-session/acpmux/sessionList";
+import { omnibarFolder, omnibarFolders } from "../src/agent-session/acpmux/newtab/launchRows";
 import { RecentChats, recentSessions } from "../src/agent-session/acpmux/newTabModel";
 import { noteReplaced } from "../src/agent-session/acpmux/sessionIndex";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -68,8 +68,8 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8])("kept lists equal a whole sort after each ch
   const next = random(seed);
   const clock = { now: 3_000_000 };
   let list = chats(seed % 2 ? 40 : 160, next);
-  const local = new NewestFolders(localFolderKey);
-  const bar = new NewestFolders(omnibarFolderKey);
+  const local = new FolderRecency();
+  const bar = new FolderRecency(omnibarFolder);
   const recent = new RecentChats(6, seed % 2 ? 8 : 64);
   const projects = [{ cwd: "/Users/me/fun/p3" }];
   for (let step = 0; step < 400; step += 1) {
@@ -84,7 +84,7 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8])("kept lists equal a whole sort after each ch
     else if (step % 131 === 70) list = list.slice(2);
     else list = change(list, next, clock);
     expect(local.of(list)).toEqual(recentLocalFolders(list));
-    expect(omnibarFoldersFrom(projects, bar.of(list))).toEqual(omnibarFolders(projects, list));
+    expect(omnibarFolders(projects, bar.of(list))).toEqual(omnibarFolders(projects, recentFolders(list, omnibarFolder)));
     expect(recent.of(list).map((entry) => entry.sessionId)).toEqual(
       recentSessions(list).map((entry) => entry.sessionId),
     );
@@ -96,7 +96,7 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8])("kept lists equal a whole sort after each ch
 test("a working chat's event keeps the same lists when it changes nothing they show", () => {
   const next = random(9);
   const list = chats(200, next);
-  const local = new NewestFolders(localFolderKey);
+  const local = new FolderRecency();
   const recent = new RecentChats();
   const folders = local.of(list);
   const rows = recent.of(list);

@@ -5,7 +5,7 @@
 // and, for a typed path, from the disk (`folder.complete`, answered later: ``FolderListing``).
 // Pure and synchronous: a keystroke reads only the lists it is given, never the disk.
 import { foldedScore, foldedTexts } from "../omnibar";
-import { type AcpmuxSessionEntry, homePath, isAgentHome, NewestFolders } from "../sessionList";
+import { type AcpmuxSessionEntry, homePath, isAgentHome } from "../sessionList";
 
 /// An agent the page can start: its catalog id (`claude`, `codex`, `opencode`) and name.
 export type LaunchAgent = { id: string; name: string };
@@ -264,26 +264,18 @@ function startable(cwd: string | undefined): cwd is string {
   return !!cwd && cwd.startsWith("/") && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) && !isAgentHome(cwd);
 }
 
-/// The folders the field completes from: this Mac's projects in the host's order, then the
-/// folders of the newest chats here, once each.
-export function omnibarFolders(
-  projects: readonly { cwd: string; peer?: string }[] | undefined,
-  sessions: readonly AcpmuxSessionEntry[],
-): string[] {
-  return omnibarFoldersFrom(projects, new NewestFolders(omnibarFolderKey).of(sessions));
-}
-
-/// The folder a chat gives the field's completions: a local chat's startable folder.
-export function omnibarFolderKey(session: AcpmuxSessionEntry): string | undefined {
+/// The folder the field completes from for a chat: its own folder when it works on this Mac and may start one.
+export function omnibarFolder(session: AcpmuxSessionEntry): string | undefined {
   if (session.peer || session.hostKind === "cloud" || !startable(session.cwd)) return undefined;
   return session.cwd.replace(/(.)\/+$/, "$1");
 }
 
-/// ``omnibarFolders`` from the chats' folders already newest first (`NewestFolders` over
-/// ``omnibarFolderKey``), which a page keeps up to date at the cost of the chats that changed.
-export function omnibarFoldersFrom(
+/// The folders the field completes from: this Mac's projects in the host's order, then the
+/// folders of the newest chats here (`recent`, newest first: sessionList.ts `recentFolders` of
+/// `omnibarFolder`), once each.
+export function omnibarFolders(
   projects: readonly { cwd: string; peer?: string }[] | undefined,
-  newest: readonly string[],
+  recent: readonly string[],
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -295,7 +287,7 @@ export function omnibarFoldersFrom(
     out.push(key);
   };
   for (const project of projects ?? []) if (!project.peer) add(project.cwd);
-  for (const folder of newest) {
+  for (const folder of recent) {
     if (out.length >= MAX_KNOWN_FOLDERS) break;
     add(folder);
   }

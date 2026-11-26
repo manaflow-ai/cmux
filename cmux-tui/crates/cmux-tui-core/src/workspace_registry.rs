@@ -27,7 +27,8 @@ use session_guard::{
     SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
 };
 pub(crate) use session_guard::{
-    SessionLease, SessionOwnerProbe, probe_session_owner, session_owner_mark,
+    SessionLease, SessionOwnerPeek, SessionOwnerProbe, peek_session_owner, probe_session_owner,
+    session_owner_last_active, session_owner_mark, stored_terminal_references,
 };
 
 pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
@@ -41,13 +42,14 @@ use schema::{
     normalized_workspace_resource_deltas, require_resource_effect_pepper_id,
     resource_agent_hook_state_has_ended_at_column, terminal_hosts_has_on_exit_column,
     terminal_hosts_has_workspace_foreign_key, upsert_workspace_resource,
-    vacuum_with_file_temp_store,
+    vacuum_with_file_temp_store, workspace_upsert_delta,
 };
 mod terminal_snapshot_read;
 use session_reset::*;
 
 pub(crate) use open::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
+    truncate_wal_after_delete,
 };
 use std::borrow::Cow;
 #[cfg(test)]
@@ -108,6 +110,7 @@ mod identity_load;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
+pub(crate) use public_fold::volatile_fields;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
@@ -125,9 +128,12 @@ mod workspace_commit_intent;
 mod workspace_rows_commit;
 use workspace_rows_commit::{
     commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+    insert_workspace_row_in_transaction,
 };
 pub(crate) mod workspace_name_store;
-pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
+pub(crate) use workspace_commit_intent::{
+    WorkspaceCommitIntent, WorkspaceCommitReceipt, WorkspaceInsert,
+};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
@@ -290,6 +296,12 @@ const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+/// The first part and the last part of the name that a reset gives a session
+/// folder before it deletes it: `.reset-NAME-KIND-UUID.deleting`, a direct
+/// child of the state root (session_reset.rs). The rollback check reads each
+/// folder with such a name (store_schemas.rs).
+pub(crate) const RESET_DIR_HEAD: &str = ".reset-";
+pub(crate) const RESET_DIR_TAIL: &str = ".deleting";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
 pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
@@ -900,7 +912,15 @@ pub struct WorkspaceRegistry {
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
     output_cleanup_swapped: bool,
+    /// The client whose idle stop raised the fence
+    /// ([`Self::set_idle_stop_fence`]), while it is raised.
+    idle_stop_fence: Option<u64>,
 }
+
+/// What a terminal write gets while an idle stop's fence is raised
+/// ([`WorkspaceRegistry::set_idle_stop_fence`]). No quote: it sits in SQL.
+pub(crate) const IDLE_STOP_FENCE_ERROR: &str =
+    "the daemon is stopping because it was idle; no terminal may start until it stops";
 
 /// Prepared statements each registry connection keeps compiled
 /// (`Connection::prepare_cached`, least recently used out first). The journal
@@ -1035,6 +1055,44 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         terminal_replay(&self.connection.get(), mutation, &fingerprint)
+    }
+
+    /// Raises (for `owner`, the client whose idle stop raised it) or lowers
+    /// the idle-stop fence. An idle stop (`shutdown-daemon` with `if_idle`,
+    /// server/stop_if_idle.rs) raises it under this registry's lock once it
+    /// found no live terminal, while its handoff reservation is pending;
+    /// `Mux::settle_idle_stop_fence` lowers it once that reservation is gone.
+    /// While raised, no terminal may become launching, adopting or running,
+    /// so none starts between the check and the stop. It is two TEMP
+    /// triggers on this registry's one connection (every write to
+    /// `terminal_hosts` goes through it): a creation, adoption, respawn,
+    /// restore or resource projection is refused at its write, whatever
+    /// path it takes.
+    pub(crate) fn set_idle_stop_fence(&mut self, owner: Option<u64>) -> anyhow::Result<()> {
+        const LIVE: &str = "('launching', 'adopting', 'running')";
+        let sql = if owner.is_some() {
+            format!(
+                "CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_insert
+                   BEFORE INSERT ON terminal_hosts WHEN NEW.lifecycle IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;
+                 CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_update
+                   BEFORE UPDATE OF lifecycle ON terminal_hosts
+                   WHEN NEW.lifecycle IN {LIVE} AND OLD.lifecycle NOT IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;"
+            )
+        } else {
+            "DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_insert;
+             DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_update;"
+                .to_owned()
+        };
+        self.connection.get().execute_batch(&sql)?;
+        self.idle_stop_fence = owner;
+        Ok(())
+    }
+
+    /// The client whose idle stop raised the fence, while it is raised.
+    pub(crate) fn idle_stop_fence_owner(&self) -> Option<u64> {
+        self.idle_stop_fence
     }
 
     /// Commits one terminal state transition and its event in a single SQLite

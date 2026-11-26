@@ -64,6 +64,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
@@ -321,22 +322,47 @@ def in_flight(runs: list[dict], jobs_of: Callable[[int], list[dict]], build: int
     return None
 
 
+def refusal(error: urllib.error.HTTPError) -> str:
+    """An HTTP refusal with GitHub's own words and the token's remaining budget, so a warning names its cause."""
+    try:
+        message = (json.loads(error.read() or b"{}").get("message") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        message = ""
+    remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
+    parts = [f"HTTP {error.code}", message[:160], f"rate limit remaining {remaining}" if remaining is not None else ""]
+    return ": ".join(part for part in parts if part)
+
+
 def read_in_flight(build: int | str, env: Mapping[str, str]) -> int | None:
-    """in_flight() over the live runs, read with GH_TOKEN (the repository is public, so any token reads it)."""
+    """in_flight() over the live runs: GH_TOKEN first, then with no token at all. The job's GITHUB_TOKEN shares one
+    per-repository hourly budget with every other job in this repository, and on 2026-11-23/24 it answered 403 on
+    about half of the scheduled ticks, each of which then smoked nothing. The repository is public, so an anonymous
+    read (its own per-address budget) answers when the token is refused. main's scheduled copy of the workflow runs
+    this script from feat-cmux-next, so the fallback reaches the schedule with no workflow change."""
     repo = env["GITHUB_REPOSITORY"]
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "cmux-nightly-next-launch-smoke"}
-    if env.get("GH_TOKEN"):
-        headers["Authorization"] = f"Bearer {env['GH_TOKEN']}"
+    tokens = [token for token in (env.get("GH_TOKEN"),) if token] + [""]
+    refusals: list[str] = []
+    for token in tokens:
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+                   "User-Agent": "cmux-nightly-next-launch-smoke"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
-    def get(path: str) -> dict:
-        request = urllib.request.Request(f"{API}/repos/{repo}{path}", headers=headers)
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.load(response)
+        def get(path: str, headers: dict = headers) -> dict:
+            request = urllib.request.Request(f"{API}/repos/{repo}{path}", headers=headers)
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return json.load(response)
 
-    runs = get(f"/actions/workflows/{SMOKE_WORKFLOW}/runs?per_page=100").get("workflow_runs") or []
-    return in_flight(runs, lambda run: get(f"/actions/runs/{run}/jobs?filter=latest&per_page=100").get("jobs") or [],
-                     build, int(env.get("GITHUB_RUN_ID") or 0))
+        try:
+            runs = get(f"/actions/workflows/{SMOKE_WORKFLOW}/runs?per_page=100").get("workflow_runs") or []
+            return in_flight(runs,
+                             lambda run, get=get: get(f"/actions/runs/{run}/jobs?filter=latest&per_page=100").get("jobs") or [],
+                             build, int(env.get("GITHUB_RUN_ID") or 0))
+        except urllib.error.HTTPError as error:
+            if error.code not in (401, 403, 429):
+                raise
+            refusals.append(refusal(error))
+    raise RuntimeError("; ".join(refusals))
 
 
 def main(argv: list[str] | None = None) -> int:

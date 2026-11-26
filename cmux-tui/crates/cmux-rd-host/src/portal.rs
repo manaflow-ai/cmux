@@ -37,6 +37,12 @@
 //! NotifyPointerAxisDiscrete and NotifyKeyboardKeycode ([`input_calls`]). RemoteDesktop
 //! version 1 cannot persist a grant, so it is not used (it would ask on every share): such a
 //! desktop is served view only.
+//!
+//! # GNOME: mutter directly, no portal
+//! Where `org.gnome.Mutter.ScreenCast` is on the session bus, [`PortalCapture::start`] skips
+//! the portal and casts through mutter's own interfaces (src/mutter.rs), which need no grant
+//! and show no dialog; viewer input then goes through mutter's RemoteDesktop session. The
+//! portal stays the path on every other compositor.
 
 #[cfg(feature = "portal")]
 use crate::capture::{DamageEvent, Rect};
@@ -840,27 +846,76 @@ impl Default for PortalOpts {
     }
 }
 
-/// Wayland screen capture through the portal, with `capture::Capturer`'s surface.
+/// Where a [`PortalCapture`]'s stream comes from.
+#[cfg(feature = "portal")]
+enum Source {
+    /// An xdg-desktop-portal session (and the connection that keeps it).
+    Portal { portal: ZbusPortal, started: Started },
+    /// mutter's own screen cast (GNOME): no grant, no dialog.
+    Mutter(crate::mutter::MutterSession),
+}
+
+/// Wayland screen capture through mutter or the portal, with `capture::Capturer`'s surface.
 #[cfg(feature = "portal")]
 pub struct PortalCapture {
     pub width: u32,
     pub height: u32,
     stream: PwStream,
-    portal: ZbusPortal,
-    started: Started,
+    source: Source,
 }
 
 #[cfg(feature = "portal")]
 impl PortalCapture {
-    /// Runs the portal handshake (blocking while the consent dialog is up) and starts the
-    /// PipeWire stream; returns once the first picture's format is known.
+    /// Starts the screen cast and its PipeWire stream; returns once the first picture's format
+    /// is known. On GNOME (mutter's ScreenCast on the session bus) mutter casts directly, with
+    /// no dialog; elsewhere the portal handshake runs (blocking while a consent dialog is up).
+    /// A mutter that will not cast (remote access inhibited, a refused call, no PipeWire node)
+    /// falls back to the portal, as every share went before mutter was tried.
     pub fn start(opts: PortalOpts) -> Res<Self> {
         let PortalOpts { token_dir, on_state, format_timeout } = opts;
         let mut on_state: Box<dyn FnMut(PortalState) + Send> = on_state.unwrap_or_else(|| {
             Box::new(|s: PortalState| eprintln!("cmux-rd: portal: {}", s.message()))
         });
         on_state(PortalState::Connecting);
-        let mut portal = ZbusPortal::connect()?;
+        let conn = zbus::blocking::Connection::session()
+            .map_err(|e| PortalError::Unavailable(e.to_string()))?;
+        let mutter = crate::mutter::MutterPresence::on(&conn);
+        let use_mutter = crate::capture_backend::WaylandCapture::choose(mutter.screen_cast)
+            == crate::capture_backend::WaylandCapture::Mutter;
+        if use_mutter {
+            on_state(PortalState::CreatingSession);
+        }
+        let me = crate::capture_backend::mutter_else_portal(
+            use_mutter.then_some(|| Self::start_mutter(mutter, format_timeout)),
+            || Self::start_portal(conn, token_dir, &mut *on_state, format_timeout),
+        )?;
+        on_state(PortalState::Streaming { width: me.width, height: me.height });
+        Ok(me)
+    }
+
+    /// mutter's own screen cast and its stream, on a connection of its own whose calls are
+    /// bounded (mutter.rs `CALL_TIMEOUT`).
+    fn start_mutter(mutter: crate::mutter::MutterPresence, format_timeout: Duration) -> Res<Self> {
+        let conn = crate::mutter::connection()?;
+        let session = crate::mutter::MutterSession::start(conn, mutter, format_timeout)?;
+        // Dropping `session` on a failure here stops it.
+        let stream = PwStream::start(None, session.node_id, format_timeout)?;
+        Ok(Self {
+            width: stream.width,
+            height: stream.height,
+            stream,
+            source: Source::Mutter(session),
+        })
+    }
+
+    /// The xdg-desktop-portal handshake (its saved grant, or its dialog) and its stream.
+    fn start_portal(
+        conn: zbus::blocking::Connection,
+        token_dir: Option<PathBuf>,
+        on_state: &mut (dyn FnMut(PortalState) + Send),
+        format_timeout: Duration,
+    ) -> Res<Self> {
+        let mut portal = ZbusPortal::on(conn)?;
         let stores = match token_dir {
             Some(dir) => Some(TokenStores::in_dir(&dir)),
             None => TokenStores::default_stores(),
@@ -870,7 +925,7 @@ impl PortalCapture {
         let stream = match portal
             .open_pipewire_remote(&started.session)
             .map_err(Into::into)
-            .and_then(|fd| PwStream::start(fd, started.stream.node_id, format_timeout))
+            .and_then(|fd| PwStream::start(Some(fd), started.stream.node_id, format_timeout))
         {
             Ok(s) => s,
             Err(e) => {
@@ -878,13 +933,40 @@ impl PortalCapture {
                 return Err(e);
             }
         };
-        on_state(PortalState::Streaming { width: stream.width, height: stream.height });
-        Ok(Self { width: stream.width, height: stream.height, stream, portal, started })
+        let source = Source::Portal { portal, started };
+        Ok(Self { width: stream.width, height: stream.height, stream, source })
     }
 
-    /// Whether this capture's session applies input (a RemoteDesktop session with devices).
+    /// Whether this capture's session applies input (a portal RemoteDesktop session with
+    /// devices, or mutter's RemoteDesktop session).
     pub fn applies_input(&self) -> bool {
-        self.started.kind == SessionKind::RemoteDesktop && self.started.devices != 0
+        match &self.source {
+            Source::Portal { started, .. } => {
+                started.kind == SessionKind::RemoteDesktop && started.devices != 0
+            }
+            Source::Mutter(session) => session.applies_input(),
+        }
+    }
+
+    /// The factor from the stream's pixels to the coordinates pointer motion takes: the
+    /// portal's logical size; mutter maps stream pixels itself.
+    pub fn input_scale(&self) -> (f64, f64) {
+        match &self.source {
+            Source::Portal { started, .. } => {
+                logical_scale(started.stream.size, (self.width, self.height))
+            }
+            Source::Mutter(_) => (1.0, 1.0),
+        }
+    }
+
+    /// Sends one input call through the session.
+    fn notify(&self, call: &InputCall) -> Result<(), PortalError> {
+        match &self.source {
+            Source::Portal { portal, started } => {
+                portal.notify(&started.session, started.stream.node_id, call)
+            }
+            Source::Mutter(session) => session.notify(call),
+        }
     }
 
     /// Readable when [`PortalCapture::drain`] has damage to report.
@@ -906,12 +988,15 @@ impl PortalCapture {
 #[cfg(feature = "portal")]
 impl Drop for PortalCapture {
     fn drop(&mut self) {
-        self.portal.close_session(&self.started.session);
+        // A mutter session stops itself when dropped.
+        if let Source::Portal { portal, started } = &mut self.source {
+            portal.close_session(&started.session);
+        }
     }
 }
 
 /// [`PortalCapture`] as a session's `Desktop`: damage, and the viewer's input through the
-/// RemoteDesktop session (a ScreenCast session drops it: view only).
+/// RemoteDesktop session, the portal's or mutter's (a ScreenCast session drops it: view only).
 #[cfg(feature = "portal")]
 pub struct PortalDesktop {
     cap: PortalCapture,
@@ -933,7 +1018,8 @@ pub struct PortalFrames {
     pic: cmux_encode::I420,
 }
 
-/// Runs the portal handshake and opens both halves of the session's desktop.
+/// Starts the screen cast (mutter or the portal) and opens both halves of the session's
+/// desktop.
 #[cfg(feature = "portal")]
 pub fn open_desktop(
     cfg: &crate::stream::SessionCfg,
@@ -960,7 +1046,7 @@ pub fn open_desktop(
         pic: cmux_encode::I420::new(w as usize, h as usize),
         enc,
     };
-    let scale = logical_scale(cap.started.stream.size, (cap.width, cap.height));
+    let scale = cap.input_scale();
     let desktop = PortalDesktop {
         cap,
         damage: Vec::new(),
@@ -1004,10 +1090,8 @@ impl crate::desktop::Desktop for PortalDesktop {
             }
             return Ok(());
         }
-        let session = &self.cap.started.session;
-        let node = self.cap.started.stream.node_id;
         for call in input_calls(event, self.scale) {
-            self.cap.portal.notify(session, node, &call)?;
+            self.cap.notify(&call)?;
             match call {
                 InputCall::Key { code, down: true } => drop(self.keys.insert(code)),
                 InputCall::Key { code, down: false } => drop(self.keys.remove(&code)),
@@ -1020,13 +1104,11 @@ impl crate::desktop::Desktop for PortalDesktop {
     }
 
     fn release_all(&mut self) -> Res<()> {
-        let session = &self.cap.started.session;
-        let node = self.cap.started.stream.node_id;
         for code in std::mem::take(&mut self.keys) {
-            self.cap.portal.notify(session, node, &InputCall::Key { code, down: false })?;
+            self.cap.notify(&InputCall::Key { code, down: false })?;
         }
         for code in std::mem::take(&mut self.buttons) {
-            self.cap.portal.notify(session, node, &InputCall::Button { code, down: false })?;
+            self.cap.notify(&InputCall::Button { code, down: false })?;
         }
         Ok(())
     }
@@ -1067,6 +1149,10 @@ impl crate::desktop::FrameSource for PortalFrames {
     fn encoder_name(&self) -> String {
         self.enc.name()
     }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.enc.idr_cause()
+    }
 }
 
 #[cfg(test)]
@@ -1074,323 +1160,5 @@ impl crate::desktop::FrameSource for PortalFrames {
 mod mock_bus_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
-    pub(super) fn temp_dir(name: &str) -> PathBuf {
-        let nanos =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        std::env::temp_dir().join(format!("cmux-rd-portal-{}-{name}-{nanos}", std::process::id()))
-    }
-
-    fn temp_stores(name: &str) -> (PathBuf, TokenStores) {
-        let root = temp_dir(name);
-        let stores = TokenStores::in_dir(&root.join("cmux").join("screen-host"));
-        (root, stores)
-    }
-
-    #[test]
-    fn token_store_round_trips_with_private_mode() {
-        use std::os::unix::fs::PermissionsExt;
-        let (root, stores) = temp_stores("rt");
-        let store = &stores.screen_cast;
-        assert_eq!(store.load(), None);
-        store.save("tok-1").unwrap();
-        assert_eq!(store.load().as_deref(), Some("tok-1"));
-        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-        let dir_mode = std::fs::metadata(store.path().parent().unwrap()).unwrap().permissions();
-        assert_eq!(dir_mode.mode() & 0o777, 0o700);
-        store.save("tok-2").unwrap();
-        assert_eq!(store.load().as_deref(), Some("tok-2"));
-        store.clear();
-        assert_eq!(store.load(), None);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn token_store_ignores_blank_files() {
-        let (root, stores) = temp_stores("blank");
-        stores.screen_cast.save("  \n").unwrap();
-        assert_eq!(stores.screen_cast.load(), None);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn the_token_of_earlier_builds_is_read_then_moved() {
-        let (root, mut stores) = temp_stores("legacy");
-        let old = root.join("cmux").join("rd-portal-restore-token");
-        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
-        std::fs::write(&old, "old-build").unwrap();
-        stores.screen_cast.legacy = Some(old.clone());
-        assert_eq!(stores.screen_cast.load().as_deref(), Some("old-build"));
-        stores.screen_cast.save("rotated").unwrap();
-        assert!(!old.exists());
-        assert_eq!(stores.screen_cast.load().as_deref(), Some("rotated"));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn response_codes_map_to_results() {
-        assert_eq!(response_result(0, 7), Ok(7));
-        assert_eq!(response_result(1, 7), Err(PortalError::Cancelled));
-        assert!(matches!(response_result(2, 7), Err(PortalError::Failed(_))));
-    }
-
-    #[test]
-    fn cursor_mode_prefers_embedded_then_metadata() {
-        assert_eq!(
-            pick_cursor_mode(CURSOR_HIDDEN | CURSOR_EMBEDDED | CURSOR_METADATA),
-            Some(CURSOR_EMBEDDED)
-        );
-        assert_eq!(pick_cursor_mode(CURSOR_HIDDEN | CURSOR_METADATA), Some(CURSOR_METADATA));
-        assert_eq!(pick_cursor_mode(0), None);
-    }
-
-    #[test]
-    fn start_results_parse_streams_token_and_devices() {
-        let props: HashMap<String, Value> =
-            HashMap::from([("size".to_string(), Value::from((2560i32, 1440i32)))]);
-        let streams = Value::from(vec![(57u32, props)]);
-        let results: HashMap<String, OwnedValue> = HashMap::from([
-            ("streams".to_string(), OwnedValue::try_from(streams).unwrap()),
-            ("restore_token".to_string(), OwnedValue::try_from(Value::from("tok")).unwrap()),
-            ("devices".to_string(), OwnedValue::try_from(Value::from(3u32)).unwrap()),
-        ]);
-        let got = parse_start_results(&results).unwrap();
-        assert_eq!(got.restore_token.as_deref(), Some("tok"));
-        assert_eq!(got.devices, 3);
-        assert_eq!(got.streams, vec![PortalStream { node_id: 57, size: Some((2560, 1440)) }]);
-        assert!(parse_start_results(&HashMap::new()).is_err());
-    }
-
-    #[test]
-    fn control_uses_remote_desktop_only_where_its_grant_persists() {
-        assert_eq!(grant_kind(true, 2), SessionKind::RemoteDesktop);
-        // Version 1 would ask on every share.
-        assert_eq!(grant_kind(true, 1), SessionKind::ScreenCast);
-        assert_eq!(grant_kind(true, 0), SessionKind::ScreenCast);
-        assert_eq!(grant_kind(false, 2), SessionKind::ScreenCast);
-        let (root, stores) = temp_stores("kind");
-        assert_eq!(session_kind(Some(&stores), 2), SessionKind::ScreenCast);
-        stores.remote_desktop.save("rd").unwrap();
-        assert_eq!(session_kind(Some(&stores), 2), SessionKind::RemoteDesktop);
-        assert_eq!(session_kind(Some(&stores), 1), SessionKind::ScreenCast);
-        assert_eq!(session_kind(None, 2), SessionKind::ScreenCast);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn viewer_input_maps_to_evdev_notify_calls() {
-        let key = |usage, down| InputEvent::Key { usage, down };
-        // HID 0x04 is A, evdev KEY_A is 30.
-        assert_eq!(
-            input_calls(&key(0x0007_0004, true), (1.0, 1.0)),
-            [InputCall::Key { code: 30, down: true }]
-        );
-        assert!(input_calls(&key(0x000c_00e9, true), (1.0, 1.0)).is_empty());
-        assert_eq!(
-            input_calls(&InputEvent::Pointer { x: 200, y: 100 }, (0.5, 0.5)),
-            [InputCall::Motion { x: 100.0, y: 50.0 }]
-        );
-        let button = |button| InputEvent::Button { button, down: true };
-        assert_eq!(
-            input_calls(&button(1), (1.0, 1.0)),
-            [InputCall::Button { code: BTN_LEFT, down: true }]
-        );
-        assert_eq!(
-            input_calls(&button(3), (1.0, 1.0)),
-            [InputCall::Button { code: BTN_RIGHT, down: true }]
-        );
-        assert!(input_calls(&button(4), (1.0, 1.0)).is_empty());
-        assert_eq!(
-            input_calls(&InputEvent::Scroll { dx: 250, dy: -300, precise: false }, (1.0, 1.0)),
-            [
-                InputCall::Axis { axis: AXIS_VERTICAL, steps: -3 },
-                InputCall::Axis { axis: AXIS_HORIZONTAL, steps: 2 }
-            ]
-        );
-        assert!(input_calls(&InputEvent::Text("hi".into()), (1.0, 1.0)).is_empty());
-    }
-
-    #[test]
-    fn pointer_scale_follows_the_logical_size() {
-        assert_eq!(logical_scale(Some((1280, 720)), (2560, 1440)), (0.5, 0.5));
-        assert_eq!(logical_scale(None, (2560, 1440)), (1.0, 1.0));
-        assert_eq!(logical_scale(Some((0, 0)), (2560, 1440)), (1.0, 1.0));
-    }
-
-    /// A fake portal: records each call and answers Start as told.
-    struct FakePortal {
-        calls: Rc<RefCell<Vec<String>>>,
-        cursor_modes: u32,
-        start: Result<StartResult, PortalError>,
-        selected: Option<SourceSelection>,
-        devices: Option<DeviceSelection>,
-    }
-
-    impl FakePortal {
-        fn new(start: Result<StartResult, PortalError>) -> Self {
-            Self {
-                calls: Rc::new(RefCell::new(Vec::new())),
-                cursor_modes: CURSOR_HIDDEN | CURSOR_EMBEDDED,
-                start,
-                selected: None,
-                devices: None,
-            }
-        }
-    }
-
-    impl DesktopPortal for FakePortal {
-        fn available_cursor_modes(&mut self) -> u32 {
-            self.cursor_modes
-        }
-        fn remote_desktop_version(&mut self) -> u32 {
-            2
-        }
-        fn create_session(&mut self, kind: SessionKind) -> Result<String, PortalError> {
-            self.calls.borrow_mut().push(format!("create {kind:?}"));
-            Ok("/org/freedesktop/portal/desktop/session/1_1/s".into())
-        }
-        fn select_devices(&mut self, _s: &str, sel: &DeviceSelection) -> Result<(), PortalError> {
-            self.calls.borrow_mut().push("devices".into());
-            self.devices = Some(sel.clone());
-            Ok(())
-        }
-        fn select_sources(&mut self, _s: &str, sel: &SourceSelection) -> Result<(), PortalError> {
-            self.calls.borrow_mut().push("select".into());
-            self.selected = Some(sel.clone());
-            Ok(())
-        }
-        fn start(&mut self, kind: SessionKind, _s: &str) -> Result<StartResult, PortalError> {
-            self.calls.borrow_mut().push(format!("start {kind:?}"));
-            self.start.clone()
-        }
-        fn open_pipewire_remote(&mut self, _s: &str) -> Result<OwnedFd, PortalError> {
-            self.calls.borrow_mut().push("open".into());
-            Ok(std::fs::File::open("/dev/null").unwrap().into())
-        }
-        fn close_session(&mut self, _s: &str) {
-            self.calls.borrow_mut().push("close".into());
-        }
-    }
-
-    fn started(token: Option<&str>) -> StartResult {
-        StartResult {
-            streams: vec![PortalStream { node_id: 42, size: Some((1920, 1080)) }],
-            restore_token: token.map(str::to_string),
-            devices: 0,
-        }
-    }
-
-    #[test]
-    fn first_run_waits_for_consent_and_saves_the_token() {
-        let (root, stores) = temp_stores("first");
-        let mut portal = FakePortal::new(Ok(started(Some("granted"))));
-        let mut states = Vec::new();
-        let hs =
-            handshake(&mut portal, SessionKind::ScreenCast, Some(&stores), &mut |s| states.push(s))
-                .unwrap();
-        assert_eq!(hs.stream.node_id, 42);
-        assert!(!hs.restored);
-        assert_eq!(*portal.calls.borrow(), ["create ScreenCast", "select", "start ScreenCast"]);
-        assert_eq!(states, [PortalState::CreatingSession, PortalState::WaitingForConsent]);
-        let sel = portal.selected.unwrap();
-        assert_eq!(sel.types, SOURCE_MONITOR);
-        assert_eq!(sel.persist_mode, PERSIST_UNTIL_REVOKED);
-        assert_eq!(sel.cursor_mode, Some(CURSOR_EMBEDDED));
-        assert_eq!(sel.restore_token, None);
-        assert_eq!(stores.screen_cast.load().as_deref(), Some("granted"));
-        assert_eq!(stores.remote_desktop.load(), None);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn saved_token_restores_without_a_dialog_and_rotates() {
-        let (root, stores) = temp_stores("restore");
-        stores.screen_cast.save("old").unwrap();
-        let mut portal = FakePortal::new(Ok(started(Some("new"))));
-        let mut states = Vec::new();
-        let hs =
-            handshake(&mut portal, SessionKind::ScreenCast, Some(&stores), &mut |s| states.push(s))
-                .unwrap();
-        assert!(hs.restored);
-        assert_eq!(portal.selected.unwrap().restore_token.as_deref(), Some("old"));
-        assert_eq!(states, [PortalState::CreatingSession, PortalState::Restoring]);
-        assert_eq!(stores.screen_cast.load().as_deref(), Some("new"));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn remote_desktop_persists_through_its_devices_not_its_sources() {
-        let (root, stores) = temp_stores("rd");
-        stores.remote_desktop.save("rd-old").unwrap();
-        let mut portal = FakePortal::new(Ok(StartResult { devices: 3, ..started(Some("rd-new")) }));
-        let hs =
-            handshake(&mut portal, SessionKind::RemoteDesktop, Some(&stores), &mut |_| {}).unwrap();
-        assert_eq!(hs.devices, 3);
-        assert_eq!(
-            *portal.calls.borrow(),
-            ["create RemoteDesktop", "devices", "select", "start RemoteDesktop"]
-        );
-        let devices = portal.devices.unwrap();
-        assert_eq!(devices.types, DEVICE_KEYBOARD | DEVICE_POINTER);
-        assert_eq!(devices.persist_mode, PERSIST_UNTIL_REVOKED);
-        assert_eq!(devices.restore_token.as_deref(), Some("rd-old"));
-        let sources = portal.selected.unwrap();
-        assert_eq!(sources.persist_mode, PERSIST_NONE);
-        assert_eq!(sources.restore_token, None);
-        assert_eq!(stores.remote_desktop.load().as_deref(), Some("rd-new"));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn declined_dialog_closes_the_session_and_drops_the_token() {
-        let (root, stores) = temp_stores("declined");
-        stores.screen_cast.save("stale").unwrap();
-        let mut portal = FakePortal::new(Err(PortalError::Cancelled));
-        let err = handshake(&mut portal, SessionKind::ScreenCast, Some(&stores), &mut |_| {})
-            .unwrap_err();
-        assert_eq!(err, PortalError::Cancelled);
-        assert_eq!(
-            *portal.calls.borrow(),
-            ["create ScreenCast", "select", "start ScreenCast", "close"]
-        );
-        assert_eq!(stores.screen_cast.load(), None);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn start_without_streams_fails_and_closes() {
-        let mut portal = FakePortal::new(Ok(StartResult::default()));
-        let err = handshake(&mut portal, SessionKind::ScreenCast, None, &mut |_| {}).unwrap_err();
-        assert!(matches!(err, PortalError::Failed(_)));
-        assert_eq!(
-            *portal.calls.borrow(),
-            ["create ScreenCast", "select", "start ScreenCast", "close"]
-        );
-    }
-
-    #[test]
-    fn a_grant_saves_the_token_and_closes_its_session() {
-        let (root, stores) = temp_stores("grant");
-        let mut portal = FakePortal::new(Ok(StartResult { devices: 3, ..started(Some("g")) }));
-        let granted =
-            grant_with(&mut portal, SessionKind::RemoteDesktop, &stores, &mut |_| {}).unwrap();
-        assert_eq!(granted, Granted { kind: SessionKind::RemoteDesktop, restored: false });
-        assert_eq!(portal.calls.borrow().last().map(String::as_str), Some("close"));
-        assert!(!portal.calls.borrow().iter().any(|c| c == "open"));
-        assert_eq!(stores.remote_desktop.load().as_deref(), Some("g"));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn waiting_state_names_the_person_at_the_screen() {
-        assert_eq!(
-            PortalState::WaitingForConsent.message(),
-            "waiting for the person at the screen to allow sharing"
-        );
-    }
-}
+#[path = "portal_tests.rs"]
+mod tests;

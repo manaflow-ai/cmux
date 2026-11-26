@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 public import CoreGraphics
+#else
+public import Foundation
+#endif
 
 /// A keyboard-driven bottom reservation for a view that should only track
 /// docked keyboards.

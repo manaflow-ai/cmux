@@ -126,7 +126,7 @@ button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
 }
 :is(button.cv-filematches__path, button.cv-filematches__line):hover,
 :is(button.cv-filematches__path, button.cv-filematches__line):focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-filematches__icon {
   flex: none;

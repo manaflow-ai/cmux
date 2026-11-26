@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
+import { AgentMcpServers } from "./AgentMcpServers";
 import type { McpServerRow, McpServersRun, McpServersState } from "../ops";
 import { t } from "../strings";
 
@@ -161,45 +162,49 @@ export function McpServersCard() {
     [store],
   );
   return (
-    <section className="group" data-card="mcpServers">
-      <div className="group-title">{t("settingsWindow.mcpServers.title")}</div>
-      <div className="row-help">{t("settingsWindow.mcpServers.help")}</div>
-      <div className="row-help" data-mcp-connect-how="">
-        {t("settingsWindow.mcpServers.connectHow")}
-      </div>
-      <div className="accounts-header">
-        <Button
-          type="button"
-          className="button"
-          data-mcp-action="refresh"
-          disabled={state?.loading ?? false}
-          onClick={() => void refresh()}
-        >
-          {t("settingsWindow.mcpServers.refresh")}
-        </Button>
-      </div>
-      {state?.problem && (
-        <div className="row-error" data-mcp-problem-page={state.problem}>
-          {t(`settingsWindow.mcpServers.problem.${state.problem}`)}
+    <>
+      <section className="group" data-card="mcpServers">
+        <div className="group-title">{t("settingsWindow.mcpServers.title")}</div>
+        <div className="row-help">{t("settingsWindow.mcpServers.help")}</div>
+        <div className="row-help" data-mcp-connect-how="">
+          {t("settingsWindow.mcpServers.connectHow")}
         </div>
-      )}
-      {!state && (
-        <div className="row-help" data-mcp-checking="">
-          {t("settingsWindow.mcpServers.checking")}
+        <div className="accounts-header">
+          <Button
+            type="button"
+            className="button"
+            data-mcp-action="refresh"
+            disabled={state?.loading ?? false}
+            onClick={() => void refresh()}
+          >
+            {t("settingsWindow.mcpServers.refresh")}
+          </Button>
         </div>
-      )}
-      {state && !state.problem && state.servers.length === 0 && (
-        <div className="row-help" data-mcp-empty="">
-          {t("settingsWindow.mcpServers.empty")}
-        </div>
-      )}
-      {state && state.servers.length > 0 && (
-        <div className="rows">
-          {state.servers.map((row) => (
-            <Row key={row.name} row={row} busy={busy !== null} onRun={(action) => void run(row.name, action)} />
-          ))}
-        </div>
-      )}
-    </section>
+        {state?.problem && (
+          <div className="row-error" data-mcp-problem-page={state.problem}>
+            {t(`settingsWindow.mcpServers.problem.${state.problem}`)}
+          </div>
+        )}
+        {!state && (
+          <div className="row-help" data-mcp-checking="">
+            {t("settingsWindow.mcpServers.checking")}
+          </div>
+        )}
+        {state && !state.problem && state.servers.length === 0 && (
+          <div className="row-help" data-mcp-empty="">
+            {t("settingsWindow.mcpServers.empty")}
+          </div>
+        )}
+        {state && state.servers.length > 0 && (
+          <div className="rows">
+            {state.servers.map((row) => (
+              <Row key={row.name} row={row} busy={busy !== null} onRun={(action) => void run(row.name, action)} />
+            ))}
+          </div>
+        )}
+      </section>
+      {/* Claude Code and Codex, under cmux's own (Labs labs.agentCustomization; nothing while it is off). */}
+      <AgentMcpServers />
+    </>
   );
 }

@@ -63,10 +63,10 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
   });
 
   test("a new message fades at final size and appears instantly under Reduce Motion", async () => {
-    // The message fades on the arrival step (--agent-motion-arrive, the quick step in the app), set
-    // long here so the half-way frame is a real one.
-    const style = `:root{--agent-motion-arrive:180ms}${desktop}${conversation}`; // motion-allow: a fixture clock set long, not the scale
-    const message = `<div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div>`;
+    // Transcript messages use the host-scaled standard step for the shared arrival clock. Keep the
+    // root arrival token short here so the scroller's override is observable in the fixture.
+    const style = `:root{--agent-motion-arrive:80ms;--agent-motion-move:180ms}${desktop}${conversation}`; // motion-allow: a fixture clock set long, not the scale
+    const message = `<div class="acpmux-scroll"><div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div></div>`;
     const normal = await page(style, message, "no-preference");
     const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => {
       const animation = row.getAnimations()[0];
