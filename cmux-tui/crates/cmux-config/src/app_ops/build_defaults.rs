@@ -31,14 +31,19 @@ use serde_json::{Map, Value, json};
 use super::{OpError, string};
 use crate::keypath::key_path;
 use crate::render::compact;
-use crate::schema::Schema;
+use crate::schema::{Schema, replaced_value};
 use crate::sidebar_look::GROUP_BACKGROUND;
 use crate::value::value_at;
 
-/// Automatic download (`UpdateTrack.downloadsAutomaticallyByDefault`).
-pub const DOWNLOAD_AUTOMATICALLY: &str = "updates.downloadAutomatically";
-/// Update When Idle (`UpdateTrack.installsWhenIdleByDefault`).
-pub const INSTALL_WHEN_IDLE: &str = "updates.installWhenIdle";
+/// Automatic Updates (`UpdatesSettings.automaticPath`): Download
+/// Automatically where the channel downloads by itself
+/// (`UpdateTrack.downloadsAutomaticallyByDefault`), Install When Idle where
+/// it installs when idle (`UpdateTrack.installsWhenIdleByDefault`).
+pub const AUTOMATIC_UPDATES: &str = "updates.automatic";
+/// `UpdatesAutomaticSetting.download`.
+pub const DOWNLOAD: &str = "download";
+/// `UpdatesAutomaticSetting.idle`.
+pub const IDLE: &str = "idle";
 /// iPhone pairing, on in a DEV build (`BuildStatePaths.isolatesSharedState`).
 pub const ALLOW_IPHONE_CONNECTIONS: &str = "mobile.allowIPhoneConnections";
 
@@ -61,25 +66,26 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
     })
 }
 
-/// The defaults of a build: automatic download where the channel downloads by
-/// itself (every channel since Leo 2026-11-07, "Yeah, let's do that, man",
-/// which is also the schema's default), Update When Idle in cmux NEXT's
-/// NIGHTLY (Leo 2026-11-22: "auto be de facto able to click the restart
-/// button"), and iPhone pairing in a DEV build, whose own file starts empty.
+/// The defaults of a build (Swift `SettingsBuildDefaults.channel`):
+/// Automatic Updates is Install When Idle in cmux NEXT's NIGHTLY (Leo
+/// 2026-11-22: "auto be de facto able to click the restart button"), else
+/// Download Automatically where the channel downloads by itself (every
+/// channel since Leo 2026-11-07, "Yeah, let's do that, man", which is also
+/// the schema's default); iPhone pairing is on in a DEV build, whose own file
+/// starts empty.
 pub fn channel(
     downloads_automatically: bool,
     dev_build: bool,
     installs_when_idle: bool,
 ) -> Map<String, Value> {
     let mut values = Map::new();
-    for (on, key) in [
-        (downloads_automatically, DOWNLOAD_AUTOMATICALLY),
-        (installs_when_idle, INSTALL_WHEN_IDLE),
-        (dev_build, ALLOW_IPHONE_CONNECTIONS),
-    ] {
-        if on {
-            values.insert(key.to_owned(), Value::Bool(true));
-        }
+    if installs_when_idle {
+        values.insert(AUTOMATIC_UPDATES.to_owned(), Value::String(IDLE.to_owned()));
+    } else if downloads_automatically {
+        values.insert(AUTOMATIC_UPDATES.to_owned(), Value::String(DOWNLOAD.to_owned()));
+    }
+    if dev_build {
+        values.insert(ALLOW_IPHONE_CONNECTIONS.to_owned(), Value::Bool(true));
     }
     values
 }
@@ -91,11 +97,14 @@ pub fn child_environment(values: &Map<String, Value>) -> Option<String> {
     (!values.is_empty()).then(|| compact(&Value::Object(values.clone())))
 }
 
-/// `root` with every build default whose key it leaves unset.
+/// `root` with every build default whose key it leaves unset. A key an old
+/// key it replaced still answers for is not unset: the person's old pick
+/// wins (`updates.downloadAutomatically: false` reads as Notify Only; Swift
+/// `SettingsBuildDefaults.filling`).
 pub fn fill(root: &Value, values: &Map<String, Value>) -> Value {
     values.iter().fold(root.clone(), |root, (key, value)| {
         let path = key_path(key);
-        if value_at(&root, &path).is_some() {
+        if value_at(&root, &path).is_some() || replaced_value(&path, &root).is_some() {
             root
         } else {
             super::controller::replacing(&path, Some(value.clone()), &root)

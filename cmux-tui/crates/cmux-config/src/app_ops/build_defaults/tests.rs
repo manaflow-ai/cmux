@@ -34,8 +34,7 @@ fn customized(request: Value) -> bool {
     ask("build_defaults.is_customized", request)["customized"] == json!(true)
 }
 
-const DOWNLOAD: &str = "updates.downloadAutomatically";
-const IDLE: &str = "updates.installWhenIdle";
+const AUTOMATIC: &str = "updates.automatic";
 
 // MARK: SettingsBuildDefaultsChildEnvironmentTests
 
@@ -47,11 +46,11 @@ fn a_dev_build_passes_its_defaults() {
     );
     assert_eq!(
         child_environment(channel(true, true, false)),
-        json!(r#"{"mobile.allowIPhoneConnections":true,"updates.downloadAutomatically":true}"#)
+        json!(r#"{"mobile.allowIPhoneConnections":true,"updates.automatic":"download"}"#)
     );
     assert_eq!(
         child_environment(channel(true, false, false)),
-        json!(r#"{"updates.downloadAutomatically":true}"#)
+        json!(r#"{"updates.automatic":"download"}"#)
     );
 }
 
@@ -80,8 +79,9 @@ fn every_key_is_a_setting_and_the_owner_reads_it_back() {
 #[test]
 fn the_channel_names_each_build_default() {
     assert_eq!(channel(false, false, false), json!({}));
-    assert_eq!(channel(true, false, false), json!({ DOWNLOAD: true }));
-    assert_eq!(channel(false, false, true), json!({ IDLE: true }));
+    assert_eq!(channel(true, false, false), json!({ AUTOMATIC: "download" }));
+    assert_eq!(channel(false, false, true), json!({ AUTOMATIC: "idle" }));
+    assert_eq!(channel(true, false, true), json!({ AUTOMATIC: "idle" }));
     assert_eq!(channel(false, true, false), json!({ "mobile.allowIPhoneConnections": true }));
     assert_eq!(ask("build_defaults.channel", json!({}))["values"], json!({}));
 }
@@ -92,32 +92,43 @@ fn the_channel_names_each_build_default() {
 fn the_dogfood_default_fills_the_effective_settings_only() {
     let file = json!({});
     let effective = fill(file.clone(), channel(true, false, false));
-    assert_eq!(effective, json!({ "updates": { "downloadAutomatically": true } }));
+    assert_eq!(effective, json!({ "updates": { "automatic": "download" } }));
     assert_eq!(file, json!({}));
 }
 
 /// A value someone wrote is never filled by the build default, even one that
-/// does not decode (the snapshot reads that as the schema's default).
+/// does not decode (the snapshot reads that as the schema's default), nor
+/// one of the toggles the choice replaced that still reads as a pick
+/// (retired-keys.json).
 #[test]
 fn a_value_someone_wrote_wins() {
-    for written in [json!(false), json!("yes"), json!(true)] {
-        let file = json!({ "updates": { "downloadAutomatically": written } });
+    for written in [json!("notify"), json!("off"), json!("download"), json!(3)] {
+        let file = json!({ "updates": { "automatic": written } });
         assert_eq!(fill(file.clone(), channel(true, false, false)), file);
         assert_eq!(fill(file.clone(), channel(false, false, false)), file);
     }
+    for old in [
+        json!({ "downloadAutomatically": false }),
+        json!({ "checkAutomatically": false }),
+        json!({ "installWhenIdle": true }),
+    ] {
+        let file = json!({ "updates": old });
+        assert_eq!(fill(file.clone(), channel(true, false, true)), file, "{old}");
+    }
 }
 
-/// Update When Idle is on by default in cmux NEXT NIGHTLY and off in release
-/// (Leo, 2026-11-22: "auto be de facto able to click the restart button").
+/// Install When Idle is the Automatic Updates default in cmux NEXT NIGHTLY
+/// and not in release (Leo, 2026-11-22: "auto be de facto able to click the
+/// restart button"); an explicit pick in NIGHTLY wins.
 #[test]
 fn update_when_idle_follows_the_build() {
     let nightly = channel(true, false, true);
-    assert_eq!(fill(json!({}), nightly.clone())["updates"]["installWhenIdle"], json!(true));
-    let off = json!({ "updates": { "installWhenIdle": false } });
-    assert_eq!(fill(off, nightly)["updates"]["installWhenIdle"], json!(false));
+    assert_eq!(fill(json!({}), nightly.clone())["updates"]["automatic"], json!("idle"));
+    let picked = json!({ "updates": { "automatic": "download" } });
+    assert_eq!(fill(picked, nightly)["updates"]["automatic"], json!("download"));
     assert_eq!(fill(json!({}), channel(false, false, false)), json!({}));
-    let release = ask("build_defaults.default_value", json!({ "key": IDLE }));
-    assert_eq!(release["value"], json!(false), "release stays off");
+    let release = ask("build_defaults.default_value", json!({ "key": AUTOMATIC }));
+    assert_eq!(release["value"], json!("download"), "release downloads, never installs when idle");
 }
 
 /// Fill makes the objects along the way and keeps the file's other keys; a
@@ -128,7 +139,7 @@ fn fill_keeps_the_other_keys_and_makes_the_objects() {
     assert_eq!(
         fill(file, channel(true, true, false)),
         json!({
-            "updates": { "channel": "nightly", "downloadAutomatically": true },
+            "updates": { "channel": "nightly", "automatic": "download" },
             "mobile": { "allowIPhoneConnections": true },
         })
     );
@@ -139,37 +150,41 @@ fn fill_keeps_the_other_keys_and_makes_the_objects() {
 #[test]
 fn the_default_is_the_build_default_over_the_schemas() {
     assert_eq!(
-        ask("build_defaults.default_value", json!({ "key": DOWNLOAD }))["value"],
-        json!(true)
+        ask("build_defaults.default_value", json!({ "key": AUTOMATIC }))["value"],
+        json!("download")
     );
     assert_eq!(
-        ask("build_defaults.default_value", json!({ "key": IDLE, "values": { IDLE: true } }))["value"],
-        json!(true)
+        ask(
+            "build_defaults.default_value",
+            json!({ "key": AUTOMATIC, "values": { AUTOMATIC: "idle" } })
+        )["value"],
+        json!("idle")
     );
     assert_eq!(ask("build_defaults.default_value", json!({ "key": "no.suchKey" })), json!({}));
 }
 
-/// An explicit off in NIGHTLY differs from its default, so Settings offers
-/// Reset; an explicit on does not; an unset key never does.
+/// A pick other than Download Automatically in NIGHTLY differs from its
+/// default, so Settings offers Reset; Download Automatically does not; an
+/// unset key never does.
 #[test]
 fn reset_follows_the_build_default() {
     let nightly = channel(true, false, false);
-    for (stored, expected) in [(json!(false), true), (json!(true), false)] {
-        let file = json!({ "updates": { "downloadAutomatically": stored } });
+    for (stored, expected) in [(json!("notify"), true), (json!("download"), false)] {
+        let file = json!({ "updates": { "automatic": stored } });
         let request =
-            json!({ "key": DOWNLOAD, "stored": stored, "file_root": file, "values": nightly });
+            json!({ "key": AUTOMATIC, "stored": stored, "file_root": file, "values": nightly });
         assert_eq!(customized(request), expected, "{stored}");
     }
-    assert!(!customized(json!({ "key": DOWNLOAD, "file_root": {}, "values": nightly })));
-    assert!(!customized(json!({ "key": DOWNLOAD, "stored": null, "file_root": {} })));
-    // Release: Update When Idle's default is off, so an explicit on is the person's.
-    assert!(customized(json!({ "key": IDLE, "stored": true, "file_root": {} })));
-    assert!(!customized(
-        json!({ "key": IDLE, "stored": true, "file_root": {}, "values": { IDLE: true } })
-    ));
+    assert!(!customized(json!({ "key": AUTOMATIC, "file_root": {}, "values": nightly })));
+    assert!(!customized(json!({ "key": AUTOMATIC, "stored": null, "file_root": {} })));
+    // Release: Install When Idle is not the default, so picking it is the person's.
+    assert!(customized(json!({ "key": AUTOMATIC, "stored": "idle", "file_root": {} })));
+    assert!(!customized(json!({
+        "key": AUTOMATIC, "stored": "idle", "file_root": {}, "values": channel(true, false, true)
+    })));
     // Numbers compare as Swift's doubles.
     assert!(!customized(
-        json!({ "key": IDLE, "stored": 1.0, "file_root": {}, "values": { IDLE: 1 } })
+        json!({ "key": "x.y", "stored": 1.0, "file_root": {}, "values": { "x.y": 1 } })
     ));
 }
 
@@ -204,11 +219,11 @@ fn an_explicit_group_style_over_the_look_is_customized() {
 fn the_default_with_nothing_below_is_unset() {
     let unset =
         |request: Value| ask("build_defaults.is_unset_value", request)["unset"] == json!(true);
-    assert!(unset(json!({ "key": DOWNLOAD, "value": true })));
-    assert!(!unset(json!({ "key": DOWNLOAD, "value": false })));
-    assert!(!unset(json!({ "key": DOWNLOAD, "value": true, "set_below_file": true })));
-    assert!(unset(json!({ "key": IDLE, "value": true, "values": { IDLE: true } })));
-    assert!(!unset(json!({ "key": IDLE, "value": true })));
+    assert!(unset(json!({ "key": AUTOMATIC, "value": "download" })));
+    assert!(!unset(json!({ "key": AUTOMATIC, "value": "notify" })));
+    assert!(!unset(json!({ "key": AUTOMATIC, "value": "download", "set_below_file": true })));
+    assert!(unset(json!({ "key": AUTOMATIC, "value": "idle", "values": { AUTOMATIC: "idle" } })));
+    assert!(!unset(json!({ "key": AUTOMATIC, "value": "idle" })));
 }
 
 #[test]
