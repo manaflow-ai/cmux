@@ -1311,11 +1311,59 @@ async fn resumable_upload_stall_keeps_part_and_refuses() {
         ]
     );
     let _mac = host.await.unwrap();
-    let parts = fixture.uploads.join(".parts");
+    let parts = upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id);
     assert_eq!(std::fs::read(parts.join(format!(".{upload_id}.part"))).unwrap(), b"x");
 }
 
-/// The publish folder of `uploads`: its one entry that is not the `.parts` directory.
+fn upload_parts(folder: &std::path::Path, device: &str) -> std::path::PathBuf {
+    folder.join(format!(".parts-{:x}", Sha256::digest(device.to_ascii_lowercase().as_bytes())))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_root_alias_does_not_clean_workspace_parent() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let workspace = fixture.root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let scope = format!("device-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes()));
+    let attachments = workspace.join(".cmux/attachments");
+    std::fs::create_dir_all(&attachments).unwrap();
+    symlink(&workspace, attachments.join(format!("phone-{scope}"))).unwrap();
+    // The formerly derived parent was outside the authorized workspace.
+    let outside_parts = fixture.root.join(".parts");
+    std::fs::create_dir_all(&outside_parts).unwrap();
+    let sentinel = outside_parts.join(".private.part");
+    let file = std::fs::File::create(&sentinel).unwrap();
+    file.set_modified(std::time::SystemTime::now() - Duration::from_secs(25 * 3600)).unwrap();
+    let mut upload = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "inside.bin", "size": 1, "cwd": workspace,
+                "upload_id": "88888888-8888-8888-8888-888888888888"
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(next_line(&mut upload, &mut Vec::new()).await, serde_json::json!({"have": 0}));
+    let parts = upload_parts(&workspace, &fixture.phone_id);
+    assert_eq!(std::fs::metadata(&parts).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        std::fs::metadata(parts.join(".88888888-8888-8888-8888-888888888888.part"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    upload.send(Bytes::from_static(b"x")).await.unwrap();
+    assert_eq!(drain(&mut upload).await.1, "eof");
+    assert!(sentinel.exists(), "cleanup must not touch the workspace parent");
+}
+
+/// The publish folder of the fixture's only phone.
 fn publish_folder(uploads: &std::path::Path) -> std::path::PathBuf {
     std::fs::read_dir(uploads)
         .unwrap()
@@ -1326,7 +1374,7 @@ fn publish_folder(uploads: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_new_phone_device_and_link_resumes_an_earlier_part() {
+async fn another_phone_cannot_resume_an_earlier_part() {
     const HALF: usize = 1 << 20;
     let fixture = fixture(FakeOptions::default()).await;
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
@@ -1346,8 +1394,9 @@ async fn a_new_phone_device_and_link_resumes_an_earlier_part() {
     let _ = drain(&mut first).await;
     connected.link.close("redial");
 
-    // A second link from a different phone device and session, as after a
-    // reinstall or a different link: it must find the part by upload_id alone.
+    let original_part =
+        upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id).join(format!(".{upload_id}.part"));
+    // Knowing another phone's upload id must not grant access to its bytes.
     let (client, server) = tokio::io::duplex(64 << 10);
     let phone =
         cmux_mobile_link::Link::new(client, cmux_mobile_link::Role::Phone, LinkConfig::default(), None);
@@ -1382,20 +1431,12 @@ async fn a_new_phone_device_and_link_resumes_an_earlier_part() {
         .await
         .unwrap();
     let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut second, &mut buffer).await, serde_json::json!({"have": HALF}));
-    let second_bytes = vec![0x42; HALF];
-    second.send(Bytes::from(second_bytes.clone())).await.unwrap();
-    let (reply, code) = drain(&mut second).await;
-    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
-    let path = reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
-        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
-        .expect("path");
-    let mut expected = first_bytes;
-    expected.extend(second_bytes);
-    assert_eq!(sha256(&std::fs::read(path).unwrap()), sha256(&expected));
+    assert_eq!(
+        next_line(&mut second, &mut buffer).await,
+        serde_json::json!({"error": "resume_gap", "have": 0})
+    );
+    assert_eq!(drain(&mut second).await.1, "resume_gap");
+    assert_eq!(std::fs::read(original_part).unwrap(), first_bytes);
     let _mac = host.await.unwrap();
     drop(phone);
 }
@@ -1409,7 +1450,7 @@ async fn resumable_upload_cleans_old_parts_and_discards_oversize_data() {
     let mut upload = connected.link.open("upload", args.clone()).await.unwrap();
     assert_eq!(next_line(&mut upload, &mut Vec::new()).await, serde_json::json!({"have": 0}));
     let folder = publish_folder(&fixture.uploads);
-    let parts = fixture.uploads.join(".parts");
+    let parts = upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id);
     let yesterday = std::time::SystemTime::now() - Duration::from_secs(25 * 3600);
     for name in [".stale.part", ".part", "other.part"] {
         std::fs::File::create(parts.join(name)).unwrap().set_modified(yesterday).unwrap();

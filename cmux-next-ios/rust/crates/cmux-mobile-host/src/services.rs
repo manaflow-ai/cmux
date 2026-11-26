@@ -2385,20 +2385,32 @@ async fn upload_folder(
     Ok(resolved)
 }
 
-/// The directory of a resumable upload's part: `.parts` beside the upload
-/// folders (`<cwd>/.cmux/attachments/.parts`, or `<uploads>/.parts`). It is keyed
-/// by the phone's random `upload_id`, not by its device or link, so a new link
-/// finds the part an earlier one wrote.
-fn upload_parts_dir(folder: &Path) -> Result<PathBuf, Refusal> {
-    let parent = folder.parent().ok_or_else(|| Refusal::new("io", "the upload folder has no parent"))?;
-    let parent = std::fs::canonicalize(parent).map_err(|e| Refusal::new("io", e.to_string()))?;
-    let parts = parent.join(".parts");
-    std::fs::create_dir_all(&parts)
-        .map_err(|e| Refusal::new("io", format!("cannot create the upload parts: {e}")))?;
-    // `.parts` may be a symlink out of the upload folders.
+/// Keep resumable bytes inside the authorized publish folder and partition them
+/// by authenticated device, even when two publish folders resolve to one alias.
+/// A link session may change on redial; the device identity must not.
+fn upload_parts_dir(folder: &Path, device_id: &str) -> Result<PathBuf, Refusal> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let folder = std::fs::canonicalize(folder).map_err(|e| Refusal::new("io", e.to_string()))?;
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(device_id.to_ascii_lowercase().as_bytes())));
+    match std::fs::DirBuilder::new().mode(0o700).create(&parts) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(Refusal::new("io", format!("cannot create the upload parts: {e}"))),
+    }
+    // Refuse aliases instead of allowing one phone's staging directory to point
+    // at another's. Open before changing permissions so a symlink is never chmod'ed.
+    let directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&parts)
+        .map_err(|_| Refusal::new("forbidden", "the upload parts must be a private directory"))?;
+    directory
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| Refusal::new("io", e.to_string()))?;
     let resolved = std::fs::canonicalize(&parts).map_err(|_| Refusal::new("io", "upload parts vanished"))?;
-    if !resolved.starts_with(&parent) {
-        return Err(Refusal::new("forbidden", "the upload parts leave the upload folders"));
+    if resolved.parent() != Some(folder.as_path()) {
+        return Err(Refusal::new("forbidden", "the upload parts leave the upload folder"));
     }
     Ok(resolved)
 }
@@ -2526,7 +2538,7 @@ async fn receive_upload(
             Some(value) => value.as_u64(),
         }
         .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
-        let parts = upload_parts_dir(&folder)?;
+        let parts = upload_parts_dir(&folder, &peer.device_id)?;
         cleanup_stale_upload_parts(&parts);
         let part = parts.join(format!(".{id}.part"));
         let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
@@ -2661,6 +2673,7 @@ async fn open_upload_part(part: &Path) -> Result<std::fs::File, Refusal> {
                 .write(true)
                 .create(true)
                 .truncate(false)
+                .mode(0o600)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
                 .open(part)
                 .map_err(|e| Refusal::new("io", e.to_string()))?;
@@ -2718,6 +2731,34 @@ fn cleanup_stale_upload_parts(folder: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_parts_stay_inside_authorized_folder_and_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
+        // A publish folder resolving to the workspace root used to stage in
+        // its parent. The caller may pass precisely that authorized root.
+        let parts = upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(parts.parent(), Some(std::fs::canonicalize(&folder).unwrap().as_path()));
+        assert_eq!(std::fs::metadata(&parts).unwrap().permissions().mode() & 0o777, 0o700);
+        let other = upload_parts_dir(&folder, "phone-b").unwrap();
+        assert_ne!(parts, other);
+        // Existing permissive staging directories are made private again.
+        std::fs::set_permissions(&parts, std::fs::Permissions::from_mode(0o755)).unwrap();
+        upload_parts_dir(&folder, "phone-a").unwrap();
+        assert_eq!(std::fs::metadata(parts).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn upload_parts_refuse_symlink_aliases_between_devices() {
+        let workspace = tempfile::tempdir().unwrap();
+        let first = upload_parts_dir(workspace.path(), "phone-a").unwrap();
+        let alias = workspace.path().join(format!(".parts-{:x}", Sha256::digest(b"phone-b")));
+        std::os::unix::fs::symlink(&first, &alias).unwrap();
+        assert!(upload_parts_dir(workspace.path(), "phone-b").is_err());
+    }
 
     /// The query is the bytes hostd always sent, its capability names now from the registry.
     #[test]

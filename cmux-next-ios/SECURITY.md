@@ -1118,6 +1118,16 @@ sent as an ACP `resource_link` to that path.
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
   folder that is no tab's and outside the roots (`forbidden`), and
   `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
+- Resumable uploads (`upload_id`) use the authenticated device identity across
+  link sessions. Parts stay inside the authorized publish directory in a
+  device-keyed `.parts-<sha256(device)>` directory (0700); files are 0600.
+  The staging directory cannot be a symlink. Knowing another device's upload ID
+  does not permit resuming or truncating its bytes. Cleanup visits only that
+  device's staging directory, never the publish directory's parent.
+- **Regression detectors:** `another_phone_cannot_resume_an_earlier_part`,
+  `resumable_upload_reopens_from_the_last_ack`,
+  `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the
+  `upload_parts_*` unit tests cover isolation, redial, confinement and permissions.
 - **Open:** there is no total quota per phone, and old uploads are not
   cleaned up. Both are bounded only by the person's disk.
 
