@@ -869,6 +869,8 @@ extension LiveCoordinator {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
             let cwd = LinkUpload.folder(owner.tree?.directories[tabID])
+            // A video shrinks to HEVC 1080p first when the setting asks (``VideoRecompressor``).
+            let (payload, name) = try await VideoRecompressor.prepared(payload, name: name)
             do {
                 return try await LinkUpload.upload(payload, name: name, cwd: cwd, over: link)
             } catch let failure as LinkUpload.Failure where cwd != nil && (failure.code == "forbidden" || failure.code == "not_found") {
