@@ -243,10 +243,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         // A Cloud chat's sign-in (cloudAgentLogin.ts): `agent` is `claude` or `codex`; `code` is
         // Claude's pasted code, `key` an API key, both kept out of every log; `sessionId` the chat.
-        "_acpmux/agent_login/start": (["agent", "sessionId"], []),
-        "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
-        "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
-        "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/agent_login/start": (["agent", "sessionId", "host"], []),
+        "_acpmux/agent_login/finish": (["loginId", "code", "sessionId", "host"], []),
+        "_acpmux/agent_login/api_key": (["agent", "key", "sessionId", "host"], []),
+        "_acpmux/agent_login/cancel": (["loginId", "sessionId", "host"], []),
         "_acpmux/account/sign_in": (["family", "sessionId"], []),
         "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
         "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),

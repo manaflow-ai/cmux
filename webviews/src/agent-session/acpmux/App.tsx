@@ -3785,6 +3785,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             ...login,
             harness: refused,
             machineLogin: directClient.current?.supportsMachineLogin === true,
+            ...(machinePeer ? { host: machinePeer } : {}),
           })
         : undefined,
       // Logins done right: the same card for an agent on this Mac (localAgentLogin), the refused
@@ -3817,6 +3818,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     connected,
     cloudMachineID,
     chatElsewhere,
+    machinePeer,
     snapshot.sessionId,
     snapshot.summary?.harness,
     snapshot.summary?.model,

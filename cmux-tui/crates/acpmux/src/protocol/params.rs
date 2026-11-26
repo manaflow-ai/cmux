@@ -185,13 +185,13 @@ keyed! {
     /// `_acpmux/agent_hold`.
     AgentHoldParams: ["sessionId", "held"];
     /// `_acpmux/agent_login/api_key`.
-    AgentLoginApiKeyParams: ["agent", "key", "sessionId"];
+    AgentLoginApiKeyParams: ["agent", "key", "sessionId", "host"];
     /// `_acpmux/agent_login/cancel`.
-    AgentLoginCancelParams: ["loginId", "sessionId"];
+    AgentLoginCancelParams: ["loginId", "sessionId", "host"];
     /// `_acpmux/agent_login/finish`.
-    AgentLoginFinishParams: ["loginId", "code", "sessionId"];
+    AgentLoginFinishParams: ["loginId", "code", "sessionId", "host"];
     /// `_acpmux/agent_login/start`.
-    AgentLoginStartParams: ["agent", "sessionId"];
+    AgentLoginStartParams: ["agent", "sessionId", "host"];
     /// `_acpmux/agent_pair_resume`.
     AgentPairResumeParams: ["sessionId", "peerSessionId"];
     /// `_acpmux/app_reply`.

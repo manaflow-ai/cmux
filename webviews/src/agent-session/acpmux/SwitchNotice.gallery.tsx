@@ -247,6 +247,46 @@ export default componentEntry<Props>({
       props: { error: GEMINI_WORDS, code: SIGN_IN, harness: "gemini", name: "Gemini CLI", signIn: "card" },
       note: "Shipped. Gemini takes a key only: Use an API key is the card's one sign-in button.",
     },
+    "sign-in-claude-own-machine": {
+      props: {
+        error: "Claude Code isn't signed in on studio.",
+        code: SIGN_IN,
+        harness: "claude",
+        name: "Claude Code",
+        signIn: "card",
+        elsewhere: true,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Claude Code" });
+      },
+      note: 'Own machines as good as Cloud (Leo 2026-11-23: "A machine joined by sign-in gets a workspace, folder chooser, ports and files."): a new chat on the person\'s own Mac "studio", not a Cloud machine, gets the same one-click card as a Cloud chat, signing Claude in on studio; no terminal line.',
+    },
+    "sign-in-codex-own-machine": {
+      props: {
+        error: "Codex isn't signed in on studio.",
+        code: SIGN_IN,
+        harness: "codex",
+        name: "Codex",
+        signIn: "card",
+        elsewhere: true,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Codex" });
+        await ctx.waitFor(() => ctx.find({ selector: "[data-testid=cloud-signin-code]" }) !== null);
+      },
+      note: "Codex's device sign-in on the person's own machine: the code to enter on the page, then Retry starts Codex signed in there.",
+    },
+    "sign-in-gemini-own-machine": {
+      props: {
+        error: GEMINI_WORDS,
+        code: SIGN_IN,
+        harness: "gemini",
+        name: "Gemini CLI",
+        signIn: "card",
+        elsewhere: true,
+      },
+      note: "A key-only agent on the person's own machine: Use an API key is the card's one sign-in button, saved on that machine.",
+    },
     "sign-in-cursor-expired": {
       props: {
         error: CURSOR_WORDS,

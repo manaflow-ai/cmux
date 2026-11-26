@@ -257,6 +257,8 @@ type LoginOptions = {
   /// start's card, hq#11225; ``AcpmuxDirectClient/supportsMachineLogin``): with no `sessionId`, each
   /// step names no chat and runs on that machine itself. Retry then starts the chat signed in.
   machineLogin?: boolean;
+  /// A new chat's machine, a peer's name: its sign-in steps run there (`host`), as a chat's do by its id.
+  host?: string;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
   /// The host's machine-bound open (``CloudSignIn/openOnMachine``); true when it opened.
@@ -365,6 +367,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const agent = loginAgent(agentKey(leaf));
   // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
   const machine = !sessionId && options.machineLogin === true;
+  const host = sessionId ? undefined : options.host;
   if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;
   // OpenCode: only the `opencode` harness (acpmux signs in that family; `opencode-v2` is its own) on
   // a Zen or Go model.
@@ -389,14 +392,14 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     start: () =>
       step(async () => {
         // Every call names the chat, so it runs on the chat's machine (acpmux forwards it there).
-        const reply = await client().agentLoginStart(agent, sessionId);
+        const reply = await client().agentLoginStart(agent, sessionId, host);
         const started = startOf(reply);
         if (!started) {
           // A page this Mac will not open: stop the login acpmux started, so it holds nothing.
           const loginId = (reply as { loginId?: unknown } | undefined)?.loginId;
           if (typeof loginId === "string" && loginId)
             void currentClient()
-              ?.agentLoginCancel(loginId, sessionId)
+              ?.agentLoginCancel(loginId, sessionId, host)
               .catch(() => undefined);
           throw new LoginStepError("failed");
         }
@@ -414,25 +417,27 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     },
     finish: (loginId, code) =>
       step(async () => {
-        const reply = (await client().agentLoginFinish(loginId, sessionId, code)) as { signedIn?: unknown } | undefined;
+        const reply = (await client().agentLoginFinish(loginId, sessionId, code, host)) as
+          | { signedIn?: unknown }
+          | undefined;
         return reply?.signedIn === true;
       }),
     apiKey: (key) =>
       step(async () => {
-        const reply = (await client().agentLoginApiKey(agent, sessionId, key)) as { saved?: unknown } | undefined;
+        const reply = (await client().agentLoginApiKey(agent, sessionId, key, host)) as { saved?: unknown } | undefined;
         return reply?.saved === true;
       }),
     gateway: () =>
       step(async () => {
         if (!usesGateway(agent)) throw new LoginStepError("unsupported");
-        const reply = (await client().agentLoginStart(`${agent}@gateway`, sessionId)) as
+        const reply = (await client().agentLoginStart(`${agent}@gateway`, sessionId, host)) as
           | { gateway?: unknown }
           | undefined;
         return reply?.gateway === true;
       }),
     cancel: (loginId) => {
       void currentClient()
-        ?.agentLoginCancel(loginId, sessionId)
+        ?.agentLoginCancel(loginId, sessionId, host)
         .catch(() => undefined);
     },
     reserve: () => {

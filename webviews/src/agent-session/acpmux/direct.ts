@@ -14260,27 +14260,37 @@ export class AcpmuxDirectClient {
   /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
   /// device code, and whether the page gives a code to paste back (Claude). With no `sessionId` (a
   /// new chat's, ``supportsMachineLogin``) the step runs on the chat's machine itself.
-  agentLoginStart(agent: string, sessionId: string | undefined): Promise<unknown> {
-    return this.request("_acpmux/agent_login/start", { agent, ...(sessionId ? { sessionId } : {}) });
+  agentLoginStart(agent: string, sessionId: string | undefined, host?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", {
+      agent,
+      ...(sessionId ? { sessionId } : host ? { host } : {}),
+    });
   }
   /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
   /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
   /// no code (wire.ts).
-  agentLoginFinish(loginId: string, sessionId: string | undefined, code?: string): Promise<unknown> {
+  agentLoginFinish(loginId: string, sessionId: string | undefined, code?: string, host?: string): Promise<unknown> {
     return this.request("_acpmux/agent_login/finish", {
       loginId,
-      ...(sessionId ? { sessionId } : {}),
+      ...(sessionId ? { sessionId } : host ? { host } : {}),
       ...(code ? { code } : {}),
     });
   }
   /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
   /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
-  agentLoginApiKey(agent: string, sessionId: string | undefined, key: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/api_key", { agent, key, ...(sessionId ? { sessionId } : {}) });
+  agentLoginApiKey(agent: string, sessionId: string | undefined, key: string, host?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", {
+      agent,
+      key,
+      ...(sessionId ? { sessionId } : host ? { host } : {}),
+    });
   }
   /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
-  agentLoginCancel(loginId: string, sessionId: string | undefined): Promise<unknown> {
-    return this.request("_acpmux/agent_login/cancel", { loginId, ...(sessionId ? { sessionId } : {}) });
+  agentLoginCancel(loginId: string, sessionId: string | undefined, host?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", {
+      loginId,
+      ...(sessionId ? { sessionId } : host ? { host } : {}),
+    });
   }
   /// Starts a GitHub sign-in on chat `sessionId`'s machine (`_acpmux/account/sign_in`; acpmux
   /// forwards it there and only that machine's owner may run it): the device page to open and the

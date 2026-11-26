@@ -3348,6 +3348,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "host": true,
         "key": true,
         "sessionId": true
       },
@@ -3359,6 +3360,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "host": true,
         "loginId": true,
         "sessionId": true
       },
@@ -3371,6 +3373,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "code": true,
+        "host": true,
         "loginId": true,
         "sessionId": true
       },
@@ -3383,6 +3386,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "host": true,
         "sessionId": true
       },
       "type": "object"

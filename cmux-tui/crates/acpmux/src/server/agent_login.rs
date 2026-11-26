@@ -246,6 +246,31 @@ pub(crate) async fn use_gateway(
     Ok(done.now > 0)
 }
 
+/// `m` run by the peer `host` names (`host` removed: it is that peer's own sign-in there), as the
+/// peer answers it. A peer selects no other peer (`peer.forward_refused`), and one that is not
+/// linked, or runs an acpmux without `agent_login`, says so.
+async fn on_host(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    m: &str,
+    params: &Value,
+    host: &str,
+) -> Result<Value, RpcError> {
+    if conn.origin == Origin::Peer {
+        return Err(RpcError::invalid_params("a peer cannot select another peer on this daemon")
+            .with_data(json!({"reason": "peer.forward_refused"})));
+    }
+    let peer = hub
+        .peer_by_name(host)
+        .ok_or_else(|| RpcError::invalid_params(format!("no peer named {host:?}")))?;
+    let mut forwarded = params.clone();
+    if let Some(object) = forwarded.as_object_mut() {
+        object.remove("host");
+    }
+    super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+    peer.request(m, forwarded).await
+}
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Conn,
@@ -258,6 +283,11 @@ pub(super) async fn handle(
             "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
         )
         .with_data(json!({"reason": REMOTE_REFUSED})));
+    }
+    // A sign-in for a new chat that starts on a peer machine (`host`, a peer's name): that peer
+    // runs it, as it runs a named chat's. Only this machine's own caller selects a peer.
+    if let Some(host) = text(params, "host") {
+        return on_host(hub, conn, m, params, host).await;
     }
     // A named chat this daemon does not have: never run the sign-in here in its place (a chat
     // on a peer was forwarded before this; one that resolves nowhere is stale or not mirrored

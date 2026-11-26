@@ -119,6 +119,54 @@ test("a new chat with no session signs its agent in on its machine where the mac
   ]);
 });
 
+test("a new chat on one of the person's own machines names that machine for every step", async () => {
+  const calls: unknown[][] = [];
+  const client = {
+    selectedSession: undefined,
+    agentLoginStart: (...args: unknown[]) => {
+      calls.push(["start", ...args]);
+      return Promise.resolve({
+        loginId: "login-1",
+        url: "https://claude.com/cai/oauth/authorize?x=1",
+        needsCode: true,
+      });
+    },
+    agentLoginFinish: (...args: unknown[]) => {
+      calls.push(["finish", ...args]);
+      return Promise.resolve({ signedIn: true });
+    },
+    agentLoginApiKey: () => Promise.resolve({ saved: true }),
+    agentLoginCancel: (...args: unknown[]) => {
+      calls.push(["cancel", ...args]);
+      return Promise.resolve(undefined);
+    },
+    resendPrompt: () => Promise.resolve({ input: [], attachments: [] }),
+    send: () => Promise.resolve(undefined),
+  };
+  const signIn = cloudAgentLogin({
+    connected: true,
+    machineID: undefined,
+    elsewhere: true,
+    sessionId: undefined,
+    harness: "claude",
+    supported: true,
+    machineLogin: true,
+    host: "studio",
+    gesture: () => Promise.resolve(undefined),
+    openURL: () => undefined,
+    isCurrent: () => false,
+    currentClient: () => client as never,
+  });
+  await signIn!.start();
+  await signIn!.finish("login-1", "code");
+  signIn!.cancel("login-1");
+  expect(calls).toEqual([
+    ["start", "claude", undefined, "studio"],
+    ["finish", "login-1", undefined, "code", "studio"],
+    ["cancel", "login-1", undefined, "studio"],
+  ]);
+});
+
 test("a chat with a session keeps naming it, whether or not its machine signs in without one", async () => {
   const { calls, login } = options({ machineID: "vm-1", elsewhere: true }, "claude");
   await cloudAgentLogin({ ...login, machineLogin: true })!.start();
