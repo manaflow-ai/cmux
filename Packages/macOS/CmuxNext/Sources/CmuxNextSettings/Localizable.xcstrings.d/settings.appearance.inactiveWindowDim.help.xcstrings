@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.inactiveWindowDim.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much windows behind the front one are tinted. 0 keeps them the same."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مقدار تلوين النوافذ خلف النافذة الأمامية. 0 يبقيها كما هي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koliko su nijansirani prozori iza prednjeg. 0 ih ostavlja istim."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor meget vinduer bag det forreste farves. 0 bevarer samme udseende."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie stark Fenster hinter dem vorderen getönt werden. 0 lässt sie unverändert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuánto se tiñen las ventanas que están detrás de la delantera. 0 las mantiene igual."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "À quel point les fenêtres derrière celle au premier plan sont teintées. 0 les laisse inchangées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto vengono colorate le finestre dietro quella in primo piano. 0 le lascia invariate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前面以外のウインドウにどれだけ色を重ねるか。0 では見た目が変わりません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្រិតពណ៌ដែលគ្របលើបង្អួចនៅពីក្រោយបង្អួចខាងមុខ។ 0 រក្សាវាដដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "앞 윈도우 뒤에 있는 윈도우에 색을 얼마나 입힐지 정합니다. 0이면 그대로입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor mye vinduer bak det fremste farges. 0 beholder dem som de er."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak mocno barwione są okna za oknem na wierzchu. 0 zachowuje ich wygląd."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto as janelas atrás da janela da frente são tingidas. 0 as mantém iguais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Насколько тонируются окна позади переднего. 0 сохраняет прежний вид."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปริมาณสีที่แต้มหน้าต่างที่อยู่หลังหน้าต่างด้านหน้า 0 คงรูปลักษณ์เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öndeki pencerenin arkasındaki pencerelerin ne kadar renklendirileceği. 0 aynı bırakır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наскільки тонуються вікна позаду переднього. 0 залишає їх без змін."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lượng màu phủ lên các cửa sổ nằm sau cửa sổ phía trước. 0 giữ nguyên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "位于前方窗口之后的窗口着色程度。0 保持不变。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前方視窗後面的視窗著色程度。0 保持外觀不變。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

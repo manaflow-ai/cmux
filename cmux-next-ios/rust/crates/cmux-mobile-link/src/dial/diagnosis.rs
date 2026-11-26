@@ -163,6 +163,7 @@ impl Diagnosis {
             RelayFailure::Refused { status, code } => {
                 ("refused", Some(*status), (!code.is_empty()).then(|| code.clone()))
             }
+            RelayFailure::ProxyRefused { detail } => ("proxy_refused", None, Some(detail.clone())),
             RelayFailure::TlsRejected { detail } => ("tls_rejected", None, Some(detail.clone())),
             RelayFailure::Unreachable { detail } => ("unreachable", None, Some(detail.clone())),
             RelayFailure::Timeout => ("timeout", None, None),

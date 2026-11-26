@@ -95,6 +95,8 @@ mod control;
 mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_machine_request.rs"]
+mod machine_request;
 #[path = "acpmux_mcp_race.rs"]
 mod race;
 #[path = "acpmux_mcp_send.rs"]
@@ -131,6 +133,7 @@ pub(crate) fn tools() -> Value {
         list.extend(start::tools());
         list.extend(control::tools());
         list.extend(machine::tools());
+        list.push(machine_request::tool());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
             if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
@@ -523,6 +526,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
+        machine_request::NAME => machine_request::call(&args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());

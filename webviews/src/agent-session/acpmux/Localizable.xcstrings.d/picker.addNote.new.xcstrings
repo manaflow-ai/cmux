@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "picker.addNote.new" : {
+      "comment" : "Model picker, Add account sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ستسجّل الدخول باستخدام {brand} أول مرة تستخدم فيها محادثة هذا الحساب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prijavljujete se putem {brand} kada razgovor prvi put koristi ovaj račun."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du logger ind med {brand}, første gang en chat bruger kontoen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sie melden sich mit {brand} an, wenn ein Chat dieses Konto zum ersten Mal nutzt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You sign in with {brand} the first time a chat uses this account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inicias sesión con {brand} la primera vez que un chat usa esta cuenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous vous connectez avec {brand} la première fois qu’une discussion utilise ce compte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accedi con {brand} la prima volta che una chat usa questo account."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットがこのアカウントを初めて使うときに {brand} でサインインします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្នកចូលដោយប្រើ {brand} នៅពេលការជជែកប្រើគណនីនេះលើកដំបូង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅이 이 계정을 처음 사용할 때 {brand}(으)로 로그인합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du logger inn med {brand} første gang en chat bruker kontoen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zalogujesz się przez {brand}, gdy czat pierwszy raz użyje tego konta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você entra com {brand} na primeira vez que um chat usar esta conta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вы войдёте через {brand}, когда чат впервые использует этот аккаунт."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คุณจะลงชื่อเข้าใช้ด้วย {brand} เมื่อแชตใช้บัญชีนี้ครั้งแรก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir sohbet bu hesabı ilk kez kullandığında {brand} ile oturum açarsınız."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ви ввійдете через {brand}, коли чат уперше використає цей обліковий запис."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bạn đăng nhập bằng {brand} lần đầu một cuộc trò chuyện dùng tài khoản này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天第一次使用此账户时，你将使用 {brand} 登录。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天第一次使用此帳號時，你將使用 {brand} 登入。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
