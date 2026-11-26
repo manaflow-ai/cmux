@@ -1234,10 +1234,14 @@ impl Hub {
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
         let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
             && self.config.read().await.agent_inbox();
-        let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
-            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
-            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
-            .by_person(persons);
+        // Its line, masked once: the `turn_started` record below takes this masked line when
+        // its own line is the same (`shown`), so a prompt pays one secret scan, not three.
+        let shown_src = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+        let mut turn =
+            TurnInfo::prompted_as(client, &text, &turn_id, &prompt_id, control, &shown_src)
+                .noticed(super::prompt_line::is_notice(provenance.as_ref()))
+                .by_person(persons);
+        let mut shown = (shown_src, turn.masked_preview.clone());
         turn.trigger = trigger;
         // Its sender, set with the turn so no steer and no read sees the turn without it.
         turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
@@ -1389,6 +1393,7 @@ impl Hub {
             && t.turn_id == turn_id
         {
             t.show(&line);
+            shown = (line.clone(), t.masked_preview.clone());
         }
         let mut draft_sent = false;
         {
@@ -1674,7 +1679,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
+                json!({"prompt": short_text(&text, 200), "promptLine": if line == shown.0 { std::mem::take(&mut shown.1) } else { super::auto_resume::shown_line(&line) }, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
             )
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.

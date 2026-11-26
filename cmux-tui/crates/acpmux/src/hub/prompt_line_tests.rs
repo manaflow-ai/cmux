@@ -49,6 +49,24 @@ async fn another_agents_first_message_titles_the_chat_by_its_words() {
     assert_eq!(m.title.as_deref(), Some("Fix the sidebar spinner"));
 }
 
+/// A prompt's line is secret-scanned once as its turn starts (the turn's summary line and its
+/// `turn_started` record share it), not once for a default line, again for its own, and again
+/// for the record: at 2,000 attached sessions that scan was the costliest step of a prompt
+/// burst (goal sessions-2000-attached). Still masked: its token never shows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prompts_line_is_scanned_once_and_stays_masked() {
+    let marker = "scan-once-marker-7f3a";
+    let token = format!("ghp_{}", "aB3dE5fG7hJ9kL1mN3pQ5rS7tV9wX1yZ3b5D");
+    crate::secret_scan::watched::watch(marker);
+    // The fake agent echoes the prompt: its reply's own scans hold no marker, as the reply
+    // starts with "echo: " ... so the marker sits only on the prompt's first line.
+    let m = prompted(&format!("{marker} {token}"), "acpmux-cli#7", None).await;
+    let line = m.last_prompt.unwrap_or_default();
+    assert!(line.starts_with(marker), "{line}");
+    assert!(!line.contains(&token), "{line}");
+    assert_eq!(crate::secret_scan::watched::scans_of(marker), 1);
+}
+
 /// The sidebar hover card's History lists what was asked, not acpmux's notices (Leo
 /// 2026-11-01: "the details aren't even very useful"): an inbox notice and a digest are notices;
 /// another agent's message and the person's prompt are not.
