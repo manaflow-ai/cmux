@@ -391,7 +391,7 @@ fn answering_build(status: &str) -> Option<String> {
 /// a session list. The turn of the session `caller` (the one this command
 /// runs in, on this daemon) does not count: it runs the update and never
 /// ends first. A permission it waits on still does.
-fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
+pub fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(ls.trim()).ok()?;
     let busy = v
         .get("sessions")?

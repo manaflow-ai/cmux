@@ -31,6 +31,9 @@ pub(crate) use host_auto_update::{
     NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script, take_auto_update_off,
 };
 pub(crate) use host_hold::hold;
+/// The rule `host update --if-idle` reads `acpmux --json ls` by; a Cloud machine's own update reads it too
+/// (cmux-tui `link/machine_update/apply.rs`, cmux#57192).
+pub use host_update::busy_sessions;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
