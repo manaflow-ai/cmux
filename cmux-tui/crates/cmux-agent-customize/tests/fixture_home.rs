@@ -310,6 +310,9 @@ fn skills_list_both_agents() {
     assert!(listing.problems.is_empty(), "{:?}", listing.problems);
 }
 
+/// The fixture's Claude settings hold no `skillOverrides`: turning the last override back on drops
+/// the then-empty object, so a file that started with `"skillOverrides": {}` comes back without it
+/// (on and off cannot tell an empty object the person wrote from one cmux emptied).
 #[test]
 fn skills_off_then_on_round_trips_byte_for_byte() {
     let home = Home::new();
