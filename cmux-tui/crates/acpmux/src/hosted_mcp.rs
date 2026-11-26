@@ -134,7 +134,14 @@ pub fn cloud_reply(answer: &Value, id: &Value) -> Result<Value, String> {
     }
 }
 
+/// Windows: the cmux Cloud agent runs on Linux machines only, so it is never on this one.
+#[cfg(not(unix))]
+async fn cloud_call(_socket: &std::path::Path, _message: &Value) -> Result<Value, String> {
+    Err("this machine's cmux Cloud agent is not reachable: it does not run on Windows".to_owned())
+}
+
 /// One `mcp.call` line on the Cloud agent socket and its answer line.
+#[cfg(unix)]
 async fn cloud_call(socket: &std::path::Path, message: &Value) -> Result<Value, String> {
     let unreachable = || "this machine's cmux Cloud agent is not reachable".to_owned();
     let exchange = async {

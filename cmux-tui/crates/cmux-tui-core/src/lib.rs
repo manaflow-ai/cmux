@@ -63,6 +63,8 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+// Its authority types come from cmux-projection, a unix-only dependency (Cargo.toml).
+#[cfg(unix)]
 pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]

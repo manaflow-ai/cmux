@@ -277,7 +277,13 @@ fn run_cmd_blocking(dir: &Path, prog: &str, args: &[String]) -> Option<Ran> {
         Ok(None) => {
             // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
             // not reaped yet, so the id is still this check's.
-            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL)
+            };
+            // Windows: no process group signal; the child itself.
+            #[cfg(not(unix))]
+            let _ = child.kill();
             let _ = child.wait();
             Some(Ran { text: String::new(), slow: true })
         }

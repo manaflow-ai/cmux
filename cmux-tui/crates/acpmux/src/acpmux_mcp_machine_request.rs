@@ -79,6 +79,13 @@ pub(super) async fn call(args: &Value) -> Value {
     }
 }
 
+/// Windows: the cmux Cloud agent runs on Linux machines only, so it is never on this one.
+#[cfg(not(unix))]
+async fn ask_socket(_socket: &std::path::Path, _line: &Value) -> Result<Value, String> {
+    Err("this machine's cmux Cloud agent is not reachable: it does not run on Windows".to_owned())
+}
+
+#[cfg(unix)]
 async fn ask_socket(socket: &std::path::Path, line: &Value) -> Result<Value, String> {
     let unreachable = || "this machine's cmux Cloud agent is not reachable".to_owned();
     let exchange = async {

@@ -2,7 +2,9 @@
 //! output, [`find_url`] reads the sign-in link out of it, and [`command`] is how both the daemon
 //! (`claude_token::Service`) and `cmux cloud connect claude` start it.
 
+#[cfg(unix)]
 use std::os::fd::{FromRawFd as _, OwnedFd, RawFd};
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
@@ -189,8 +191,23 @@ pub fn command(program: &Path, slave: &Path, no_browser: bool) -> cmux_process::
     command
 }
 
+/// A pty's master (and slave) end.
+#[cfg(unix)]
+pub type Master = OwnedFd;
+/// Windows has no pty here yet (a ConPTY port is later work): [`open_pty`] refuses, so no master
+/// exists and the reads and writes on one are never reached.
+#[cfg(not(unix))]
+pub enum Master {}
+
+/// A new pty `columns` wide: Windows has none yet.
+#[cfg(not(unix))]
+pub fn open_pty(_columns: u16) -> Result<(Master, Master, PathBuf), String> {
+    Err("one-click Claude sign-in is not on Windows yet: it needs a pty".to_owned())
+}
+
 /// A new pty `columns` wide: its master, its slave and the slave's path, both close-on-exec.
-pub fn open_pty(columns: u16) -> Result<(OwnedFd, OwnedFd, PathBuf), String> {
+#[cfg(unix)]
+pub fn open_pty(columns: u16) -> Result<(Master, Master, PathBuf), String> {
     let mut name = [0 as libc::c_char; 128];
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
@@ -224,6 +241,7 @@ pub fn open_pty(columns: u16) -> Result<(OwnedFd, OwnedFd, PathBuf), String> {
 }
 
 /// All of `bytes` to `fd`; false when it stops taking them.
+#[cfg(unix)]
 pub fn write_all(fd: RawFd, bytes: &[u8]) -> bool {
     let mut written = 0usize;
     while written < bytes.len() {
@@ -247,6 +265,7 @@ pub fn stop(child: &mut cmux_process::Child) {
     if child.try_wait().ok().flatten().is_some() {
         return;
     }
+    #[cfg(unix)]
     if let Ok(pid) = libc::pid_t::try_from(child.id()) {
         // SAFETY: signals the group of a child this process spawned and has not reaped.
         if unsafe { libc::kill(-pid, libc::SIGTERM) } != 0 {

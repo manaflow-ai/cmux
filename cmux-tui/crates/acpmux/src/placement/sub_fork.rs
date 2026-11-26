@@ -167,8 +167,17 @@ pub fn this_machine() -> Option<String> {
 /// reads them). A build whose cmux-cloud-api has no `machine.fork` yet refuses at the fork, and
 /// the placement falls back with that refusal as its cause.
 pub struct CloudMachines {
-    pub(crate) request: cmux_cloud_api::Request,
+    pub(crate) request: CloudRequest,
 }
+
+/// The Cloud API call a fork backend makes.
+#[cfg(unix)]
+pub type CloudRequest = cmux_cloud_api::Request;
+/// Windows: cmux-cloud-api is unix-only, so no Cloud request exists there
+/// ([`CloudMachines::from_env`] refuses) and every placement runs here.
+#[cfg(not(unix))]
+#[derive(Debug, Clone)]
+pub enum CloudRequest {}
 
 /// The variables [`CloudMachines::from_env`] reads.
 pub const API_ENV: &str = "CMUX_CLOUD_API_URL";
@@ -176,7 +185,14 @@ pub const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 pub const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 
 impl CloudMachines {
+    /// No Cloud backend on Windows yet: the placement falls back with this as its cause.
+    #[cfg(not(unix))]
+    pub fn from_env(_env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        Err("cmux Cloud forks are not on Windows yet".to_owned())
+    }
+
     /// The backend from `env` (a lookup, `std::env::var` in the daemon), or which value is missing.
+    #[cfg(unix)]
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let set = |k: &str| env(k).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let api = set(API_ENV).ok_or_else(|| format!("{API_ENV} is not set"))?;
@@ -196,11 +212,24 @@ impl CloudMachines {
         })
     }
 
+    #[cfg(unix)]
     fn failure(failure: &cmux_cloud_api::Failure, request: &cmux_cloud_api::Request) -> String {
         cmux_cloud_api::scrub(cmux_cloud_api::answer_line(&Err(failure.clone())), request)
     }
 }
 
+#[cfg(not(unix))]
+impl Machines for CloudMachines {
+    async fn fork(&self, _machine: &str, _client_key: &str) -> Result<String, String> {
+        match self.request {}
+    }
+
+    async fn delete(&self, _machine: &str) -> Result<(), String> {
+        match self.request {}
+    }
+}
+
+#[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
         let mut request = self.request.clone();
@@ -680,6 +709,7 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
-#[cfg(test)]
+// The backends' fakes are shell scripts (unix file modes).
+#[cfg(all(test, unix))]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;

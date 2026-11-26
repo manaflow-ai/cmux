@@ -17,6 +17,9 @@
 
 pub mod export;
 pub mod import;
+// The laptop's holder loop talks to the Cloud through `cmux_cloud_api`, which is unix-only: a
+// Windows daemon runs no Auto mode yet.
+#[cfg(unix)]
 pub mod laptop;
 pub mod machine;
 pub mod record;
