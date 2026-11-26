@@ -37,11 +37,14 @@ env:
 jobs:
   readback:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    # Holds the stack pair: an ephemeral Blacksmith macOS VM from the declared pool, as cloud-chat-proof.yml.
+    # Holds the stack pair, and runs only from feat-cmux-next (this if: and the environment's branch policy), never
+    # from a fork, so attempt 1 takes an owned side runner (an office mini behind NAT, which is what the UDP link
+    # readback needs) while vars.CI_PR_POOL_OWNED is 1; a re-run takes the declared macos_26 pool (Blacksmith).
+    # Leo, 2026-11-19: "more than linux vms, just regular jobs too".
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-side-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 75
     steps:
       - name: Refuse any ref but feat-cmux-next, and a malformed team
