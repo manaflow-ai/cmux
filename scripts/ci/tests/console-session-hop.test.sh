@@ -16,12 +16,6 @@ cat > "$WORK/bin/stat" <<'EOF'
 #!/bin/sh
 echo person
 EOF
-# console-session.sh asks bench_launch.py console-user (IOConsoleUsers, #54474); off a Mac this answers for it.
-cat > "$WORK/bin/console-python" <<'EOF'
-#!/bin/sh
-case "$*" in *bench_launch.py*console-user*) echo person; exit 0 ;; esac
-exit 1
-EOF
 cat > "$WORK/bin/id" <<'EOF'
 #!/bin/sh
 echo 501
@@ -47,7 +41,14 @@ exit 1
 EOF
 chmod +x "$WORK/bin/"*
 
-run() { CONSOLE_SESSION_PYTHON="$WORK/bin/console-python" MANAGER="$1" SUDO_GRANTS="$2" PATH="$WORK/bin:$PATH" bash "$ROOT/scripts/ci/frame-pacing/console-session.sh" echo RAN 2>/dev/null; }
+# console-session.sh asks bench_launch.py (beside it, through /usr/bin/python3) for the console user since #54474:
+# run a copy of it next to a fake bench_launch.py that answers "person", as the stat fake did before.
+mkdir -p "$WORK/repo/scripts/ci/frame-pacing" "$WORK/repo/scripts/cmux-next"
+cp "$ROOT/scripts/ci/frame-pacing/console-session.sh" "$WORK/repo/scripts/ci/frame-pacing/"
+printf 'print("person")\n' > "$WORK/repo/scripts/cmux-next/bench_launch.py"
+SCRIPT="$WORK/repo/scripts/ci/frame-pacing/console-session.sh"
+
+run() { MANAGER="$1" SUDO_GRANTS="$2" PATH="$WORK/bin:$PATH" bash "$SCRIPT" echo RAN 2>/dev/null; }
 
 # sudo grants other commands but not launchctl: runs where it is.
 out=$(run Background "purge fs_usage true") || fail "no launchctl grant exited non-zero"
@@ -86,7 +87,7 @@ echo "sudo: a password is required" >&2
 exit 1
 EOS
 chmod +x "$WORK/bin/"*
-runx() { CONSOLE_SESSION_PYTHON="$WORK/bin/console-python" PATH="$WORK/bin:$PATH" TMPDIR="$WORK" bash "$ROOT/scripts/ci/frame-pacing/console-session.sh" "$@"; }
+runx() { PATH="$WORK/bin:$PATH" TMPDIR="$WORK" bash "$SCRIPT" "$@"; }
 
 # CONSOLE_SESSION=own: runs in this user's gui domain with no sudo and keeps the exit code.
 rc=0; out=$(MANAGER=Background GUI=1 SUDO_GRANTS="" CONSOLE_SESSION=own runx sh -c 'echo OWN; exit 7' 2>/dev/null) || rc=$?
