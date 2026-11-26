@@ -89,9 +89,11 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     }
 
     /// The Rust rule, freed with the last copy.
-    private final class Handle: @unchecked Sendable { // the rule is immutable once made
-        let rule: OpaquePointer?
-        init(_ rule: OpaquePointer?) { self.rule = rule }
+    private nonisolated final class Handle: Sendable {
+        /// The rule's address (0: none), a plain value, so the handle is Sendable; the rule never changes.
+        private let address: UInt
+        var rule: OpaquePointer? { OpaquePointer(bitPattern: address) }
+        init(_ rule: OpaquePointer?) { address = UInt(bitPattern: rule) }
         deinit { cmux_screenshots_rule_free(rule) }
     }
 }

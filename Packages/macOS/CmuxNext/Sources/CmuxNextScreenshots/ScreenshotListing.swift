@@ -112,8 +112,10 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
     }
 
     /// The Rust listing, freed with the last copy that holds it.
-    private final class Store: @unchecked Sendable { // changed only through a uniquely held copy
-        let listing = cmux_screenshots_listing_new()
+    private nonisolated final class Store: Sendable {
+        /// The listing's address, a plain value; a copy changes it only once it holds it alone (`makeUnique`).
+        private let address = UInt(bitPattern: cmux_screenshots_listing_new())
+        private var listing: OpaquePointer? { OpaquePointer(bitPattern: address) }
         deinit { cmux_screenshots_listing_free(listing) }
 
         func replace(source: String, with items: [FileGridItem]) {

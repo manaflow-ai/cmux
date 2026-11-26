@@ -13,11 +13,13 @@ public import Foundation
 /// ```swift
 /// let gate = ScreenshotsGate(defaults: .standard) // the app; a test passes UserDefaults(suiteName:)
 /// gate.wire(page.view, key: key) { service.unlock(key) }
-/// The unlock rules are Rust's (cmux-screenshots `gate.rs`); this keeps the remembered click.
 /// ```
+///
+/// The unlock rules are Rust's (cmux-screenshots `gate.rs`); this keeps the remembered click.
 @MainActor
 public final class ScreenshotsGate {
-    private nonisolated(unsafe) let gate = cmux_screenshots_gate_new() // touched on the main actor and in deinit
+    private let handle = Handle()
+    private var gate: OpaquePointer? { handle.gate }
     private let defaults: UserDefaults
     private static let accessKey = "screenshots.showScreenshotsClicked"
 
@@ -27,8 +29,6 @@ public final class ScreenshotsGate {
     public init(defaults: UserDefaults) {
         self.defaults = defaults
     }
-
-    deinit { cmux_screenshots_gate_free(gate) }
 
     /// Whether the person clicked Show Screenshots in this or an earlier launch, and no read failed since.
     public var remembersAccess: Bool { defaults.bool(forKey: Self.accessKey) }
@@ -64,5 +64,13 @@ public final class ScreenshotsGate {
         view.onShowScreenshots = onShow
         view.onAccessMissing = { [weak self] in self?.forgetAccess() }
         view.startsWhenShown = ScreenshotsFFI.bytes(key) { cmux_screenshots_gate_starts_when_shown(gate, $0, $1, remembersAccess) }
+    }
+
+    /// The Rust gate, freed with this gate.
+    private nonisolated final class Handle: Sendable {
+        /// The gate's address, a plain value, so the nonisolated deinit can free it.
+        private let address = UInt(bitPattern: cmux_screenshots_gate_new())
+        var gate: OpaquePointer? { OpaquePointer(bitPattern: address) }
+        deinit { cmux_screenshots_gate_free(gate) }
     }
 }
