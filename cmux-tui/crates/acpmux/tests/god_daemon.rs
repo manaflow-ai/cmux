@@ -248,9 +248,6 @@ fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
 
 /// [`wait_all_logs`] for at most `limit` (a 4 GB chat's first load may take longer than
 /// [`ALL_LOGS`]).
-/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
-const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
-
 fn wait_all_logs_within(rpc: &mut Rpc, limit: Duration) -> Result<u64, Value> {
     let deadline = Instant::now() + limit;
     let mut last = Value::Null;
@@ -601,85 +598,6 @@ async fn peers(shape: &Shape, scratch: &Path, gate: Gate) -> (Value, Vec<Proxy>,
     (Value::Object(config), proxies, hubs)
 }
 
-/// The most a daemon held while it was sampled, by kind (`/proc/PID/status`): heap and stacks
-/// (`RssAnon`), mapped files (`RssFile`), threads, and when its RSS peaked, in ms after spawn.
-struct PeakSampler {
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    thread: std::thread::JoinHandle<Value>,
-}
-
-impl PeakSampler {
-    const EVERY: Duration = Duration::from_millis(10);
-
-    fn start(pid: u32, spawned: Instant) -> Self {
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let stopping = stop.clone();
-        let thread = std::thread::spawn(move || {
-            let (mut anon, mut file, mut threads, mut rss, mut at) = (0u64, 0u64, 0u64, 0u64, 0u64);
-            // Each thread's CPU ticks at the last sample, and the steps of `anon` (every 16 MiB
-            // more) with the threads that ran most since the sample before.
-            let mut ticks: std::collections::HashMap<String, (String, u64)> = Default::default();
-            let mut steps: Vec<Value> = Vec::new();
-            let mut next_step = 0u64;
-            while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
-                let mut busy: Vec<(u64, String)> = Vec::new();
-                for task in
-                    std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten()
-                {
-                    let tid = task.file_name().to_string_lossy().into_owned();
-                    let Ok(stat) = std::fs::read_to_string(task.path().join("stat")) else {
-                        continue;
-                    };
-                    let Some((head, rest)) = stat.rsplit_once(')') else { continue };
-                    let name = head.split_once('(').map_or("", |(_, n)| n).to_owned();
-                    let f: Vec<&str> = rest.split_whitespace().collect();
-                    let t = f.get(11).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0)
-                        + f.get(12).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-                    let before = ticks.insert(tid, (name.clone(), t)).map_or(0, |(_, b)| b);
-                    if t > before {
-                        busy.push((t - before, name));
-                    }
-                }
-                busy.sort_by(|a, b| b.0.cmp(&a.0));
-                let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
-                    break;
-                };
-                let field = |name: &str| {
-                    status
-                        .lines()
-                        .find(|l| l.starts_with(name))
-                        .and_then(|l| l.split_whitespace().nth(1))
-                        .and_then(|n| n.parse::<u64>().ok())
-                        .unwrap_or(0)
-                };
-                let anon_now = field("RssAnon:") * 1024;
-                if anon_now >= next_step {
-                    next_step = anon_now + (16 << 20);
-                    let top: Vec<String> =
-                        busy.iter().take(3).map(|(t, n)| format!("{n}:{t}")).collect();
-                    steps.push(json!({"ms": ms(spawned), "anon": anon_now, "busy": top}));
-                }
-                anon = anon.max(anon_now);
-                file = file.max(field("RssFile:") * 1024);
-                threads = threads.max(field("Threads:"));
-                let now = field("VmRSS:") * 1024;
-                if now > rss {
-                    (rss, at) = (now, ms(spawned));
-                }
-                std::thread::sleep(Self::EVERY);
-            }
-            json!({"anon": anon, "file": file, "threads": threads, "rss": rss, "atMs": at,
-                "steps": steps})
-        });
-        Self { stop, thread }
-    }
-
-    fn stop(self) -> Value {
-        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        self.thread.join().unwrap_or(Value::Null)
-    }
-}
-
 struct Daemon {
     child: Child,
     socket: PathBuf,
@@ -733,12 +651,6 @@ impl Daemon {
         Self { child, socket, log, spawned, socket_connect_us }
     }
 
-    /// Samples the daemon's memory until the returned sampler is stopped: what its peak RSS is
-    /// made of (`PeakSampler`).
-    fn sample_peak(&self) -> PeakSampler {
-        PeakSampler::start(self.child.id(), self.spawned)
-    }
-
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
     #[cfg(target_os = "linux")]
     fn cpu_seconds(&self) -> f64 {
@@ -768,6 +680,48 @@ impl Daemon {
                 .map_or(0, |kib| kib * 1024)
         };
         (field("VmRSS:"), field("VmHWM:"))
+    }
+
+    /// `RssAnon` and `RssFile` of the daemon, in bytes: heap against mapped file pages.
+    fn rss_split(&self) -> (u64, u64) {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
+            .unwrap_or_default();
+        let field = |name: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(name))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|kib| kib.parse::<u64>().ok())
+                .map_or(0, |kib| kib * 1024)
+        };
+        (field("RssAnon:"), field("RssFile:"))
+    }
+
+    /// The daemon's largest resident mappings (`/proc/PID/smaps`): `[name or path, rss bytes,
+    /// size bytes]`, anonymous ones named `[anon]`, so a size's extra memory has a place.
+    fn rss_maps(&self) -> Value {
+        let smaps =
+            std::fs::read_to_string(format!("/proc/{}/smaps", self.child.id())).unwrap_or_default();
+        let mut maps: Vec<(String, u64, u64)> = Vec::new();
+        for line in smaps.lines() {
+            let mut words = line.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            if first.contains('-') && first.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+                let (lo, hi) = first.split_once('-').unwrap_or_default();
+                let size = u64::from_str_radix(hi, 16)
+                    .unwrap_or(0)
+                    .saturating_sub(u64::from_str_radix(lo, 16).unwrap_or(0));
+                let name = words.nth(4).map_or("[anon]".to_owned(), str::to_owned);
+                maps.push((name, 0, size));
+            } else if first == "Rss:" {
+                if let Some(last) = maps.last_mut() {
+                    last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
+                }
+            }
+        }
+        maps.sort_by_key(|m| std::cmp::Reverse(m.1));
+        maps.truncate(12);
+        json!(maps)
     }
 
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
@@ -1361,10 +1315,12 @@ async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
 /// with the function and its file and line.
 /// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
 /// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
-/// The site is the first three such frames, innermost first.
+/// The site is the first three such frames, innermost first (`ACPMUX_GOD_DHAT_FRAMES` more).
 fn acpmux_frame(frames: &[&str]) -> String {
+    let depth =
+        std::env::var("ACPMUX_GOD_DHAT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let own: Vec<String> =
-        frames.iter().filter(|f| own_file(f)).take(3).map(|f| place(f)).collect();
+        frames.iter().filter(|f| own_file(f)).take(depth).map(|f| place(f)).collect();
     if own.is_empty() {
         return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
     }
@@ -2378,8 +2334,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
         std::fs::read_dir(home.join("sessions").join(&id).join("events")).map_or(0, |d| d.count());
 
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
-    // view exists. The open is the pane's attach, as soon as the socket answers.
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    // view exists. The open is the pane's attach, as soon as the socket answers. With
+    // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2416,6 +2376,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
+    let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
+    let rss_idle_maps = daemon.rss_maps();
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, last + 1)
@@ -2484,28 +2446,15 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
-    // Its host up, the chat's adoption checkpoint is folded in the background
-    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
-    // A restart before it reads the whole log at adoption, as every first restart did.
-    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
-    let checkpoint_wait = Instant::now();
-    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
-        std::thread::sleep(ALL_LOGS_POLL);
-    }
-    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
-    // With `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) the restarted daemon records its heap: what
-    // it holds at its peak is what `restartPeakRss` grows by.
-    let restart_profile = std::env::var_os("ACPMUX_GOD_DHAT")
-        .is_some()
-        .then(|| scratch.join("restart-dhat-heap.json"));
+    let heap = profile.as_deref().map(attribute);
+    let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
     let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
-    let restart_sampler = daemon.sample_peak();
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2513,7 +2462,6 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_attach_ms = ms(daemon.spawned);
     rpc.notes.clear();
     let restart_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
-    let restart_all_logs_at = ms(daemon.spawned);
     let adopted = rpc
         .call(
             "_acpmux/events",
@@ -2523,18 +2471,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .and_then(|p| oldest_seq(&p))
         .zip(last_before_restart)
         .is_some_and(|(seq, before)| seq > before);
-    let restart_adopted_at = ms(daemon.spawned);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
-    let restart_sent_at = ms(daemon.spawned);
     let (restart_rss, restart_peak_rss) = daemon.rss();
-    let restart_peak = restart_sampler.stop();
-    // When each step of the restart returned, in ms after spawn, and the daemon's own startup
-    // phases (`gauges.rs`): where `restartPeak`'s steps fall.
-    let restart_timeline = json!({
-        "attach": restart_attach_ms, "allLogs": restart_all_logs_at,
-        "adoptedQuery": restart_adopted_at, "sent": restart_sent_at,
-        "startup": rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone()),
-    });
+    let restart_maps = daemon.rss_maps();
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(attribute);
@@ -2542,7 +2481,6 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // A second restart: the first adoption left whatever it saves for the next one, so this
     // reads what a chat costs on every restart after its first.
     let mut daemon = Daemon::start(&scratch, &home, None);
-    let second_sampler = daemon.sample_peak();
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2552,7 +2490,6 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
     let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
     let (_, second_peak_rss) = daemon.rss();
-    let second_peak = second_sampler.stop();
     drop(rpc);
     daemon.stop();
     let home_bytes: u64 = home_files(&home).values().sum();
@@ -2579,23 +2516,25 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
         "promptPageError": prompt_page_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
-        "rssIdle": rss_idle, "rssAfterReads": rss_after_reads,
+        "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
+        "rssIdleMaps": rss_idle_maps,
+        "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
-        "adoptionCheckpointMs": adoption_checkpoint_ms, "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
+        "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
-        "restartRss": restart_rss, "restartPeakRss": restart_peak_rss, "restartHeap": restart_heap,
-        "restartPeak": restart_peak, "restartTimeline": restart_timeline,
+        "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
         "secondRestartSendFirstTokenUs": second_send.as_ref().ok(),
         "secondRestartSendError": second_send.as_ref().err(),
-        "secondRestartPeakRss": second_peak_rss, "secondRestartPeak": second_peak,
+        "secondRestartPeakRss": second_peak_rss,
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
