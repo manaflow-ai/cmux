@@ -1642,6 +1642,7 @@ dependencies = [
  "cmux-process",
  "cmux-signed-envelope",
  "flate2",
+ "libc",
  "ring",
  "serde",
  "serde_json",
