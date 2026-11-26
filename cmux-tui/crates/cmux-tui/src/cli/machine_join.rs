@@ -52,6 +52,7 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
+#[cfg(test)]
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
@@ -460,7 +461,8 @@ pub(crate) fn read_credential(
         std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
     } else {
-        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
+        // `CMUX_CLOUD_ACCESS_TOKEN`, else an API token in `CMUX_TOKEN` (api_tokens.rs).
+        return Ok(super::api_tokens::env_credential(env));
     };
     let credential = raw.trim().to_owned();
     if credential.is_empty() {

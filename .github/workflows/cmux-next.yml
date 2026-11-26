@@ -936,7 +936,7 @@ jobs:
       - id: checkout
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &path-route-checkout
           persist-credentials: false
           # Why: note-94
@@ -956,7 +956,7 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *path-route-checkout
       - name: Pause before the last checkout try
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
@@ -964,7 +964,7 @@ jobs:
       - name: Retry the checkout a last time
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
         timeout-minutes: 3
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *path-route-checkout
       - name: Widen the sparse checkout with a parallel blob fetch
         env:
@@ -1158,7 +1158,7 @@ jobs:
       tree_state: ${{ steps.wait.outputs.tree_state }}
       tree_fetch_key: ${{ steps.wait.outputs.tree_fetch_key }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -1173,9 +1173,9 @@ jobs:
   macos-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     # Why: note-15
-    needs: [path_route, push-head-preflight, app-compile-placement, fast-tier-cargo]
+    needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: note-369
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'dev-build') || needs.path_route.outputs.mac_release == 'true' || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' || needs.path_route.outputs.generated_host == 'generated-files')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'dev-build') || needs.path_route.outputs.mac_release == 'true' || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' || needs.path_route.outputs.generated_host == 'generated-files')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # Why: note-108, 2026-11-24-macos-placement-1.md
@@ -1267,7 +1267,7 @@ jobs:
         timeout-minutes: 1
         if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-')
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -1503,7 +1503,7 @@ jobs:
       checks: read
     # Why: note-2
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: note-132
@@ -2254,7 +2254,7 @@ jobs:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
           # Why: note-172
@@ -2419,7 +2419,7 @@ jobs:
           KEY: ${{ needs.path_route.outputs.tree_key }}
         run: echo "same-tree cmux-tui ${KEY:+tree $KEY }is ready"
       - name: Check out the takeover script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -2512,7 +2512,7 @@ jobs:
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -2580,8 +2580,8 @@ jobs:
   # Why: 2026-11-24-swift-canary-fleet-4.md, note-35
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    needs: [path_route, push-head-preflight, fast-tier-cargo]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [path_route, push-head-preflight]
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: note-179
@@ -2596,7 +2596,7 @@ jobs:
       - name: Check out the trusted placement
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -2681,7 +2681,7 @@ jobs:
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: scripts/ci
@@ -2782,7 +2782,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -2795,7 +2795,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -2880,7 +2880,7 @@ jobs:
       - name: Check out the trusted placement
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -2991,7 +2991,7 @@ jobs:
       - name: Check out the fleet fast tier reader
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
@@ -3185,7 +3185,7 @@ jobs:
       - name: Check out the trusted placement
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -3378,7 +3378,7 @@ jobs:
         if: env.CMUX_FAST_TIER_FLEET != 'report'
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -3393,7 +3393,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -3603,7 +3603,7 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     permissions:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
@@ -3616,11 +3616,13 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # Why: 2026-11-26-fast-tier-cargo-reuse.md
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       # Why: note-559
       FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
     steps:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
           persist-credentials: false
@@ -3816,7 +3818,7 @@ jobs:
           inputs="$( { git ls-files -z -- 'cmux-tui/Cargo.lock' 'cmux-tui/**/Cargo.lock' 'cmux-tui/rust-toolchain.toml' \
             | xargs -0 sha256sum; rustc -Vv; cargo -V; } | sha256sum | cut -c1-16)"
           workspace="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
-          prefix="cmux-next-fast-tier-cargo-v1-$workspace-"
+          prefix="cmux-next-fast-tier-cargo-v2-$workspace-"
           {
             echo "target-prefix=$prefix"
             echo "target-key=$prefix$inputs"
@@ -3838,6 +3840,12 @@ jobs:
           path: cmux-tui/target
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      # Why: 2026-11-26-fast-tier-cargo-reuse.md
+      - name: Restore source mtimes for the R2 cargo build
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        run: python3 -I scripts/blacksmith-testbox-source-mtimes.py restore . cmux-tui/target/.cmux-testbox-source-mtimes.tsv
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
@@ -3879,9 +3887,10 @@ jobs:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
         run: |
           set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # Why: 2026-11-26-fast-tier-cargo-reuse.md
+          python3 -I scripts/blacksmith-testbox-source-mtimes.py record . cmux-tui/target/.cmux-testbox-source-mtimes.tsv
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json" --keep ghostty-vt-sys
           # Why: 2026-11-24-fast-tier-cargo-10.md
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -4042,7 +4051,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: 2026-11-24-swift-test-1.md
@@ -4056,7 +4065,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: 2026-11-24-swift-test-1.md
@@ -4635,7 +4644,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-247
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -4651,7 +4660,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-249
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -4711,23 +4720,29 @@ jobs:
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
       # Why: note-251, note-385
+      # Why: 2026-11-25-daemon-test-seed-root.md
       - name: Keep Swift package builds on this owned Mac
+        id: spm-root
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
+          CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_DAEMON_TEST_OWNED_SEED || vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           # Why: 2026-11-26-mac-github-403.md
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
           python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-378
       - name: Compute the fast-tier seed keys
         id: seed-key
-        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+        env:
+          # The seed's key holds the path it was built at: the seed root on an owned mini.
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
@@ -4740,16 +4755,20 @@ jobs:
           CMUX_LAN_CACHE_TIMEOUT: "480"
         with:
           backend: r2
-          path: Packages/macOS/CmuxNext/.build
+          path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.seed-key.outputs.swift-key }}
           restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
 
       - name: Replay the seed's input times
         if: ${{ (steps.seed-restore.outputs.cache-matched-key != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+          SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
         run: |
-          python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
-          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+          python3 scripts/ci/owned_spm_scratch.py drop-bundles "$ROOT/Packages/macOS/CmuxNext/.build"
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -4828,16 +4847,18 @@ jobs:
 
       - name: Install the restored web bundles
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
-        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: build-tests
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
@@ -4867,7 +4888,7 @@ jobs:
         id: actions
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
           CMUX_NEXT_JOB_BUILT: plain
@@ -4879,6 +4900,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_NEXT_JOB_BUILT: plain
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/check-settings-exports.sh
 
       # Why: note-258
@@ -4887,6 +4909,7 @@ jobs:
         if: ${{ (env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 10
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
           CMUX_NEXT_JOB_BUILT: plain
@@ -4911,12 +4934,13 @@ jobs:
 
       - name: Compile string catalogs into the resource bundles
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
       # Why: note-57
       - name: Clean generated layout-reducer FFI lockfile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: |
           lock=cmux-tui/crates/cmux-app-ffi/Cargo.lock
           if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
@@ -4927,6 +4951,7 @@ jobs:
 
       - name: Fetch the same-tree cmux-tui
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         timeout-minutes: 50
         env:
           # Why: note-259
@@ -4939,13 +4964,14 @@ jobs:
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         timeout-minutes: 2
         run: scripts/cmux-next/check-daemon-capabilities.sh
 
       - name: Run the live-daemon suites
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
@@ -4954,7 +4980,7 @@ jobs:
       - name: Run state-resource regressions
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
@@ -4962,6 +4988,7 @@ jobs:
       # Why: note-58
       - name: Regenerate stale files
         id: regenerate
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         if: ${{ (!cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure')) && steps.reuse.outputs.hit != 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
@@ -5064,7 +5091,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: 2026-11-24-generated-files-base-red-1.md
@@ -5118,7 +5145,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &generated-files-linux-checkout
           persist-credentials: false
           submodules: false
@@ -5142,7 +5169,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *generated-files-linux-checkout
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -5280,7 +5307,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: 2026-11-24-swift-test-1.md
@@ -5294,7 +5321,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Why: 2026-11-24-swift-test-1.md
@@ -5726,7 +5753,7 @@ jobs:
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -5869,7 +5896,7 @@ jobs:
           echo "::error title=Release compile::the fleet fast check did not compile $REF (verdict ${VERDICT:-none}, job $RESULT); see its log."
           exit 1
       - name: Checkout the pushed commit for the promotion request
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -5955,7 +5982,7 @@ jobs:
         id: checkout
         continue-on-error: true
         timeout-minutes: 12
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -5974,7 +6001,7 @@ jobs:
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
         timeout-minutes: 15
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -6161,7 +6188,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -6198,7 +6225,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -6241,7 +6268,7 @@ jobs:
       host: ${{ steps.place.outputs.host }}
       gap: ${{ steps.place.outputs.gap }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -6315,7 +6342,7 @@ jobs:
     steps:
       - name: Check out the fleet result reader
         timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: |
@@ -6391,7 +6418,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-301
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -6405,7 +6432,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-303
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -6874,7 +6901,8 @@ jobs:
         id: hybrid-ref-capture
         if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
         continue-on-error: true
-        timeout-minutes: 8
+        # Why: 2026-11-26-ref-capture-bound.md
+        timeout-minutes: 18
         env:
           GH_TOKEN: ${{ github.token }}
           # Why: note-325
@@ -6897,29 +6925,20 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
-          # Why: note-407
-          started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
-            --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
-          started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
-          [[ -n "$started" ]] || started="$DECIDE_STARTED"
-          if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
-            echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
-            exit 0
-          fi
           log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
           python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
             --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
             --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
             --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
       - name: Upload the REF capture manifest
-        if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
+        if: ${{ !cancelled() && steps.hybrid-ref-capture.outcome != 'skipped' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
-          path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
-          if-no-files-found: error
+          path: ${{ runner.temp }}/hybrid-ref-capture/manifest.json
+          if-no-files-found: ignore
           retention-days: 7
 
   # Why: note-326
@@ -6975,7 +6994,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out the status script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -7025,7 +7044,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out the status script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -7082,7 +7101,7 @@ jobs:
       tree_state: ${{ steps.tree.outputs.tree_state }}
       tree_fetch_key: ${{ steps.tree.outputs.tree_fetch_key }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -7172,7 +7191,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -7181,7 +7200,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -7562,7 +7581,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -7620,7 +7639,7 @@ jobs:
       pull-requests: read
     steps:
       # Why: note-345
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next

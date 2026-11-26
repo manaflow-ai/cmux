@@ -90,6 +90,7 @@ jobs:
       suites: ${{ steps.plan.outputs.suites }}
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
+      base: ${{ steps.plan.outputs.base }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
@@ -156,10 +157,11 @@ jobs:
           SUITE: ${{ inputs.suite }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
+          GOOD: ${{ inputs.good }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA"
+            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -304,6 +306,9 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
+      # then fails; the standing reds are listed by name in its summary.
+      base: ${{ needs.plan.outputs.base }}
     permissions:
       contents: read
 

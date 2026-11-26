@@ -43,6 +43,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/hourly_full_tier.py
             .github/hourly-full-tier.json
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The run lists each workflow's runs and dispatches them (actions: write) and compares commits (contents: read)
       # on the App's own REST budget, not the shared job token's.
