@@ -209,15 +209,19 @@ extension PaneCommitMotion {
     /// of an act before (``cover(_:under:_:)``) is no move, and is not copied.
     ///
     /// A copy is for ONE pane: its key starts as the move's key does (the act's number), and ends with that pane's
-    /// number after ``copyMark``. A mask that an act before made under ANOTHER pane, and that ``cut(_:by:_:)`` uses
-    /// again under this one, keeps no copy for that pane: each copy for a pane that is not this act's one pane comes
-    /// off its part here, before a new copy. A pane that moves alone again keeps its copies: its hole goes with each
-    /// move that it still has.
+    /// number after ``copyMark``. A pane that moves alone again keeps its copies: its hole goes with each move that
+    /// it still has.
+    ///
+    /// An act before can have made a mask under ANOTHER pane, and ``cut(_:by:_:)`` uses it again under this one. Its
+    /// parts then have a move that the cut gave it in an act of which this pane has no animation on its layer: a
+    /// move for the other pane's hole, and a copy for this pane would add to a hole that is not this pane's hole.
+    /// So a mask that is used again under another pane is as on the base branch alone: each copy for a pane that is
+    /// not this act's one pane comes off its part here, and the mask gets no copy for this pane.
     ///
     /// The limit that stays: a mask whose parts have moves of that act gets nothing. A mask that the same pane cut in
-    /// that act has them from there (a zoom, then its unzoom). A mask that an act before made under ANOTHER pane keeps
-    /// the moves that ``cut(_:by:_:)`` gave it for that pane's hole in that act, as it did with no copy: its hole is
-    /// not at this pane's rect until those moves end.
+    /// that act has them from there (a zoom, then its unzoom). A mask that is used again under another pane keeps the
+    /// moves that ``cut(_:by:_:)`` gave it for that pane's hole: its hole is not at this pane's rect until those
+    /// moves, and this pane's own moves of acts before, end.
     private func carryMoves(of change: Change, toTheMasksOf hosts: [PaneHostView]) {
         let pane = Self.copyMark + String(Int(bitPattern: ObjectIdentifier(change.host)))
         for part in hosts.flatMap({ ($0.clipView.layer?.mask as? PaneHoleMaskLayer)?.sublayers ?? [] }) {
@@ -237,6 +241,14 @@ extension PaneCommitMotion {
             if path == "position" { had.point = from.pointValue } else { had.size = from.sizeValue }
             before[act] = had
         }
+        // The start of a key up to its act's number. A mask with a move, not a copy, of an act that is not one of
+        // this pane's acts is used again under another pane: it gets no copy.
+        func actStart(_ key: String) -> String { key.split(separator: ".").prefix(3).joined(separator: ".") }
+        let mine = Set((layer.animationKeys() ?? []).map { actStart($0) }).union(["pane.commit.\(serial)"])
+        let fresh = hosts.filter { host in
+            let keys = ((host.clipView.layer?.mask as? PaneHoleMaskLayer)?.sublayers ?? []).flatMap { $0.animationKeys() ?? [] }
+            return !keys.contains { $0.hasPrefix("pane.commit.") && !$0.contains(Self.copyMark) && !mine.contains(actStart($0)) }
+        }
         let anchor = layer.anchorPoint
         for (act, had) in before {
             // The pane with that move alone is `far` from its place and `had.size` larger. A part's distance does not
@@ -245,7 +257,7 @@ extension PaneCommitMotion {
             let hole = CGRect(x: 0, y: 0, width: abs(had.size.width) + 1, height: abs(had.size.height) + 1)
             let then = CGRect(x: far.x, y: far.y, width: hole.width + had.size.width, height: hole.height + had.size.height)
             let starts = PaneHoleMaskLayer.rects(around: then, in: hole.union(then)), ends = PaneHoleMaskLayer.rects(around: hole, in: hole.union(then))
-            for host in hosts {
+            for host in fresh {
                 guard let parts = (host.clipView.layer?.mask as? PaneHoleMaskLayer)?.sublayers, parts.count == ends.count,
                       !parts.contains(where: { part in (part.animationKeys() ?? []).contains { $0.hasPrefix(act) } }) else { continue }
                 for (part, (start, end)) in zip(parts, zip(starts, ends)) {
