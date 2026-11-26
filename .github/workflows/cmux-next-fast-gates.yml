@@ -95,6 +95,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &resolve-sparse |
+            /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
             /scripts/ci/fast-check-inputs.json
@@ -297,6 +298,7 @@ jobs:
             /scripts/ci/ci_receipt.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
+            /.gitmodules
 
       - name: Verify the local test receipt
         id: verify
@@ -702,3 +704,15 @@ jobs:
             exit 1
           fi
           echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
+
+  # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
+  fast-gates-fail-fast:
+    name: head fail-fast after fast gates
+    needs: fast-gates
+    if: ${{ failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next-fast-gates.yml
+    permissions:
+      actions: write
+      contents: read
