@@ -1375,19 +1375,6 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         return UIMenu(title: item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()), options: .displayInline, children: children)
     }
 
-    func rowPeek(_ id: String) -> UIViewController? {
-        guard let item = items[id], let list = collectionView else { return nil }
-        let chat = context.chat(item)
-        let content = FeedPeek.content(opensTerminal: item.opensTerminal, hasLink: item.link != nil, loadedTurns: chat?.turns.count ?? 0)
-        let container = list.window?.bounds.size ?? list.bounds.size
-        return FeedPeekView.controller(item: item, chat: content == .chat ? chat : nil, container: container)
-    }
-
-    func rowPeekCommit(_ id: String) {
-        guard let item = items[id] else { return }
-        context.openFromPeek(item)
-    }
-
     // MARK: Demo driver
 
     #if DEBUG
