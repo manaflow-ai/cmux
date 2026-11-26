@@ -5,6 +5,35 @@
 use super::*;
 
 wire_op! {
+    /// Read one kept run with the body of the automation version that fired it.
+    RunGetOp {
+        name: "run.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: RunGetParams,
+        result: RunWithBody,
+        error: RunGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunGetParams {
+    pub run: RunId,
+}
+
+wire_errors! {
+    /// The error codes run.get declares.
+    RunGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
     /// Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).
     RunListOp {
         name: "run.list",
@@ -870,34 +899,4 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived.
-    TeamCloudSessionPublishOp {
-        name: "team.cloud.session.publish",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: TeamCloudSessionPublishParams,
-        result: CloudSessionView,
-        error: TeamCloudSessionPublishError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionPublishParams {
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub kind: CloudSessionKind,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<CloudSessionId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-    pub machine_state: CloudSessionMachineState,
-    pub activity: CloudSessionActivity,
-    pub last_activity_at: i64,
 }

@@ -4,6 +4,32 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
+    UsageCapSetOp {
+        name: "usage.cap.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UsageMeterDO",
+        risk: "money",
+        principals: [Session],
+        params: UsageCapSetParams,
+        result: UsageCapSetResult,
+        error: UsageCapSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetParams {
+    pub cap_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetResult {
+    pub owner: Option<TeamId>,
+    pub team_cap_usd: Option<WireNumber>,
+}
+
 wire_errors! {
     /// The error codes usage.cap.set declares.
     UsageCapSetError {

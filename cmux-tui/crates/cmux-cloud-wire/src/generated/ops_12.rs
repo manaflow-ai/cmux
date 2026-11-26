@@ -5,6 +5,37 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsResult {
+    pub team: TeamId,
+    pub users: Vec<TeamVmAccountUser>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.accounts declares.
+    TeamVmAccountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+    }
+}
+
+wire_op! {
+    /// Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).
+    TeamVmEnsureAwakeOp {
+        name: "team_vm.ensure_awake",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmEnsureAwakeParams,
+        result: TeamVmEnsureAwakeResult,
+        error: TeamVmEnsureAwakeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmEnsureAwakeParams {
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -870,30 +901,4 @@ wire_errors! {
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
-    UsageCapSetOp {
-        name: "usage.cap.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UsageMeterDO",
-        risk: "money",
-        principals: [Session],
-        params: UsageCapSetParams,
-        result: UsageCapSetResult,
-        error: UsageCapSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetParams {
-    pub cap_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageCapSetResult {
-    pub owner: Option<TeamId>,
-    pub team_cap_usd: Option<WireNumber>,
 }

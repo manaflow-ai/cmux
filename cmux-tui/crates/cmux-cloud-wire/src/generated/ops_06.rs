@@ -4,6 +4,38 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes feed.read declares.
+    FeedReadError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report items the user saw in view (a client's visibility rule); seen items do not push.
+    FeedSeenOp {
+        name: "feed.seen",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedSeenParams,
+        result: FeedSeenResult,
+        error: FeedSeenError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedSeenParams {
     pub items: Vec<FeedItemId>,
@@ -864,31 +896,4 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         SelectorNotFound = "selector.not_found",
     }
-}
-
-wire_op! {
-    /// Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op.
-    GroupMembersRemoveOp {
-        name: "group.members.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: GroupMembersRemoveParams,
-        result: GroupMembersRemoveResult,
-        error: GroupMembersRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupMembersRemoveParams {
-    pub group: GroupId,
-    pub user: UserId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupMembersRemoveResult {
-    pub group: GroupId,
-    pub members: Vec<CloudGroupMember>,
 }
