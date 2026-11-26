@@ -557,7 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
-        guard !CloudGitHubCompletion.handle(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
+        guard !services.accounts.github.finishCompletion(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
         Task { if await auth.callbackFailed(url) { try? services.settingsWindow.show(section: .accounts) } }
     }
 
