@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-fleet:
     name: Build the iPhone app and UI tests for the simulator
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
