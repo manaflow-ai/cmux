@@ -435,8 +435,8 @@ pub enum Command {
         command: Vec<String>,
     },
     /// The exec router (`placement/exec_router.rs`): where each heavy command an agent, a
-    /// helper or their subprocesses ran went, and why.
-    #[command(subcommand)]
+    /// helper or their subprocesses ran went, and why. Not `exec`: that is `new`'s alias.
+    #[command(name = "exec-router", subcommand)]
     Exec(ExecCmd),
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
@@ -1837,7 +1837,7 @@ mod deadline_defaults_tests {
     }
 }
 
-/// `acpmux exec ...`.
+/// `acpmux exec-router ...`.
 #[derive(Debug, clap::Subcommand)]
 pub enum ExecCmd {
     /// Each routing decision, newest last: where it ran (fork or here), what sent it (hook,

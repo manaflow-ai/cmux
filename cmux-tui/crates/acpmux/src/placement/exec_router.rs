@@ -22,7 +22,7 @@
 //!    `CMUX_EXEC_ROUTE=routed` sends it to a run VM whatever its class ([`Force`]); both write a
 //!    trace row, so the suite runs one command each way and compares stdout, exit and the tree.
 //!    The kill switch still wins over `routed`.
-//! 4. **`acpmux exec trace`** prints each decision from `run-vm.jsonl`: where it ran, why, what
+//! 4. **`acpmux exec-router trace`** prints each decision from `run-vm.jsonl`: where it ran, why, what
 //!    started it (hook, shim, cli), how long, the bytes that came back ([`trace_main`]).
 //!
 //! Any failure before the command's first output line runs it here (`run_vm.rs`'s rule).
@@ -121,7 +121,7 @@ pub fn shim_script(bin: &Path, dir: &Path, program: &str) -> String {
     let prog = sh_word(program);
     format!(
         "#!/bin/sh\n\
-         # acpmux exec router shim for {program} (written by acpmux; `acpmux exec trace` shows\n\
+         # acpmux exec router shim for {program} (written by acpmux; `acpmux exec-router trace` shows\n\
          # where each routed command ran). CMUX_RUN_VMS=0 turns it into a plain pass-through.\n\
          if [ -z \"${{{ROUTED_ENV}:-}}\" ] && [ -n \"${{CMUX_VM_ID:-}}\" ] && [ \"${{CMUX_RUN_VMS:-1}}\" != 0 ]; then\n\
          \x20 exec {bin} run-vm --shim {prog} -- \"$@\"\n\
@@ -229,7 +229,7 @@ pub async fn shim_main(program: &str, args: &[String]) -> anyhow::Result<i32> {
     }
 }
 
-/// One line of `acpmux exec trace` for a row of `run-vm.jsonl`.
+/// One line of `acpmux exec-router trace` for a row of `run-vm.jsonl`.
 pub fn trace_line(row: &serde_json::Value) -> String {
     let s = |k: &str| row.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
     let n = |k: &str| row.get(k).and_then(serde_json::Value::as_u64);
@@ -265,7 +265,7 @@ pub fn trace_line(row: &serde_json::Value) -> String {
     line
 }
 
-/// `acpmux exec trace`: the last `last` decisions, newest last, as lines or JSON rows.
+/// `acpmux exec-router trace`: the last `last` decisions, newest last, as lines or JSON rows.
 pub fn trace_main(last: usize, json: bool) -> anyhow::Result<()> {
     let path = super::run_vm::rows_path();
     let text = match std::fs::read_to_string(&path) {
