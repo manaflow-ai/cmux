@@ -52,6 +52,55 @@ fn ledger(state: &Path) -> Ledger {
 }
 
 #[test]
+fn misplaced_debug_tunables_are_removed_only_from_the_shared_settings() {
+    let dirs = Dirs::new("debug-tunables");
+    std::fs::write(
+        dirs.config(),
+        r#"{
+            "status": { "working": "shimmer" },
+            "tunable": { "diagnostics": { "focusLog": true, "foucusLog": false } },
+            // Keep my language
+            "app": { "language": "en" },
+        }"#,
+    )
+    .unwrap();
+    let support = dirs.0.join("Library/Application Support/cmux-next");
+    let builds = [("builds/test-dev", "breathe", true), ("nightly", "spinner", false)];
+    let mut originals = Vec::new();
+    for (build, working, focus_log) in builds {
+        let dir = support.join(build);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("debug-tunables.json");
+        let text = json!({
+            "version": 1, "values": { "status.working": working, "diagnostics.focusLog": focus_log }
+        })
+        .to_string();
+        std::fs::write(&file, &text).unwrap();
+        originals.push((file, text));
+    }
+
+    // A per-build daemon gets its state directory beside its debug-tunables.json.
+    let dev_state = support.join("builds/test-dev/tui");
+    std::fs::create_dir(&dev_state).unwrap();
+    drop(ConfigStore::open(
+        dirs.config(),
+        None,
+        Some(dev_state),
+        Box::new(FixedManagedReader::default()),
+    ));
+    let text = std::fs::read_to_string(dirs.config()).unwrap();
+    let root = cmux_config::jsonc::parse(&text).unwrap();
+    assert_eq!(at(&root, "status.working"), None);
+    assert_eq!(at(&root, "tunable.diagnostics.focusLog"), None);
+    assert_eq!(at(&root, "tunable.diagnostics.foucusLog"), Some(&json!(false)));
+    assert!(text.contains("// Keep my language"));
+    assert_eq!(at(&root, "app.language"), Some(&json!("en")));
+    for (file, original) in originals {
+        assert_eq!(std::fs::read_to_string(file).unwrap(), original);
+    }
+}
+
+#[test]
 fn a_renamed_key_moves_in_the_file_once_and_is_recorded() {
     let dirs = Dirs::new("moves");
     std::fs::write(
@@ -108,11 +157,70 @@ fn a_broken_file_records_nothing_so_the_next_open_tries_again() {
 }
 
 #[test]
-fn a_new_key_already_set_wins_and_the_old_one_is_left_to_the_table() {
+fn a_new_key_already_set_wins_and_the_old_one_is_removed() {
     let dirs = Dirs::new("both");
     let text = r#"{ "sidebar": { "showCounts": true, "workspaceRow": { "tabCount": false } } }"#;
     std::fs::write(dirs.config(), text).unwrap();
     drop(dirs.open());
+    assert_eq!(dirs.file(), json!({ "sidebar": { "workspaceRow": { "tabCount": false } } }));
+    assert!(ledger(&dirs.state()).applied["rename:sidebar.showCounts"].moved);
+}
+
+#[test]
+fn the_computer_use_opt_out_survives_a_rename() {
+    let dirs = Dirs::new("computer-use");
+    std::fs::write(dirs.config(), r#"{ "computerUse": { "enabled": false } }"#).unwrap();
+    let store = dirs.open();
+    assert_eq!(dirs.file(), json!({ "computerUse": { "mode": "off" } }));
+    assert_eq!(at(&store.state().effective().root, "computerUse.mode"), Some(&json!("off")));
+}
+
+#[test]
+fn dotted_removals_keep_dormant_renames_and_unrelated_siblings() {
+    let dirs = Dirs::new("dotted");
+    let old = json!({
+        "remote.ultraMode": true,
+        "tabs.terminalFirst": true,
+        "tunable.diagnostics": { "focusLog": true, "other": false },
+        "unrelated.key": 3
+    });
+    std::fs::write(dirs.config(), old.to_string()).unwrap();
+    drop(dirs.open());
+    assert_eq!(
+        dirs.file(),
+        json!({
+            "remote.ultraMode": true,
+            "tunable.diagnostics": { "other": false },
+            "unrelated.key": 3
+        })
+    );
+}
+
+#[test]
+fn a_rename_preserves_a_conflicting_parent() {
+    let dirs = Dirs::new("conflicting-parent");
+    let text = r#"{ "sidebar": { "workspaceRow": "unexpected", "showCounts": true } }"#;
+    std::fs::write(dirs.config(), text).unwrap();
+    drop(dirs.open());
     assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);
-    assert!(!ledger(&dirs.state()).applied["rename:sidebar.showCounts"].moved);
+}
+
+#[test]
+fn an_inactive_dotted_mode_cannot_enable_computer_use_during_migration() {
+    let dirs = Dirs::new("dotted-mode");
+    let text = r#"{ "computerUse": { "enabled": false }, "computerUse.mode": "fullAccess" }"#;
+    std::fs::write(dirs.config(), text).unwrap();
+    let store = dirs.open();
+    assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);
+    let row = store.state().get(&Target::Key("computerUse.mode".to_owned())).row.unwrap();
+    assert_eq!(row.value, Some(json!("off")));
+}
+
+#[test]
+fn the_app_can_still_migrate_hidden_tab_buttons_to_pinned_buttons() {
+    let dirs = Dirs::new("pane-buttons");
+    let text = r#"{ "tabs": { "hiddenButtons": ["splitDown"] } }"#;
+    std::fs::write(dirs.config(), text).unwrap();
+    drop(dirs.open());
+    assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);
 }

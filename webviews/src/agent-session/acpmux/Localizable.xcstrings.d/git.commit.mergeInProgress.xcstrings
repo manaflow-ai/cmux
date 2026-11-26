@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.commit.mergeInProgress" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هناك دمج أو إعادة تأسيس أو cherry-pick قيد التنفيذ. أكمله في الطرفية أولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "U toku je merge, rebase ili cherry-pick. Prvo ga završite u terminalu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En merge, rebase eller cherry-pick er i gang. Afslut den i en terminal først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Merge, Rebase oder Cherry-Pick läuft. Schließe ihn zuerst in einem Terminal ab."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A merge, rebase or cherry-pick is in progress. Finish it in a terminal first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hay un merge, rebase o cherry-pick en curso. Termínalo primero en un terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une fusion, un rebase ou un cherry-pick est en cours. Terminez-le d’abord dans un terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "È in corso un merge, un rebase o un cherry-pick. Completalo prima in un terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マージ、リベース、またはチェリーピックが進行中です。先にターミナルで完了してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Merge, Rebase ឬ Cherry-pick កំពុងដំណើរការ។ សូមបញ្ចប់វានៅក្នុងទែមីណាល់ជាមុនសិន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "병합, 리베이스 또는 체리픽이 진행 중입니다. 먼저 터미널에서 완료하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En merge, rebase eller cherry-pick pågår. Fullfør den i en terminal først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trwa scalanie, rebase lub cherry-pick. Najpierw dokończ je w terminalu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Há um merge, rebase ou cherry-pick em andamento. Conclua-o primeiro em um terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выполняется слияние, rebase или cherry-pick. Сначала завершите его в терминале."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "มีการ merge, rebase หรือ cherry-pick ค้างอยู่ ให้ทำให้เสร็จในเทอร์มินัลก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Devam eden bir merge, rebase veya cherry-pick var. Önce bunu terminalde tamamlayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Триває злиття, rebase або cherry-pick. Спершу завершіть його в терміналі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang có merge, rebase hoặc cherry-pick. Hãy hoàn tất nó trong terminal trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "合并、变基或拣选正在进行中。请先在终端中完成。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "合併、重訂基底或揀選正在進行中。請先在終端機中完成。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

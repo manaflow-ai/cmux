@@ -169,6 +169,10 @@ struct ServeLine {
     /// `projection-extend-v1`: the manifest is the whole folder's, for the mount of `name`.
     #[serde(default)]
     extend: bool,
+    /// The folder on the Mac this projects, as that Mac names it. The mount table carries it
+    /// ([`fsname_for`]), so the agent's `this_folder` tool can say which Mac folder it mirrors.
+    #[serde(default)]
+    from: Option<String>,
 }
 
 /// A revision in the person's store, and the read grant to fetch it with.
@@ -991,6 +995,68 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
+/// One aging pass over every mounted projection's content store
+/// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
+/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
+pub fn age_once() -> Option<cmux_projection::hold::Held> {
+    let started = std::time::Instant::now();
+    #[cfg(target_os = "linux")]
+    {
+        let now = std::time::SystemTime::now();
+        let aging = cmux_projection::overlay::content::Aging::default();
+        let live: Vec<(String, Arc<Projected>)> = projections()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(name, projected)| (name.clone(), projected.clone()))
+            .collect();
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            if report.went_cold_blobs + report.deleted_blobs > 0 {
+                eprintln!(
+                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                     deleted ({} bytes freed); holds {} bytes",
+                    report.went_cold_blobs,
+                    report.went_cold_bytes,
+                    report.went_cold_saved_bytes,
+                    report.deleted_blobs,
+                    report.deleted_stored_bytes,
+                    report.held_bytes()
+                );
+            }
+        }
+    }
+    let state = crate::platform::workspace_state_dir()?;
+    let held = cmux_projection::hold::held(&state.join("projections"));
+    let line = serde_json::to_vec(&json!({
+        "schema": "projection-held/v1",
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "held": held,
+    }))
+    .ok()?;
+    let to = state.join("projection-held.json");
+    let temp = to.with_extension("json.new");
+    if std::fs::write(&temp, line).and_then(|()| std::fs::rename(&temp, &to)).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    eprintln!(
+        "cmux projection held: {} logical bytes ({} stored, {} duplicate) in {} blobs ({} cold) \
+         over {} projections, in {} ms",
+        held.logical_bytes,
+        held.stored_bytes,
+        held.duplicate_bytes,
+        held.blobs,
+        held.cold_blobs,
+        held.projections,
+        started.elapsed().as_millis()
+    );
+    Some(held)
+}
+
 /// Starts the reaper thread: a pass [`REAP_FIRST_AFTER`] the daemon starts, then every
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
@@ -1003,6 +1069,7 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
             std::thread::sleep(REAP_FIRST_AFTER);
             loop {
                 reap_once(acpmux_socket.as_deref());
+                age_once();
                 std::thread::sleep(REAP_EVERY);
             }
         });
@@ -1079,7 +1146,8 @@ fn attach(
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
     let state = state_of(&line.name)?;
-    let projected = mount(&line.name, manifest, &state, &at, digest, line.head)?;
+    let projected =
+        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -1224,6 +1292,7 @@ fn mount(
     at: &Path,
     digest: u64,
     head: bool,
+    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
@@ -1265,8 +1334,19 @@ fn mount(
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
     let overlay = Arc::new(overlay);
-    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
-        .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    let named =
+        cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
+    let mounted = match cmux_projection::mount::mount_with(overlay.clone(), at, named) {
+        Ok(mounted) => Ok(mounted),
+        // The Mac folder's name in the mount table is a label only: a mount that refuses it
+        // mounts as before, under the plain name.
+        Err(error) if from.is_some() => {
+            eprintln!("cmux-tui: projection {name}: mounting with its Mac folder named: {error:#}");
+            cmux_projection::mount::mount(overlay.clone(), at)
+        }
+        Err(error) => Err(error),
+    }
+    .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
     // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
     // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
     // first absence, and the next mount tries again.
@@ -1361,9 +1441,39 @@ fn mount(
     _at: &Path,
     _digest: u64,
     _head: bool,
+    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }
+
+/// The mount table's source for a projection: [`FSNAME`], then `:` and the Mac folder it mirrors
+/// when the Mac named one, percent-encoded so no mount option separator, space or escape is in
+/// it (decoded by acpmux's `this_folder`). `CMUX_PROJECTION_NAMES_MAC_FOLDER=0` leaves it out.
+pub fn fsname_for(from: Option<&str>) -> String {
+    let off = std::env::var("CMUX_PROJECTION_NAMES_MAC_FOLDER")
+        .is_ok_and(|value| matches!(value.as_str(), "0" | "false"));
+    let Some(from) = from.filter(|from| {
+        !off && !from.is_empty()
+            && from.len() <= MAX_FROM_BYTES
+            && !from.chars().any(char::is_control)
+    }) else {
+        return FSNAME.to_owned();
+    };
+    let mut name = format!("{FSNAME}:");
+    for byte in from.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/._~+-".contains(&byte) {
+            name.push(char::from(byte));
+        } else {
+            name.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    name
+}
+
+/// The mount table's source of every projection, alone or before `:` and its Mac folder.
+pub const FSNAME: &str = "cmux-projection";
+/// The longest Mac folder name a mount carries; a longer one is left out.
+const MAX_FROM_BYTES: usize = 1024;
 
 /// Git in a projected folder compares a file's size and whole-second mtime only. The index came
 /// from the Mac, so its inode, device, owner and ctime never match this mount's: with git's

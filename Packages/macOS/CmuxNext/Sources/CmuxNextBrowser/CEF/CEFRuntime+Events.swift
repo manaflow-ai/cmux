@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -14,6 +15,10 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
         s1: s1.map { String(cString: $0) } ?? "", s2: s2.map { String(cString: $0) } ?? ""
     )
     let address = UInt(bitPattern: context)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // What each main-thread wake from Chromium was for (`debug.wakeups`): a page's DevTools session among them.
+    WakeupLedger.shared.record("CEF.event", reason: event.ledgerReason)
+    #endif
     // The shim emits on the CEF UI thread, which is the main thread. If a
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
@@ -401,7 +406,9 @@ extension CEFRuntime {
         await shutdown(timeout: timeout, beforeEngineStop: {})
     }
 
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
+    /// `stopsEngine` false (an update's relaunch, ask-ad4a68e740): the pages close and the cookies reach disk as on any
+    /// quit, then the process ends without CefShutdown (the path a timed-out close already takes), not 1 to 3.4 s later.
+    func shutdown(timeout: Duration, stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -444,6 +451,11 @@ extension CEFRuntime {
             return
         }
         await beforeEngineStop()
+        guard stopsEngine else {
+            logger.notice("CEF pages closed; exiting without CefShutdown for an update's relaunch")
+            state = .shutDown
+            return
+        }
         let stopping = ContinuousClock.now
         shim.shutdown()
         state = .shutDown

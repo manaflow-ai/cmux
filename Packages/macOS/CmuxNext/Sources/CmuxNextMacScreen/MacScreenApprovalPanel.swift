@@ -103,6 +103,7 @@ public final class MacScreenApprovalPrompt {
             } catch {
                 guard let self else { return }
                 answering = false
+                // retry-prompt-ok: answering a screen-share request is the person's decision (it lets another device see or control this Mac)
                 self.error = L.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
             }
         }
@@ -216,6 +217,9 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
         super.init(identifier: "macScreen.approval.panel")
+        // SECURITY: left out of every capture cmux makes and refused by Computer Use, as the join consent is: a shared
+        // screen or an agent's capture never shows the Allow it could aim a posted click at.
+        sharingType = .none
         // It shows looking like a window, so it drags like one by its glass and words (Leo, on the screen share card:
         // "it pops up looking like a window and you can't drag it around like one"). Its buttons keep their clicks.
         isMovableByPerson = true

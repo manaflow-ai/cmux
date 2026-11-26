@@ -1,12 +1,17 @@
 public import Foundation
 
 extension ManagedPreferencesManifest {
-    /// Keys the example profile sets: each at its default, so installing
-    /// the example as-is locks those settings without changing them.
+    /// Keys the example profile sets: the first three catalog entries and the
+    /// App Store toggle, each at its default, so installing the example as-is
+    /// locks those settings without changing them.
     static var exampleKeys: [String: Any] {
         var keys: [String: Any] = [:]
         for e in entries.prefix(3) {
             if let value = e.defaultValue.flatMap(propertyList) { keys[e.name] = value }
+        }
+        if let appStore = entries.first(where: { $0.name == "labs.appStore" }),
+           let value = appStore.defaultValue.flatMap(propertyList) {
+            keys[appStore.name] = value
         }
         keys["DisabledFeatures"] = [String]()
         return keys

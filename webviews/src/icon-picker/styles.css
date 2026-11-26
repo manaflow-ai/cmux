@@ -418,23 +418,6 @@
   color: var(--page-text-2);
 }
 
-.icon-keycap {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--page-text) 22%, transparent);
-  color: var(--page-text-2);
-  font: 12px var(--font-ui);
-}
-
-.icon-keycap + .icon-keycap {
-  margin-inline-start: -2px;
-}
-
 .icon-bar-divider {
   width: 1px;
   height: 18px;

@@ -58,12 +58,13 @@ public nonisolated struct ImportCardDeck: Sendable {
             // Safari has one store, no profiles to count.
             guard finding.browser?.family != .safari else { return kinds }
             return "\(ImportSuggestionStrings.profiles(finding.profiles.count)) · \(kinds)"
-        case .claudeCode: return ImportSuggestionStrings.sessions(finding.count)
-        case .codex: return ImportSuggestionStrings.threads(finding.count)
+        case .claudeCode: return ImportSuggestionStrings.sessions(finding.count ?? 0)
+        case .codex: return ImportSuggestionStrings.threads(finding.count ?? 0)
         case .cmuxClassic:
-            return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(finding.count)
-        case .conductor: return ImportSuggestionStrings.workspaces(finding.count)
-        case .iterm2: return ImportSuggestionStrings.profiles(finding.count)
+            guard let count = finding.count else { return "" }
+            return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(count)
+        case .conductor: return ImportSuggestionStrings.workspaces(finding.count ?? 0)
+        case .iterm2: return ImportSuggestionStrings.profiles(finding.count ?? 0)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
     }
@@ -146,6 +147,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             case .sourceGone: ImportSuggestionStrings.sourceGone
             case .importFailed, nil: ImportSuggestionStrings.failed
             }
+            // retry-prompt-ok: running it again reads another app's data (and may ask for Full Disk Access or a
+            // keychain password), and a declined or gone source needs the person first (ImportCardAction.startsWork).
             card.primary = .init(.retry, ImportSuggestionStrings.retry)
             card.secondary = [.init(.hide, ImportSuggestionStrings.notNow)]
         case .done:
@@ -170,7 +173,10 @@ public nonisolated struct ImportCardDeck: Sendable {
         switch job.kind {
         case .claudeCode, .codex: return ImportSuggestionStrings.doneChats
         case .iterm2: return ImportSuggestionStrings.doneTheme
-        case .cmuxClassic: return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
+        case .cmuxClassic:
+            // An accepted settings import can succeed without opening a workspace.
+            if job.opened == 0 { return ImportSuggestionStrings.done }
+            return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
         case .conductor: return ImportSuggestionStrings.doneConductor
         case .ghostty: return ImportSuggestionStrings.doneNothing
         case .browser:

@@ -258,6 +258,15 @@ def log(message: str) -> None:
     print(f"[next-batch {now().strftime('%H:%M:%S')}] {message}", flush=True)
 
 
+def rate_limit_wait(completed: subprocess.CompletedProcess) -> float | None:
+    """Seconds to wait before retrying a rate-limited gh call, or None when it was
+    not one: the gh quota wrapper exits 75 and names "retry after Ns"."""
+    if completed.returncode != 75:
+        return None
+    found = re.findall(r"retry after (\d+)s", completed.stderr or "")
+    return min(float(found[-1]) + 1 if found else 30.0, 120.0)
+
+
 class GitHub:
     """`gh` with the job's token. Every call is one request; nothing loops on its own."""
 
@@ -292,6 +301,14 @@ class GitHub:
                 r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
                 completed.stderr):
             time.sleep(10)  # sleep-ok: backoff before the one retry of a gateway or network timeout
+            completed = self.gh(*args, check=False)
+        for _ in range(3):
+            # The quota wrapper's exit 75 is a rate limit with a reset, not a refusal: a
+            # select over 3,808 open PRs ran 141 queries and lost the batch to one of them.
+            wait = rate_limit_wait(completed)
+            if wait is None:
+                break
+            time.sleep(wait)  # sleep-ok: waits out the reset the rate limit names, at most 3 times
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
@@ -344,6 +361,7 @@ class PullRequest:
     files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
     label_actors: dict[str, str] = field(default_factory=dict)  # label -> login that last applied it
+    unread: bool = False  # files and checks not read: the batch filled from lower numbers first
 
     def short(self) -> str:
         return f"#{self.number}"
@@ -358,14 +376,9 @@ class PullRequest:
 # when an allowed login applied it after the head's commit (trusted_labels).
 LIST_PAGE = 50
 DETAIL_PAGE = 10
-LIST_QUERY = """
-query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, baseRefName: $base, first: $first, after: $after,
-                 orderBy: {field: CREATED_AT, direction: ASC}) {
-      pageInfo { hasNextPage endCursor }
+LIST_NODES = """
       nodes {
-        id number title url isDraft headRefName headRefOid authorAssociation mergeable
+        id number title url isDraft headRefName headRefOid authorAssociation mergeable updatedAt
         author { login }
         isCrossRepository
         labels(first: 30) { nodes { name } }
@@ -380,10 +393,34 @@ query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: Str
           } }
         } } }
       }
+"""
+LIST_HEAD = """
+query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: %s, baseRefName: $base, first: $first, after: $after,
+                 orderBy: {field: %s, direction: %s}) {
+      pageInfo { hasNextPage endCursor }"""
+LIST_TAIL = """
     }
   }
 }
 """
+LIST_QUERY = LIST_HEAD % ("OPEN", "CREATED_AT", "ASC") + LIST_NODES + LIST_TAIL
+# A serve poll every SERVE_POLL_SECONDS listed all ~3,800 open PRs, about 80 pages,
+# again each minute. Between full lists a poll reads only PRs updated since the
+# last list, newest first, and drops the ones closed or merged since. A check
+# finishing does not move a PR's updatedAt, so a PR not re-listed this poll gets
+# its checks read again (never from DETAILS); retargeting off BASE and a stale
+# mergeable wait for the next full list, and landing always lists in full.
+CHANGED_QUERY = LIST_HEAD % ("OPEN", "UPDATED_AT", "DESC") + LIST_NODES + LIST_TAIL
+GONE_QUERY = LIST_HEAD % ("[CLOSED, MERGED]", "UPDATED_AT", "DESC") + """
+      nodes { number updatedAt }""" + LIST_TAIL
+FULL_LIST_SECONDS = 900
+# GitHub's updatedAt against this runner's clock, and a write landing mid-list.
+LIST_SLACK_SECONDS = 120
+# number -> list node, and when the list that filled it started.
+LISTED: dict[int, dict] = {}
+LISTED_AT: list[dt.datetime] = []
 CONTEXTS = """contexts(first: 100{after}) {{
   pageInfo {{ hasNextPage endCursor }}
   nodes {{
@@ -504,23 +541,63 @@ def rollup_failing(rollup: dict) -> bool:
     return any((item.get("state") or "").lower() in RED and item.get("count") for item in counts)
 
 
-def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
-    """Every open PR into BASE. Files and checks are filled in only for PRs
-    the cheap filters keep (ineligible_reason without them), and checks only
-    when the rollup has a failure: nothing else reads them. `fresh` skips the
-    cache (landing rechecks the exact state)."""
+def list_pages(gh: GitHub, query: str, since: dt.datetime | None = None) -> list[dict]:
+    """Every page of a PR list query, or with `since` (newest-first queries) only up
+    to the first node updated before it."""
     owner, name = gh.repo.split("/")
     nodes, after = [], None
     while True:
-        page = gh.graphql(LIST_QUERY, owner=owner, name=name, base=BASE, first=LIST_PAGE, after=after)
+        page = gh.graphql(query, owner=owner, name=name, base=BASE, first=LIST_PAGE, after=after)
         connection = page["repository"]["pullRequests"]
-        nodes += connection["nodes"]
+        for node in connection["nodes"]:
+            if since is not None and parse_time(node.get("updatedAt") or "") < since:
+                return nodes
+            nodes.append(node)
         info = connection.get("pageInfo") or {}
         if not info.get("hasNextPage"):
-            break
+            return nodes
         after = info["endCursor"]
+
+
+def list_nodes(gh: GitHub, delta: bool) -> tuple[list[dict], set[int]]:
+    """Open PRs into BASE in creation order, and the numbers this call listed.
+
+    A full list every FULL_LIST_SECONDS; with `delta` in between, only what was
+    updated since the last list, merged into the one before it (LISTED)."""
+    started = now()
+    if delta and LISTED_AT and (started - LISTED_AT[0]).total_seconds() < FULL_LIST_SECONDS:
+        since = LISTED_AT[-1] - dt.timedelta(seconds=LIST_SLACK_SECONDS)
+        changed = list_pages(gh, CHANGED_QUERY, since)
+        for node in list_pages(gh, GONE_QUERY, since):
+            LISTED.pop(node["number"], None)
+        for node in changed:
+            LISTED[node["number"]] = node
+        # [0] dates the full list, [-1] the newest delta.
+        LISTED_AT[1:] = [started]
+        return [LISTED[number] for number in sorted(LISTED)], {node["number"] for node in changed}
+    nodes = list_pages(gh, LIST_QUERY)
+    LISTED.clear()
+    LISTED.update((node["number"], node) for node in nodes)
+    LISTED_AT[:] = [started]
+    return nodes, set(LISTED)
+
+
+def open_prs(gh: GitHub, fresh: bool = False, need: int | None = None,
+             only: set[int] | None = None) -> list[PullRequest]:
+    """Every open PR into BASE. Files and checks are filled in only for PRs
+    the cheap filters keep (ineligible_reason without them), and checks only
+    when the rollup has a failure: nothing else reads them. `fresh` skips the
+    cache (landing rechecks the exact state).
+
+    `only` reads details for those PR numbers alone. `need` reads them in PR
+    number order (select's order) DETAIL_PAGE at a time and stops once `need`
+    PRs outside a group are eligible; the rest come back `unread`, which
+    ineligible_reason names as next batch. Group members are always read.
+    With 3,808 open PRs (2026-11-25) reading every candidate took about 90
+    detail queries and ran into GitHub's secondary rate limit."""
+    nodes, relisted = list_nodes(gh, delta=need is not None and only is None and not fresh)
     at = now()
-    prs, wanted, keys, found = [], [], {}, {}
+    prs, candidates = [], []
     for node in nodes:
         commit = (node["commits"]["nodes"] or [{}])[0].get("commit") or {}
         rollup = commit.get("statusCheckRollup") or {}
@@ -539,24 +616,46 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
             mergeable=node.get("mergeable") or "UNKNOWN",
         )
         prs.append((pr, node))
+        if only is not None and pr.number not in only:
+            continue
         if ineligible_reason(pr, at) is not None:
             continue
-        key = (pr.sha, json.dumps(rollup, sort_keys=True))
-        keys[node["number"]] = key
-        cached = None if fresh else DETAILS.get(key)
-        if cached is None:
-            wanted.append((node["number"], True, rollup_failing(rollup)))
-        else:
-            found[key] = cached
-    if wanted:
-        fetched = {keys[number]: details for number, details in fetch_details(gh, wanted).items()}
-        found.update(fetched)
-        if len(DETAILS) > 5000:
-            DETAILS.clear()
-        DETAILS.update(fetched)
-    for pr, node in prs:
-        if node["number"] in keys:
-            pr.files, pr.checks = found[keys[node["number"]]]
+        # Not re-listed this poll: its rollup may be older than its checks, so read them.
+        stale = pr.number not in relisted
+        candidates.append((pr, (pr.sha, json.dumps(rollup, sort_keys=True)), rollup_failing(rollup) or stale))
+
+    def read(chunk: list[tuple[PullRequest, tuple, bool]]) -> None:
+        wanted, keys, found = [], {}, {}
+        for pr, key, failing in chunk:
+            keys[pr.number] = key
+            cached = None if fresh or pr.number not in relisted else DETAILS.get(key)
+            if cached is None:
+                wanted.append((pr.number, True, failing))
+            else:
+                found[key] = cached
+        if wanted:
+            fetched = {keys[number]: details for number, details in fetch_details(gh, wanted).items()}
+            found.update(fetched)
+            if len(DETAILS) > 5000:
+                DETAILS.clear()
+            DETAILS.update(fetched)
+        for pr, key, _ in chunk:
+            pr.files, pr.checks = found[key]
+
+    if need is None:
+        read(candidates)
+    else:
+        grouped = [item for item in candidates if groups.group_of(item[0].labels)
+                   or groups.conflicting_groups(item[0].labels)]
+        read(grouped)
+        rest = sorted((item for item in candidates if item not in grouped), key=lambda item: item[0].number)
+        eligible = 0
+        while rest and eligible < need:
+            chunk, rest = rest[:DETAIL_PAGE], rest[DETAIL_PAGE:]
+            read(chunk)
+            eligible += sum(ineligible_reason(pr, at) is None for pr, _, _ in chunk)
+        for pr, _, _ in rest:
+            pr.unread = True
     return [pr for pr, _ in prs]
 
 
@@ -730,6 +829,8 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
         return "a batch integration branch"
     if pr.author not in authors and OPT_IN not in pr.labels:
         return f"author {pr.author or '?'} has not opted in (label {OPT_IN})"
+    if pr.unread:
+        return f"batch is full ({MAX_PRS}); next batch (not read)"
     # The job token can neither push nor merge a workflow change (GitHub
     # requires the `workflows` permission), so those PRs land by hand.
     if any(path.startswith(".github/workflows/") for path in pr.files):
@@ -1992,7 +2093,8 @@ class Controller:
     # -- landing
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
-        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
+        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True,
+                                                   only={pr.number for pr in validation.stack.included})}
         landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
         stop = 0
         for pr in validation.stack.included:
@@ -2249,7 +2351,7 @@ class Controller:
         return bool(changed & files)
 
     def fresh_members(self, prs: list[PullRequest]) -> dict[int, PullRequest]:
-        return {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
+        return {pr.number: pr for pr in open_prs(self.gh, fresh=True, only={pr.number for pr in prs})}
 
     def run_group(self, name: str, members: list[PullRequest]) -> list[tuple[PullRequest, str]]:
         """Validate the group as one stack; land it in order when green, or
@@ -2432,7 +2534,7 @@ class Controller:
 
     def run_cycle(self) -> int:
         only = {int(item) for item in re.split(r"[\s,#]+", self.args.prs) if item} if self.args.prs else None
-        prs = open_prs(self.gh)
+        prs = open_prs(self.gh, need=MAX_PRS, only=only)
         eligible, skipped = select(prs, now(), only)
         group_outcome = self.run_groups(prs, only, skipped)
         if self.validations and not any(text == "landed" for _, text in group_outcome) \
@@ -2546,7 +2648,7 @@ def write_summary(text: str) -> None:
 
 
 def cmd_select(args: argparse.Namespace) -> int:
-    eligible, skipped = select(open_prs(GitHub(args.repo)), now())
+    eligible, skipped = select(open_prs(GitHub(args.repo), need=MAX_PRS), now())
     print(json.dumps({"eligible": [pr.number for pr in eligible], "skipped": skipped}, indent=2))
     return 0
 
@@ -2554,7 +2656,7 @@ def cmd_select(args: argparse.Namespace) -> int:
 def cmd_stack(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
     wanted = {int(item) for item in re.split(r"[\s,#]+", args.prs) if item}
-    prs = [pr for pr in open_prs(gh) if pr.number in wanted]
+    prs = [pr for pr in open_prs(gh, only=wanted) if pr.number in wanted]
     controller = Controller(args)
     base_sha = controller.fetch(prs)
     stack = build_stack(Path(args.worktree), base_sha, sorted(prs, key=lambda pr: pr.number),
@@ -2592,7 +2694,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         main loop too, so the close watch never waits for a batch."""
         while True:
             try:
-                prs = open_prs(gh)
+                prs = open_prs(gh, need=MAX_PRS)
                 latest[0] = (prs, now())
                 watch.observe(prs, now())
             except Exception as error:  # keep polling
