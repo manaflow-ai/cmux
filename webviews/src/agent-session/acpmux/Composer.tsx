@@ -47,7 +47,7 @@ import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
-import { ComposerContext } from "./ComposerContext";
+import { ComposerBranch, ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
 import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
@@ -2914,6 +2914,7 @@ function ComposerFrame({
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
       cloudStartOut={cloudStarting}
+      branchBelow
     />
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
@@ -3820,6 +3821,8 @@ function ComposerFrame({
         chips={
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
+            {/* The branch, in the row that stays at the bottom as the draft grows (ComposerBranch). */}
+            {locationVisible && snapshot.summary?.branch && <ComposerBranch branch={snapshot.summary.branch} />}
             <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />
             <ComposerStatusFoot
               snapshot={snapshot}
