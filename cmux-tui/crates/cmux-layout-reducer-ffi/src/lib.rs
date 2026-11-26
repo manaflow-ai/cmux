@@ -297,6 +297,27 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_region_layout" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_band_heights" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::BandHeights =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::band_heights(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_nav" => {
                 use cmux_layout_reducer::sidebar_nav;
                 let request: sidebar_nav::Request =
