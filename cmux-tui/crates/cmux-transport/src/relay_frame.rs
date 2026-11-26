@@ -243,7 +243,7 @@ fn split_tagged(payload: &[u8]) -> Result<Vec<TaggedRecord<'_>>, RelayFrameError
         records.push(TaggedRecord {
             class: record.class as u8,
             tag: record.tag.map(|t| (t.key, t.seq)),
-            data: &consumed[head..],
+            data: consumed.get(head..).ok_or(RelayFrameError::BadBatch)?,
         });
         rest = next;
     }
