@@ -1592,7 +1592,8 @@ exit "$status"
 # Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction,
 # steer-during-compaction, background-task and reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
 # frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
-# no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
+# no acpmux build, and no cmux-tui/ input (web_subareas.py's chat_flow). Alone: its WebKit install takes apt's lock,
+# as agent-pane-real-acpmux's does.
 [step.chat-flow-shift-budget]
 job = "web-browser"
 timeout = 900
@@ -1604,7 +1605,6 @@ inputs = [
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
-  "cmux-tui/**",
   "schemas/**",
   "release-notes/next/highlights/*.md",
   "web/data/**",
@@ -1635,12 +1635,11 @@ inputs = [
   "scripts/install-git-hooks.sh",
   "tests/test_install_git_hooks.py",
   ".gitattributes",
-  ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/playwright-apt-cache/**",
   ".github/workflows/ci-web.yml",
 ]
 run = '''
-python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+python3 -I scripts/ci/web_subareas.py has chat_flow || exit 0
 root="$PWD"
 cd webviews
 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
