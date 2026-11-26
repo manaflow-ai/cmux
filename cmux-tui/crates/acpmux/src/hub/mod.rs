@@ -128,6 +128,7 @@ pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
+mod cache_alarm;
 mod cpu_pressure;
 mod github_owner;
 mod goal_tools;
