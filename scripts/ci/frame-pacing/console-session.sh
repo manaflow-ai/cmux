@@ -88,7 +88,11 @@ PLIST
 
 [ "$mode" = own ] && run_own "$@"
 
-console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
+# The console user is the account of IOConsoleUsers' session on the console, the one rule of the fleet worker gate
+# and bench_launch.py. Not the console device's owner: another account's Screen Sharing session off the console (the
+# fleet's hidden CI accounts, 2026-11-18) is not where the bench's windows draw.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+console_user="$(/usr/bin/python3 -I "$here/../../cmux-next/bench_launch.py" console-user 2>/dev/null || true)"
 manager="$(launchctl managername 2>/dev/null || true)"
 # A runner already in Aqua needs no hop, and a hop needs launchctl itself under sudo: a Mac whose sudoers
 # grants other commands (purge, fs_usage) but not launchctl runs the command where it is.

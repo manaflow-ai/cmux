@@ -1,3 +1,5 @@
+/** @jsxImportSource ../../../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // Session Info for the App to draw (model.ts): the page's sections as plain rows, sent as
 // `pane.sessionInfo` whenever what they list changes, and none of the page's own panel. It takes
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
