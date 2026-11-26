@@ -700,10 +700,9 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
-    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes CI_FORK_LINUX_RUNNER, a
-    # fork-only variable that is GitHub-hosted 'ubuntu-24.04' while unset, so the gate reads that literal.
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes GitHub-hosted 'ubuntu-24.04'.
     r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
-    r"github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| ('ubuntu-24\.04')\) \|\| 'cmux-linux'\)"
+    r"github\.repository && ('ubuntu-24\.04') \|\| 'cmux-linux'\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
