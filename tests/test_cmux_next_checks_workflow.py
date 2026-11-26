@@ -1153,7 +1153,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertEqual(comment["env"]["GH_READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
         minted = [("push-attribution", mint)]
         # fast-tier stays secret-free (test_fast_tier_reads_next_bucket_publicly_and_never_saves).
-        for job_id in ("swift-test", "generated-files", "release-compile"):
+        for job_id in ("swift-test", "generated-files", "release-compile", "fast-tier-cargo"):
             job_steps = jobs[job_id]["steps"]
             ids = [step.get("id") for step in job_steps]
             token = job_steps[ids.index("reuse-token")]
@@ -2198,7 +2198,10 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         argv = shlex.split(lookup["run"])
         self.assertEqual(argv[argv.index("--trusted-workflow") + 1], ".github/workflows/cmux-next.yml")
         self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])
-        self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+        # The repository token's hourly budget ran out and every lookup was a 403
+        # (docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-cargo-bot-read.md): a feat-cmux-next push
+        # lists with the cmux-bot read token; a pull request run keeps the workflow token.
+        self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ steps.reuse-token.outputs.token || github.token }}")
         self.assertIs(lookup.get("continue-on-error"), True)
         trusted = steps[index_of(steps, lambda s: s.get("name") == "Reuse the trusted planner pass")]
         self.assertIn("planner-reuse.outputs.hit", trusted["if"])
@@ -2206,6 +2209,20 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
             text = json.dumps(step)
             if any(marker in text for marker in ("fast-tier.py", "rust-cache", "ghostty-zig-packages")):
                 self.assertIn("steps.planner-reuse.outputs.hit != 'true'", text, step.get("name"))
+
+    def test_cargo_mirror_lookups_read_with_the_bot_token_behind_a_kill_switch(self):
+        steps = self.steps("fast-tier-cargo")
+        ids = [step.get("id") for step in steps]
+        token = steps[ids.index("reuse-token")]
+        # The mirror's candidate lookup runs inside the fingerprint step, so the token comes first.
+        self.assertLess(ids.index("reuse-token"), ids.index("reuse-key"))
+        self.assertIn("vars.CI_FAST_TIER_CARGO_BOT_READ != '0'", token["if"])
+        self.assertIn("inputs.no_reuse != true", token["if"])
+        self.assertEqual(token.get("timeout-minutes"), 1)
+        for step_id in ("reuse-key", "reuse", "planner-reuse"):
+            with self.subTest(step=step_id):
+                self.assertEqual(steps[ids.index(step_id)]["env"]["GH_TOKEN"],
+                                 "${{ steps.reuse-token.outputs.token || github.token }}")
 
     def test_the_lookup_reads_the_artifact_list(self):
         for job in self.JOBS:

@@ -3679,13 +3679,23 @@ jobs:
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Why: 2026-11-26-fast-tier-cargo-bot-read.md
+      - name: Mint a read token
+        id: reuse-token
+        if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_FAST_TIER_CARGO_BOT_READ != '0' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with: {app-id: '${{ vars.CMUX_BOT_APP_ID }}', private-key: '${{ secrets.CMUX_BOT_APP_KEY }}',
+          owner: '${{ github.repository_owner }}', repositories: '${{ github.event.repository.name }}', permission-actions: read}
+
       # Why: note-43
       - name: Fingerprint this job's inputs
         id: reuse-key
         if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.reuse-token.outputs.token || github.token }}
           MIRROR_PLAN: ${{ format('{0}', vars.CI_REBUILD_MIRROR) != '0' && format('{0}/ci-rebuild-plan.json', runner.temp) || '' }}
           REBUILD_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -3703,7 +3713,7 @@ jobs:
         if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == '0' && vars.CI_NEXT_JOB_REUSE == '1' && steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.reuse-token.outputs.token || github.token }}
           KEY: ${{ steps.reuse-key.outputs.key }}
         run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" >> "$GITHUB_OUTPUT"
 
@@ -3735,7 +3745,7 @@ jobs:
         if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.planner-evidence.outputs.eligible == 'true' && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.candidate_key != '' && inputs.no_reuse != true }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.reuse-token.outputs.token || github.token }}
           KEY: ${{ steps.reuse-key.outputs.candidate_key }}
         run: |
           python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" \
