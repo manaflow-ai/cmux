@@ -94,6 +94,13 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
         visibilityChanged()
     }
 
+    /// Views window mode: a container whose page joined the tree out of every window (a workspace made ahead, parked)
+    /// installs its window's slot when it joins one, before the fork adopts that window at the page's next update.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil, InTreePages.shared.isViewsWindow { ViewsWindowSlotView.install(over: self) }
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
         visibilityChanged()
