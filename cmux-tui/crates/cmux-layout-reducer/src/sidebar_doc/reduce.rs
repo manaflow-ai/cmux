@@ -20,7 +20,7 @@ use super::model::*;
 use super::order_key;
 use serde_json::Value;
 
-pub use super::check::{check, diff, fit_title, repair};
+pub use super::check::{check, clear_in_group_pins, diff, fit_title, repair};
 
 /// The rows one apply changed.
 #[derive(Debug, Clone, PartialEq, Default)]

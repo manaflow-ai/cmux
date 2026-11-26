@@ -671,3 +671,32 @@ fn item_update_stores_the_items_space_and_its_inverse_takes_it_back() {
     run(&mut doc, clear);
     assert_eq!(room(&doc), None, "a null room clears it");
 }
+
+#[test]
+fn clearing_in_group_pins_keeps_the_rows_where_they_list() {
+    // Leo 2026-11-25 (ask-4ef9900ce0), of a grouped row's pin symbol: "THIS ISN'T FIXED/REMOVED YET".
+    let mut doc = fixture();
+    legacy_pin_in_group(&mut doc, "w3");
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
+    assert!(pinned_in_group(&doc, "w3"));
+    assert!(super::reduce::clear_in_group_pins(&mut doc));
+    assert!(!pinned_in_group(&doc, "w3"));
+    assert!(!doc.item(&item_id("w3")).unwrap().extra.contains_key(PINNED_IN_GROUP_KEY));
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
+    super::reduce::check(&doc).expect("the cleared document passes check");
+    assert!(!super::reduce::clear_in_group_pins(&mut doc), "a second pass changes nothing");
+    // A later move inside the group is free again: no pinned run to keep to.
+    run(
+        &mut doc,
+        vec![Op::Move {
+            items: vec![item_id("w3")],
+            to: Target {
+                section: machine(),
+                parent: Some("g1".into()),
+                index: Some(2),
+                ..Target::default()
+            },
+        }],
+    );
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+}
