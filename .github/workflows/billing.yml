@@ -27,6 +27,7 @@ name: Billing
 # changed files.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - ".github/workflows/billing.yml"
@@ -197,7 +198,7 @@ permissions:
 concurrency:
   # github.workflow is the caller's name when billing-nightly.yml calls this,
   # so a push or dispatch here never queues against (and cancels) the nightly.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -206,12 +207,13 @@ env:
 
 jobs:
   billing:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: billing
     # The routing App's secrets (the macOS pool pick below) live in this
     # environment for non-pull-request runs, as in ios-reliability-matrix.yml.
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
       # The macOS pool pick reads the queue janitor's pool snapshot (an artifact).
@@ -386,6 +388,12 @@ jobs:
       # /home/runner/actions-runner/.bun/bin/bun, and the step then fails with
       # "Unable to locate executable file: /home/runner/.bun/bin/bun" (push run
       # 44618497833). The download is one ~50 MB file.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.route.outputs.web == 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.route.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -469,6 +477,38 @@ jobs:
           fi
           exit "$status"
 
+      # The iOS billing packages that scripts/ci/swift-linux-packages.txt lists
+      # (CmuxMobileBilling, cmux#51128) run here, on Linux, in the same swift
+      # container and through the same `package-test-lane.sh suite` as
+      # swift-linux-packages.yml, so ios-billing's Mac runs only what needs
+      # Apple: the unlisted packages and the StoreKit slot (RFD 0051). The
+      # container runs as root, so the step hands Packages/ back to the
+      # runner's user: a persistent runner reuses this workspace.
+      - name: iOS billing unit tests (Linux)
+        if: ${{ !cancelled() && steps.route.outputs.ios == 'true' }}
+        timeout-minutes: 12
+        env:
+          SWIFT_IMAGE: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+        run: |
+          set -euo pipefail
+          rows="$(awk '$1 ~ /^Packages\/iOS\/[^\/]*Billing[^\/]*$/ { print $1, $2 }' scripts/ci/swift-linux-packages.txt)"
+          if [ -z "$rows" ]; then
+            echo "no listed iOS billing package; ios-billing's Mac runs them all"
+            exit 0
+          fi
+          printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
+            -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
+              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              status=0
+              while read -r dir targets; do
+                echo "::group::$dir ($targets)"
+                bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+                echo "::endgroup::"
+              done < /rt/billing-linux-rows.txt
+              chown -R "$OWNER" /w/Packages
+              exit "$status"'
+
   ios-billing:
     name: ios-billing
     needs: billing
@@ -477,7 +517,7 @@ jobs:
     # glaeda-ios-sim; Blacksmith macOS 26 only while vars.CI_BLACKSMITH_MACOS
     # is `on`, also for a re-run), Blacksmith macOS 26 for a fork: never a
     # plain Mac label, which may have no iOS 26 runtime for the StoreKit slot.
-    if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
+    if: ${{ (!cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && vars.CI_BLACKSMITH_MACOS == 'on' && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
     # The timeout also counts the time an owned mini's glaeda hook holds the job
     # in "Set up runner" for capacity: nightly run 45336672494 waited about
@@ -516,6 +556,12 @@ jobs:
             found=1
             package="$(dirname "$manifest")"
             name="$(basename "$package")"
+            # A package scripts/ci/swift-linux-packages.txt lists ran in
+            # billing's "iOS billing unit tests (Linux)" step.
+            if awk -v d="$package" '$1 == d { hit = 1 } END { exit !hit }' scripts/ci/swift-linux-packages.txt; then
+              echo "$package: tested on Linux by the billing job"
+              continue
+            fi
             log_path="$RUNNER_TEMP/$name-tests.log"
             echo "::group::swift test $package"
             python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
@@ -558,7 +604,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: cmux-next-ios-kit
+          key: cmux-next-ios-kit-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Build CmuxMobileLinkFFI.xcframework
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}

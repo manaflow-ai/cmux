@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.mobile.allowIPhoneConnections.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكن لتطبيق cmux على iPhone المسجّل الدخول بالحساب نفسه فتح مساحات عمل هذا الـ Mac. تسمح لكل هاتف جديد مرة واحدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikacija cmux na vašem iPhoneu, prijavljena na isti račun, može otvarati radne prostore ovog Maca. Svaki novi telefon dozvoljavate jednom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-appen på din iPhone, logget ind med samme konto, kan åbne denne Macs arbejdsområder. Du tillader hver ny telefon én gang."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die App cmux auf deinem iPhone, mit demselben Konto angemeldet, kann die Arbeitsbereiche dieses Macs öffnen. Du erlaubst jedes neue Telefon einmal."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La app cmux de tu iPhone, con la misma cuenta, puede abrir los espacios de trabajo de este Mac. Permites cada teléfono nuevo una vez."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’app cmux de votre iPhone, connectée au même compte, peut ouvrir les espaces de travail de ce Mac. Vous autorisez chaque nouveau téléphone une fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’app cmux sul tuo iPhone, con lo stesso account, può aprire gli spazi di lavoro di questo Mac. Consenti ogni nuovo telefono una volta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じアカウントでサインインした iPhone の cmux アプリから、この Mac のワークスペースを開けます。新しい電話はそれぞれ一度だけ許可します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្មវិធី cmux នៅលើ iPhone ដែលបានចូលដោយគណនីដូចគ្នា អាចបើកកន្លែងធ្វើការរបស់ Mac នេះ។ អ្នកអនុញ្ញាតទូរសព្ទថ្មីនីមួយៗម្តង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "같은 계정으로 로그인한 iPhone의 cmux 앱에서 이 Mac의 작업 공간을 열 수 있습니다. 새 전화는 한 번씩 허용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-appen på iPhonen, logget på med samme konto, kan åpne denne Macens arbeidsområder. Du tillater hver nye telefon én gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikacja cmux na iPhonie zalogowanym na to samo konto może otwierać obszary robocze tego Maca. Każdy nowy telefon zezwalasz raz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O app cmux no seu iPhone, com a mesma conta, pode abrir os espaços de trabalho deste Mac. Você permite cada telefone novo uma vez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приложение cmux на iPhone с той же учётной записью может открывать рабочие пространства этого Mac. Каждый новый телефон вы разрешаете один раз."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แอป cmux บน iPhone ที่ลงชื่อเข้าใช้บัญชีเดียวกันจะเปิดพื้นที่ทำงานของ Mac เครื่องนี้ได้ คุณอนุญาตโทรศัพท์เครื่องใหม่แต่ละเครื่องครั้งเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aynı hesapla giriş yapılmış iPhone’undaki cmux uygulaması bu Mac’in çalışma alanlarını açabilir. Her yeni telefona bir kez izin verirsin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Застосунок cmux на iPhone з тим самим обліковим записом може відкривати робочі простори цього Mac. Кожен новий телефон ви дозволяєте один раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ứng dụng cmux trên iPhone đăng nhập cùng tài khoản có thể mở không gian làm việc của máy Mac này. Bạn cho phép mỗi điện thoại mới một lần."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在以同一账户登录的 iPhone 上，cmux 应用可以打开这台 Mac 的工作区。每部新手机只需允许一次。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在以同一帳號登入的 iPhone 上，cmux App 可以開啟這台 Mac 的工作區。每支新手機只需允許一次。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

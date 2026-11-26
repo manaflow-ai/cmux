@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxConnectivityTelemetry
 import Foundation
 import Network
@@ -438,7 +439,7 @@ public final class ConnectivityIncidentReporter {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = 6
             configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            let session = URLSession(configuration: configuration)
+            let session = CmuxEgress.session(site: "CmuxMobileLive.ConnectivityIncidentReporter", configuration: configuration)
             defer { session.finishTasksAndInvalidate() }
             async let internet: Bool = {
                 guard let url = URL(string: "https://captive.apple.com/hotspot-detect.html"),

@@ -5,7 +5,7 @@
 //! character session id copied from the start's answer: the thing you just made is the default.
 //!
 //! The record is a small file in the state folder (`$XDG_STATE_HOME/cmux/last-chat.json`, else
-//! `~/.local/state/cmux/`), one entry per cmux terminal (`CMUX_TUI_TERMINAL_ID`,
+//! `~/.local/state/cmux/`; `cmux-next` instead of `cmux` on macOS), one entry per cmux terminal (`CMUX_TUI_TERMINAL_ID`,
 //! `CMUX_SURFACE_ID`) and the newest overall: this terminal's, else the newest. A chat on a Cloud
 //! VM keeps its VM, so its follow-up goes there without the app's lookup. Writing it never fails
 //! a command: a folder that cannot be written means only that the next command needs the id.
@@ -41,7 +41,9 @@ fn path() -> Option<PathBuf> {
                 .filter(|home| !home.is_empty())
                 .map(|home| PathBuf::from(home).join(".local/state"))
         })?;
-    Some(state.join("cmux/last-chat.json"))
+    // An old install's file moves to NEXT's folder first (macOS).
+    cmux_config::location::migrate_legacy_state_once();
+    Some(state.join(cmux_config::NEXT_DIR).join("last-chat.json"))
 }
 
 /// This terminal's key: its cmux terminal id, else `-` (any shell outside cmux).

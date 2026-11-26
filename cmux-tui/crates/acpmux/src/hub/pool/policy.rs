@@ -69,6 +69,33 @@ pub struct PoolKey {
 }
 
 impl PoolKey {
+    /// The fields of `self` another key differs in, by name (never a value: `auth` and
+    /// `account` are fingerprints, and none is logged). A discard logs them, so a spare that
+    /// keeps missing says why.
+    pub fn differing(&self, other: &PoolKey) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        let mut check = |name: &'static str, same: bool| {
+            if !same {
+                out.push(name);
+            }
+        };
+        check("origin", self.origin == other.origin);
+        check("cwd", self.cwd == other.cwd);
+        check("harness", self.harness == other.harness);
+        check("preset", self.preset == other.preset);
+        check("args", self.args == other.args);
+        check("systemPromptSha256", self.system_prompt_sha256 == other.system_prompt_sha256);
+        check("auth", self.auth == other.auth);
+        check("account", self.account == other.account);
+        check("machine", self.machine == other.machine);
+        check("promptSuggestions", self.prompt_suggestions == other.prompt_suggestions);
+        check("toolServers", self.tool_servers == other.tool_servers);
+        check("settingsFile", self.settings_file == other.settings_file);
+        check("model", self.model == other.model);
+        check("effort", self.effort == other.effort);
+        out
+    }
+
     /// Entries in one slot compete: a new key for a slot replaces the old one.
     fn same_slot(&self, other: &PoolKey) -> bool {
         self.origin == other.origin
@@ -88,8 +115,9 @@ pub enum Role {
     /// The shape of this harness's newest session: one per harness across
     /// folders (`pool.spare`), kept for `pool.spareIdleMinutes`.
     Spare,
-    /// The folder a Cloud machine's first home chat will take (`reserved.rs`):
-    /// kept like a spare, but one per folder and never refilled.
+    /// The folder a Cloud machine's next home chat will take (`reserved.rs`):
+    /// kept like a spare, but one per folder and never refilled; once a chat
+    /// takes it, a fresh folder is reserved in its place.
     Reserved,
 }
 
@@ -134,8 +162,9 @@ pub enum Take<T> {
     Warming(watch::Receiver<u64>),
     /// Nothing for this key (or a remote-origin key).
     Miss,
-    /// The slot held a session under another key: end it, start cold.
-    Discard(Option<T>),
+    /// The slot held a session under another key: end it, start cold. With the fields the
+    /// keys differed in (`PoolKey::differing`).
+    Discard(Option<T>, Vec<&'static str>),
 }
 
 /// What `want` asks the caller to do.
@@ -335,6 +364,17 @@ impl<T> Pool<T> {
         (released, self.drop_unwanted())
     }
 
+    /// A chat took `key`'s session: when that entry was the reserved one, it is reserved no more
+    /// (its folder is the chat's now) and goes once nothing else wants it. Returns whether it was
+    /// reserved, and what the pool no longer wants.
+    pub fn end_reserved(&mut self, key: &PoolKey) -> (bool, Vec<T>) {
+        let Some(e) = self.entries.iter_mut().find(|e| &e.key == key && e.reserved) else {
+            return (false, Vec::new());
+        };
+        e.reserved = false;
+        (true, self.drop_unwanted())
+    }
+
     fn drop_unwanted(&mut self) -> Vec<T> {
         let mut out = Vec::new();
         let mut i = 0;
@@ -406,10 +446,14 @@ impl<T> Pool<T> {
         {
             let e = self.entries.remove(i);
             e.settle();
-            return Take::Discard(match e.slot {
-                Slot::Ready(t) => Some(t),
-                _ => None,
-            });
+            let fields = e.key.differing(key);
+            return Take::Discard(
+                match e.slot {
+                    Slot::Ready(t) => Some(t),
+                    _ => None,
+                },
+                fields,
+            );
         }
         Take::Miss
     }

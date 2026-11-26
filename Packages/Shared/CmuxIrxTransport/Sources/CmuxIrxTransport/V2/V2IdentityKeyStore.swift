@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// Keeps v2 endpoint seeds in a dedicated keychain service scoped to the entire identity.
 public actor V2IdentityKeyStore {

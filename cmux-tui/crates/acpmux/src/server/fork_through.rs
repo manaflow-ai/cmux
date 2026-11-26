@@ -43,8 +43,12 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
-        meta.remove("beforePromptId");
-        meta.remove("requestId");
+        // A `session/fork`'s own `requestId` names the whole fork (`hub/fork_request.rs`); one
+        // sent with a boundary only this canonical operation mints goes with it.
+        let boundary = meta.remove("beforePromptId").is_some();
+        if boundary || m != method::SESSION_FORK {
+            meta.remove("requestId");
+        }
         meta.remove("startLater");
     }
     Ok(m)
@@ -61,6 +65,12 @@ pub(super) fn starts_later(params: &Value) -> bool {
 /// forks on the chat's own harness and ignores them, so a switch goes only to a peer that lists
 /// it (`peer_forward.rs`).
 pub const RETARGET_FEATURE: &str = "sessionForkRetarget";
+
+/// Listed in `initialize`'s `_meta.acpmux.features`: every fork takes a `requestId` (`session/fork`'s
+/// `_meta.acpmux.requestId`, `acp.session.fork`'s `requestId` without `beforePromptId` too), and a
+/// retry with it answers the fork the first request made (`hub/fork_request.rs`). An older build
+/// refuses `acp.session.fork`'s without a boundary, so a client sends one only where listed.
+pub const FORK_REQUEST_FEATURE: &str = "forkRequestId";
 
 /// Why a switch of a peer's chat cannot go to that peer: it did not list [`RETARGET_FEATURE`].
 pub(super) fn retarget_unsupported(peer: &str) -> RpcError {
@@ -194,7 +204,8 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
                 mux.insert(key.into(), value.clone());
             }
         }
-        for key in LIVE_ONLY {
+        // `requestId` too: that machine's fork is the one a retry finds (`hub/fork_request.rs`).
+        for key in ["harness", "model", "mode", "subagentId", "requestId"] {
             if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
@@ -227,12 +238,17 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         // Only this canonical operation may mint the internal boundary. All guards still run.
         return Ok(json!({"sessionId": session.id, "_meta": {"acpmux": mux}}));
     }
-    if params.get("requestId").is_some() {
-        return Err(crate::hub::fork_before::refused(
-            "fork.invalid_boundary",
-            "requestId requires beforePromptId",
-        ));
-    }
+    // Without a boundary, `requestId` names the fork itself: a retry gets the fork it made.
+    let request = match params.get("requestId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(r)) if !r.trim().is_empty() && r.len() <= 512 => Some(r.clone()),
+        Some(_) => {
+            return Err(crate::hub::fork_before::refused(
+                "fork.invalid_request",
+                "requestId must be a nonempty string of at most 512 bytes",
+            ));
+        }
+    };
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
     let can_cut = {
         let harness = session.meta().harness;
@@ -253,6 +269,9 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
             if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
+        }
+        if let Some(request) = &request {
+            mux.insert("requestId".into(), json!(request));
         }
         mux.insert("startLater".into(), json!(true));
         out.set("_meta", json!({"acpmux": mux}));
@@ -297,6 +316,9 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     mux.extend(cancel_token(params));
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
+    }
+    if let Some(request) = request {
+        mux.insert("requestId".into(), json!(request));
     }
     mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});

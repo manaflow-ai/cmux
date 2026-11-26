@@ -28,6 +28,8 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     var contentWidth: CGFloat { size.width }
     var overlayHeight: CGFloat { size.overlay }
     var previewHeight: CGFloat { size.preview }
+    var titleLineMid: CGFloat { size.title }
+    var contentSettled: Bool { size.settled }
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -39,7 +41,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
-        provider.onSize = { [weak self] h, w, overlay, preview in self?.resize { $0.take(height: h, width: w, overlay: overlay, preview: preview, zoom: $1) } }
+        provider.onSize = { [weak self] report in self?.resize { $0.take(report, zoom: $1) } }
         (view as? PageWebView)?.onZoomChange = { [weak self] in self?.resize { $0.rezoom($1) } }
         provider.card.zoom = { [weak self] in self?.zoom ?? 1 }
         provider.card.onDrag = { [weak self] in self?.onDrag?(SidebarCardDrag(offset: $0, drop: $1.flatMap(SidebarCardAnchor.init(rawValue:)))) }
@@ -54,16 +56,15 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     func setPlace(_ place: SidebarCardPlace) { provider.card.setPlace(anchor: place.anchor.rawValue, above: place.above, below: place.below) }
 }
 
-/// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or null), `size {height, width?, overlay?, preview?}`
-/// (CSS px, ``PageSurfaceSize``), `openChangelog` and `dismiss`;
+/// `cmux.changelog.surface.*`: `get` (UpdateHighlights or null), `size` (``PageSurfaceReport``), `openChangelog`, `dismiss`;
 /// `cmux.changelog.surface.changes` resends the highlights on each change, `.pointer` the host's pointer;
 /// `.card.*` is the Updated card's drag (``PageCardDrag``).
 @MainActor
 final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
-    /// The page's content height, its own width (0: fills the host), its preview's room and open height, CSS px.
-    var onSize: ((CGFloat, CGFloat, CGFloat, CGFloat) -> Void)?
+    /// The page's size report (``PageSurfaceReport``, CSS px).
+    var onSize: ((PageSurfaceReport) -> Void)?
     /// The pointer is on the Updated card (the sidebar host's tracking area), streamed to the page.
     let pointer = PageFlagStream(key: "inside")
     let card = PageCardDrag(prefix: "cmux.changelog.surface.card.")
@@ -92,10 +93,9 @@ final class UpdateSurfaceProvider: PageProvider {
         case "cmux.changelog.surface.get":
             return try json(highlights)
         case "cmux.changelog.surface.size":
-            guard let height = params["height"]?.doubleValue else { throw PageError.invalidParams("height is required") }
-            services.updater.log.append("update surface \(kind.rawValue): height \(Int(height))")
-            let number = { (key: String) in CGFloat(params[key]?.doubleValue ?? 0) }
-            onSize?(CGFloat(height), number("width"), number("overlay"), number("preview"))
+            guard let report = PageSurfaceReport(params: params) else { throw PageError.invalidParams("height is required") }
+            services.updater.log.append("update surface \(kind.rawValue): height \(Int(report.height))")
+            onSize?(report)
             return .null
         case "cmux.changelog.surface.openChangelog":
             let focus = ChangelogFocus(area: params["area"]?.stringValue, entry: params["title"]?.stringValue)

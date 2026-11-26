@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_braid_session::LinkFacts;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,25 @@ const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a probe sent because the network changed may take, write and answer, before the
 /// link is redialed. A route that survived the change answers well within it.
 const NETWORK_CHANGE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// The same window for a link on a direct path (our direct socket or a direct tailnet path) with
+/// the fast fallback on ([`FAST_FALLBACK_ENV`]). A direct path rides the mapping the change may
+/// have just broken, and the bench (hq#23971) saw both direct paths stall 4-5 s at a change while
+/// both relays stalled 0; a direct link that answers nothing within this goes to the warm standby
+/// at once ([`ReconnectGroupSource::take_standby`]), and the source's own pass races direct again
+/// beside it.
+const FAST_FALLBACK_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+/// `CMUX_BRAID_FAST_FALLBACK=1` turns the fast fallback on (off by default).
+pub const FAST_FALLBACK_ENV: &str = "CMUX_BRAID_FAST_FALLBACK";
+
+fn fast_fallback_enabled() -> bool {
+    std::env::var(FAST_FALLBACK_ENV).is_ok_and(|value| matches!(value.trim(), "1" | "on" | "true"))
+}
+
+/// How long a probe after a network change waits before the link is redialed: the short window
+/// for a direct path when the fast fallback is on, the ordinary one otherwise.
+fn network_change_window(direct: bool, fast_fallback: bool) -> Duration {
+    if direct && fast_fallback { FAST_FALLBACK_PROBE_TIMEOUT } else { NETWORK_CHANGE_PROBE_TIMEOUT }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConnectionConfig {
@@ -218,6 +238,40 @@ pub trait ReconnectGroupSource: Send + Sync {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
+
+    /// A live group already dialed on another route (a warm standby), taken for the redial
+    /// about to start. A recovery tries it before the group that just failed, so a dead route
+    /// is never redialed first. `None` (the default): no standby, redial as before.
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        None
+    }
+}
+
+/// A warm standby handed to a redial ([`ReconnectGroupSource::take_standby`]).
+pub struct StandbyGroup {
+    pub group: Arc<dyn LinkGroup>,
+    /// How long the redial on it may take before the recovery moves on: a few of its round
+    /// trips, not the whole attempt timeout (a standby found dead must cost little).
+    pub attempt_timeout: Duration,
+    /// When the source's own pass ([`ReconnectGroupSource::next_group`]) starts beside the
+    /// redial on the standby, so a standby that turns out dead already has a group behind it
+    /// (`None`: only after it failed).
+    pub race_after: Option<Duration>,
+}
+
+/// Whether the machine behind a link is asleep (a person paused it), read
+/// without waking it. A paused Cloud VM is woken by any byte that reaches it,
+/// so a link with a gate sends nothing while the gate says asleep and no
+/// caller acts: no heartbeat and no redial. The first application send is an
+/// action: it goes out as it would, and that byte is the wake.
+#[async_trait]
+pub trait SleepGate: Send + Sync {
+    /// How long the link goes with no application send before it reads the
+    /// gate, and how often an idle link reads it (and probes, when awake).
+    fn look(&self) -> Duration;
+    /// Whether the machine is asleep now. A read that fails answers false:
+    /// the link probes as it would without a gate.
+    async fn asleep(&self) -> bool;
 }
 
 /// Told how each attempt to reattach an established session's carrier (a
@@ -241,6 +295,10 @@ pub struct ClientConnection {
     /// gets its welcome one round trip sooner. Cleared when a reconnect fails past its carrier's
     /// open (a daemon rolled back to a build without IK), so the next one runs XX and relearns.
     daemon_takes_ik: AtomicBool,
+    /// The daemon's last welcome said it takes early data: a reconnect's IK Control link carries
+    /// the Control lane's replay in its first message, so the daemon reads it when the link group
+    /// commits instead of a round trip later. Cleared with `daemon_takes_ik`.
+    daemon_takes_early_data: AtomicBool,
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
@@ -271,6 +329,13 @@ pub struct ClientConnection {
     /// Why the last redial failed, until one succeeds: the reason a waiter
     /// that runs out of time is given.
     last_failure: StdMutex<Option<String>>,
+    /// Read before an idle link sends a heartbeat or redials ([`SleepGate`]).
+    sleep_gate: StdMutex<Option<Arc<dyn SleepGate>>>,
+    /// When the application last sent a frame (heartbeats are not sends).
+    last_action: StdMutex<Instant>,
+    /// True while the gate said asleep and nothing acted since: the link
+    /// sends nothing. An application send clears it.
+    quiet: watch::Sender<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -362,8 +427,14 @@ impl ClientConnection {
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
-        let (link, daemon_public_key, _, daemon_takes_ik) =
-            establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false).await?;
+        let Established {
+            link,
+            daemon_key: daemon_public_key,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+            ..
+        } = establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
+            .await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -389,6 +460,7 @@ impl ClientConnection {
             next_generation: AtomicU64::new(1),
             daemon_public_key,
             daemon_takes_ik: AtomicBool::new(daemon_takes_ik),
+            daemon_takes_early_data: AtomicBool::new(daemon_takes_early_data),
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
@@ -407,6 +479,9 @@ impl ClientConnection {
             actions: watch::channel(0).0,
             network: watch::channel(0).0,
             last_failure: StdMutex::new(None),
+            sleep_gate: StdMutex::new(None),
+            last_action: StdMutex::new(Instant::now()),
+            quiet: watch::channel(false).0,
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -419,6 +494,71 @@ impl ClientConnection {
     /// Install hooks that every later resume attempt calls.
     pub fn set_resume_hooks(&self, hooks: Arc<dyn ResumeHooks>) {
         *self.resume_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hooks);
+    }
+
+    /// Install the gate an idle link reads before it sends a heartbeat or
+    /// redials ([`SleepGate`]).
+    pub fn set_sleep_gate(&self, gate: Arc<dyn SleepGate>) {
+        *self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(gate);
+    }
+
+    fn sleep_gate(&self) -> Option<Arc<dyn SleepGate>> {
+        self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Whether the link holds quiet: its gate said asleep and nothing acted since.
+    pub fn is_quiet(&self) -> bool {
+        *self.quiet.borrow()
+    }
+
+    /// An application send: the link is in use, and a quiet hold ends.
+    fn note_action(&self) {
+        *self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Instant::now();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+    }
+
+    /// The gate's look time while the link has had no application send for
+    /// that long; `None` without a gate or while the link is in use.
+    fn idle_look(&self) -> Option<Duration> {
+        let look = self.sleep_gate()?.look();
+        let since = self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (since.elapsed() >= look).then_some(look)
+    }
+
+    /// Whether the link must send nothing now: it is idle and its gate says
+    /// the machine is asleep. Reads the gate (only when idle) and records the
+    /// answer as the quiet hold.
+    async fn hold_quiet(&self) -> bool {
+        let Some(gate) = self.sleep_gate() else { return false };
+        if self.idle_look().is_none() {
+            self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+            return false;
+        }
+        let asleep = gate.asleep().await;
+        // An action while the read ran wins: its byte is the wake.
+        let asleep = asleep && self.idle_look().is_some();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, asleep) != asleep);
+        asleep
+    }
+
+    /// Returns once the link may send: at once unless it holds quiet, else
+    /// at an action or a read that says the machine woke.
+    async fn wait_while_asleep(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
+        while self.hold_quiet().await {
+            let look = self.sleep_gate().map_or(Duration::from_secs(1), |gate| gate.look());
+            let mut quiet = self.quiet.subscribe();
+            tokio::select! {
+                biased;
+                _ = close_state.changed() => return Err(ConnectionError::Closed),
+                _ = quiet.wait_for(|quiet| !*quiet) => return Ok(()),
+                () = tokio::time::sleep(look) => {}
+            }
+        }
+        Ok(())
     }
 
     fn resume_hooks(&self) -> Option<Arc<dyn ResumeHooks>> {
@@ -597,6 +737,11 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
+        if !flags.contains(FrameFlags::HEARTBEAT_REQUEST)
+            && !flags.contains(FrameFlags::HEARTBEAT_RESPONSE)
+        {
+            self.note_action();
+        }
         // Another send may hold this lane through an unbounded recovery, and
         // replay holds the session lock; a send with a deadline waits for
         // neither past it.
@@ -873,26 +1018,52 @@ impl ClientConnection {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
             other => other,
         };
+        let takes_ik = self.daemon_takes_ik.load(Ordering::Acquire);
+        let early_facts = LinkFacts {
+            invitation: false,
+            pinned_peer: true,
+            peer_takes_ik: takes_ik,
+            // A resume re-admits the same key with no grant (`crypto::complete_handshake`).
+            carries_bearer_secret: false,
+        };
+        let early = if cmux_braid_session::may_send_early(
+            early_facts,
+            generation,
+            self.daemon_takes_early_data.load(Ordering::Acquire),
+        ) {
+            current.early_replay(generation, cmux_braid_session::EARLY_DATA_MAX_BYTES)
+        } else {
+            Vec::new()
+        };
         let established = establish_physical_links(
             group.clone(),
             &reconnect_config,
             generation,
             current.resume_cursors(),
-            self.daemon_takes_ik.load(Ordering::Acquire),
+            takes_ik,
+            early,
         )
         .await;
-        let (link, daemon_key, daemon_resume, daemon_takes_ik) = match established {
+        let Established {
+            link,
+            daemon_key,
+            daemon_resume,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+        } = match established {
             Ok(established) => established,
             Err(error) => {
                 // A carrier that would not open says nothing about the daemon; anything past
                 // it might be a daemon that no longer takes IK.
                 if !matches!(error, ConnectionError::Provider(_)) {
                     self.daemon_takes_ik.store(false, Ordering::Release);
+                    self.daemon_takes_early_data.store(false, Ordering::Release);
                 }
                 return Err(error);
             }
         };
         self.daemon_takes_ik.store(daemon_takes_ik, Ordering::Release);
+        self.daemon_takes_early_data.store(daemon_takes_early_data, Ordering::Release);
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
@@ -1052,6 +1223,12 @@ impl ClientConnection {
         if self.session_unavailable() {
             return Err(ConnectionError::SessionUnavailable);
         }
+        // A redial reaches the machine: a background recovery of an idle link
+        // whose machine is asleep waits for an action (an application send)
+        // or a read that says it woke, before its deadline starts.
+        if deadline.is_none() {
+            self.wait_while_asleep(&mut close_state).await?;
+        }
         self.set_diagnostics_state(ConnectionState::Reconnecting);
         let result = self.recover_locked(&mut close_state, deadline).await;
         if matches!(result, Err(ConnectionError::SessionUnavailable)) {
@@ -1147,6 +1324,13 @@ impl ClientConnection {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut group = self.group.read().await.clone();
+        // The path the link was on: a standby on the same one died with it.
+        let failed_path =
+            group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        // The link this recovery replaces failed: its QUIC connection would hold the next
+        // stream on the dead path until iroh's 15 s path idle timeout (then a 10 s close), the
+        // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
+        group.abandon();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -1158,8 +1342,45 @@ impl ClientConnection {
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
-            let attempt_timeout = remaining(policy.attempt_timeout);
+            // A warm standby goes first, on a short bound, with the source's pass started
+            // behind it: the group that just failed is not redialed while one is held.
+            let standby = match &self.reconnect_groups {
+                Some(source) => source.take_standby().await,
+                None => None,
+            };
+            let standby = match standby {
+                Some(standby) if on_path(&standby.group, failed_path.as_deref()).await => {
+                    // Its transport moved it onto the path that just died: trying it would
+                    // spend its bound on a black hole. Closed, and the redial goes as without one.
+                    standby.group.abandon();
+                    None
+                }
+                standby => standby,
+            };
+            let attempt_bound = standby
+                .as_ref()
+                .map_or(policy.attempt_timeout, |standby| standby.attempt_timeout)
+                .min(policy.attempt_timeout);
+            let attempt_timeout = remaining(attempt_bound);
             let attempt_started = tokio::time::Instant::now();
+            let attempt_group =
+                standby.as_ref().map_or_else(|| group.clone(), |standby| standby.group.clone());
+            let behind_at = standby
+                .as_ref()
+                .and_then(|standby| standby.race_after)
+                .filter(|_| self.reconnect_groups.is_some())
+                .map(|after| attempt_started + after);
+            let behind = async {
+                match (behind_at, &self.reconnect_groups) {
+                    (Some(at), Some(source)) => {
+                        tokio::time::sleep_until(at).await;
+                        resolve_reconnect_group(source.as_ref(), policy.attempt_timeout).await
+                    }
+                    _ => std::future::pending().await,
+                }
+            };
+            tokio::pin!(behind);
+            let mut raced: Option<Option<Arc<dyn LinkGroup>>> = None;
             // The attempt's report, owed even when this recovery is dropped:
             // a reader whose `select!` sees the published generation first
             // cancels the receive that runs it, after the new carrier is up.
@@ -1168,17 +1389,22 @@ impl ClientConnection {
             // while it is in flight abandons it.
             network.borrow_and_update();
             let mut network_moved = false;
-            let reconnect = tokio::select! {
-                biased;
-                _ = close_state.changed() => return Err(ConnectionError::Closed),
-                reconnect = tokio::time::timeout(attempt_timeout, self.reconnect_once(group.clone())) => reconnect,
-                // A dial on the network that just went away may hang until
-                // its timeout; drop it and dial on the new one.
-                _ = network.changed() => {
-                    network_moved = true;
-                    Ok(Err(ConnectionError::Link(LinkError::Transport(
-                        "network changed during the redial".into(),
-                    ))))
+            let dial = tokio::time::timeout(attempt_timeout, self.reconnect_once(attempt_group));
+            tokio::pin!(dial);
+            let reconnect = loop {
+                tokio::select! {
+                    biased;
+                    _ = close_state.changed() => return Err(ConnectionError::Closed),
+                    reconnect = &mut dial => break reconnect,
+                    // A dial on the network that just went away may hang until
+                    // its timeout; drop it and dial on the new one.
+                    _ = network.changed() => {
+                        network_moved = true;
+                        break Ok(Err(ConnectionError::Link(LinkError::Transport(
+                            "network changed during the redial".into(),
+                        ))));
+                    }
+                    found = &mut behind, if raced.is_none() => raced = Some(found),
                 }
             };
             let result = match reconnect {
@@ -1189,9 +1415,7 @@ impl ClientConnection {
                     {
                         ConnectionError::ReconnectDeadlineExceeded { attempts: attempt }
                     } else {
-                        ConnectionError::ReconnectAttemptTimedOut {
-                            timeout: policy.attempt_timeout,
-                        }
+                        ConnectionError::ReconnectAttemptTimedOut { timeout: attempt_bound }
                     },
                 ),
             };
@@ -1215,7 +1439,22 @@ impl ClientConnection {
                             last: error.to_string(),
                         });
                     }
-                    if let Some(source) = &self.reconnect_groups {
+                    // A dead or slow standby is dropped with this attempt: the source took it
+                    // out of its slot, so this was its last handle and QUIC closes it on drop.
+                    // The pass already behind the standby is the next group; one not started
+                    // yet is started now (below) instead of waiting out its stagger.
+                    if let Some(standby) = &standby {
+                        // Closed now, not when its last handle drops: until then its transport
+                        // may keep the dead path selected for the peer.
+                        standby.group.abandon();
+                    }
+                    let behind_started =
+                        behind_at.is_some_and(|at| tokio::time::Instant::now() >= at);
+                    if let Some(found) = raced.take() {
+                        if let Some(next) = found {
+                            group = next;
+                        }
+                    } else if let Some(source) = &self.reconnect_groups {
                         let next = tokio::select! {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
@@ -1232,9 +1471,15 @@ impl ClientConnection {
                                 {
                                     return None;
                                 }
-                                let discovery = resolve_reconnect_group(
-                                    source.as_ref(), policy.attempt_timeout,
-                                );
+                                let discovery = async {
+                                    if behind_started {
+                                        (&mut behind).await
+                                    } else {
+                                        resolve_reconnect_group(
+                                            source.as_ref(), policy.attempt_timeout,
+                                        ).await
+                                    }
+                                };
                                 match recovery_deadline {
                                     Some(deadline) => tokio::time::timeout_at(deadline, discovery).await.unwrap_or(None),
                                     None => tokio::time::timeout(policy.attempt_timeout, discovery).await.unwrap_or(None),
@@ -1244,6 +1489,11 @@ impl ClientConnection {
                         if let Some(next) = next {
                             group = next;
                         }
+                    }
+                    if standby.is_some() && !network_moved {
+                        // The standby try was not this burst's redial: the next one goes now.
+                        in_burst = in_burst.saturating_sub(1);
+                        continue;
                     }
                     if network_moved || network.has_changed().unwrap_or(false) {
                         // A new network starts a new burst at once.
@@ -1414,23 +1664,37 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     // A network change probes at once instead of at the next interval.
     let mut network = initial.network.subscribe();
     network.borrow_and_update();
+    // An action ends a quiet hold: the next probe waits one interval from it.
+    let mut quiet = initial.quiet.subscribe();
     drop(initial);
     let mut route = RouteSource::default();
+    let fast_fallback = fast_fallback_enabled();
     loop {
         // Where the link's route leaves from, read before the wait: a change that kills the
-        // address is compared with the address as it was.
+        // address is compared with the address as it was. An idle link with a sleep gate
+        // probes once per look, each after a read of the gate.
+        let mut wait = interval;
         if let Some(connection) = weak.upgrade() {
             route.refresh(&connection).await;
+            if let Some(look) = connection.idle_look() {
+                wait = wait.max(look);
+            }
         }
         let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
             _ = network.changed() => true,
-            _ = tokio::time::sleep(interval) => false,
+            Ok(()) = quiet.changed() => continue,
+            _ = tokio::time::sleep(wait) => false,
         };
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
+        }
+        // The machine is asleep and nothing acted: a probe is the byte that would wake it.
+        if connection.hold_quiet().await {
+            quiet.borrow_and_update();
+            continue;
         }
         if connection
             .deferred_receive
@@ -1454,8 +1718,8 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         // After a network change the old route may be gone with a write stuck on it: the
         // probe queues behind that write and never goes out. Waiting the full answer window
         // for it held a blocked link up to 4 s past the change; give it the short one.
-        let timeout =
-            if network_moved { timeout.min(NETWORK_CHANGE_PROBE_TIMEOUT) } else { timeout };
+        let change_window = network_change_window(route.direct, fast_fallback);
+        let timeout = if network_moved { timeout.min(change_window) } else { timeout };
         let mut deadline = tokio::time::Instant::now() + timeout;
         let send = connection.send_in_generation(
             Some(generation),
@@ -1465,8 +1729,10 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             FrameFlags::HEARTBEAT_REQUEST,
         );
         let Ok(send_result) =
-            probe_by(send, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
-                .await
+            probe_by(send, &mut deadline, change_window, &mut network, &mut close_state, &|| {
+                route.is_gone()
+            })
+            .await
         else {
             return;
         };
@@ -1481,8 +1747,10 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let answer = connection.probe_liveness(generation, observed);
         let Ok(live) =
-            probe_by(answer, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
-                .await
+            probe_by(answer, &mut deadline, change_window, &mut network, &mut close_state, &|| {
+                route.is_gone()
+            })
+            .await
         else {
             return;
         };
@@ -1505,6 +1773,9 @@ struct RouteSource {
     /// The route's host and what it resolved to: resolved once per host, not per beat.
     remote: Option<(String, Option<std::net::IpAddr>)>,
     source: Option<std::net::IpAddr>,
+    /// The selected path is direct (not a relay): a network change gets the fast fallback's
+    /// window when it is on.
+    direct: bool,
 }
 
 impl RouteSource {
@@ -1514,7 +1785,11 @@ impl RouteSource {
             return;
         }
         let group = connection.group.read().await.clone();
-        let host = group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        let selected = group.transport_snapshot().await.selected_path;
+        self.direct = selected
+            .as_ref()
+            .is_some_and(|path| path.kind == crate::observability::TransportPathKind::Direct);
+        let host = selected.and_then(|path| path.remote);
         let Some(host) = host else {
             self.source = None;
             return;
@@ -1548,11 +1823,12 @@ impl RouteSource {
 
 /// Await one phase of a heartbeat probe until `deadline`: `Ok(None)` when it passes, `Err` when
 /// the connection closes. A network change meanwhile pulls `deadline` in to
-/// [`NETWORK_CHANGE_PROBE_TIMEOUT`] from the change, so a probe already stuck behind a write
+/// `change_window` from the change ([`network_change_window`]), so a probe already stuck behind a write
 /// on the route that went away does not wait out the full answer window.
 async fn probe_by<T>(
     phase: impl Future<Output = T>,
     deadline: &mut tokio::time::Instant,
+    change_window: Duration,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
     route_gone: &(dyn Fn() -> bool + Sync),
@@ -1565,7 +1841,7 @@ async fn probe_by<T>(
             _ = close_state.changed() => return Err(()),
             Ok(()) = network.changed() => {
                 // A route whose address is gone cannot answer: end the probe now.
-                let wait = if route_gone() { Duration::ZERO } else { NETWORK_CHANGE_PROBE_TIMEOUT };
+                let wait = if route_gone() { Duration::ZERO } else { change_window };
                 let short = tokio::time::Instant::now() + wait;
                 *deadline = (*deadline).min(short);
             }
@@ -1585,19 +1861,101 @@ fn jittered_delay(ceiling: Duration, full_jitter: bool) -> Duration {
     ceiling.mul_f64(fraction)
 }
 
+/// One attempt's links, and what their welcomes said.
+struct Established {
+    link: LaneMuxLink,
+    daemon_key: [u8; 32],
+    daemon_resume: BTreeMap<Lane, u64>,
+    daemon_takes_ik: bool,
+    daemon_takes_early_data: bool,
+}
+
+/// The early data for a link carrying `lanes`: the Control link's, none for the rest.
+fn early_for(lanes: &[Lane], early: &[Bytes]) -> Vec<Bytes> {
+    if lanes.contains(&Lane::Control) { early.to_vec() } else { Vec::new() }
+}
+
 async fn establish_physical_links(
     group: Arc<dyn LinkGroup>,
     config: &ClientConnectionConfig,
     generation: u64,
     resume: BTreeMap<Lane, u64>,
     daemon_takes_ik: bool,
-) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>, bool), ConnectionError> {
+    early: Vec<Bytes>,
+) -> Result<Established, ConnectionError> {
     let mut connection_attempt = [0_u8; 16];
     getrandom::fill(&mut connection_attempt)
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    let subsequent_auth = match config.auth {
+        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+        ref other => other.clone(),
+    };
+    // A reconnect that pins the daemon's key and holds its IK offer learns nothing from its
+    // first link's welcome, so every lane link opens at once: the reconnect costs one link's
+    // setup, not two in a row (`cmux_braid_session::open_lanes_at_once`).
+    if let Some(pinned) = config.expected_daemon.filter(|_| {
+        cmux_braid_session::open_lanes_at_once(LinkFacts {
+            invitation: matches!(config.auth, ClientAuthMode::Invitation { .. }),
+            pinned_peer: true,
+            peer_takes_ik: daemon_takes_ik,
+            carries_bearer_secret: matches!(config.auth, ClientAuthMode::Grant { .. }),
+        })
+    }) {
+        let context = LinkHandshakeContext {
+            generation,
+            expected_daemon: Some(pinned),
+            connection_attempt,
+            daemon_takes_ik,
+        };
+        let mut pending = bindings
+            .into_iter()
+            .enumerate()
+            .map(|(index, lanes)| {
+                let auth = if index == 0 { config.auth.clone() } else { subsequent_auth.clone() };
+                let early = early_for(&lanes, &early);
+                let link = authenticate_one(
+                    group.clone(),
+                    config,
+                    auth,
+                    lanes,
+                    resume.clone(),
+                    context,
+                    early,
+                );
+                async move { (index, link.await) }
+            })
+            .collect::<FuturesUnordered<_>>();
+        let mut opened = Vec::new();
+        let mut daemon_resume = None;
+        // Every welcome has to offer IK (and early data) for the next reconnect to keep it.
+        let mut takes_ik = true;
+        let mut takes_early = true;
+        while let Some((index, result)) = pending.next().await {
+            let (lanes, link, link_resume) = result?;
+            if daemon_resume.get_or_insert_with(|| link_resume.clone()) != &link_resume {
+                return Err(ConnectionError::Protocol(
+                    "daemon reported inconsistent resume cursors across lane links".into(),
+                ));
+            }
+            takes_ik &= link.peer_takes_ik();
+            takes_early &= link.peer_takes_early_data();
+            opened.push((index, LinkRoute { lanes, link: Arc::new(link) }));
+        }
+        opened.sort_by_key(|(index, _)| *index);
+        let routes = opened.into_iter().map(|(_, route)| route).collect();
+        let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
+        return Ok(Established {
+            link,
+            daemon_key: pinned,
+            daemon_resume: daemon_resume.unwrap_or_default(),
+            daemon_takes_ik: takes_ik,
+            daemon_takes_early_data: takes_early,
+        });
+    }
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
+    let first_early = early_for(&first_lanes, &early);
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
         config,
@@ -1610,20 +1968,19 @@ async fn establish_physical_links(
             connection_attempt,
             daemon_takes_ik,
         },
+        first_early,
     )
     .await?;
     let daemon_key = first.remote_static();
     // The first link's welcome is in: the rest of this attempt's links run IK if it offered it,
     // a first connect's included.
     let daemon_takes_ik = first.peer_takes_ik();
+    let daemon_takes_early_data = first.peer_takes_early_data();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
-        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ref other => other.clone(),
-    };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {
+        let link_early = early_for(&lanes, &early);
         pending.push(authenticate_one(
             group.clone(),
             config,
@@ -1636,6 +1993,7 @@ async fn establish_physical_links(
                 connection_attempt,
                 daemon_takes_ik,
             },
+            link_early,
         ));
     }
     while let Some(result) = pending.next().await {
@@ -1648,7 +2006,7 @@ async fn establish_physical_links(
         routes.push(LinkRoute { lanes, link: Arc::new(link) });
     }
     let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
-    Ok((link, daemon_key, daemon_resume, daemon_takes_ik))
+    Ok(Established { link, daemon_key, daemon_resume, daemon_takes_ik, daemon_takes_early_data })
 }
 
 #[derive(Clone, Copy)]
@@ -1666,6 +2024,7 @@ async fn authenticate_one(
     lanes: Vec<Lane>,
     resume: BTreeMap<Lane, u64>,
     context: LinkHandshakeContext,
+    early: Vec<Bytes>,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
     // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
@@ -1707,6 +2066,7 @@ async fn authenticate_one(
             connection_attempt: context.connection_attempt,
             resume,
             daemon_takes_ik: context.daemon_takes_ik,
+            early,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
     );
@@ -1965,6 +2325,13 @@ impl From<SessionError> for ConnectionError {
     }
 }
 
+/// Whether `group`'s selected path is `path` (both known).
+async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
+        == Some(path)
+}
+
 #[cfg(test)]
 mod route_source_tests {
     use std::net::{IpAddr, Ipv4Addr};
@@ -1973,10 +2340,13 @@ mod route_source_tests {
 
     use tokio::sync::watch;
 
-    use super::{CloseState, RouteSource, probe_by};
+    use super::{
+        CloseState, FAST_FALLBACK_PROBE_TIMEOUT, NETWORK_CHANGE_PROBE_TIMEOUT, RouteSource,
+        network_change_window, probe_by,
+    };
 
     fn route_from(source: Option<IpAddr>) -> RouteSource {
-        RouteSource { remote: None, source }
+        RouteSource { remote: None, source, direct: false }
     }
 
     #[test]
@@ -2007,6 +2377,7 @@ mod route_source_tests {
         let ended = probe_by(
             std::future::pending::<()>(),
             &mut deadline,
+            NETWORK_CHANGE_PROBE_TIMEOUT,
             &mut network,
             &mut close_state,
             &|| true,
@@ -2026,6 +2397,7 @@ mod route_source_tests {
         let ended = probe_by(
             std::future::pending::<()>(),
             &mut deadline,
+            NETWORK_CHANGE_PROBE_TIMEOUT,
             &mut network,
             &mut close_state,
             &|| false,
@@ -2033,6 +2405,43 @@ mod route_source_tests {
         .await;
         assert!(matches!(ended, Ok(None)));
         assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+
+    /// The fast fallback's window is for a direct path only, and only when it is on: a relay
+    /// keeps the ordinary window (it rode the change in the bench), and off is the old 2 s.
+    #[test]
+    fn the_fast_window_is_for_a_direct_path_with_the_fallback_on() {
+        assert_eq!(network_change_window(true, true), FAST_FALLBACK_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(true, false), NETWORK_CHANGE_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(false, true), NETWORK_CHANGE_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(false, false), NETWORK_CHANGE_PROBE_TIMEOUT);
+    }
+
+    /// Before and after, one harness: a probe on a direct path whose mapping the change broke
+    /// (it never answers) holds the link 2000 ms before the redial with the fallback off, and
+    /// 250 ms with it on. The redial then takes the warm standby first.
+    #[tokio::test(start_paused = true)]
+    async fn a_dead_direct_path_is_left_8x_sooner_with_the_fast_fallback() {
+        let mut stalls = Vec::new();
+        for fast_fallback in [false, true] {
+            let (network_tx, mut network) = watch::channel(0_u64);
+            let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+            let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+            network_tx.send_modify(|generation| *generation += 1);
+            let started = tokio::time::Instant::now();
+            let ended = probe_by(
+                std::future::pending::<()>(),
+                &mut deadline,
+                network_change_window(true, fast_fallback),
+                &mut network,
+                &mut close_state,
+                &|| false,
+            )
+            .await;
+            assert!(matches!(ended, Ok(None)));
+            stalls.push(started.elapsed());
+        }
+        assert_eq!(stalls, [Duration::from_millis(2000), Duration::from_millis(250)]);
     }
 }
 

@@ -61,10 +61,11 @@ public struct CloudCLICall: Sendable {
     /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
     /// `cloud.<call>` ops) on this Mac's daemon at `socket`, as the signed-in person of `auth` on the platform origin, worker auth. The
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
-    /// The token is read per call and goes on stdin, never in argv.
+    /// The token is read per call and goes on stdin, never in argv. `tail`: bytes the call takes after the request's
+    /// first newline (`cloud_api.rs`'s secret tail, never in argv or the request JSON).
     @MainActor
     func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
-                  timeout: Duration = .seconds(60)) async -> Data {
+                  timeout: Duration = .seconds(60), tail: Data? = nil) async -> Data {
         let failed = { (kind: String, message: String) in
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
@@ -72,7 +73,8 @@ public struct CloudCLICall: Sendable {
         var request: [String: Any] = ["call": call, "api": auth.configuration.relayAPIBaseURL().absoluteString, "auth": "worker",
                                       "credential": credential, "args": args]
         if let team = auth.teamID { request["team"] = team }
-        guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        guard var stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        if let tail { stdin.append(0x0A); stdin.append(tail) }
         do {
             return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: timeout)
         } catch {
@@ -103,10 +105,12 @@ public struct CloudCLICall: Sendable {
     /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
     /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
     /// finishes a half-done start and never makes a second machine. The Chief's main conversation, or the refusal
-    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message.
+    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message. `turnEnv`: the owner's Claude
+    /// connection's env, sent as the call's stdin tail (`{"env": …}`); the Rust start picks the Claude variable from it and
+    /// leaves it on the machine for the Chief's turns (cmux-cloud-api `chief_turn.rs`). Nil: the start as before.
     @MainActor
     public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
-                                    socket: String?) async -> Result<String, CloudCallRefusal> {
+                                    socket: String?, turnEnv: [String: String]? = nil) async -> Result<String, CloudCallRefusal> {
         guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
         struct Answer: Decodable {
             struct Body: Decodable { var conversation: String? }
@@ -116,8 +120,9 @@ public struct CloudCLICall: Sendable {
             var error: Failure?
         }
         // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        let tail = turnEnv.flatMap { try? JSONSerialization.data(withJSONObject: ["env": $0]) }
         let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
-                                  timeout: .seconds(1_560))
+                                  timeout: .seconds(1_560), tail: tail)
         // main-actor-ok: the answer is one small {ok, body.conversation, error} line
         guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
             return .failure(CloudCallRefusal(code: "transport", message: ""))
