@@ -159,10 +159,11 @@ jobs:
           persist-credentials: false
 
       # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
-      # zlib, and the image ships only their runtimes.
-      - name: Install python3, SQLite and zlib headers
+      # zlib, and the image ships only their runtimes. CmuxNext's ChromiumRuntime tests pack and unpack
+      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils.
+      - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key

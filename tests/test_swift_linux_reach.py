@@ -86,7 +86,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("python3 scripts/ci/swift_linux_reach.py", wf)
         self.assertIn("needs.plan.result != 'success' || needs.plan.outputs.groups == '*'", wf)
         self.assertIn("groups: ${{ steps.reach.outputs.groups || '*' }}", wf)
-        for name in ("Checkout", "Install python3, SQLite and zlib headers", "Cache key", "Restore .build",
+        for name in ("Checkout", "Install python3, SQLite and zlib headers, xz", "Cache key", "Restore .build",
                      "Fetch the fleet client from the controller", "package-test-lane.sh suite, every listed package",
                      "Build and test"):
             block = wf.split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
