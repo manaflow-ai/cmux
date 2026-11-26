@@ -588,7 +588,7 @@ jobs:
       # The app's build phase clones the pinned cmux-cua source into this
       # Mac's cache when the pin is missing, with no token: build settings
       # carry no secrets (compile-app-host-test-product.sh). GitHub answers
-      # anonymous fetches from the owned Macs' shared address with 403 and
+      # anonymous fetches from these Macs' shared address with 403 and
       # 429 under load, and main's run 45760337662 failed compile admission
       # on that clone. Fetch it here with the run's token; a warm cache makes
       # no network call.
@@ -4475,7 +4475,7 @@ jobs:
       # The app's build phase clones the pinned cmux-cua source into this
       # Mac's cache when the pin is missing, with no token: build settings
       # carry no secrets (compile-app-host-test-product.sh). GitHub answers
-      # anonymous fetches from the owned Macs' shared address with 403 and
+      # anonymous fetches from these Macs' shared address with 403 and
       # 429 under load, and main's run 45760337662 failed compile admission
       # on that clone. Fetch it here with the run's token; a warm cache makes
       # no network call.
