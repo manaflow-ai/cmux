@@ -12,7 +12,7 @@
 // all; a failed row is one red line, its mark's space left empty, its Try Again on hover.
 import type { KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import { useOptionHeld } from "./useOptionHeld";
 import type { HarnessUpdateRow, HarnessUpdates } from "./harnessUpdateList";
@@ -100,7 +100,7 @@ export function HarnessUpdatesSection({
               onClick={() => run(row)}
             >
               {row.phase === "updating" ? (
-                <Spinner size={12} loading />
+                <WaitSpinner size={12} loading />
               ) : row.phase === "failed" ? (
                 // retry-prompt-ok: runs the agent's updater again (an install).
                 t("harness.tryAgain")
