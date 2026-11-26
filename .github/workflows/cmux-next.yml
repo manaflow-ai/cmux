@@ -182,6 +182,7 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/browser-auth-flows-fixture/**
       - scripts/cmux-next/build_names.py
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
@@ -567,6 +568,7 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/browser-auth-flows-fixture/**
       - scripts/cmux-next/build_names.py
       - scripts/cmux-next/rj_update.py
       - scripts/cmux-next/hot-verify-ci.py
@@ -1777,6 +1779,7 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_typing_bench_launch_arm.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
             python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
+            python3 -I scripts/cmux-next/tests/test_browser_auth_fixture.py
             bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
             bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
@@ -2515,7 +2518,9 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 6
         with:
           # Why: note-172
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -3050,9 +3055,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) && (contains(runner.name, '-glaeda')) }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       - name: Type-check changed CmuxNext targets
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
@@ -3681,6 +3690,8 @@ jobs:
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           # Why: note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
@@ -3688,6 +3699,7 @@ jobs:
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-401
       - name: Compute fast-tier cache keys
@@ -3836,7 +3848,9 @@ jobs:
       # Why: note-559
       FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 6
         with:
           persist-credentials: false
           submodules: false
@@ -4344,9 +4358,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-374
       - name: Compute the fast-tier seed keys
@@ -4917,9 +4935,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-378
       - name: Compute the fast-tier seed keys
@@ -5557,12 +5579,15 @@ jobs:
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
           CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-379
       - name: Compute the fast-tier seed keys
