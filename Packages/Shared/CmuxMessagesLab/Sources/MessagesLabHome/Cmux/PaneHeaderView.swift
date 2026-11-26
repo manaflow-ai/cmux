@@ -151,10 +151,24 @@ final class PaneHeaderView: NSView {
     /// Messages' measured width, or wider when the button needs more: this pill is a plain `NSButton`
     /// that draws its own title, chevron and glass padding, which take about 8 pt more than
     /// Messages' measure, so a long name such as "workspace-1005" was cut (a1285, 2026-11-20).
+    ///
+    /// Measured once per title and look (`applyTitle`, `useGlassPill`), not per layout: a divider drag lays the header
+    /// out at every width, and the pill's width does not depend on it.
     private var pillWidth: CGFloat {
+        if let measuredPillWidth { return measuredPillWidth }
         Self.pillMeasurements += 1
-        return max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
+        let width = max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
+        measuredPillWidth = width
+        return width
     }
+    /// The pill's width for its title and look (nil: not measured since they changed).
+    private var measuredPillWidth: CGFloat? {
+        didSet { if measuredPillWidth == nil, oldValue != nil { needsLayout = true } }
+    }
+    /// The button's look can follow its window, its display and its appearance: measured again in the new ones.
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); measuredPillWidth = nil }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); measuredPillWidth = nil }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); measuredPillWidth = nil }
     /// Measurements of a pill's width, all headers (its title's and the button's own): tests count them.
     static var pillMeasurements = 0
 
@@ -191,6 +205,7 @@ final class PaneHeaderView: NSView {
     }
 
     private func applyTitle() {
+        measuredPillWidth = nil
         pill.title = title
         pill.isHidden = bare || title.isEmpty
         avatar.isHidden = pill.isHidden
@@ -216,6 +231,7 @@ final class PaneHeaderView: NSView {
         pillBacking.addSubview(glass)
         pillGlass = glass
         pill.isBordered = false
+        measuredPillWidth = nil
         needsLayout = true
     }
 
