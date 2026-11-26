@@ -43,7 +43,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Feature checklist
 
-60 features: 23 matched, 7 missing, 30 partial.
+61 features: 24 matched, 7 missing, 30 partial.
 
 | Feature | Status | How, or the gap |
 | --- | --- | --- |
@@ -56,6 +56,7 @@ Shift-Command-F (find) are cmux's defaults already.
 | Focus next region with F6 | missing | Gap: no action cycles the sidebar, composer and panels; `focusSidebar` and `nextSurface` are the nearest. |
 | Thread sidebar: group by project, timestamps, PR badge, running indicator | matched | The look's project section and rows with project, branch, PR and status; `sidebar.showTimestamps`. |
 | Sidebar top nav rows (New thread, Search) | matched | `sidebar.nav`: New thread and Search. |
+| Gray selected thread row and styled sidebar menus | matched | `appearance.selection` `neutral` keeps the selected row gray under the violet accent; `sidebar.drawnMenus` draws the right-click and more menus so the look's menu style applies. |
 | Pin threads and reorder them by drag | partial | Shift-Command-P pins (`palette.toggleTabPin`); drag reorders. Gap: pinned threads do not float into a group of their own. |
 | Settle finished threads (mod+shift+S) and archive | matched | `sidebar.settleFinished`; Shift-Command-S settles (`markWorkspaceDone`); `agentPane.archiveChat` archives. |
 | Snooze a thread | missing | Gap: no action hides a thread until later. |
