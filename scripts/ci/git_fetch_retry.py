@@ -58,8 +58,9 @@ from collections import deque
 from pathlib import Path
 from typing import Callable, Sequence
 
-# git aborts a transfer slower than this many bytes per second for LOW_SPEED_SECONDS.
-LOW_SPEED_BYTES = 1024
+# git aborts a transfer slower than this many bytes per second for LOW_SPEED_SECONDS. 1, not 1 KB/s: while
+# GitHub builds a pack it sends only keepalives, and a higher floor kills a fetch that is working (hq#29032).
+LOW_SPEED_BYTES = 1
 LOW_SPEED_SECONDS = 60
 # Seconds to wait before try 2 and try 3.
 BACKOFF_SECONDS = (10, 30)
