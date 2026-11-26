@@ -63,7 +63,7 @@ test("an app connection draws through the pane's card: its parts, one named butt
           action: "reconnect",
         }}
         onBegin={() => void ran.push(look)}
-        pill={<ConnectPill status="expiring" />}
+        pill={<ConnectPill status="expiring" label={connectStrings().t(CONNECT_STATUS_KEY.expiring)} />}
         details={<span data-detail="">Sign-in expires soon.</span>}
         extra={
           <button type="button" data-extra="">
