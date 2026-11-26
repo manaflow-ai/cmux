@@ -139,7 +139,7 @@ import Testing
     /// Chromium's widget window class, and a cmux window the fork adopted: it answers `isKind(of:)` for that class.
     final class FakeWidgetWindow: NSWindow {}
     final class AdoptedWindow: NSWindow {
-        override func isKind(of aClass: AnyClass) -> Bool { aClass === FakeWidgetWindow.self || super.isKind(of: aClass) }
+        nonisolated override func isKind(of aClass: AnyClass) -> Bool { aClass === FakeWidgetWindow.self || super.isKind(of: aClass) }
     }
 
     @Test func anAdoptedWindowIsNotOneOfChromiumsOwn() {

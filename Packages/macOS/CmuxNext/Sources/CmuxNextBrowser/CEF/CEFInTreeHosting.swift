@@ -86,6 +86,18 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
     /// view is in the window's Views widget, not in this container.
     var showsPage: () -> Bool = { false }
     var hostsPage: Bool { !subviews.isEmpty || showsPage() }
+    /// This view or an ancestor was hidden or shown (a parked workspace, a hidden tab; set by ``CEFInTreeHosting``).
+    var visibilityChanged: () -> Void = {}
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityChanged()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityChanged()
+    }
 
     /// Where the page shows none of its pixels (the New Tab page's hole, ``CEFPageHole``): the window backdrop shows
     /// there, and a press there goes to the host view (``hitTest(_:)``).
@@ -235,6 +247,13 @@ final class CEFInTreeHosting {
         }
     }
 
+    /// Views window mode: the page is no subview of its container, so hiding the container (or an ancestor) does not
+    /// hide the page; the fork reads the container's hidden state again (`Page::Update` in cmux_views_window_mac.mm).
+    func containerVisibilityChanged() {
+        guard InTreePages.shared.isViewsWindow, page != nil, let browser, let calls, let container else { return }
+        _ = calls.setInTreeHosting(browser, container)
+    }
+
     /// The page window's tabs changed; a live one names the window from now on.
     func windowBrowsersChanged(_ browsers: [Int32]) {
         guard let browser, !browsers.contains(browser) else { return }
@@ -305,6 +324,7 @@ final class CEFInTreeHosting {
             return (content != nil && content?.window === made.window, Int(self.widgetDrawing ?? -1))
         }
         made.showsPage = { [weak self] in self?.page != nil }
+        made.visibilityChanged = { [weak self] in self?.containerVisibilityChanged() }
         made.hole = view.layerHosting.pageHole
         // Below every other subview of the host (the tracker's probe), as the hosted page was.
         view.addSubview(made, positioned: .below, relativeTo: nil)
