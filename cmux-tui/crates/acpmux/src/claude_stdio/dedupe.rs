@@ -28,7 +28,10 @@
 //! characters is saved to a file and the model gets a 2 KB preview and the path (38 KB and 59.5
 //! KB results, measured the same day), so acpmux adds nothing there.
 //!
-//! Off: `agents.harnessMagic.dedupe.enabled: false`, or `ACPMUX_HM_DEDUPE=0`. Fails open: any
+//! Off by default (Leo, 2026-11-26: "identify all the weird opinionated fleet things we shipped
+//! into the app and remove them"): it refuses a call the agent made, so only a person who asked
+//! for it gets it. On: `agents.harnessMagic.dedupe.enabled: true`; `ACPMUX_HM_DEDUPE=0` turns it
+//! off whatever the file says. Fails open: any
 //! error, a fingerprint that takes over [`WORK_BOUND`], or a call it does not know passes through
 //! with no decision. Counted per turn on the prompt result's `_meta.harnessMagic.dedupe`, which
 //! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `estTokensSaved`).
@@ -45,9 +48,10 @@ pub(super) const DEDUPE_MATCHER: &str = "Read|Bash";
 /// Claude Code's wait for the answer, in seconds. The answer comes in milliseconds; a fingerprint
 /// past [`WORK_BOUND`] answers nothing.
 pub(super) const DEDUPE_TIMEOUT_S: u64 = 30;
-/// The setting that turns it off.
+/// The setting that turns it on (off unless `true`).
 pub const SETTING_ENABLED: &str = "agents.harnessMagic.dedupe.enabled";
-/// The kill switch: `0` (or `false`, `off`, `no`) turns it off whatever the setting.
+/// The daemon's switch, over the setting: `0` (or `false`, `off`, `no`) turns it off, `1` (or
+/// `true`, `on`, `yes`) on.
 pub const KILL_ENV: &str = "ACPMUX_HM_DEDUPE";
 
 const IDLE_RESET: Duration = Duration::from_secs(300);
@@ -60,13 +64,30 @@ const MAX_READS_PER_FILE: usize = 4;
 const MAX_PENDING: usize = 512;
 const MAX_RECORDS: usize = 4096;
 
+#[cfg(test)]
+thread_local! {
+    /// Turns the feature on for this test thread, whatever the settings file says (it is off by
+    /// default; a `#[tokio::test]` runs on one thread).
+    pub(super) static ON_FOR_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Whether the feature is on now (the setting is read at most every 5 s).
 pub(super) fn enabled() -> bool {
-    if env_off(std::env::var(KILL_ENV).ok().as_deref()) {
+    let env = std::env::var(KILL_ENV).ok();
+    if env_off(env.as_deref()) {
         return false;
     }
+    if env.as_deref().is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }) {
+        return true;
+    }
+    #[cfg(test)]
+    if ON_FOR_TEST.with(std::cell::Cell::get) {
+        return true;
+    }
     static CACHE: std::sync::Mutex<Option<(Instant, bool)>> = std::sync::Mutex::new(None);
-    let Ok(mut cache) = CACHE.lock() else { return true };
+    let Ok(mut cache) = CACHE.lock() else { return false };
     if let Some((at, on)) = *cache
         && at.elapsed() < Duration::from_secs(5)
     {
@@ -74,7 +95,7 @@ pub(super) fn enabled() -> bool {
     }
     let on = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => enabled_in(Some(&doc)),
-        _ => true,
+        _ => false,
     };
     *cache = Some((Instant::now(), on));
     on
@@ -83,7 +104,7 @@ pub(super) fn enabled() -> bool {
 /// On unless the settings document turns it off.
 pub(super) fn enabled_in(doc: Option<&Value>) -> bool {
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(|v| v.as_bool())
-        != Some(false)
+        == Some(true)
 }
 
 pub(super) fn env_off(value: Option<&str>) -> bool {

@@ -8,10 +8,11 @@ fetch <sha> from promisor remote", run 37887570270). Each such checkout keeps
 going on failure, drops the workspace repository, and checks out once more;
 a second failure fails the job.
 
-path routing and generated files check out blob-filtered on a reused cmux-linux
-workspace too; one promisor blob fetch timed out there after 63 s
-(cmux#55016) and left the PR with no verdict. Every blob-filtered checkout in
-the workflow retries the same way.
+generated files checks out blob-filtered on a reused cmux-linux workspace too;
+one promisor blob fetch timed out there after 63 s (cmux#55016) and left the
+PR with no verdict. Every blob-filtered checkout in the workflow retries the
+same way, except path routing, which tries three times with pauses
+(tests/test_ci_path_route_skips_on_failure.py).
 """
 from pathlib import Path
 import unittest
@@ -35,7 +36,7 @@ class CmuxNextCheckoutRetryTests(unittest.TestCase):
         reused = {name: job["steps"] for name, job in jobs.items()
                   if any(step.get("name") == REUSED or blob_filtered(step) for step in job.get("steps", []))}
         self.assertTrue(reused)
-        self.assertIn("path_route", reused)
+        reused.pop("path_route", None)
         self.assertIn("generated-files-linux", reused)
         for name, steps in reused.items():
             with self.subTest(job=name):
@@ -50,7 +51,10 @@ class CmuxNextCheckoutRetryTests(unittest.TestCase):
                 discard = steps[checkouts[0] + 1]
                 self.assertEqual(discard.get("if"), FAILED)
                 self.assertEqual(discard.get("run", "").strip(), 'rm -rf "$GITHUB_WORKSPACE/.git"')
-                self.assertEqual(checkouts[1], checkouts[0] + 2)
+                # A step between the discard and the retry (release compile borrows the
+                # host's git mirror again) runs only after a failed checkout too.
+                for between in steps[checkouts[0] + 2:checkouts[1]]:
+                    self.assertIn(FAILED, str(between.get("if", "")), between.get("name"))
 
 
 if __name__ == "__main__":
