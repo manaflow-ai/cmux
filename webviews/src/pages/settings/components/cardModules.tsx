@@ -107,6 +107,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
           </>
         ),
     ),
+  looksGallery: () =>
+    import("./LooksGalleryCard").then(({ LooksGalleryCard }) => (_focus, _workspace, reveal) => (
+      <LooksGalleryCard reveal={reveal} />
+    )),
   customizeProgress: () =>
     import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   customizeChecklist: () =>

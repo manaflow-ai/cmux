@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.askLedger.help" : {
+      "comment" : "Settings > Advanced > Labs: opt-in local ask ledger. Changes apply after restart.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "احتفظ بطلبات المحادثة على هذا الـ Mac واربطها بطلبات السحب في السجل. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Čuvajte zahtjeve iz razgovora na ovom Macu i povežite ih sa zahtjevima za spajanje u historiji. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gem dine chatanmodninger på denne Mac, og knyt dem til pull requests i Historik. Træder i kraft efter genstart af cmux."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat-Anfragen auf diesem Mac speichern und im Verlauf mit Pull Requests verknüpfen. Wird nach einem Neustart von cmux wirksam."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarda tus solicitudes de chat en este Mac y vincúlalas a solicitudes de incorporación en el historial. Se aplica al reiniciar cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conservez vos demandes de chat sur ce Mac et associez-les aux pull requests dans l’historique. Prend effet après le redémarrage de cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conserva le richieste della chat su questo Mac e collegale alle pull request nella cronologia. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットのリクエストをこのMacに保存し、履歴でプルリクエストと関連付けます。cmuxの再起動後に有効になります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រក្សាសំណើជជែករបស់អ្នកនៅលើ Mac នេះ ហើយភ្ជាប់វាទៅ pull request ក្នុងប្រវត្តិ។ មានប្រសិទ្ធភាពបន្ទាប់ពីចាប់ផ្ដើម cmux ឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅 요청을 이 Mac에 보관하고 기록에서 풀 리퀘스트와 연결합니다. cmux를 재시작하면 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagre chatforespørslene dine på denne Macen og knytt dem til pull requests i historikken. Trer i kraft etter omstart av cmux."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zachowuj prośby z czatu na tym Macu i łącz je z pull requestami w historii. Zaczyna działać po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarde seus pedidos de chat neste Mac e vincule-os a pull requests no histórico. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохраняйте запросы из чата на этом Mac и связывайте их с пул-реквестами в истории. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เก็บคำขอในแชตไว้บน Mac เครื่องนี้และเชื่อมโยงกับ pull request ในประวัติ มีผลหลังจากเริ่ม cmux ใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbet isteklerinizi bu Mac’te saklayın ve geçmişteki pull request’lere bağlayın. cmux yeniden başlatılınca uygulanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зберігайте запити з чату на цьому Mac і пов’язуйте їх із пул-реквестами в історії. Набуває чинності після перезапуску cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lưu yêu cầu trò chuyện trên máy Mac này và liên kết với pull request trong Lịch sử. Có hiệu lực sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此 Mac 上保存聊天请求，并在历史记录中关联拉取请求。重启 cmux 后生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此 Mac 上儲存聊天請求，並在歷史記錄中關聯提取請求。重新啟動 cmux 後生效。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

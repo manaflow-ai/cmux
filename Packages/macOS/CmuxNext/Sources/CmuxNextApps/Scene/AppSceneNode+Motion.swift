@@ -5,8 +5,11 @@ import CoreGraphics
 /// A value the renderer does not know parses to nil or the identity: no motion, never a crash.
 extension AppSceneNode {
     /// `animation`: a token name, `{ spring: { response, dampingFraction } }` or `{ duration, curve? }`.
-    var motion: SceneMotion? {
-        switch props["animation"] {
+    var motion: SceneMotion? { Self.sceneMotion(props["animation"]) }
+
+    /// A motion value (`animation`, or a timed `transition`'s `motion`); nil when it is not one.
+    static func sceneMotion(_ value: AppJSON?) -> SceneMotion? {
+        switch value {
         case .string(let name)?: return SceneMotion.named(name)
         case .object(let fields)?:
             if let spring = fields["spring"]?.objectValue {
@@ -27,8 +30,14 @@ extension AppSceneNode {
         return SceneLoop(effect: effect, period: fields["period"]?.numberValue, amount: fields["amount"]?.numberValue)
     }
 
-    /// `transition`: `opacity`, `slide`, `scale`, `move` or `pop`.
-    var transition: SceneTransition? { props["transition"]?.stringValue.flatMap(SceneTransition.init(rawValue:)) }
+    /// `transition`: `opacity`, `slide`, `scale`, `move` or `pop`, bare or as `{ kind, motion? }`.
+    var transition: SceneTransition? {
+        let kind = props["transition"]?.stringValue ?? props["transition"]?.objectValue?["kind"]?.stringValue
+        return kind.flatMap(SceneTransition.init(rawValue:))
+    }
+
+    /// A timed transition's `motion` (`{ kind, motion }`); nil keeps the transition's own springs.
+    var transitionMotion: SceneMotion? { Self.sceneMotion(props["transition"]?.objectValue?["motion"]) }
 
     /// `scale`: 1 is the identity; clamped to [0, 100].
     var scaleFactor: CGFloat { CGFloat(Self.finite(number("scale"), in: 0...100) ?? 1) }

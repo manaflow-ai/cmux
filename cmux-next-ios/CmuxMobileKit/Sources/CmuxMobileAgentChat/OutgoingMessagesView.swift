@@ -2,27 +2,60 @@
 import CmuxMobileDesign
 import SwiftUI
 
-/// Messages on their way to the Mac (``AgentChatStore/outgoing``): one with files from the moment
-/// Send is tapped, with its upload's progress; a text one once it waits (the link, a retry). Each
-/// has an exit at every stage (Leo 2026-11-24: "i also couldnt cancel out of the send. i need to
-/// be able to do that otherwise i cant edit or anything to retry or delete and remove"): Stop
-/// and Edit bring it back to the composer, Delete drops it, Send now skips a retry's wait. What
-/// each row offers is the Rust outbox's (`pending_sends`); this only draws it.
+/// Messages on their way to the Mac (``AgentChatStore/outgoing``): each shows the moment Send is
+/// tapped until the Mac has it (Leo, 2026-11-24: "i think we can maybe be more optimistic
+/// sometimes. it is a bit slow on ios."). A text one is a quiet pending bubble until it waits (the
+/// link, a retry); one with files, or one that waits, is a row with its exits at every stage (Leo
+/// 2026-11-24: "i also couldnt cancel out of the send. i need to be able to do that otherwise i
+/// cant edit or anything to retry or delete and remove"): Stop and Edit bring it back to the
+/// composer, Delete drops it, Send now skips a retry's wait. What each row offers is the Rust
+/// outbox's (`pending_sends`); this only draws it.
 struct OutgoingMessagesView: View {
     let store: AgentChatStore
 
     var body: some View {
         VStack(spacing: 8) {
             ForEach(store.outgoing) { message in
-                OutgoingMessageRow(
-                    message: message, macName: store.summary.macName,
-                    stop: { store.cancelSend(promptID: message.id) },
-                    delete: { store.deleteSend(promptID: message.id) },
-                    sendNow: { store.retrySend(promptID: message.id) }
-                )
+                if message.isQuietPending {
+                    PendingTextBubble(text: message.text)
+                } else {
+                    OutgoingMessageRow(
+                        message: message, macName: store.summary.macName,
+                        stop: { store.cancelSend(promptID: message.id) },
+                        delete: { store.deleteSend(promptID: message.id) },
+                        sendNow: { store.retrySend(promptID: message.id) }
+                    )
+                }
             }
         }
         .padding(.horizontal, 12)
+    }
+}
+
+/// A text message the Mac has not echoed yet: it sits where the sent message will be, dimmed a
+/// little, with no spinner (Leo, 2026-11-24: "they dont need to know that it's updating before
+/// they KNOW it's updating"). The echo swaps in the transcript's copy; one that waits past the
+/// outbox's quiet threshold becomes a row with Stop, Edit, Delete and Send now.
+private struct PendingTextBubble: View {
+    let text: String
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 48)
+            Text(text)
+                .font(.body)
+                .lineLimit(6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+                .opacity(0.7)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Sending: \(text)")
+        #if DEBUG
+        // The send trace's tap-to-bubble mark (OptimisticSendCaptureUITests).
+        .onAppear { LoadFrameProbe.shared?.event("pending-bubble") }
+        #endif
     }
 }
 
