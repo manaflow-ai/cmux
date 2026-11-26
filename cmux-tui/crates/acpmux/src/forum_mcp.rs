@@ -243,18 +243,19 @@ async fn hosted(daemon: &Client, m: &str, args: Value) -> Value {
 async fn digest(daemon: &Client, m: &str, args: Value) -> Value {
     match daemon.request(m, args).await {
         Ok(r) => {
-            let counts = &r["counts"];
-            let n = |k: &str| counts[k].as_u64().unwrap_or(0);
+            let n = |k: &str| {
+                r.get("counts").and_then(|c| c.get(k)).and_then(Value::as_u64).unwrap_or(0)
+            };
             let text = format!(
                 "{}\nCounts: {} posts read, {} raised, {} summarized; items opened {}, answered {}, dismissed {}.{}",
-                r["text"].as_str().unwrap_or_default().trim_end(),
+                r.get("text").and_then(Value::as_str).unwrap_or_default().trim_end(),
                 n("postsRead"),
                 n("raised"),
                 n("summarized"),
                 n("opened"),
                 n("answered"),
                 n("dismissed"),
-                if r["acked"] == true {
+                if r.get("acked").and_then(Value::as_bool) == Some(true) {
                     " Cursor moved."
                 } else {
                     " Cursor not moved (pass ack: true once seen)."
