@@ -14,8 +14,8 @@ continued and the chat shows it. 10 of 10, re-run nightly." Runs cmux-tui's `lid
 its header) and reads its `GATE lid-close {json}` line. Not covered here: a real Mac's network going
 down with it and a real Cloud VM's own idle policy.
 
-Gate 3, move: "cmux#51824 landed, p95 under 10 s each way, 56 of 56 in the kill matrix." Reads
-cmux#51824's state, runs cmux-tui's `move_kill_drill_matrix` (8 steps x 7 kills, owned by the
+Gate 3, move: "cmux#51824 landed, p95 under 10 s each way, 56 of 56 in the kill matrix." Checks
+that cmux#51824's code is in the tree (it landed through cmux#52230), runs cmux-tui's `move_kill_drill_matrix` (8 steps x 7 kills, owned by the
 kill-mid-move-drills lane) and counts its cells with nothing lost and no wrong answer (a cell KNOWN
 lists still counts as not clean), and reads per-direction move times from MOVE_TIMES (a JSON file of
 {"to_cloud_ms": [...], "back_ms": [...]}) when one is given; with none the p95 is unmeasured and the
@@ -100,10 +100,22 @@ def p95(values: list[float]) -> float | None:
     return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
 
 
+# cmux#51824 (the move's controls and driver) closed unmerged: its commits landed through cmux#52230. A PR's
+# state is the wrong question (and the gate job holds no GitHub token to ask it); the files it added are the
+# answer, read from the checked-out tree.
+MOVE_CODE = (
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceDriver.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceEvacuation.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Move.swift",
+)
+
+
+def move_code_landed(root: Path = ROOT) -> bool:
+    return all((root / path).is_file() for path in MOVE_CODE)
+
+
 def gate_move(args: argparse.Namespace) -> dict:
-    pr = subprocess.run(["gh", "pr", "view", "51824", "--repo", "manaflow-ai/cmux", "--json", "state,mergedAt"],
-                        text=True, capture_output=True)
-    landed = pr.returncode == 0 and json.loads(pr.stdout).get("state") == "MERGED"
+    landed = move_code_landed()
     if args.matrix_log:
         log = Path(args.matrix_log).read_text()
     else:
@@ -121,11 +133,11 @@ def gate_move(args: argparse.Namespace) -> dict:
     to_cloud, back = p95(times.get("to_cloud_ms", [])), p95(times.get("back_ms", []))
     ok = (landed and n_cells == MATRIX_CELLS and clean == MATRIX_CELLS and to_cloud is not None
           and back is not None and to_cloud < P95_BUDGET_MS and back < P95_BUDGET_MS)
-    return {"gate": "move", "ran": bool(n_cells), "ok": ok, "pr_51824_landed": landed, "cells": n_cells,
+    return {"gate": "move", "ran": bool(n_cells), "ok": ok, "move_code_landed": landed, "cells": n_cells,
             "clean": clean, "not_clean": [f'{c["step"]}:{c["kill"]}' for c in cells if not c["clean"]],
             "p95_to_cloud_ms": to_cloud, "p95_back_ms": back,
-            "number": f"{clean}/{MATRIX_CELLS} clean, p95 {to_cloud} / {back} ms, #51824 "
-                      + ("landed" if landed else "open"),
+            "number": f"{clean}/{MATRIX_CELLS} clean, p95 {to_cloud} / {back} ms, move code "
+                      + ("landed" if landed else "missing"),
             "why": None if n_cells else "the matrix printed no table"}
 
 

@@ -51,6 +51,19 @@ class Rfd0135GatesTest(unittest.TestCase):
         self.assertEqual(gates.p95(list(range(1, 21))), 19)
         self.assertEqual(gates.p95([5.0]), 5.0)
 
+    def test_move_code_landed_reads_the_tree_not_a_pr(self) -> None:
+        # cmux#51824 closed unmerged (its commits landed via cmux#52230); the gate must see the code.
+        # (The unit job's sparse checkout has no Packages/, so the tree here is made up.)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertFalse(gates.move_code_landed(root))
+            for path in gates.MOVE_CODE:
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text("")
+            self.assertTrue(gates.move_code_landed(root))
+            (root / gates.MOVE_CODE[0]).unlink()
+            self.assertFalse(gates.move_code_landed(root))
+
     def test_phone_is_no_until_its_check_exists(self) -> None:
         os.environ.pop("PHONE_GATE_CMD", None)
         result = gates.gate_phone(None)
