@@ -383,9 +383,17 @@ jobs:
           fi
           # The base's counts came from plan (its published bundles) when web-base was skipped for them.
           [[ "$WEB_BASE_FROM_PLAN" == true && "$WEB_BASE_RESULT" == skipped ]] && WEB_BASE_RESULT=success
-          if [[ "$WEB" == true && ( "$WEB_BASE_RESULT" != success || "$WEB_HEAD_RESULT" != success ) ]]; then
-            echo "::error title=Bundle size not measured::a web build failed (base: $WEB_BASE_RESULT, head: $WEB_HEAD_RESULT)"
+          if [[ "$WEB" == true && "$WEB_HEAD_RESULT" != success ]]; then
+            echo "::error title=Bundle size not measured::the head's web build failed (base: $WEB_BASE_RESULT, head: $WEB_HEAD_RESULT)"
             exit 2
+          fi
+          # A failed base build is the base's red, not this change's (cmux-next.yml's web-bundles job on the
+          # feat-cmux-next push owns it): 2026-11-21..26 it failed sampled pull requests in every PR open at
+          # the time (docs/findings/2026-11-26-ci-catch-value/ccv3-pr-router.md in cmuxterm-hq). The web bytes
+          # go unmeasured for this head; the rest of the budget still runs.
+          if [[ "$WEB" == true && "$WEB_BASE_RESULT" != success ]]; then
+            echo "::warning title=Web bundle size not measured::the base's web build failed ($WEB_BASE_RESULT); web bytes are not compared for this head"
+            WEB=false
           fi
           # The base commit's checker and budget, read through git: no file of the head runs.
           git show HEAD^1:scripts/cmux-next/bundle-size-pr.py > "$RUNNER_TEMP/bundle-size-pr.py"
