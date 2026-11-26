@@ -2581,6 +2581,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextSignposts"
       ],
