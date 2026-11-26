@@ -438,9 +438,9 @@ def merge_commit_files(total: int) -> list[str] | None:
 
 
 def read_runs(repo: str, sha: str, own: str, since: float) -> list[dict]:
-    """The head's pull_request runs but the gate's own, with the job count of each run of this event (created since
-    SINCE) that ended failure or has not started a job (queued): a completed failure with zero jobs never started, a
-    queued one with zero has not yet. An in_progress run has a job running and a green one ran, so neither is read:
+    """The head's pull_request runs but the gate's own, with the job count of each run that ended failure (of any
+    event) or of this event (created since SINCE) that has not started a job (queued): a completed failure with zero
+    jobs never started, a queued one with zero has not yet. An in_progress run has a job running and a green one ran, so neither is read:
     a push reads a few jobs lists, not one per run. A job read that fails leaves jobs None (unread), which never calls."""
     found: list[dict] = []
     for page in range(1, 6):
@@ -453,7 +453,10 @@ def read_runs(repo: str, sha: str, own: str, since: float) -> list[dict]:
             this_event = entry["created"] >= since - SAME_EVENT_SLACK_SECONDS
             if run.get("status") == "in_progress":
                 entry["jobs"] = 1  # a job is running
-            elif this_event and (run.get("status") != "completed" or run.get("conclusion") in NEVER_STARTED):
+            elif (this_event and run.get("status") != "completed") or (
+                    run.get("status") == "completed" and run.get("conclusion") in NEVER_STARTED):
+                # Any event's failed run is read: an earlier event's zero-job failure left unread would count as
+                # started and keep this event's zero-job run of the same workflow from being called (a reopen).
                 try:
                     entry["jobs"] = int(_api(f"/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=1")["total_count"])
                 except Exception as error:  # noqa: BLE001 - unread: named, never called

@@ -633,6 +633,43 @@ class ZeroJobSibling(unittest.TestCase):
         self.assertTrue(docs.never_started(runs[0]))
         self.assertTrue(docs.unsettled(runs[3]), "unread queued run: wait, then name")
 
+    def test_an_earlier_event_s_zero_job_failure_does_not_hide_this_event_s(self):
+        # pt-4e979ada6b review of 8cdf1400: a reopen at the same head. The earlier event's ci.yml ended failure with
+        # zero jobs; read_runs left its jobs absent, plan_fallback counted it as started, and this event's zero-job
+        # ci.yml was never called. Read through read_runs -> plan_fallback, as the gate does.
+        def listing(old_jobs):
+            runs = [{"id": 11, "path": ".github/workflows/ci.yml", "created_at": "2026-11-26T01:00:00Z",
+                     "status": "completed", "conclusion": "failure"},
+                    {"id": 12, "path": ".github/workflows/ci.yml", "created_at": "2026-11-26T02:41:09Z",
+                     "status": "completed", "conclusion": "failure"}]
+            runs += [{"id": 20 + i, "path": f".github/workflows/{name}", "created_at": "2026-11-26T02:41:09Z",
+                      "status": "completed", "conclusion": "success"}
+                     for i, name in enumerate(["cmux-next-guards.yml", "cmux-next-pr-autofix.yml", "pr-checks.yml",
+                                               "rust-workspaces.yml", "pr-router.yml"])]
+
+            def api(path):
+                if "/runs/11/jobs" in path:
+                    if old_jobs is None:
+                        raise OSError("403")
+                    return {"total_count": old_jobs}
+                if "/runs/12/jobs" in path:
+                    return {"total_count": 0}
+                return {"workflow_runs": runs}
+            return api
+
+        since = docs._epoch("2026-11-26T02:41:09Z")
+        event = pull_request_event("reopened", changed=len(self.files))
+        for old_jobs, want in ((0, ["ci.yml"]), (12, []), (None, [])):
+            with mock.patch.object(docs, "_api", listing(old_jobs)):
+                runs = docs.read_runs("o/r", "abc", "5", since)
+            got = docs.plan_fallback(event, self.calls, self.files, runs, since)
+            self.assertEqual(got, want, f"earlier ci.yml run with {old_jobs} jobs")
+        # Still this event only: the earlier zero-job run is not named or called on its own.
+        with mock.patch.object(docs, "_api", listing(0)):
+            runs = docs.read_runs("o/r", "abc", "5", since)
+        self.assertEqual([line.split(" run ")[1].split()[0] for line in docs.zero_job_report(runs, since, ["ci.yml"])],
+                         ["12"])
+
 
 class Units(unittest.TestCase):
     def test_starts_reads_branches_types_and_paths(self):
