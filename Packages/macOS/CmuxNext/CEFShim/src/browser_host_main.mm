@@ -614,18 +614,26 @@ int main(int argc, char* argv[]) {
     SendText(cmux_host::kError, "cef_load_library failed: " + binary);
     return 65;
   }
-  if (auto version = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_cef_api_version"))) g_fork_api = version();
-  g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_layer_hosting"));
+  // The wrapper opens the framework RTLD_LOCAL, so its fork exports are not visible through RTLD_DEFAULT (every
+  // lookup there came back null: fork API 0, exit 66, on the other Mac 2026-11-26). Reopen the same image by path, as
+  // shim_process.mm's BindForkApi does; RTLD_NOLOAD returns the mapped image's handle without loading it again.
+  void* const image = dlopen(binary.c_str(), RTLD_NOLOAD | RTLD_LAZY);
+  if (!image) {
+    SendText(cmux_host::kError, "the loaded Chromium framework has no handle: " + binary);
+    return 65;
+  }
+  if (auto version = reinterpret_cast<int (*)()>(dlsym(image, "cmux_cef_api_version"))) g_fork_api = version();
+  g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(image, "cmux_browser_set_layer_hosting"));
   if (g_fork_api < 26 || !g_set_layer_hosting) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " has no layer hosting (needs 26)");
     return 66;
   }
   if (g_remote) {
     g_rc_listen = reinterpret_cast<int (*)(int, void (*)(int, void*), void*, char*, int)>(
-        dlsym(RTLD_DEFAULT, "cmux_rc_host_listen"));
-    g_rc_connected = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_rc_host_connected"));
+        dlsym(image, "cmux_rc_host_listen"));
+    g_rc_connected = reinterpret_cast<int (*)()>(dlsym(image, "cmux_rc_host_connected"));
     g_set_remote_hosting =
-        reinterpret_cast<int (*)(int, uint64_t)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_remote_cocoa_hosting"));
+        reinterpret_cast<int (*)(int, uint64_t)>(dlsym(image, "cmux_browser_set_remote_cocoa_hosting"));
     if (g_fork_api < 37 || !g_rc_listen || !g_rc_connected || !g_set_remote_hosting) {
       SendText(cmux_host::kError,
                "Chromium fork API " + std::to_string(g_fork_api) + " has no remote Cocoa pages (needs 37)");
