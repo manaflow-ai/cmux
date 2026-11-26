@@ -245,7 +245,7 @@ export function tasksSection(
     id: "tasks",
     group: "running",
     title: t("summary.backgroundTasks"),
-    // The number of what runs, no word (as the page's head and Also here's count).
+    // The number of what runs, no word (as the page's head).
     ...(runningCount > 0 ? { meta: String(runningCount), metaTone: "running" as const } : {}),
     open: input.open,
     foldable: true,

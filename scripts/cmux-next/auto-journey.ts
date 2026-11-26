@@ -19,7 +19,9 @@
  *   5. chat on Mac    a checkout with a local commit and uncommitted work; `session/new`, Auto on
  *                     (`_acpmux/auto_session/set`), a prompt answered on the Mac; the store holds it as
  *                     `device:<id>` with a snapshot that covers its last event.
- *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; the machine's
+ *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; S4 with the Mac
+ *                     daemon stopped (auto-journey-s4.ts: the phone's read, then timed inbox sends that each run once on
+ *                     the machine; OUT/s4.json); the machine's
  *                     folder has the Mac's commit and uncommitted work; a message sent to the chat
  *                     (POST /v1/auto-sessions/:id/inbox) is answered by the harness on the machine.
  *   7. back home      POST /v1/auto-sessions/:id/move {to: "local", device}; the holder becomes `device:<id>`; the
@@ -44,14 +46,17 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitMachine } from "./cloud-journey.ts";
+import { phoneSends, s4Detail, type S4Result } from "./auto-journey-s4.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitRunning } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
-type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
+type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown; leaseExpiresAt?: number };
 
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
 const HARNESS = "auto-journey";
+/** S4's phone sends a run (auto-journey-s4.ts); AUTO_JOURNEY_S4_SENDS changes it. */
+const S4_SENDS = Math.max(1, Math.min(100, Number(process.env.AUTO_JOURNEY_S4_SENDS) || 20));
 /** cmux NEXT's config folder on this side: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567), where the
  * daemon reads harness profiles. The Linux guest keeps `cmux`. */
 const NEXT_DIR = process.platform === "darwin" ? "cmux-next" : "cmux";
@@ -220,6 +225,7 @@ async function main(): Promise<number> {
   const keep = () => writeFileSync(path.join(out, "owned.json"), JSON.stringify(owned));
   const api = new Api(backend.api);
   let daemon: ChildProcess | null = null;
+  let s4Failed = false;
   let sock: Socket | null = null;
   const store = async (method: string, route: string, body?: unknown, timeoutMs = 30_000) => {
     const r = await http(method, `${backend.api}/v1/auto-sessions${route}`, body, { authorization: `Bearer ${api.bearer}` }, timeoutMs, method === "GET");
@@ -316,7 +322,7 @@ async function main(): Promise<number> {
       });
       owned.machine = v.machine.id as string;
       keep();
-      const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      const m = await waitRunning(api, owned.machine, 300_000);
       return { value: owned.machine, detail: `${owned.machine} running, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     meta.machine = machine;
@@ -333,6 +339,11 @@ async function main(): Promise<number> {
       return { value: null, detail: `team ${r.body.team}, machine ${machine}` };
     });
     const exec = directExec(api, machine, J);
+    /** The guest daemon's last words about importing a chat (auto_session/import), for a failure's message. */
+    const importLines = async (): Promise<string> => {
+      const r = await exec(`${GUEST}{ sudo -n journalctl -u acpmux.service --since '15 min ago' --no-pager -o cat 2>/dev/null; tail -n 2000 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null; } | grep -iE 'auto.session|import|mirror|folder' | tail -n 8 | cut -c1-300`, 60_000).catch((e: unknown) => ({ stdout: `unread: ${String(e)}`, stderr: "" }));
+      return r.stdout.trim().split("\n").join(" / ").slice(-1500) || "no import lines";
+    };
     await J.step("stand-in harness on the machine", async () => {
       const script = "$HOME/.cmux/auto-journey-agent.sh";
       const cmd = `${GUEST}set -e; mkdir -p "$HOME/.config/cmux/harnesses"; cat > "${script}" <<'AJ_AGENT'\n${agentScript("vm")}AJ_AGENT\nchmod 755 "${script}"; ` +
@@ -433,18 +444,48 @@ async function main(): Promise<number> {
       if (!v.standby.includes(device)) console.log(`note: the Mac is not listed standby yet (${v.standby.join(",") || "none"})`);
       return { value: v, detail: `holder ${v.holder} epoch ${v.epoch} standby ${v.standby.join(",") || "none"}` };
     });
-    await J.step("the machine's folder has the Mac's commit and uncommitted work", async () => {
-      const deadline = Date.now() + TURN_BUDGET_MS;
-      for (;;) {
-        const r = await exec(`${GUEST}d="$HOME/Projects/auto/${id}"; [ -d "$d" ] || { echo "@@missing"; exit 0; }; git -C "$d" rev-parse HEAD; cat "$d/local.txt" "$d/uncommitted.txt" "$d/${RAN_FILE}" 2>&1; echo "@@done"`, 60_000);
-        if (/@@done/.test(r.stdout)) {
-          const o = r.stdout;
-          for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}`);
-          return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
-        }
-        if (Date.now() > deadline) throw new Error(`no folder for the chat on the machine: ${(r.stdout + r.stderr).slice(-300)}`);
-        await sleep(5000);
+    // S4 (the slice's phone step): the Mac asleep, the phone reads and sends to the chat on the machine. It runs here,
+    // before the folder check, so its numbers come in even when a later step fails; a failure still fails the run.
+    await J.step(`S4: the phone reads and sends ${S4_SENDS} messages with the Mac asleep`, async () => {
+      const mac = daemon as ChildProcess | null;
+      if (!mac?.pid || mac.exitCode !== null) throw new Error("the Mac daemon is not running, so it cannot be put to sleep");
+      process.kill(mac.pid, "SIGSTOP");
+      let r: S4Result;
+      try {
+        r = await phoneSends({
+          store, now: () => performance.now(), sleep,
+          ranOnMachine: async () => {
+            const got = await exec(`${GUEST}cat "$HOME/Projects/auto/${id}/${RAN_FILE}" 2>/dev/null; echo "@@done"`, 60_000);
+            if (!/@@done/.test(got.stdout)) throw new Error(`reading the machine's ${RAN_FILE}: exit ${got.code}`);
+            return got.stdout;
+          },
+        }, id, machine, tag, S4_SENDS);
+      } finally {
+        process.kill(mac.pid, "SIGCONT");
       }
+      writeFileSync(path.join(out, "s4.json"), JSON.stringify(r, null, 2));
+      for (const [k, l] of [["post", r.post], ["ack", r.ack], ["vm_answer", r.turn]] as const) if (l) meta[`s4_${k}_ms`] = `p50 ${l.p50} p99 ${l.p99} max ${l.max} n ${r.n}`;
+      meta.s4_read_ms = String(Math.round(r.readMs));
+      if (!r.ok) throw new Error(s4Detail(r));
+      return { value: null, detail: s4Detail(r) };
+    }).catch(() => { s4Failed = true; });
+    // The store moves the holder at once (`assign`, leaseExpiresAt 0); the machine lays the folder out after that (git
+    // init, fetch the base, the bundle, the patch: import/folder.rs) and acks the assignment only once the import is
+    // done (holder/machine.rs `ImportDone` -> AckAssignment), which is when the store first gives it a lease. A folder
+    // that merely exists may be mid-layout (an unborn HEAD, no files yet), so the check waits on that ack, not on the folder.
+    await J.step("the machine takes the chat in (assignment acked, a lease)", async () => {
+      const v = await until(id, "the machine acks its import", (v) => v.epoch !== inCloud.epoch || (v.leaseExpiresAt ?? 0) > 0, TURN_BUDGET_MS).catch(async (e: unknown) => {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; the machine's import: ${await importLines()}`);
+      });
+      if (v.epoch !== inCloud.epoch || v.holder !== `vm:${machine}`) throw new Error(`the chat left the machine before its import was acked: holder ${v.holder} epoch ${v.epoch}`);
+      return { value: null, detail: `holder ${v.holder} epoch ${v.epoch} lease to ${new Date(v.leaseExpiresAt ?? 0).toISOString()}` };
+    });
+    await J.step("the machine's folder has the Mac's commit and uncommitted work", async () => {
+      const r = await exec(`${GUEST}d="$HOME/Projects/auto/${id}"; [ -d "$d" ] || { echo "@@missing"; exit 0; }; git -C "$d" rev-parse HEAD; cat "$d/local.txt" "$d/uncommitted.txt" "$d/${RAN_FILE}" 2>&1; echo "@@done"`, 60_000);
+      const o = r.stdout;
+      if (!/@@done/.test(o)) throw new Error(`no folder for the chat on the machine after its import was acked: ${(o + r.stderr).slice(-300)}; the machine's import: ${await importLines()}`);
+      for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}; the machine's import: ${await importLines()}`);
+      return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
     });
     await J.step("the chat runs on the machine (inbox message answered side=vm)", async () => {
       const posted = await store("POST", `/${encodeURIComponent(id)}/inbox`, { id: `${tag}-cloud-1`, text: "cloud-1" });
@@ -510,7 +551,7 @@ async function main(): Promise<number> {
       if (v.holder !== device) throw new Error(`holder ${v.holder}`);
       return { value: null, detail: `answered side=mac; holder ${v.holder} epoch ${v.epoch}` };
     });
-    return 0;
+    return s4Failed ? 1 : 0;
   } catch (e) {
     console.error(scrub(String((e as Error)?.stack ?? e), J.secrets));
     return 1;

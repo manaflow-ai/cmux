@@ -557,26 +557,6 @@
       "scope": "coderouter:read",
       "class": "read"
     },
-    "coderouter.app.connect_account": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.create_key": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.open": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.run_test": {
-      "scope": "coderouter:execute",
-      "class": "mutation"
-    },
-    "coderouter.app.start_onboarding": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
     "coderouter.detect": {
       "scope": "coderouter:read",
       "class": "read"
@@ -2324,6 +2304,7 @@
     "install.rename",
     "install.revoke",
     "install.sign_out",
+    "integration.approval.approve",
     "integration.approval.get",
     "integration.complete",
     "integration.connect",

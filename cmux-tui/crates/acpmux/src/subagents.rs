@@ -271,6 +271,14 @@ impl SubagentTree {
         self.annotate_live(params, true)
     }
 
+    /// `annotate_live` of a logged record written at `at`, its time the one a start or end takes.
+    pub fn annotate_at(&mut self, params: &mut Value, live: bool, at: u64) -> Option<String> {
+        let was = self.logged_at.replace(at);
+        let owner = self.annotate_live(params, live);
+        self.logged_at = was;
+        owner
+    }
+
     /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
     /// changes which background subagents run, since the replay may hold a start without its end.
     pub fn annotate_live(&mut self, params: &mut Value, live: bool) -> Option<String> {
