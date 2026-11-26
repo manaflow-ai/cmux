@@ -1,5 +1,6 @@
 // l10n-allow-file: DEV gallery Run board comparison variant, not shipped UI.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { KeyHint } from "../../../../../ui/KeyHint";
 import { sessionSummary } from "../../../summary/sessionSummary";
 import {
   canApprove,
@@ -59,7 +60,7 @@ function MiniPreview({ attempt, detail = false }: { attempt: RunAttempt; detail?
         <span>
           Workspace <span aria-hidden="true">/</span> Overview
         </span>
-        <span className="compare-preview-key">⌘ K</span>
+        <KeyHint keys="⌘K" className="compare-preview-key" />
       </div>
       <div className="compare-preview-body">
         <aside aria-hidden="true">

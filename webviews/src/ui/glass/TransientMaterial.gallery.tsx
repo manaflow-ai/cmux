@@ -5,6 +5,7 @@ import { componentEntry } from "../../gallery/format";
 import { Notice } from "../Notice";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import "../../pages/shared/transientMaterial.css";
+import { KeyHint } from "../KeyHint";
 
 type Look = "before" | "standard" | "quieter" | "denser";
 type Props = { look: Look; scheme: "light" | "dark" };
@@ -101,7 +102,7 @@ function TransientMaterialGallery({ look, scheme }: Props) {
               } as CSSProperties
             }
           >
-            Show sidebar <span>⌘S</span>
+            Show sidebar <KeyHint keys="⌘S" />
           </div>
         </section>
         <section>
