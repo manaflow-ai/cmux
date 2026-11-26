@@ -402,7 +402,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("upstream_ffi.rs"),
         include_str!("bulk_ffi.rs"),
         include_str!("clipboard_ffi.rs"),
-        include_str!("record_ffi.rs")
+        include_str!("record_ffi.rs"),
+        include_str!("ui/mod.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
