@@ -134,7 +134,7 @@ mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
-mod harness_magic;
+pub(crate) mod harness_magic;
 mod harness_sandbox;
 mod harness_view;
 mod harness_watch;
