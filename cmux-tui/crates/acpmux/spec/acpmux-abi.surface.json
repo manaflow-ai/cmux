@@ -16630,6 +16630,22 @@
       "/answers": {
         "ty": "json"
       },
+      "/forkCheckpoint": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/forkCheckpoint/fork": {
+        "ty": "string",
+        "required": true
+      },
+      "/forkCheckpoint/forkMs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/forkCheckpoint/machine": {
+        "ty": "string",
+        "required": true
+      },
       "/optionId": {
         "ty": "string",
         "nullable": true
