@@ -3410,6 +3410,10 @@ fn pick_closed(
 ) -> DResult<Option<ActionOutcome>> {
     // Unreadable children: no pick here (the caller opens the menu).
     let Some(Some(menu)) = menu_of(el) else { return Ok(None) };
+    // `items` snapshots the names source while deriving each item's denied
+    // flag. Wait for the index first so the subsequent pick gate and those
+    // flags observe the same readiness state.
+    let names_ready = workspace::app_names_ready_soon();
     let items = super::menus::items(d, &menu);
     if items.is_empty() {
         return Ok(None);
@@ -3419,9 +3423,8 @@ fn pick_closed(
     let mut items = items;
     // Items are checked against the app names: none is chosen while they
     // load (the protected apps always apply).
-    let picked =
-        super::menus::gated_pick(workspace::app_names_ready_soon(), &titles, &hidden, value)
-            .map_err(|why| DesktopError::Unsupported(why.into()))?;
+    let picked = super::menus::gated_pick(names_ready, &titles, &hidden, value)
+        .map_err(|why| DesktopError::Unsupported(why.into()))?;
     let item = match picked {
         menus::Pick::Item(i) => {
             items[i].detail();

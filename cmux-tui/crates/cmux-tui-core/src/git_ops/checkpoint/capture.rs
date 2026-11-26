@@ -149,9 +149,12 @@ pub(super) fn capture(
     stamp: &Stamp<'_>,
     operation: &'static str,
 ) -> Result<Captured, ResourceError> {
-    let before = scan::observe(repository, operation)?;
     wait_for_index_lock(&layout.git_dir.join("index.lock"), INDEX_LOCK_WAIT)
         .map_err(|message| failed(operation, "repository_busy", message))?;
+    // A producer may finish its index replacement while the lock is held. Take
+    // the baseline after that producer has released the lock so the capture
+    // describes the index that it will actually read.
+    let before = scan::observe(repository, operation)?;
     let mut plan = Plan::default();
     plan_tracked(repository, &before.entries, request, &mut plan);
     plan_untracked(repository, request, &mut plan, operation)?;
