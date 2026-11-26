@@ -54,6 +54,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-hub-host",
  "cmux-image-linear",
+ "cmux-intent",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -63,6 +64,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-pool-pod",
  "cmux-presence",
  "cmux-process",
  "cmux-relay",
@@ -92,6 +94,7 @@ dependencies = [
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-wire-lockstep",
  "cmux-worktree-care",
@@ -2183,6 +2186,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "flate2",
@@ -2235,6 +2239,14 @@ version = "0.1.0"
 dependencies = [
  "cmux-holder",
  "libc",
+]
+
+[[package]]
+name = "cmux-home-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2319,6 +2331,15 @@ dependencies = [
 name = "cmux-install-check"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
  "serde",
  "serde_json",
 ]
@@ -2465,6 +2486,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-mobile-core",
+ "cmux-rd-screen",
  "serde_json",
  "uniffi",
 ]
@@ -2628,6 +2650,7 @@ dependencies = [
  "sha1",
  "sha1collisiondetection",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "tokio",
  "zstd",
@@ -3303,6 +3326,7 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-install-check",
+ "cmux-intent",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
@@ -3358,6 +3382,7 @@ dependencies = [
  "ghostty-vt",
  "ghostty-vt-sys",
  "glob",
+ "ignore",
  "libc",
  "notify",
  "parking_lot",
@@ -3414,6 +3439,7 @@ dependencies = [
  "base64",
  "cmux-cloud-environment",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-json",
  "serde",
  "serde_json",
@@ -3762,6 +3788,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 
