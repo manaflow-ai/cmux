@@ -20,9 +20,25 @@ fn line(mux: &Arc<Mux>, (client, writer, outbound, scheduler): &Conn, request: V
     pop_json(outbound)
 }
 
-fn until_marker(conn: &Conn, marker: &str) -> Vec<Value> {
+/// Sends `subscribe` and returns what `conn` got up to and including its reply.
+fn subscribed(mux: &Arc<Mux>, conn: &Conn) -> Vec<String> {
+    let request = json!({"id": "sub", "cmd": "subscribe"}).to_string();
+    assert!(handle_connection_message(mux, conn.0, &request, &conn.1, &conn.3));
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut seen: Vec<String> = Vec::new();
+    while !seen.iter().any(|message| message.contains(r#""id":"sub""#)) {
+        assert!(Instant::now() < deadline, "subscribe never answered: {seen:?}");
+        match conn.2.try_pop() {
+            Some(message) => seen.push(message),
+            None => std::thread::sleep(Duration::from_millis(2)),
+        }
+    }
+    seen
+}
+
+fn until_marker(conn: &Conn, marker: &str, early: Vec<String>) -> Vec<Value> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen: Vec<String> = early;
     while !seen.iter().any(|message| message.contains(marker)) {
         assert!(Instant::now() < deadline, "the marker never arrived: {seen:?}");
         match conn.2.try_pop() {
@@ -62,15 +78,9 @@ fn an_opted_in_subscriber_gets_every_terminals_presence_first() {
     );
     assert_eq!(reply["ok"], true, "{reply}");
     let legacy = connect(&mux);
-    for conn in [&app, &legacy] {
-        assert!(handle_connection_message(
-            &mux,
-            conn.0,
-            &json!({"id": "sub", "cmd": "subscribe"}).to_string(),
-            &conn.1,
-            &conn.3,
-        ));
-    }
+    // The subscription exists once `subscribe` has answered: an event before that reaches no one.
+    let app_early = subscribed(&mux, &app);
+    let legacy_early = subscribed(&mux, &legacy);
     mux.emit(MuxEvent::Status("presence-marker".into()));
 
     let presence = |seen: &[Value], surface: SurfaceId| -> Vec<Value> {
@@ -79,7 +89,7 @@ fn an_opted_in_subscriber_gets_every_terminals_presence_first() {
             .cloned()
             .collect()
     };
-    let app_seen = until_marker(&app, "presence-marker");
+    let app_seen = until_marker(&app, "presence-marker", app_early);
     let acting_seen = presence(&app_seen, acting.id);
     assert_eq!(acting_seen.len(), 1, "{app_seen:?}");
     assert_eq!(acting_seen[0]["activity"], "thinking", "{acting_seen:?}");
@@ -88,7 +98,7 @@ fn an_opted_in_subscriber_gets_every_terminals_presence_first() {
     assert_eq!(stopped_seen.len(), 1, "a stopped agent must be cleared on replay: {app_seen:?}");
     assert!(stopped_seen[0]["activity"].is_null(), "{stopped_seen:?}");
 
-    let legacy_seen = until_marker(&legacy, "presence-marker");
+    let legacy_seen = until_marker(&legacy, "presence-marker", legacy_early);
     assert!(
         legacy_seen.iter().all(|m| m["event"] != "agent-presence-changed"),
         "a connection that did not ask got a presence replay: {legacy_seen:?}"
