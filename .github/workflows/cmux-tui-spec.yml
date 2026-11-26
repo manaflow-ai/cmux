@@ -186,6 +186,7 @@ jobs:
             /.github/scripts/
             /scripts/ci/*.py
             /scripts/ci/*.json
+            /.gitmodules
 
       # Whether the change needs the crate graph at all (affected_jobs.py gate): it does when it touches this
       # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
