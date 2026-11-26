@@ -21,7 +21,7 @@ async fn capacity_retries_separated_by_model_progress_do_not_end_a_healthy_turn(
 }
 
 #[tokio::test]
-async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
+async fn capacity_retries_inside_codex_end_and_keep_backing_off_past_the_budget() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
     let id = new_session(&mut c, "capacity-inner-loop").await;
@@ -30,18 +30,18 @@ async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "capacity-inner-loop"}], "_meta": {"acpmux": {"promptId": "p-cap-inner"}}}),
     )).await.expect("capacity retries must end without waiting for the harness to give up");
     assert!(result.unwrap_err().contains("Selected model is at capacity"));
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    // A capacity outage never uses its attempts up (`auto_resume::capacity_wait`): past the two
+    // configured waits it keeps retrying, and the row keeps showing the retry.
+    until(&hub, &id, |k| k.iter().filter(|k| *k == "auto_resume_scheduled").count() >= 3).await;
     let scheduled = records(&hub, &id, "auto_resume_scheduled");
-    assert_eq!(scheduled.len(), 2);
+    assert!(scheduled.len() >= 3, "{scheduled:?}");
     assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
-    assert_eq!(records(&hub, &id, "auto_resume_exhausted").len(), 1);
-    assert_eq!(records(&hub, &id, "user_message").len(), 3);
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
-    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+    assert!(records(&hub, &id, "auto_resume_exhausted").is_empty());
+    assert_eq!(row(&hub, &id)["retry"]["reason"], "capacity");
 }
 
 #[tokio::test]
-async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
+async fn repeated_capacity_errors_outlast_the_configured_waits_and_complete() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
     let id = new_session(&mut c, "capacity-bounded").await;
@@ -51,17 +51,16 @@ async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
     )
     .await
     .unwrap_err();
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    // Three capacity failures outlast the two configured waits; the chain does not run out, and
+    // the fourth prompt, once capacity is back, completes the turn.
+    until(&hub, &id, |_| row(&hub, &id)["lastTurn"]["status"] == "completed").await;
     let scheduled = records(&hub, &id, "auto_resume_scheduled");
-    assert_eq!(scheduled.len(), 2);
+    assert_eq!(scheduled.len(), 3);
     assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
-    let exhausted = records(&hub, &id, "auto_resume_exhausted");
-    assert_eq!(exhausted.len(), 1);
-    assert_eq!(exhausted[0]["reason"], "capacity");
-    assert_eq!(exhausted[0]["attempts"], 2);
-    assert_eq!(records(&hub, &id, "user_message").len(), 3);
+    assert!(records(&hub, &id, "auto_resume_exhausted").is_empty());
+    assert_eq!(records(&hub, &id, "user_message").len(), 4);
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
 }
 
 /// The records of one kind in a session, oldest first.
@@ -128,7 +127,7 @@ async fn a_503_no_accounts_turn_is_retried_in_the_same_session_and_the_row_shows
     assert_eq!(listed(&list, &id)["retry"], retry, "{list}");
     let mux = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert_eq!(listed(&mux, &id)["retry"], retry, "{mux}");
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "capacity");
 
     // It fires: the same chat, the same agent session, the next attempt's prompt id.
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 2).await;
@@ -298,7 +297,7 @@ async fn a_wait_that_ends_with_a_cut_turn_answers_with_its_retry() {
         .unwrap();
     assert_eq!(w["timedOut"], false, "{w}");
     let resolved = &w["resolved"][0];
-    assert_eq!(resolved["lastTurn"]["status"], "failed", "{w}");
+    assert_eq!(resolved["lastTurn"]["status"], "capacity", "{w}");
     assert_eq!(resolved["retry"]["reason"], "capacity", "{w}");
     assert_eq!(resolved["retry"]["attempt"], 1, "{w}");
     assert_eq!(resolved["retry"]["promptId"], "p-wait", "{w}");
@@ -410,4 +409,52 @@ async fn stop_records_the_decision_for_a_retry_that_waited() {
     let decided = records(&hub, &id, "auto_resume_settled");
     assert_eq!(decided.len(), 1, "{decided:?}");
     assert_eq!(decided[0]["why"], "stopped", "{decided:?}");
+}
+
+/// gcp-agent-lane-13, 2026-11-24: the disk filled at 22:48Z and had room at 22:49Z, but a chat
+/// whose turn failed on "No space left on device" sat stranded. Leo: "do they get stranded!?"
+/// A full disk is a pause: the row says a `disk` retry waits, nothing is sent while the disk is
+/// short of `autoResumeDiskFreeBytes` (past any wait), and once it has room the turn goes on
+/// once, as `~resume-1`, saying why it stopped.
+#[tokio::test]
+async fn a_turn_a_full_disk_cut_waits_for_free_space_then_goes_on_once() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    {
+        let mut config = hub.config.write().await;
+        config.auto_resume_delays_ms = Some(vec![20; 3]);
+        // No disk has this much free: the disk reads full until the floor drops.
+        config.auto_resume_disk_free_bytes = Some(u64::MAX);
+    }
+    let id = new_session(&mut c, "disk-full").await;
+    let full = "failed to write session file: No space left on device (os error 28)";
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("recover-once: {full}")}], "_meta": {"acpmux": {"promptId": "p-disk"}}}),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("No space left"));
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let scheduled = records(&hub, &id, "auto_resume_scheduled");
+    assert_eq!(scheduled.first().map(|s| s["reason"].clone()), Some(json!("disk")), "{k:?}");
+    assert_eq!(scheduled[0]["untilCapacity"], true, "never used up: {scheduled:?}");
+
+    // Well past its 20 ms wait: still waiting, on the disk.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(records(&hub, &id, "user_message").len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(row(&hub, &id)["retry"]["reason"], "disk", "{}", row(&hub, &id));
+    assert!(records(&hub, &id, "auto_resume_exhausted").is_empty());
+
+    // The disk has room again: it goes on once.
+    hub.config.write().await.auto_resume_disk_free_bytes = Some(0);
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let messages = records(&hub, &id, "user_message");
+    let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(ids, [&json!("p-disk"), &json!("p-disk~resume-1")], "{k:?}");
+    let text = messages[1]["text"].as_str().unwrap();
+    assert!(text.contains("disk filling up"), "{text}");
+    let after = row(&hub, &id);
+    assert_eq!(after["lastTurn"]["status"], "completed", "{after}");
+    assert_eq!(after["retry"], Value::Null, "{after}");
 }

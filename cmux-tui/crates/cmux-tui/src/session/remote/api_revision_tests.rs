@@ -39,7 +39,7 @@ fn remote_api_revision_translates_request_response_and_event() {
 #[test]
 fn remote_api_revision_no_reply_never_retains_commands() {
     let revision = older_peer();
-    for _ in 0..PENDING_COMMAND_LIMIT + 1 {
+    for _ in 0..4_097 {
         assert_eq!(
             revision.outgoing_no_reply("demo", r#"{"data":{"title":"x"}}"#).unwrap(),
             r#"{"data":{"name":"x"}}"#
@@ -49,18 +49,22 @@ fn remote_api_revision_no_reply_never_retains_commands() {
 }
 
 #[test]
-fn remote_api_revision_limit_preserves_outstanding_responses() {
+fn remote_api_revision_has_no_pending_cap_and_forgets_every_request() {
+    // Past the 4096 pending requests the client once refused at.
     let revision = older_peer();
-    for id in 0..PENDING_COMMAND_LIMIT as u64 {
+    let past_old_cap = 4_097u64;
+    for id in 0..past_old_cap {
         revision.outgoing(id, "demo", "{}").unwrap();
     }
-    assert!(revision.outgoing(u64::MAX, "demo", "{}").is_err());
+    assert_eq!(revision.commands.lock().unwrap().len(), past_old_cap as usize);
     assert_eq!(
         revision.incoming(r#"{"id":0,"data":{"name":"x"}}"#).unwrap(),
         r#"{"id":0,"data":{"title":"x"}}"#
     );
-    revision.forget(1);
-    revision.outgoing(u64::MAX, "demo", "{}").unwrap();
+    for id in 1..past_old_cap {
+        revision.forget(id);
+    }
+    assert!(revision.commands.lock().unwrap().is_empty());
 }
 
 #[test]

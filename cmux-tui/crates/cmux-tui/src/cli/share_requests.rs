@@ -16,9 +16,26 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, wire};
 
+pub(super) const HELP: &str = "Usage: cmux share <requests|approve|decline>\n\n\
+Owner-side access requests for a shared agent chat. `requests` lists pending asks;\n\
+`approve` grants access (view by default, or talk with `--role talk`); `decline`\n\
+refuses an ask without telling the requester. Run these on the machine that owns\n\
+the shared chat.\n\n\
+  cmux share requests [SHARE_ID]\n\
+  cmux share approve SHARE_ID ACCOUNT [--role view|talk]\n\
+  cmux share decline SHARE_ID ACCOUNT\n";
+
 /// `share requests|approve|decline …` from the full argv; None for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command) = super::parse_globals(args).ok()?;
+    let is_share_request = command.first().is_some_and(|scope| scope == "share")
+        && command
+            .get(1)
+            .is_none_or(|verb| matches!(verb.as_str(), "requests" | "approve" | "decline"));
+    if is_share_request && super::has_help_option(&command) {
+        print!("{HELP}");
+        return Some(0);
+    }
     if super::has_help_option(&command) {
         return None;
     }
@@ -258,5 +275,12 @@ mod tests {
     fn a_refusal_says_what_to_do_next() {
         assert!(refusal_sentence("share.unknown", "no request").contains("cmux share requests"));
         assert_eq!(refusal_sentence("share.other", "plain"), "plain");
+    }
+
+    #[test]
+    fn help_lists_every_access_request_command() {
+        assert!(HELP.contains("cmux share requests [SHARE_ID]"));
+        assert!(HELP.contains("cmux share approve SHARE_ID ACCOUNT [--role view|talk]"));
+        assert!(HELP.contains("cmux share decline SHARE_ID ACCOUNT"));
     }
 }

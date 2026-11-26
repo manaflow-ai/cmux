@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 public import CoreGraphics
+#else
+public import Foundation
+#endif
 
 /// Whether a keyboard frame represents a visible software keyboard for a view.
 ///

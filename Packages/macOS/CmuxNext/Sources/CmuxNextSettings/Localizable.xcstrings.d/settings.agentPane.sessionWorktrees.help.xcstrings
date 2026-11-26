@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.sessionWorktrees.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to keep worktrees for local chats and forks."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر مكان حفظ أشجار العمل للمحادثات المحلية وتفرعاتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberite gdje čuvati radna stabla za lokalne razgovore i njihove ogranke."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg, hvor arbejdstræer for lokale samtaler og forgreninger gemmes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speicherort für Arbeitsbäume lokaler Chats und ihrer Abzweigungen wählen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige dónde guardar los árboles de trabajo de los chats locales y sus bifurcaciones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez où conserver les arbres de travail des discussions locales et de leurs branches."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli dove conservare gli alberi di lavoro delle chat locali e delle loro diramazioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ローカルチャットとその分岐に使うワークツリーの保存場所を選びます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសរើសទីតាំងរក្សាទុកមែកធាងការងារសម្រាប់ការជជែកក្នុងម៉ាស៊ីន និងសាខារបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "로컬 채팅과 분기에 사용할 작업 트리를 저장할 위치를 선택하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg hvor arbeidstrær for lokale samtaler og forgreninger skal lagres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz miejsce zapisu drzew roboczych lokalnych czatów i ich rozgałęzień."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha onde guardar as árvores de trabalho das conversas locais e suas bifurcações."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите, где хранить рабочие деревья локальных чатов и их ответвлений."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกที่เก็บเวิร์กทรีสำหรับแชทในเครื่องและแชทที่แยกออกมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yerel sohbetlerin ve çatallarının çalışma ağaçlarının saklanacağı yeri seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть, де зберігати робочі дерева локальних чатів та їхніх відгалужень."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn nơi lưu cây làm việc cho cuộc trò chuyện cục bộ và các nhánh của chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "选择本地聊天及其分叉的工作树存放位置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "選擇本機聊天及其分支的工作樹存放位置。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

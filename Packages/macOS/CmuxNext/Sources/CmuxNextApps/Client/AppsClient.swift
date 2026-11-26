@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextActions
 public import Observation
 
 /// Why a change was not sent.
@@ -43,6 +44,8 @@ public final class AppsClient {
     /// where icons and scene images are when the supervisor sent no `bundle_dir`.
     public private(set) var bundledDirectories: [String: URL] = [:]
     @ObservationIgnored let transport: any AppsTransport
+    /// The apps' command shortcuts in a registry's binding table (``followKeyBindings(in:)``).
+    @ObservationIgnored public internal(set) var keyBindings: AppKeyBindings?
     @ObservationIgnored var mounts: [String: AppMount] = [:]
     @ObservationIgnored private var nextKey = 0
     @ObservationIgnored var nextLog = 1
@@ -208,6 +211,19 @@ public final class AppsClient {
             return try await transport.run(app: app, op: op, args: args, origin: origin, idempotencyKey: "\(keyPrefix)-\(nextKey)")
         } catch {
             throw .refused(error)
+        }
+    }
+
+    /// Starts a palette or keyboard app command and converts transport errors
+    /// into the action work that the registry reports to the person.
+    @MainActor public func runAsAction(app: AppRecord, command: AppRecord.Command, arguments: AppJSON = .object([:]), origin: AppOrigin) -> ActionWork {
+        Task {
+            do throws(AppsClientError) {
+                _ = try await run(app: app.id, op: command.op, args: arguments, origin: origin)
+                return nil
+            } catch {
+                return ActionWorkFailure(error.description)
+            }
         }
     }
 

@@ -29,6 +29,11 @@ public struct RetryPolicy: Sendable {
     /// itself starts its peer (the app's local daemon, through `server ensure`): what made the
     /// start fail can end with no event at all (a full disk that has space again, restore fuzz h2).
     public var keepsTrying: Bool
+    /// Past `timedRetries`, one attempt per `slowTail` besides the events, instead of events only: a
+    /// peer the app does not start (a remote or Cloud machine's daemon) that was starved or
+    /// unreachable comes back with no local event at all, and an event-only wait then never ended
+    /// (handbook `starved-app-never-comes-back`: a give-up is never terminal). Nil: events only.
+    public var slowTail: Duration?
     /// An explicit event that came while an attempt ran wakes the wait after it fails
     /// (``RetryWake/rebaseline(keepingEventsAfter:)``). For a loop with no timer left
     /// (``linkReconnect``): the link reporting connected during a failing attempt must not be lost.
@@ -39,19 +44,26 @@ public struct RetryPolicy: Sendable {
     public var dropBudget: DropBudget?
 
     public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false,
-                keepsEventsDuringAttempt: Bool = false, dropBudget: DropBudget? = nil) {
+                slowTail: Duration? = nil, keepsEventsDuringAttempt: Bool = false, dropBudget: DropBudget? = nil) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
         self.socketRetries = socketRetries
         self.keepsTrying = keepsTrying
+        self.slowTail = slowTail
         self.keepsEventsDuringAttempt = keepsEventsDuringAttempt
         self.dropBudget = dropBudget
     }
 
-    /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
-    public static let reconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10)
-    /// First connect to a daemon: 250 ms growing to 30 s, 10 timed attempts.
-    public static let firstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10)
+    /// One attempt this far apart once a peer's timed retries are spent (``slowTail``): five minutes,
+    /// so a dead peer costs one wakeup per five minutes and a starved one is back within them.
+    public static let starvedPeerTail: Duration = .seconds(300)
+    /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s), then one per
+    /// ``starvedPeerTail``.
+    public static let reconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10,
+                                              slowTail: starvedPeerTail)
+    /// First connect to a daemon: 250 ms growing to 30 s, 10 timed attempts, then one per ``starvedPeerTail``.
+    public static let firstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10,
+                                                 slowTail: starvedPeerTail)
     /// The app's own local daemon, which the reconnect starts (`server ensure`): as ``reconnect``,
     /// then one attempt every 30 s for as long as it fails (``keepsTrying``).
     public static let localReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
@@ -174,9 +186,14 @@ public struct RetryPacer: Sendable {
     /// The timed-retry budget is spent: wait for an event only (never for a ``RetryPolicy/keepsTrying`` loop).
     public var isExhausted: Bool { failures >= policy.timedRetries && !policy.keepsTrying }
 
-    /// The next wait arms no timer: the budget is spent and the last attempt was not a busy
-    /// refusal (``refusedBusy()``), whose daemon is alive and keeps a timed retry.
-    public var waitsForEventOnly: Bool { isExhausted && !busyRefusal }
+    /// The next wait arms no timer: the budget is spent, the policy has no ``RetryPolicy/slowTail``,
+    /// and the last attempt was not a busy refusal (``refusedBusy()``), whose daemon is alive and
+    /// keeps a timed retry.
+    public var waitsForEventOnly: Bool { isExhausted && !busyRefusal && policy.slowTail == nil }
+
+    /// The last ``failed()`` was past the timed budget: its wait is events only, or the
+    /// ``RetryPolicy/slowTail`` (the peer reads offline either way, not connecting).
+    public var spentTimedRetries: Bool { failures > policy.timedRetries && !policy.keepsTrying }
 
     /// A socket change may wake the next wait: false in a crash loop.
     public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
@@ -225,8 +242,9 @@ public struct RetryPacer: Sendable {
         failures += 1
         if wokeBySocket { socketFailures += 1 }
         wokeBySocket = false
-        // Past the budget a loop that keeps trying stays at the backoff's cap (`Backoff.next` caps it).
-        return failures > policy.timedRetries && !policy.keepsTrying ? nil : backoff.next()
+        // Past the budget a loop that keeps trying stays at the backoff's cap (`Backoff.next` caps it);
+        // one with a slow tail waits that long, or for an event.
+        return failures > policy.timedRetries && !policy.keepsTrying ? policy.slowTail : backoff.next()
     }
 
     /// Notes a failure while the socket is missing: it spends no timed

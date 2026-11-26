@@ -4,6 +4,7 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StateMark } from "./StateMark";
 import { useNow } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
@@ -147,8 +148,9 @@ export function WorkflowSummaryRow({
           {state}
         </span>
         <span className="acpmux-summary-text acpmux-workflow__title">{workflow.title}</span>
+        {/* Running is the row's spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
         <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${workflowStateLabel}`}>
-          {workflowStateLabel}
+          {workflow.state === "running" ? null : workflowStateLabel}
         </span>
         {workflow.phase && (
           <span className="acpmux-summary-meta">
@@ -196,7 +198,7 @@ export function WorkflowSummaryRow({
                   onClick={() => setPhaseId(entry.id)}
                 >
                   <span>{entry.name || t("workflow.unassigned")}</span>
-                  <span>{localizedState(t, entry.state)}</span>
+                  <StateMark state={entry.state} label={localizedState(t, entry.state)} mark />
                 </button>
               ))}
             </div>
@@ -228,7 +230,11 @@ export function WorkflowSummaryRow({
                           </output>
                         )}
                       </span>
-                      <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
+                      <StateMark
+                        className="acpmux-summary-meta"
+                        state={agent.state}
+                        label={localizedState(t, agent.state)}
+                      />
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"
@@ -287,6 +293,7 @@ export function WorkflowSummaryRow({
                 )}
                 {resumeRefused && <output>{t("workflow.cannotResume")}</output>}
                 <button type="button" onClick={() => actions.onDraftWorkflow!(false)}>
+                  {/* retry-prompt-ok: drafts the whole workflow again, agents and paid model requests. */}
                   {t("workflow.runAgain")}
                 </button>
               </div>

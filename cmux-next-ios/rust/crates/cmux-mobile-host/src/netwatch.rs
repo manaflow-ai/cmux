@@ -628,7 +628,7 @@ mod tests {
         assert_eq!(resets(&after, &before, &BTreeSet::new()), None, "address went");
         let mut bridged = after.clone();
         bridged.sources.push("192.168.64.1".parse().unwrap());
-        let mut gone = before.clone();
+        let mut gone = before;
         gone.sources = bridged.sources.clone();
         assert!(resets(&bridged, &gone, &BTreeSet::new()).is_some(), "a session on the bridge");
     }

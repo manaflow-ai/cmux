@@ -22,12 +22,9 @@ enum AgentSessionTab {
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        var session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
-        var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
-        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession).
-        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
+        let (session, host): (String, String?)
+        do { (session, host) = try services.agentLanes.tabSession(for: invocation, localHost: services.agentTabs.localHost, sessionRequired: MiscHandlerStrings.sessionRequired) } catch { throw ActionFailure(message: error.description) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = liveTab(showing: session, host: host, services: services) { // its ids, and a failed reveal throws (ask-a0466e9c05)
@@ -44,20 +41,23 @@ enum AgentSessionTab {
         } catch let refusal as AgentTabRefusal {
             throw ActionFailure(message: refusal.message)
         }
-        let logger = daemon.logger
+        // The create reply can precede tab-added. Selection follows the stand-in to the daemon tab.
+        let revealed = shows && services.revealTab(pending.key, onMachine: daemon.machineID)
         let workspace = daemon.store.location(of: pane)?.workspace
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in
             do {
                 let created = try await pending.value()
-                if shows { _ = services.revealTab(created.key) }
-                logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
+                if shows, !revealed, !services.revealTab(created.key, onMachine: daemon.machineID) {
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: MiscHandlerStrings.sessionTabRevealFailed(created.key)))
+                }
+                daemon.logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
                 return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(id: created.key), tabID: created.key, pane: pane, workspace: workspace))
             } catch is CancellationError {
                 return .success(["session": .string(session)]) // the person closed the tab first
             } catch {
-                logger.error("agent.openSessionTab failed: \(String(describing: error), privacy: .public)")
+                daemon.logger.error("agent.openSessionTab failed: \(String(describing: error), privacy: .public)")
                 return .failure(ActionWorkFailure("agent.openSessionTab", error))
             }
         })

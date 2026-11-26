@@ -1,5 +1,9 @@
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// The accessory row (composer, key row) is part of the page <-> grid zoom:
@@ -72,7 +76,7 @@ struct AccessoryZoomTests {
 
     /// Tabs button, then the tabs button again mid-flight (or Done): the row
     /// follows the zoom back from where it is, frame by frame, moving exactly
-    /// as the page does (the zoom's own one-frame reversal step included).
+    /// as the page does (the zoom retargets from where it is).
     @Test func reversalMidFlightDoesNotJump() {
         var s = TabZoomState()
         s.go(toOverview: true)
@@ -81,7 +85,7 @@ struct AccessoryZoomTests {
         #expect(before.opacity > 0 && before.opacity < 1)
         var previous = before
         var previousPage = path.rect(progress: s.progress, offset: s.offset)
-        s.go(toOverview: false, span: Double(path.full.width - path.card.width))
+        s.go(toOverview: false)
         for _ in 0..<120 {
             let a = AccessoryZoom.presentation(s, path: path)
             let page = path.rect(progress: s.progress, offset: s.offset)

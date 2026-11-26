@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cmuxOnCloudCarries" : {
+      "comment" : "Agent pane: inline refusal for /side, /fork or /continue with --on cloud: these take the chat with them, so they run where it runs; /side --on cloud starts a chat in Cloud.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This takes the chat with it, so it runs where the chat runs. For a new chat in Cloud, use /side --on cloud."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يأخذ هذا المحادثة معه، لذا يعمل حيث تعمل المحادثة. لمحادثة جديدة في السحابة، استخدم /side --on cloud."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovo nosi chat sa sobom, pa radi gdje radi i chat. Za novi chat u Cloudu koristite /side --on cloud."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette tager chatten med, så den kører, hvor chatten kører. Til en ny chat i Cloud skal du bruge /side --on cloud."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das nimmt den Chat mit und läuft daher dort, wo der Chat läuft. Für einen neuen Chat in der Cloud nutze /side --on cloud."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esto se lleva el chat, así que se ejecuta donde se ejecuta el chat. Para un chat nuevo en la nube, usa /side --on cloud."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette commande emporte le chat, elle s’exécute donc là où il s’exécute. Pour un nouveau chat dans le Cloud, utilisez /side --on cloud."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Porta con sé la chat, quindi gira dove gira la chat. Per una nuova chat nel Cloud usa /side --on cloud."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "これはチャットごと動くので、チャットが動いている場所で実行されます。Cloud で新しいチャットを始めるには /side --on cloud を使ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វាយកការជជែកទៅជាមួយ ដូច្នេះវាដំណើរការនៅកន្លែងដែលការជជែកដំណើរការ។ សម្រាប់ការជជែកថ្មីនៅក្នុង Cloud ប្រើ /side --on cloud។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 명령은 채팅을 함께 가져가므로 채팅이 실행되는 곳에서 실행됩니다. Cloud에서 새 채팅을 시작하려면 /side --on cloud를 쓰세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette tar chatten med seg, så den kjører der chatten kjører. For en ny chat i Cloud, bruk /side --on cloud."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "To zabiera czat ze sobą, więc działa tam, gdzie czat. Nowy czat w chmurze zaczniesz przez /side --on cloud."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Isso leva o chat junto, então roda onde o chat roda. Para um chat novo na nuvem, use /side --on cloud."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эта команда забирает чат с собой, поэтому работает там же, где чат. Для нового чата в облаке используйте /side --on cloud."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คำสั่งนี้นำแชทไปด้วย จึงทำงานที่เดียวกับแชท หากต้องการแชทใหม่ใน Cloud ให้ใช้ /side --on cloud"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu, sohbeti yanında götürür; bu yüzden sohbetin çalıştığı yerde çalışır. Cloud'da yeni bir sohbet için /side --on cloud kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця команда бере чат із собою, тож працює там, де працює чат. Для нового чату в хмарі використайте /side --on cloud."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lệnh này mang theo cuộc trò chuyện, nên chạy ở nơi cuộc trò chuyện chạy. Để có cuộc trò chuyện mới trên Cloud, dùng /side --on cloud."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此命令会带上整个聊天，所以在聊天运行的地方运行。要在云端开始新聊天，请用 /side --on cloud。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此指令會帶上整個聊天，所以在聊天執行的地方執行。要在雲端開始新聊天，請用 /side --on cloud。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

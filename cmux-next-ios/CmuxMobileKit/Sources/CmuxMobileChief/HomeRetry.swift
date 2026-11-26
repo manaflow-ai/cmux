@@ -43,7 +43,7 @@ final class MacConversationLoader {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let quiet: Duration
     @ObservationIgnored private let clock: any Clock<Duration>
-    /// The session shown while not live, and its Try Again, marked once ``quiet`` passes.
+    /// The session shown while not live, and its try again (run on its own by its screen), marked once ``quiet`` passes.
     @ObservationIgnored private var notLive: (session: ChiefSession, tryAgain: (@MainActor () -> Void)?)?
     @ObservationIgnored private var quietWait: Task<Void, Never>?
 
@@ -69,7 +69,7 @@ final class MacConversationLoader {
     }
 
     /// Loads the route's session. The session shown keeps showing while it loads;
-    /// on a failure it stays, marked stale (after ``quiet``), with `tryAgain` on its bar. A first
+    /// on a failure it stays, marked stale (after ``quiet``), with `tryAgain` for its screen to run on its own. A first
     /// open that fails shows `fallback` the same way (what this phone kept, or an empty
     /// conversation), never a full-screen error over the title and the composer (the user, 2026-11-13).
     func load(_ sessionForRoute: @MainActor () async throws -> ChiefSession,
@@ -109,7 +109,7 @@ final class MacConversationLoader {
         if let held = notLive?.session, held !== shown { Self.clearStale(held) }
         notLive = (shown, tryAgain)
         if isStale {
-            // The bound passed already: the new Try Again replaces the old (it also ends one in flight).
+            // The bound passed already: the new try replaces the old (it also ends one in flight).
             Self.markStale(shown, tryAgain: tryAgain)
             return
         }

@@ -170,6 +170,23 @@ class WeakenTests(unittest.TestCase):
             weaken.weaken(data)
 
 
+class CommittedStubs(unittest.TestCase):
+    """The stubs under scripts/ci/macos-stubs as the Linux link reads them."""
+
+    def test_every_version_fits_the_packed_mach_o_form(self) -> None:
+        # A dylib version packs as X.Y.Z in 16.8.8 bits: ld64.lld refuses the whole stub
+        # ("malformed file") when Y or Z is over 255, and every symbol in it goes undefined.
+        for path in sorted((ROOT / "scripts/ci/macos-stubs").glob("*.tbd")):
+            text = path.read_text()
+            for key in ("current-version", "compatibility-version"):
+                with self.subTest(stub=path.name, key=key):
+                    value = re.search(rf"^{key}:\s*(\S+)$", text, re.M).group(1)
+                    parts = [int(part) for part in value.split(".")]
+                    self.assertLessEqual(len(parts), 3, value)
+                    self.assertLessEqual(parts[0], 0xFFFF, value)
+                    self.assertTrue(all(part <= 0xFF for part in parts[1:]), value)
+
+
 # Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
 # The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
 # link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.

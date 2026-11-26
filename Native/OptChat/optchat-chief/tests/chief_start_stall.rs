@@ -339,7 +339,7 @@ fn a_hung_resume_after_a_cut_that_ran_says_it_in_plain_words() {
     h.connect();
     h.say("user_local", "check the build");
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     h.agents
         .inner

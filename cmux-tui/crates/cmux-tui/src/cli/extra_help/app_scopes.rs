@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|billing|auth|link` runs that command's own `--help`, so the
+/// `help acp|mcp|billing|auth|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -29,7 +29,6 @@ fn process_help(args: &[String]) -> Option<i32> {
         "acp" => Some(crate::acp::run(vec!["--help".into()])),
         "link" => Some(crate::link::run(&["--help".to_owned()])),
         "mcp" => super::super::mcp::run_if_requested(&flag()),
-        "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
         "auth" => super::super::auth_token::run_if_requested(&flag()),
         _ => None,
@@ -158,6 +157,7 @@ usage: cmux app ping | identify | capabilities
        cmux app share [--app APP] [--bundle] [--dry-run]  (the build you run, as one `cmux app try` line: a SHA when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app health [--since-ms <ms>] [--open-chat] [--json]  (chat, model picker, relay refusals, terminal echo; exit 1 on a failure)
        cmux app web-pieces check --state <dir> --channel <channel> [--offline] | status --state <dir>  (what each web piece of a web update serves; no app needed)
        cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
                                                 (this Cloud machine's preview as a new app version; no app needed)
@@ -167,6 +167,8 @@ usage: cmux app ping | identify | capabilities
 
 const WINDOW_HELP: &str = "\
 usage: cmux window list
+       cmux window record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]
+                                        (a clip of the window, no Screen Recording permission)
        cmux window <verb...> [--target <id>]   (an app action)";
 
 const ACTION_LIST_USAGE: &str =

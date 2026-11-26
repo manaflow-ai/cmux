@@ -109,6 +109,7 @@ impl ResourceOperation {
                 | Self::SettingsList
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
+                | Self::SettingsHistory
                 | Self::KeybindingsGet
                 | Self::LanguagePacksEnsure
                 | Self::BrowserDevicesList
@@ -122,6 +123,7 @@ impl ResourceOperation {
                 | Self::ThemeSchemeConvert
                 | Self::ThemeSchemeExport
                 | Self::ThemeSchemeFromImage
+                | Self::ThemeSlotsResolve
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
@@ -138,6 +140,7 @@ impl ResourceOperation {
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
                 | Self::CloudOwnerGithubRepos
+                | Self::CloudOwnerGithubList
                 | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
                 | Self::RoomList

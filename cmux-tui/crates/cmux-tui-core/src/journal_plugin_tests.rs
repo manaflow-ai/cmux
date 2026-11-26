@@ -2,8 +2,13 @@ use super::*;
 
 #[test]
 fn options_reject_empty_or_unsafe_commands() {
-    let invalid =
-        JournalPluginOptions { id: "valid_id".into(), command: vec![], cwd: None, revision: None };
+    let invalid = JournalPluginOptions {
+        id: "valid_id".into(),
+        command: vec![],
+        cwd: None,
+        revision: None,
+        on_demand: false,
+    };
     assert!(invalid.validate().is_err());
     let too_many = JournalPluginOptions {
         id: "valid_id".into(),
@@ -12,6 +17,7 @@ fn options_reject_empty_or_unsafe_commands() {
             .collect(),
         cwd: None,
         revision: None,
+        on_demand: false,
     };
     assert!(too_many.validate().is_err());
     let invalid_cwd = JournalPluginOptions {
@@ -19,6 +25,7 @@ fn options_reject_empty_or_unsafe_commands() {
         command: vec!["/tmp/detector".into()],
         cwd: Some("/tmp/with\0nul".into()),
         revision: None,
+        on_demand: false,
     };
     assert!(invalid_cwd.validate().is_err());
     let reserved = JournalPluginOptions {
@@ -26,6 +33,7 @@ fn options_reject_empty_or_unsafe_commands() {
         command: vec!["/tmp/detector".into()],
         cwd: None,
         revision: None,
+        on_demand: false,
     };
     assert!(reserved.validate().is_err());
     let valid = JournalPluginOptions {
@@ -33,6 +41,7 @@ fn options_reject_empty_or_unsafe_commands() {
         command: vec!["/tmp/detector".into()],
         cwd: None,
         revision: Some("abc".into()),
+        on_demand: false,
     };
     assert!(valid.validate().is_ok());
 }
@@ -120,6 +129,7 @@ fn a_launch_that_fails_gives_the_request_log_handler_its_first_restart() {
         command: vec!["/tmp/cmux-tui-test-no-such-journal-plugin".into()],
         cwd: None,
         revision: None,
+        on_demand: false,
     }));
     let (restarts, seen) = std::sync::mpsc::channel();
     runtime.set_restart_handler(Some(Arc::new(move |restart| {
@@ -145,11 +155,70 @@ fn persisted_start_generation_is_not_reduced_after_configuration() {
         command: vec!["/tmp/screen-detector".into()],
         cwd: None,
         revision: None,
+        on_demand: false,
     }));
 
     runtime.start_with_generation_seed(PathBuf::from("/tmp/cmux-tui-test.sock"), "main".into(), 17);
     let generation = runtime.state.0.lock().recover_poison().generation;
     assert_eq!(generation, 17);
+    runtime.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_on_demand_plugin_starts_only_when_demanded() {
+    let dir = std::env::temp_dir().join(format!("cmux-tui-on-demand-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("ran");
+    let script = dir.join("plugin.sh");
+    std::fs::write(&script, format!("#!/bin/sh\ntouch '{}'\nexec sleep 30\n", marker.display()))
+        .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let runtime = JournalPluginRuntime::default();
+    runtime.configure(Some(JournalPluginOptions {
+        id: "screen_detector".into(),
+        command: vec![script.display().to_string()],
+        cwd: None,
+        revision: None,
+        on_demand: true,
+    }));
+    runtime.start_with_generation_seed(dir.join("cmux.sock"), "main".into(), 1);
+    thread::sleep(Duration::from_millis(500));
+    assert!(runtime.held());
+    assert!(!marker.exists(), "a held plugin must not run");
+    assert_eq!(runtime.process_group(), None);
+
+    assert!(runtime.demand(), "the first demand releases the held plugin");
+    assert!(!runtime.demand(), "a second demand releases nothing");
+    assert!(!runtime.held());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "the demanded plugin never ran");
+        thread::sleep(Duration::from_millis(20));
+    }
+    runtime.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_hold_waiter_returns_once_an_on_demand_plugin_is_configured() {
+    let runtime = JournalPluginRuntime::default();
+    let waiter = runtime.hold_waiter();
+    let waiting = thread::spawn(move || waiter.wait_until_held());
+    runtime.configure(Some(JournalPluginOptions {
+        id: "screen_detector".into(),
+        command: vec!["/tmp/screen-detector".into()],
+        cwd: None,
+        revision: None,
+        on_demand: true,
+    }));
+    assert!(waiting.join().unwrap());
+    let waiter = runtime.hold_waiter();
+    runtime.demand();
+    assert!(!waiter.wait_until_held(), "a demanded plugin is never held again");
     runtime.shutdown();
 }
 

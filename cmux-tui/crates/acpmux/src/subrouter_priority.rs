@@ -19,10 +19,18 @@
 use crate::subrouter_session::HEADERS_ENV;
 
 /// `interactive` or `background`: the priority this process's requests carry.
+/// A profile may also name one of subrouter's other classes, `coordinator` or
+/// `batch` (subrouter-internal `internal/proxy/admission_class.go`; the
+/// gateway finds a `/compact` from the request body itself).
 pub const ENV: &str = "SUBROUTER_PRIORITY";
 const HEADER: &str = "X-Subrouter-Priority";
 pub const INTERACTIVE: &str = "interactive";
 pub const BACKGROUND: &str = "background";
+
+/// Whether `value` (lowercase) is a priority [`ENV`] may carry.
+pub fn is_known(value: &str) -> bool {
+    matches!(value, INTERACTIVE | BACKGROUND | "coordinator" | "batch")
+}
 
 /// Whether `name` is a coordinator session's name.
 pub fn is_coordinator(name: &str) -> bool {
@@ -47,15 +55,48 @@ pub fn classify(name: &str, for_person: bool) -> &'static str {
     }
 }
 
+/// The session tag that sets a session's priority by hand: `interactive` or `background`.
+pub const TAG: &str = "priority";
+
+/// Whether a session's role makes it a coordinator, whatever its name.
+///
+/// On 2026-11-24 at 21:1xZ the interim coordinator's `/compact` failed with "503 no
+/// non-exhausted claude accounts available; next account frees up in 29m". The interim
+/// coordinator runs as `cosmic-gray/interim-coord-2`, and its deputies as `coord-deputy*`,
+/// `coord-successor` and `coord-dispatcher`. None of them matched [`is_coordinator`]'s names, so
+/// they were sent as background, and the gateway's interactive reserve
+/// (subrouter-internal#85) held nothing back for them. A role is now read from what the
+/// session is: `leads` (live sessions report to it through `lane.reportsTo`, as `acpmux ls
+/// --leads` derives a leader), an `interim-` name (each interim coordinator's generated name)
+/// or `chief`. The tag [`TAG`] overrides all of it.
+pub fn classify_role(
+    name: &str,
+    for_person: bool,
+    leads: usize,
+    tag: Option<&str>,
+) -> &'static str {
+    match tag.map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        Some(INTERACTIVE) => return INTERACTIVE,
+        Some(BACKGROUND) => return BACKGROUND,
+        _ => {}
+    }
+    // A sub-session's name carries its parent's (`coord-successor/ws-disk`): only its own
+    // last segment names its role.
+    let own = name.rsplit('/').next().unwrap_or(name).trim().to_ascii_lowercase();
+    if leads > 0 || own.starts_with("interim-") || own == "chief" || own.starts_with("chief-") {
+        return INTERACTIVE;
+    }
+    classify(&own, for_person)
+}
+
 /// `profile` with [`ENV`] set to this session's priority, unless the profile
 /// names one itself.
 pub fn profile_with(
     profile: &crate::config::HarnessProfile,
-    name: &str,
-    for_person: bool,
+    priority: &'static str,
 ) -> crate::config::HarnessProfile {
     let mut profile = profile.clone();
-    set(&mut profile.env, name, for_person);
+    profile.env.entry(ENV.to_owned()).or_insert_with(|| priority.to_owned());
     profile
 }
 
@@ -69,7 +110,7 @@ pub fn set(env: &mut std::collections::BTreeMap<String, String>, name: &str, for
 /// one, or `None` when [`ENV`] is unset or not a known priority.
 pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
     let priority = get(ENV)?.trim().to_ascii_lowercase();
-    if priority != INTERACTIVE && priority != BACKGROUND {
+    if !is_known(&priority) {
         return None;
     }
     let mut lines: Vec<String> = get(HEADERS_ENV)
@@ -115,6 +156,34 @@ mod tests {
         ] {
             assert_eq!(classify(lane, false), BACKGROUND, "{lane}");
         }
+    }
+
+    #[test]
+    fn leaders_interim_coordinators_and_chief_are_interactive_by_role() {
+        // The live coordinators of 2026-11-24, which the names alone left background.
+        for (name, leads) in [
+            ("interim-coord-2", 0),
+            ("coord-successor", 3),
+            ("coord-deputy-r2", 1),
+            ("coord-dispatcher", 2),
+            ("chief", 0),
+        ] {
+            assert_eq!(classify_role(name, false, leads, None), INTERACTIVE, "{name}");
+        }
+        // A coordinator's own lanes stay background: they lead nobody.
+        for name in ["coord-successor/ws-disk", "coord-overload-inbox", "helper-3", "chief/sub"] {
+            assert_eq!(classify_role(name, false, 0, None), BACKGROUND, "{name}");
+        }
+        // The names classify() knew still count, under a parent's prefix too.
+        assert_eq!(classify_role("x/claude-sr2-coord", false, 0, None), INTERACTIVE);
+        assert_eq!(classify_role("lane-3", true, 0, None), INTERACTIVE);
+    }
+
+    #[test]
+    fn the_priority_tag_wins_over_the_role() {
+        assert_eq!(classify_role("helper-3", false, 0, Some("Interactive")), INTERACTIVE);
+        assert_eq!(classify_role("coord-successor", false, 4, Some("background")), BACKGROUND);
+        assert_eq!(classify_role("helper-3", false, 0, Some("urgent")), BACKGROUND);
     }
 
     #[test]

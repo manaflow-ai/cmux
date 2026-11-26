@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// Why a chord cannot become an action's shortcut.
 public enum ShortcutRefusal: Equatable, Sendable {
@@ -40,6 +43,7 @@ public enum ShortcutAssessment: Equatable, Sendable {
     case conflict(owners: [ActionID], canKeepBoth: Bool, canReplace: Bool, notes: [ShortcutNote])
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// Whether `shortcut` can become `id`'s shortcut, and what it collides
     /// with. Owners come from the binding table the key router resolves
@@ -123,3 +127,4 @@ extension ActionRegistry {
         return notes
     }
 }
+#endif
