@@ -275,8 +275,13 @@ async function run(): Promise<Reading> {
       const profile = ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile;
       if (PROFILE) printProfile(profile, "replay", wallMs);
       if (TRACE) {
-        const trace = JSON.parse((await browser.stopTracing()).toString("utf8")) as unknown;
-        fs.writeFileSync(TRACE, JSON.stringify({ trace, profile }));
+        // The trace's bytes go to the file as they came (no parse and re-stringify: a minute's trace is hundreds of
+        // MB), after the profile, so replay-attribution.py reads the profile first and streams the trace's events.
+        const fd = fs.openSync(TRACE, "w");
+        fs.writeSync(fd, `{"profile":${JSON.stringify(profile)},"trace":`);
+        fs.writeSync(fd, await browser.stopTracing());
+        fs.writeSync(fd, "}");
+        fs.closeSync(fd);
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());

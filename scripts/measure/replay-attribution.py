@@ -15,6 +15,7 @@ three hottest self-time stacks.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import sys
 from collections import Counter, defaultdict
@@ -39,6 +40,136 @@ REACT_PHASE = [("flushPassiveEffects", "React passive effects (useEffect)"),
                ("beginWork", "React render"), ("completeWork", "React render"), ("workLoop", "React render"),
                ("renderRoot", "React render")]
 IDLE = {"(idle)", "(program)", "(root)"}
+
+
+class _Stream:
+    """A JSON text read in chunks: values are decoded one at a time, so a trace of hundreds of MB never sits in memory
+    whole (a whole-file json.load of one took the earlier run out of memory)."""
+
+    CHUNK = 1 << 20
+
+    def __init__(self, path: str) -> None:
+        self.f = gzip.open(path, "rt", encoding="utf-8") if path.endswith(".gz") else open(path, encoding="utf-8")
+        self.buf, self.pos, self.eof = "", 0, False
+        self.dec = json.JSONDecoder()
+
+    def _more(self, n: int) -> bool:
+        if self.eof:
+            return False
+        got = self.f.read(n)
+        if not got:
+            self.eof = True
+            return False
+        self.buf = self.buf[self.pos:] + got
+        self.pos = 0
+        return True
+
+    def peek(self) -> str:
+        while True:
+            while self.pos < len(self.buf) and self.buf[self.pos] in " \t\r\n":
+                self.pos += 1
+            if self.pos < len(self.buf):
+                return self.buf[self.pos]
+            if not self._more(self.CHUNK):
+                return ""
+
+    def expect(self, ch: str) -> None:
+        if self.peek() != ch:
+            raise ValueError(f"expected {ch!r} at {self.buf[self.pos:self.pos + 40]!r}")
+        self.pos += 1
+
+    def value(self):
+        n = self.CHUNK
+        while True:
+            self.peek()
+            try:
+                v, end = self.dec.raw_decode(self.buf, self.pos)
+                # A number at the buffer's end may be cut; read on unless the file is done.
+                if end < len(self.buf) or self.eof:
+                    self.pos = end
+                    return v
+            except json.JSONDecodeError:
+                pass
+            if not self._more(n):
+                v, end = self.dec.raw_decode(self.buf, self.pos)
+                self.pos = end
+                return v
+            n *= 2
+
+    def items(self):
+        """The (key, stream) pairs of the object here; the caller reads each value (value(), or array())."""
+        self.expect("{")
+        while self.peek() != "}":
+            key = self.value()
+            self.expect(":")
+            yield key
+            if self.peek() == ",":
+                self.pos += 1
+        self.pos += 1
+
+    def array(self):
+        self.expect("[")
+        while self.peek() != "]":
+            yield self.value()
+            if self.peek() == ",":
+                self.pos += 1
+        self.pos += 1
+
+
+def _events(st: _Stream, key: str):
+    if key == "trace":
+        if st.peek() == "[":
+            yield from st.array()
+            return
+        for k in st.items():
+            if k == "traceEvents":
+                yield from st.array()
+            else:
+                st.value()
+    else:
+        st.value()
+
+
+def load(path: str, keep) -> tuple[dict, list[dict]]:
+    """The profile and the trace events KEEP(event) passes, slimmed to what analyze reads, streaming the file."""
+    st, profile, kept = _Stream(path), None, []
+    for key in st.items():
+        if key == "profile":
+            profile = st.value()
+            continue
+        for e in _events(st, key):
+            if keep(e):
+                d = (e.get("args") or {}).get("data") or {}
+                slim = {k: d[k] for k in ("functionName", "type", "name", "url") if d.get(k)}
+                kept.append({"name": e.get("name"), "ph": e.get("ph"), "pid": e.get("pid"), "tid": e.get("tid"),
+                             "ts": e.get("ts"), "dur": e.get("dur"),
+                             "args": {"data": slim, "name": (e.get("args") or {}).get("name")}})
+    st.f.close()
+    return profile or {}, kept
+
+
+def read_trace(path: str) -> dict:
+    """{trace, profile} with only the main thread's complete events and the thread names: one pass names the threads
+    and counts their events, a second keeps the main thread's."""
+    count: Counter = Counter()
+    names: list[tuple] = []
+
+    def scan(e: dict) -> bool:
+        if e.get("ph") == "X":
+            count[(e.get("pid"), e.get("tid"))] += 1
+        elif e.get("ph") == "M" and e.get("name") == "thread_name" and (e.get("args") or {}).get("name") == \
+                "CrRendererMain":
+            names.append((e.get("pid"), e.get("tid")))
+        return False
+
+    _p, _ = load(path, scan)
+    del _p
+    if not names:
+        return {"trace": [], "profile": {}}
+    main = max(names, key=lambda pt: count.get(pt, 0))
+    profile, events = load(path, lambda e: (e.get("pid"), e.get("tid")) == main and
+                           (e.get("ph") == "X" and "dur" in e or e.get("ph") == "M"))
+    return {"trace": events, "profile": profile}
 
 
 def kind_of(name: str) -> str | None:
@@ -236,8 +367,7 @@ def main() -> int:
     a = ap.parse_args()
     runs = []
     for path in a.traces:
-        with open(path, encoding="utf-8") as f:
-            r = analyze(json.load(f), a.min_ms)
+        r = analyze(read_trace(path), a.min_ms)
         r["file"] = path
         runs.append(r)
         if "error" in r:
