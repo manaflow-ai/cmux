@@ -105,6 +105,7 @@ import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
+import { chatMenuHasRows } from "./chatMenu";
 import { NewTabComposerChips } from "./ComposerChips";
 import type { AcpmuxSnapshot, paneHeader } from "../model";
 import type { AcpmuxDirectClient } from "../direct";
@@ -1394,6 +1395,7 @@ export function drawPaneBody({
                       }}
                       nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
                       tabTools={!quick}
+                      menuHasRows={chatMenuHasRows(quick, snapshot.sessionId)}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}

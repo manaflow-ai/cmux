@@ -1619,7 +1619,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:
@@ -1855,6 +1855,8 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
 Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
+`attach-frames-v1` (local Unix connections only; refused on a WebSocket and the remote entry): a connection that declared it in `set-client-info` gets each plain `output` of its byte attach and its snapshot viewer as a binary OUTPUT frame instead of this line, in the same order among the stream's JSON lines. A frame starts with byte `0xFF` (never the first byte of a JSON line) and a 16-byte little-endian header: `u8 0xFF`, `u8 kind` (1 = OUTPUT), `u16 stream` (0: the connection's only attach), `u32 len`, `u64 offset` (the terminal stream offset of the payload's first byte; a snapshot viewer's JSON `offset` is the end, so the first frame after a READY starts at the READY's `offset`), then `len` raw PTY bytes and no newline. `output` with `colors`, and every other event, stays a JSON line. Wire details: `plans/cmux-next/app-daemon-connection-DESIGN.md` section 3.2.
 
 Example:
 

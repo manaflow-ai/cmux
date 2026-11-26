@@ -129,7 +129,6 @@
         "agent-pane-real-acpmux": "Agent pane on real acpmux",
         "web-instant-navigation": "web-instant-navigation",
         "react-apps-check-shard": "react-apps-check",
-        "react-doctor": "react-doctor",
         "diff-sidecar-check": "diff-sidecar-check",
         "web-db-migrations": "web-db-migrations"
       }
@@ -164,6 +163,11 @@
       "paths": [],
       "jobs": {"tooling-tests": "tooling-tests"}
     },
+    "pr-pipeline-linux": {
+      "workflow": "cmux-next-pr-pipeline-linux-batch.yml",
+      "paths": [],
+      "jobs": {"linux": "linux"}
+    },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
       "paths": [
@@ -174,7 +178,7 @@
         "scripts/ci/tip-test-compile.sh",
         ".github/workflows/cmux-next-tip-test-compile.yml"
       ],
-      "jobs": {"compile": "tip test-compile (fleet, background)"}
+      "jobs": {"compile-fleet": "tip test-compile (fleet, background)"}
     },
     "gallery-health": {
       "workflow": "gallery-health.yml",
@@ -190,6 +194,7 @@
         "webviews/scripts/gallery/touched.ts",
         "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs",
         "webviews/scripts/agent-pane/bundle.mjs",
+        "webviews/scripts/agent-pane/classicScript.mjs",
         "webviews/scripts/agent-pane/frameSites.mjs",
         "webviews/scripts/agent-pane/jsonParsePlugin.mjs",
         "webviews/scripts/agent-pane/katexStylePlugin.mjs",
@@ -203,6 +208,7 @@
         "webviews/scripts/pages/gen-design-scale.mjs",
         "webviews/scripts/pages/gen-feature-tips.mjs",
         "webviews/scripts/pages/gen-strings.mjs",
+        "webviews/scripts/pages/catalog.mjs",
         "webviews/scripts/pages/split-strings.mjs",
         "webviews/test/latency/mock-host.ts",
         "webviews/vite.config.ts",
@@ -242,6 +248,11 @@
         "schemas/gallery/**",
         "schemas/agent-pane/wake-state.json",
         "schemas/design-scale/**",
+        "schemas/design-roles/**",
+        "schemas/surface-roles/surface-roles.json",
+        "schemas/composer-status/peek-pin.json",
+        "examples/gallery/gallery.json",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
         "design/icons/neko-candidates/**",
         "first-party-apps/*/preview/**",
         "schemas/type-scale/**",
@@ -278,6 +289,10 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/**",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings*",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings*",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings",
         "web/data/model-catalog/**",
@@ -373,6 +388,7 @@
         "Resources/theme-files/**",
         "Resources/sidebar-looks/**",
         "backend/catalog/cloud-operations.json",
+        "backend/catalog/cloud-relay-operations.json",
         "backend/packages/home-core/conformance/conversation-import-cases.json",
         "design/agent-icons/manifest.json",
         "docs/chief-setup-prompts.md",
@@ -452,10 +468,13 @@
         ".github/workflows/base-coalesce.yml",
         "schemas/design-scale/design-scale.json",
         "schemas/instrument/instrument.json",
+        "schemas/settings/file-keys.json",
         "schemas/layout-grid/layout-grid.json",
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
-        "schemas/design-scale/scene-scale.json"
+        "schemas/design-scale/scene-scale.json",
+        "schemas/sidebar-drag-geometry/vectors.json",
+        "backend/catalog/cloud-relay-operations.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },

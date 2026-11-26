@@ -198,6 +198,7 @@ pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_features;
 mod attachment_http;
 mod bookmarks;
 mod bookmarks_routed;
@@ -297,6 +298,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
@@ -599,6 +601,9 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// Keep Workspace Awake mirrored from a Mac: `keep_awake` on `set-workspace-metadata` and the
+/// `keep_awake` workspace field. The freeing timer never ends a kept-awake workspace's shells.
+pub const WORKSPACE_KEEP_AWAKE_CAPABILITY: &str = "workspace-keep-awake-v1";
 /// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
@@ -2075,7 +2080,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin, manual unread mark
+    /// and Keep Awake.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2091,6 +2097,9 @@ enum Command {
         pinned: Option<bool>,
         #[serde(default)]
         marked_unread: Option<bool>,
+        /// Keep Workspace Awake (`workspace-keep-awake-v1`).
+        #[serde(default)]
+        keep_awake: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3037,9 +3046,10 @@ use worker_admission::{
 };
 
 mod render_service;
+pub use render_service::ATTACH_FRAMES_CAPABILITY;
 use render_service::{
-    BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
-    write_kitty_image_aliases_json, write_kitty_replay_state_json,
+    BudgetedFrame, BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io,
+    write_base64_json_string, write_kitty_image_aliases_json, write_kitty_replay_state_json,
 };
 #[cfg(test)]
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
@@ -3360,6 +3370,10 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/attach_frames_tests.rs"]
+mod attach_frames_tests;
 
 #[cfg(test)]
 #[path = "server/agent_cli_hybrid_tests.rs"]
