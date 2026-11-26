@@ -292,14 +292,10 @@ const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "do
 export type SessionLane = "working" | "input" | "failed" | "lost" | "idle";
 const LANES: readonly string[] = ["working", "input", "failed", "lost", "idle"];
 
-/** A running turn's line as acpmux's `doing_line` (hub/activity.rs) writes it: its plan step and
- *  latest tool, either alone; else what the turn was asked (`lane.step`). */
+/** A running turn's line: its latest tool, else what the turn was asked (`lane.step`). */
 function doingLine(session: Record<string, any>): string | undefined {
   if (session.lane?.state !== "working") return undefined;
-  const step = text(session.turn?.planStep);
-  const tool = text(session.turn?.activity);
-  if (step && tool && step !== tool) return `${step} · ${tool}`;
-  return step ?? tool ?? text(session.lane?.step);
+  return text(session.turn?.activity) ?? text(session.lane?.step);
 }
 
 /** What a session waits on the person for: only the person answers any of them, in the app. acpmux

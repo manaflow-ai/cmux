@@ -15,6 +15,8 @@ function idleFields(): Record<string, unknown> {
     fedMode: false,
     disposed: false,
     rows: new OrderedRows(),
+    // The oldest record the chat holds, which every publish reads (heldFromAt).
+    events: [],
     // The rail's indexed prompt slots, which every row publish reads (#42298).
     indexedPlaceholders: new Map(),
     supersededRowIds: new Set<string>(),
