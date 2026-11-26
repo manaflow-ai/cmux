@@ -284,9 +284,7 @@ final class CloudService {
         agentCredentials.withdrawGuestBindings = { [weak self] bindings in
             guard let self, !policyDisabled, let owner = auth.platformUserID else { return true }
             return await CloudAgentCredentials.withdrawModelConnections(bindings, on: machines.cloud.compactMap { machine in
-                guard machine.daemon.liveIdentity != nil,
-                      let link = CloudAgentCredentials.withdrawalOwnerLink(for: machine.machine, user: owner, appLink: machine.appLink) else { return nil }
-                return (link, AgentTabRemoteHost.endpoint(on: machine.daemon))
+                machine.daemon.liveIdentity == nil ? nil : CloudAgentCredentials.withdrawalOwnerLink(for: machine.machine, user: owner, appLink: machine.appLink).map { ($0, AgentTabRemoteHost.endpoint(on: machine.daemon)) }
             })
         }
         // task-owner: observers; reconcile on reconnect and when a live link confirms ownership.
