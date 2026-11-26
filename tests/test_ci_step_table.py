@@ -940,6 +940,9 @@ class PipelineTest(unittest.TestCase):
         table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
+        # A job that runs some of a table job's steps on a machine of its own (`--only`), beside that job: the kit's
+        # macOS swift test beside the ios job's simulator leg (IosJobTest).
+        splits = {"ios-macos": ("ios", ["ios-kit-macos"])}
         # No gateway head start for the ios job: its request key is per runner, so it never shared a build.
         self.assertNotIn("ios-ffi-fleet", wf["jobs"])
         for name, job in wf["jobs"].items():
@@ -951,6 +954,21 @@ class PipelineTest(unittest.TestCase):
                     self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "")])
                     self.assertIn(name, wf["jobs"][pickers[name]]["needs"])
                 continue
+            if name in splits:
+                table_job, only = splits[name]
+                with self.subTest(split=name):
+                    self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{table_job}') }}}}")
+                    runs = [s["run"] for s in job["steps"] if f"ci/run run --job {table_job} " in s.get("run", "")]
+                    self.assertEqual(runs, [f'ci/run run --job {table_job} ${{PATHS_FILE:+--paths-file "$PATHS_FILE"}} '
+                                            f'--only {" ".join(only)}'])
+                    self.assertEqual(job["steps"][0]["with"]["fetch-depth"], 2)
+                    self.assertIs(job["steps"][0]["with"]["persist-credentials"], False)
+                    steps = [ci_steps.load().steps[n] for n in only]
+                    self.assertTrue(all(s.job == table_job and s.alone for s in steps))
+                    need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + sum(s.timeout for s in steps)
+                    self.assertGreaterEqual(job["timeout-minutes"] * 60, need)
+                continue
+            elsewhere = {n for split, only in splits.values() if split == name for n in only}
             with self.subTest(job=name):
                 self.assertIn(name, table_jobs, "a pr-pipeline.yml job is a job of ci/steps.toml")
                 self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}') }}}}")
@@ -962,7 +980,7 @@ class PipelineTest(unittest.TestCase):
                 # job on linux's.
                 if name not in ("mac", "ios"):
                     self.assertEqual(job["runs-on"], wf["jobs"]["linux"]["runs-on"])
-                steps = [s for s in ci_steps.load().steps.values() if s.job == name]
+                steps = [s for s in ci_steps.load().steps.values() if s.job == name and s.name not in elsewhere]
                 shared = [s for s in steps if not s.alone]
                 need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT
                         + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
@@ -1845,7 +1863,7 @@ class IosJobTest(unittest.TestCase):
 
     def test_each_mac_step_runs_alone(self) -> None:
         steps = {s.name: s for s in ci_steps.load().steps.values() if s.job == "ios"}
-        self.assertEqual(sorted(steps), ["ios-kit", "ios-phone-cells"])
+        self.assertEqual(sorted(steps), ["ios-kit", "ios-kit-macos", "ios-phone-cells"])
         for step in steps.values():
             with self.subTest(step=step.name):
                 self.assertTrue(step.alone)
@@ -1857,9 +1875,58 @@ class IosJobTest(unittest.TestCase):
         self.assertNotIn("ios", ci_steps.route(t, ["cmux-next-ios/README.md"]))
         self.assertNotIn("ios", ci_steps.route(t, ["cmux-next-ios/verify/x.swift"]))
         self.assertEqual(ci_steps.route(t, ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md"])
-                         .get("ios"), ["ios-kit"])
+                         .get("ios"), ["ios-kit-macos", "ios-kit"])
         self.assertEqual(ci_steps.route(t, ["cmux-next-ios/CmuxKit/Sources/CmuxKit/A.swift"]).get("ios"),
-                         ["ios-kit"])
+                         ["ios-kit-macos", "ios-kit"])
+
+    def test_the_macos_swift_test_runs_beside_the_simulator_leg(self) -> None:
+        # Goal ios-ci-under-5min: the kit's macOS swift test ran before the simulator leg in one step on one Mac;
+        # now it is ios-kit-macos, which the `ios macos` job runs beside the `ios` job, and ios is the longer leg.
+        steps = ci_steps.load().steps
+        kit, macos = steps["ios-kit"], steps["ios-kit-macos"]
+        self.assertIn("swift test --package-path cmux-next-ios/CmuxMobileKit", macos.run)
+        self.assertNotIn("swift test --package-path", kit.run)
+        self.assertIn("xcodebuild test", kit.run)
+        self.assertNotIn("xcodebuild", macos.run)
+        for step in (kit, macos):
+            with self.subTest(step=step.name):
+                self.assertIn("bash scripts/ci/ios_link_ffi.sh 8", step.run)
+                self.assertIn("git diff --exit-code -- cmux-next-ios/", step.run)
+                # The run text names no event variable, so a pass is still reused.
+                self.assertFalse([v for v in ci_steps.EVENT_VARS if v in step.run])
+        # The same inputs, so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
+        # macOS leg's verdict through the helper.
+        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py"})
+        self.assertEqual(set(macos.inputs) - set(kit.inputs), set())
+        self.assertEqual(kit.ignore, macos.ignore)
+        # The ordering rule both legs had in one step: a red macOS leg skips the simulator and fails ios-kit.
+        self.assertEqual(kit.run.count("python3 -I scripts/ci/ios_macos_leg.py state"), 2)
+        self.assertLess(kit.run.index("ios_macos_leg.py state"), kit.run.index("xcodebuild test"))
+        jobs = self.wf()["jobs"]
+        leg = jobs["ios-macos"]
+        self.assertEqual(leg["name"], "ios macos")
+        self.assertNotIn("needs", leg)
+        self.assertEqual(
+            leg["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+            "vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+        self.assertEqual(jobs["ios"]["permissions"]["actions"], "read")
+        ios_run = next(s for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
+        self.assertEqual(ios_run["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn('if n != "ios-kit-macos"', ios_run["run"])
+        self.assertIn('--only "$only"', ios_run["run"])
+
+    def test_the_ios_jobs_only_list_leaves_the_macos_leg_out(self) -> None:
+        jobs = self.wf()["jobs"]
+        run = next(s["run"] for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
+        pick = run.split("python3 -I -c '", 1)[1].split("')\"", 1)[0]
+        for routed, want in ((["ios-kit-macos", "ios-kit", "ios-phone-cells"], "ios-kit ios-phone-cells"),
+                             (["ios-phone-cells"], "ios-phone-cells"), (["ios-kit-macos"], "none"), ([], "none")):
+            with self.subTest(routed=routed):
+                got = subprocess.run([sys.executable, "-I", "-c", pick], input=json.dumps({"ios": routed}),
+                                     capture_output=True, text=True, check=True).stdout.strip()
+                self.assertEqual(got, want)
 
     def test_the_old_workflows_keep_every_trigger_but_the_pull_request(self) -> None:
         for name, kept in (("cmux-next-ios-kit.yml", {"push", "workflow_dispatch"}),
@@ -1868,6 +1935,65 @@ class IosJobTest(unittest.TestCase):
                 on = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())[True]
                 self.assertNotIn("pull_request", on)
                 self.assertLessEqual(kept, set(on))
+
+
+class IosMacosLegTest(unittest.TestCase):
+    """scripts/ci/ios_macos_leg.py: the `ios macos` job's verdict so far, which ios-kit reads before and after its
+    simulator leg; an unread one runs the simulator, as a green one does."""
+
+    ENV = {"GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t"}
+
+    def state(self, jobs, env=None) -> tuple[str, list[str]]:
+        import ios_macos_leg
+
+        asked: list[str] = []
+
+        def read(path: str) -> dict:
+            asked.append(path)
+            if isinstance(jobs, Exception):
+                raise jobs
+            return {"jobs": jobs}
+        return ios_macos_leg.state(dict(self.ENV if env is None else env), read), asked
+
+    def test_it_reads_the_leg_of_this_run_attempt(self) -> None:
+        def job(status, conclusion=None, name="pr pipeline / ios macos"):
+            return {"name": name, "status": status, "conclusion": conclusion}
+        other = job("completed", "failure", "pr pipeline / ios")
+        cases = (([other, job("completed", "failure")], "failure"), ([job("completed", "timed_out")], "failure"),
+                 ([job("completed", "cancelled")], "failure"), ([job("completed", "success")], "success"),
+                 ([job("completed", "skipped")], "unknown"), ([job("in_progress")], "pending"),
+                 ([job("queued", name="ios macos")], "pending"), ([other], "unknown"), ([], "unknown"))
+        for jobs, want in cases:
+            with self.subTest(jobs=jobs):
+                got, asked = self.state(jobs)
+                self.assertEqual(got, want)
+                self.assertEqual(asked[0], "/repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100&page=1")
+
+    def test_it_fails_open(self) -> None:
+        self.assertEqual(self.state(RuntimeError("HTTP 403"))[0], "unknown")
+        self.assertEqual(self.state([], {k: v for k, v in self.ENV.items() if k != "GITHUB_RUN_ID"}), ("unknown", []))
+        import ios_macos_leg
+
+        self.assertEqual(ios_macos_leg.state({k: v for k, v in self.ENV.items() if k != "GH_TOKEN"}), "unknown")
+
+    def test_it_turns_the_pages_until_it_finds_the_leg(self) -> None:
+        import ios_macos_leg
+
+        pages = {1: [{"name": f"j{i}", "status": "completed", "conclusion": "success"} for i in range(100)],
+                 2: [{"name": "pr pipeline / ios macos", "status": "completed", "conclusion": "failure"}]}
+        asked: list[str] = []
+
+        def read(path: str) -> dict:
+            asked.append(path)
+            return {"jobs": pages.get(int(path.rsplit("=", 1)[1]), [])}
+        self.assertEqual(ios_macos_leg.state(dict(self.ENV), read), "failure")
+        self.assertEqual(len(asked), 2)
+
+    def test_the_cli_prints_one_word_and_exits_zero(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        got = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/ios_macos_leg.py"), "state"], env=env,
+                             capture_output=True, text=True)
+        self.assertEqual((got.returncode, got.stdout), (0, "unknown\n"))
 
 
 class CrateStore:

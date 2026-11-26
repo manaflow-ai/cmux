@@ -381,7 +381,8 @@ jobs:
           retention-days: 1
 
   # The `ios` job: the CmuxMobileKit tests and the reliability matrix's phone cells (ci/steps.toml's ios steps), on
-  # the Mac ios-runner picked, one iPhone simulator, one step after the other.
+  # the Mac ios-runner picked, one iPhone simulator, one step after the other. The kit's macOS swift test
+  # (ios-kit-macos) runs in the `ios macos` job below, beside this one; ios-kit reads its verdict.
   ios:
     name: ios
     needs: [ios-runner]
@@ -395,6 +396,8 @@ jobs:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
+      # ios-kit reads the `ios macos` job's verdict (scripts/ci/ios_macos_leg.py).
+      actions: read
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -453,11 +456,63 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/ios-sim-pool.sh submit
+      # Every routed ios step but ios-kit-macos, which the `ios macos` job runs. ios-kit-macos routes only with
+      # ios-kit (the same inputs), so the list is never empty when it is routed; `none` names no step.
       - name: Run the routed ios steps (ci/steps.toml)
         env:
           CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX }}
           CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
-        run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -I -c 'import json, sys
+          print(" ".join(n for n in json.load(sys.stdin).get("ios", []) if n != "ios-kit-macos") or "none")')"
+          ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$only"
+
+  # The `ios macos` job: the kit's macOS swift test (ci/steps.toml's ios-kit-macos), which ios-kit ran before its
+  # simulator leg in the `ios` job. On its own Mac it runs beside the simulator leg instead of before it: the `ios`
+  # verdict is the longer leg, not the sum (Aziz's iOS PR verdict, goal ios-ci-under-5min). It needs no simulator,
+  # so it takes Blacksmith's macOS when vars.CI_BLACKSMITH_MACOS is on, else the mac job's pool. ios-kit reads its
+  # verdict (scripts/ci/ios_macos_leg.py): a red one skips the simulator leg and turns `ios` red, as before.
+  ios-macos:
+    name: ios macos
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` ios-kit-macos (45 min), with room for the
+    # checkout and Xcode (tests/test_ci_step_table.py holds this).
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
+    # No picker to wait on: it starts with the run, on the mac job's Xcode.
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
+          # An owned Mac reuses its workspace: keep the ignored cargo target, so the xcframework builds incrementally.
+          clean: false
+      - name: List the changed paths
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every ios step runs."
+          fi
+      # A reused workspace keeps what earlier jobs left untracked; the ignored builds stay.
+      - name: Drop untracked leftovers (self-hosted reused workspace)
+        run: git clean -ffd
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Run the kit's macOS swift test (ci/steps.toml ios-kit-macos)
+        run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only ios-kit-macos
 
   # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
   # cmux-next.yml's fast-tier job (and its build-fleet variants) on a pull request. The Swift canary is a `linux`
