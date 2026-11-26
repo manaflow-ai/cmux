@@ -1181,11 +1181,8 @@ if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
   step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
-  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-  fmt_tests=()
-  for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
-  step fmt cargo fmt --all --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}
+  # The it-binary crates' test files are checked per crate, with that crate's edition.
+  step fmt bash "$script_dir/cmux-tui-fmt.sh" --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
