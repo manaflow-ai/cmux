@@ -9063,15 +9063,15 @@ CmuxNextPalette	extension	PaletteStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextPalette	enum	PaletteTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift	from enum TabSearchStyle:5: Debug tunable for tab search layout
 CmuxNextPalette	enum	TabSearchStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift	Debug tunable for tab search layout
 CmuxNextPalette	class	WorkspacePaletteProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/WorkspacePaletteProvider.swift	workspace rows provider
-CmuxNextPhone	struct	AndroidDeviceList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidDeviceList.swift	adb devices parser
+CmuxNextPhone	struct	AndroidDeviceList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidDeviceList.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes adb devices and reads the answer; no rule in Swift
 CmuxNextPhone	actor	AndroidPhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidPhoneBackend.swift	Android backend: adb/emulator process orchestration
 CmuxNextPhone	struct	AndroidSDK	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidSDK.swift	Android SDK location
 CmuxNextPhone	class	AndroidFrameAssembler	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidScreenStream.swift	from class AndroidScreenStream:13: adb screenrecord stream
 CmuxNextPhone	class	AndroidScreenStream	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidScreenStream.swift	from class AndroidScreenStream:13: adb screenrecord stream
 CmuxNextPhone	struct	AnnexBParser	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AnnexBParser.swift	H.264 Annex B parser
 CmuxNextPhone	struct	H264Unit	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/H264Unit.swift	H.264 NAL unit model
-CmuxNextPhone	struct	UIAutomatorTree	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/UIAutomatorTree.swift	uiautomator XML to element tree
-CmuxNextPhone	struct	DevicectlDeviceList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/DevicectlDeviceList.swift	devicectl JSON parser
+CmuxNextPhone	struct	UIAutomatorTree	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/UIAutomatorTree.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the UI Automator dump and reads the answer; no rule in Swift
+CmuxNextPhone	struct	DevicectlDeviceList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/DevicectlDeviceList.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes devicectl JSON and reads the answer; no rule in Swift
 CmuxNextPhone	class	LoopbackConnection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/LoopbackSocket.swift	from class LoopbackListener:9: Network.framework listener bridge
 CmuxNextPhone	class	LoopbackListener	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/LoopbackSocket.swift	from class LoopbackListener:9: Network.framework listener bridge
 CmuxNextPhone	func	privateNumber	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/ObjCPrivateCalls.swift	ObjC private-API call helper
@@ -9080,10 +9080,10 @@ CmuxNextPhone	func	privateObjectWithError	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextPhone	func	privateSelector	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/ObjCPrivateCalls.swift	ObjC private-API call helper
 CmuxNextPhone	func	privateSize	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/ObjCPrivateCalls.swift	ObjC private-API call helper
 CmuxNextPhone	func	privateVoid	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/ObjCPrivateCalls.swift	ObjC private-API call helper
-CmuxNextPhone	struct	PhoneGesture	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneGesture.swift	Tap/swipe to paced touch events
+CmuxNextPhone	struct	PhoneGesture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneGesture.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes tap/swipe touches and reads the answer; no rule in Swift
 CmuxNextPhone	struct	PhoneKeyStroke	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneKeyStroke.swift	Key stroke model
-CmuxNextPhone	struct	PhoneKeyboard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneKeyboard.swift	USB HID usage table
-CmuxNextPhone	struct	PhoneScreenMapping	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneScreenMapping.swift	Phone screen aspect-fit mapping
+CmuxNextPhone	struct	PhoneKeyboard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneKeyboard.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes key usages and reads the answer; no rule in Swift
+CmuxNextPhone	struct	PhoneScreenMapping	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneScreenMapping.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the screen mapping and reads the answer; no rule in Swift
 CmuxNextPhone	class	PhoneScreenView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneScreenView.swift	from class PhoneScreenView:11: Phone screen NSView
 CmuxNextPhone	struct	PhoneTouch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneTouch.swift	Touch event model
 CmuxNextPhone	extension	SimulatorHIDSending	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorHIDSending.swift	CoreSimulator/IOSurface HID and screen source (private APIs)
@@ -9118,7 +9118,7 @@ CmuxNextPhone	protocol	PhoneFeedbackSink	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextPhone	enum	PhoneButton	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	from struct PhonePoint:4: Phone point/input geometry
 CmuxNextPhone	enum	PhoneInput	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	from struct PhonePoint:4: Phone point/input geometry
 CmuxNextPhone	struct	PhonePoint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	Phone point/input geometry
-CmuxNextPhone	struct	PhoneLogTail	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneLogTail.swift	Device log error tail filter
+CmuxNextPhone	struct	PhoneLogTail	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneLogTail.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the log tail and reads the answer; no rule in Swift
 CmuxNextPhone	enum	PhoneMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneMode.swift	Phone mode enum
 CmuxNextPhone	class	PhoneProcess	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneProcess.swift	Child process wrapper
 CmuxNextPhone	struct	PhoneProcessRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneProcessRunner.swift	xcrun process runner
@@ -9129,6 +9129,9 @@ CmuxNextPhone	struct	PhoneRecording	0	LOGIC	100	0	Packages/macOS/CmuxNext/Source
 CmuxNextPhone	struct	PhoneRecordingEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecordingEvent.swift	Recording event model
 CmuxNextPhone	struct	PhoneRect	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRect.swift	Phone rect
 CmuxNextPhone	enum	PhoneRotation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRotation.swift	Rotation enum
+CmuxNextPhone	enum	PhoneRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	FFI glue: builds the phone op request, calls cmux_layout_reducer_json, decodes the answer or its error; no rule
+CmuxNextPhone	extension	Optional	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	FFI glue: a missing answer field throws unreadable
+CmuxNextPhone	struct	PhoneDeviceReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	the device JSON cmux-phone-core writes (os_version, state.kind): hand copy of its Device serde shape
 CmuxNextPhone	class	PhoneService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneService.swift	from class PhoneService:10: Phone service: device list and input log
 CmuxNextPhone	struct	PhoneStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneStrings.swift	Strings
 CmuxNextPhone	extension	PhoneTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTabView+Layout.swift	Phone tab views
@@ -9136,7 +9139,7 @@ CmuxNextPhone	class	PhoneTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextPhone	extension	PhoneTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTabView.swift	Phone tab views
 CmuxNextPhone	enum	PhoneTool	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTool.swift	Phone tool requirement enum
 CmuxNextPhone	actor	PlatformPhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PlatformPhoneBackend.swift	Backend routing by mode
-CmuxNextPhone	struct	SimctlDeviceList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/SimctlDeviceList.swift	simctl JSON parser
+CmuxNextPhone	struct	SimctlDeviceList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/SimctlDeviceList.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes simctl JSON and reads the answer; no rule in Swift
 CmuxNextPhone	struct	XcodePhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/XcodePhoneBackend.swift	xcrun simctl/devicectl backend
 CmuxNextPhone	class	CloudDesktopSurfaceServer	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	loopback listener and CVPixelBuffer hand-off PLATFORM ~40; session map, start/stop lifecycle, frame fan-out LOGIC ~60 (#31795); F14
 CmuxNextPhone	extension	CloudDesktopSurfaceServer	0	MIXED	65	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	Session: sf/1 wire state machine (secret auth, encode/visible, damage pacing, coalescing) LOGIC ~65; VideoToolbox encode and buffer size PLATFORM ~35 (#31795); F14
