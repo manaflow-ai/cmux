@@ -1,7 +1,9 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
 import ast
+import base64
 import contextlib
 import copy
+import gzip
 import hashlib
 import inspect
 import io
@@ -8281,6 +8283,9 @@ class WsCheckGitHub:
                 return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
         if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
             return [{"sha": sha} for sha in self.base_commits]
+        if route.startswith(f"repos/{self.REPO}/commits/") and "/check-runs?" in route:
+            sha = route.split("/commits/", 1)[1].split("/", 1)[0]
+            return {"check_runs": copy.deepcopy(getattr(self, "check_runs", {}).get(sha, []))}
         if route == f"repos/{self.REPO}/compare/main...{HEAD}":
             return {"merge_base_commit": {"sha": self.MERGE_BASE}, "files": [{"filename": f} for f in self.pr_files]}
         if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
@@ -9305,6 +9310,58 @@ class WsCheckLocalRun(unittest.TestCase):
         self.TREE = "1" * 40
         self.keep()
         with self.assertRaisesRegex(excuse.Refused, "it tested another base or head"):
+            self.judge()
+
+
+class WsCheckLaneVerdictLines(unittest.TestCase):
+    """2026-11-26: land-judge refused lw#11366 and lw#8853 "its status links nothing": a lane VM ran their ws-check in
+    place, and its log was kept only on the host that judged it. A red lane run now publishes its verdict lines as a
+    check run by the statuses App (leo-workspace tools/ws-check publish_lane_verdict), read wherever land-judge runs."""
+    VM = "gcp-agent-lane-15"
+    RED, SNAPSHOT, TREE, RUN = WsCheckLocalRun.RED, WsCheckLocalRun.SNAPSHOT, WsCheckLocalRun.TREE, WsCheckLocalRun.RUN
+
+    def setUp(self):
+        WsCheckLocalRun.setUp(self)  # HEAD red, main red the same way, the status linking nothing, no kept record
+        status = self.gh.statuses[HEAD][0]
+        status["description"] += f" [{self.VM}; log lane-logs/{HEAD[:8]}.log]"  # lane_tag's suffix
+
+    def publish(self, *, slug="quota-goblin-9000", sha=HEAD, state="failure", rev=None, lines=None, name=None):
+        body = {"sha": sha, "rev": rev or self.SNAPSHOT, "tree": self.TREE, "main": self.gh.TIP, "vm": self.VM,
+                "state": state, "lines": base64.b64encode(gzip.compress("\n".join(
+                    self.lines if lines is None else lines).encode())).decode()}
+        self.gh.check_runs = {HEAD: [{"id": 5, "name": name or excuse.WS_CHECK_LANE_CHECK, "head_sha": HEAD,
+                                      "status": "completed", "conclusion": "neutral",
+                                      "completed_at": "2026-11-26T10:00:00Z", "app": {"slug": slug},
+                                      "output": {"text": json.dumps(body)}}]}
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_published_verdict_lines_are_read_and_a_base_red_excused(self):
+        self.publish()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        self.assertIn((HEAD, self.gh.TIP, True), self.squashed, "held to the whole merge the VM tested")
+
+    def test_none_published_is_refused_naming_the_check(self):
+        with self.assertRaisesRegex(excuse.Refused, "nor did a lane VM publish its verdict lines"):
+            self.judge()
+
+    def test_a_check_run_not_held_to_the_app_head_and_verdict_is_not_read(self):
+        for kwargs in ({"slug": "someone-else"}, {"sha": "b" * 40}, {"state": "success"},
+                       {"name": "ws-check"}):
+            with self.subTest(**kwargs):
+                self.publish(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "nor did a lane VM publish"):
+                    self.judge()
+
+    def test_lines_naming_another_merge_are_refused(self):
+        self.publish(rev="4" * 40)
+        with self.assertRaisesRegex(excuse.Refused, "name another head"):
+            self.judge()
+
+    def test_a_published_own_red_is_still_refused(self):
+        self.publish(lines=[line.replace("test_a", "test_b") for line in self.lines])
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
             self.judge()
 
 
