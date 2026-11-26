@@ -178,9 +178,7 @@ pub(super) fn fire_at_ms(request: &LastRequest) -> u64 {
 }
 
 fn parse_ms(at: &str) -> Option<u64> {
-    let at =
-        time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339).ok()?;
-    u64::try_from(at.unix_timestamp_nanos() / 1_000_000).ok()
+    cmux_conversation::parse_rfc3339_millis(at)
 }
 
 /// The end of a transcript, from a line start, at most [`TAIL_BYTES`].
