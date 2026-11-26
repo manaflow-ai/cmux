@@ -167,15 +167,21 @@ impl OpRouter for MuxRouter {
 
 /// The first App Store chat read (scope `agent_chat:read`), kept for the apps and templates
 /// that call it: the daemon answers it from the same chat index as `chat.list`
-/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers.
+/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers. It takes
+/// `chat.list`'s fields (`limit`, `state`, `before_ms`, `before_id`, `before_machine`), newest first.
 const AGENT_CHAT_LIST: &str = "agent_chat.list";
 
 fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
-    if !(params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty)) {
-        return Err(error("validation.invalid", "agent_chat.list takes no params"));
-    }
+    let empty = serde_json::Map::new();
+    let fields = match params {
+        Value::Null => &empty,
+        Value::Object(fields) => fields,
+        _ => return Err(error("validation.invalid", "agent_chat.list takes an object of fields")),
+    };
+    let query = crate::mux::chat_index::ChatQuery::from_fields(fields)
+        .map_err(|(field, reason)| error("validation.invalid", format!("{field}: {reason}")))?;
     let chats = mux
-        .chat_rows()
+        .chat_rows_matching(&query)
         .into_iter()
         .map(|mut row| {
             if let Some(fields) = row.as_object_mut() {

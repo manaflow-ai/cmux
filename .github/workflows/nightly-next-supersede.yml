@@ -2,17 +2,16 @@ name: nightly-next supersede
 
 # Latest wins (Leo, 2026-11-11: "aren't there things we can just be like 'ok just get this one in asap'";
 # 2026-11-06: nothing queues). nightly.yml keeps nightly-next pushes and the loop's retries in one
-# concurrency group and the sign stages in another, never cancelling a started run, and GitHub keeps
-# only one newer run pending per group. On 2026-11-10/11 runs whose remaining jobs waited on a runner
-# label that had gone held both groups for hours, and every tip run behind them was replaced while
+# concurrency group, never cancelling a started run, and GitHub keeps only one newer run pending in it.
+# On 2026-11-10/11 runs whose remaining jobs waited on a runner label that had gone held it for hours, and every tip run behind them was replaced while
 # pending and never started. nightly.yml cannot clear that itself: the waiting run has no jobs.
 #
 # This runs beside each nightly-next push (a promotion; the file is on nightly-next because the branch
 # carries feat-cmux-next's tree) and by dispatch (scripts/ci/nightly_now.py). It cancels an older run
-# holding the push or sign group only when none of its build, sign or publish jobs has started and the
+# holding the push group only when none of its build, sign or publish jobs has started and the
 # newer run waiting on that group has waited on it (scripts/ci/nightly_next_supersede.py, which reads
 # main's scripts/ci/delivery_workflows.py for the light-job list and the started rule). It never cancels
-# a started job, the tip's push run, or the newest sign stage. Only promotion pushes start it, about
+# a started job or the tip's push run. Only promotion pushes start it, about
 # as often as nightly-next moves, so it spends a few reads per promotion.
 #
 # A holder that is still inside its 5-minute ready wait when the settle ends must not wait for the next
@@ -32,10 +31,14 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   supersede:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Reads, at most one settle wait of up to 6 minutes, and at most two cancels.
     timeout-minutes: 12
     # One runs and the newest waits; each reads every nightly-next run when it starts, so a replaced
@@ -54,6 +57,7 @@ jobs:
           path: .supersede-tooling
           sparse-checkout: |
             scripts/ci/nightly_next_supersede.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The stale rule's one definition (LIGHT_JOBS, build_started) is main's, which the queue janitor
@@ -61,10 +65,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: main
+          ref: refs/heads/main
           path: .main-rules
           sparse-checkout: |
             scripts/ci/delivery_workflows.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Drop an older nightly-next run that holds the tip's group and never started

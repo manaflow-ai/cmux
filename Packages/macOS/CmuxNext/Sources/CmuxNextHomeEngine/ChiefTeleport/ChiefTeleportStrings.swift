@@ -2,6 +2,8 @@ import Foundation
 
 /// The Chief teleport texts (Resources/Home.xcstrings).
 nonisolated enum ChiefTeleportStrings {
+    /// The bundle of Home.xcstrings, this module's own (tests hand it to an `AppLanguage`).
+    static var moduleBundle: Bundle { .localizedModule }
     static var thisMac: String { text("home.teleport.thisMac", "This Mac") }
     static var cloud: String { text("home.teleport.cloud", "cmux Cloud") }
     static var menuTitle: String { text("home.teleport.menuTitle", "Teleport Chief") }
@@ -9,8 +11,6 @@ nonisolated enum ChiefTeleportStrings {
     static var rollingBack: String { text("home.teleport.rollingBack", "Rolling back…") }
     static var rolledBack: String { text("home.teleport.rolledBack", "Rolled back to This Mac") }
     static var help: String { text("home.teleport.help", "Moves the Chief to another Mac or to cmux Cloud") }
-    /// The Chief card's row label.
-    static var row: String { text("home.teleport.row", "Runs On") }
     static func checking(_ name: String) -> String { format("home.teleport.checking", "Checking %@…", name) }
     static func moving(_ name: String) -> String { format("home.teleport.moving", "Moving to %@…", name) }
     static func verifying(_ name: String) -> String { format("home.teleport.verifying", "Verifying %@…", name) }
@@ -65,6 +65,6 @@ nonisolated enum ChiefTeleportStrings {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Home", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Home", bundle: .localizedModule)
     }
 }

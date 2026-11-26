@@ -1,6 +1,7 @@
 // Settings > Computer Use: every cmux Computer Use setting on one page. cmux Computer Use is built
 // in, so the card leads with one line saying no install is needed, then the status (engine,
-// macOS permissions with Grant buttons that run the shared catalog actions, the worker), the mode
+// macOS permissions with Grant buttons that run the shared catalog actions, which open the guided
+// Computer Use window at that grant and start its Allow there, the worker), the mode
 // with a plain line per choice, the denied apps, the saved approvals and the switches. The status
 // comes from the host lists' `computer_use`, live through cmux.settings.host.changed; every
 // setting is a schema row (`settings.group.computerUse`), which SectionView does not draw a
@@ -16,31 +17,15 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { RowFrame, RowStatus, SettingRow } from "./SettingRow";
-
-export const COMPUTER_USE_MODE = "computerUse.mode";
-export const COMPUTER_USE_DENIED_APPS = "computerUse.deniedApps";
-/** Whether agents may open menus of background apps (a choice row, drawn before the switches). */
-export const COMPUTER_USE_MENUS = "computerUse.menus";
-/** The switches and pickers under the approvals, in the card's order: the agent cursor's tag and
- * what agents wait for after each action follow Show Agent Cursor; Allow Foreground Input
- * (advanced) comes last. */
-export const COMPUTER_USE_SWITCHES = [
-  "computerUse.allowOwnMachines",
-  "computerUse.pauseOnTakeover",
-  "computerUse.showCursor",
-  "computerUse.cursorTag",
-  "computerUse.settle",
-  "computerUse.livePreview",
-  "computerUse.allowForeground",
-] as const;
-
-/** The schema rows the card draws itself. */
-export const COMPUTER_USE_ROWS: ReadonlySet<string> = new Set([
+import {
   COMPUTER_USE_MODE,
   COMPUTER_USE_DENIED_APPS,
   COMPUTER_USE_MENUS,
-  ...COMPUTER_USE_SWITCHES,
-]);
+  COMPUTER_USE_SWITCHES,
+  COMPUTER_USE_ROWS,
+} from "../cardRows";
+
+export { COMPUTER_USE_MODE, COMPUTER_USE_DENIED_APPS, COMPUTER_USE_MENUS, COMPUTER_USE_SWITCHES, COMPUTER_USE_ROWS };
 
 /** The modes in the order the picker lists them: most access first. */
 export const COMPUTER_USE_MODES = ["fullAccess", "approvedApps", "askEveryTime", "lookOnly", "off"] as const;

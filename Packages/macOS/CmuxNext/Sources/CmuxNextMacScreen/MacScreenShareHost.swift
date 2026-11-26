@@ -20,10 +20,17 @@ import SystemConfiguration
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
+    /// The last read answered (a failed or unavailable probe did not): only then does a missing
+    /// Screen Recording grant turn sharing off by itself (MacScreenHubHost+DefaultSharing).
+    public private(set) var permissionsKnown = false
     /// The name System Settings lists the two grants under: the helper's
-    /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
+    /// ("cmux NIGHTLY Helper"), or nil while unknown and in a build
     /// without the helper (then they are this app's own).
     public private(set) var grantHolderName: String?
+    /// Why the last read gave no grants (the helper did not start, was ended at its deadline, or
+    /// exited without a reading); nil after a read that answered. The grants then read off, but
+    /// this says they are unknown, not off.
+    public private(set) var grantsUnreadReason: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     /// A build without the helper: a fresh child reads TCC under this app's responsibility, just like
     /// `rd serve`. A long-running process can cache Screen Recording denial even after the person
@@ -102,15 +109,19 @@ public final class MacScreenShareHost {
         // Shown on the Mac Screen page and in Settings: userVisible.
         let holder = await lookUpHelper(helper)
         let granted: (screen: Bool, control: Bool)?
+        var unread: String?
         if let holder {
             granted = await holder.permissions().map { ($0.screenRecording, $0.accessibility) }
+            if granted == nil { unread = holder.lastNoAnswer?.reason }
         } else {
             granted = try? await readPermissions()
         }
         guard read == reads, !Task.isCancelled else { return }
         grantHolderName = holder?.name
+        grantsUnreadReason = unread
         screenRecordingGranted = granted?.screen ?? false
         accessibilityGranted = granted?.control ?? false
+        permissionsKnown = granted != nil
     }
 
     /// The helper, found once on the system lane; nil in a build without one.

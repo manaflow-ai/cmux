@@ -43,7 +43,7 @@ enum SidebarContextMenus {
                 for item in trailing { menu.addItem(item) }
             }
             // Customize Menu… ends the menu, after a pinned tile's own rows.
-            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow) }
+            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow, target: target) }
             if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu
@@ -73,6 +73,7 @@ enum SidebarContextMenus {
             return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+        case .newButton: return registry.makeContextMenu(for: .sidebarNew).themeRows(in: scope) // the + button's short list
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)

@@ -27,6 +27,7 @@ pub(super) async fn handle(
         crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
         crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
         crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_LISTEN => listen(&mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -135,7 +136,7 @@ async fn send(
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
-                host: Some(crate::pairing::machine_name()),
+                host: Some(crate::pairing::mesh_host()),
                 ..Sender::default()
             },
             kind: Kind::Prompt,
@@ -177,15 +178,18 @@ async fn team_page(
         .map_err(inbox_failure)
 }
 
-/// An inbox read that failed, in words for how: a hub that is down (5xx, 408, 429) is
-/// unavailable, no connection did not answer, a 4xx is the hub's refusal, and a refusal with no
-/// status is this daemon's own (no token command), made before it asked the hub.
+/// An inbox read that failed, in words for where it failed (`HubError::source`): a hub that is
+/// down (5xx, 408, 429) is unavailable; any other answer of the hub's (a 4xx, a revoked
+/// credential, two tokens refused, an answer not the shape of the contract) is its refusal; no
+/// connection did not answer; and a failure this daemon made before it asked (no token command,
+/// one that failed) says so. `reason` and `retryable` do not depend on the words.
 fn inbox_failure(e: crate::mesh::HubError) -> RpcError {
-    let what = match (e.refused, e.status) {
-        (false, Some(_)) => "the mesh hub is unavailable",
-        (false, None) => "the mesh hub did not answer",
-        (true, Some(_)) => "the mesh hub refused the inbox read",
-        (true, None) => "this daemon could not ask the mesh hub for the inbox",
+    use crate::mesh::HubErrorSource;
+    let what = match (e.source, e.status) {
+        (_, Some(_)) if !e.refused => "the mesh hub is unavailable",
+        (_, Some(_)) | (HubErrorSource::Hub, None) => "the mesh hub refused the inbox read",
+        (HubErrorSource::NoAnswer, None) => "the mesh hub did not answer",
+        (HubErrorSource::Daemon, None) => "this daemon could not ask the mesh hub for the inbox",
     };
     RpcError::internal(format!("{what}: {e}")).with_data(json!({
         "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
@@ -220,10 +224,7 @@ async fn read(
             .into_iter()
             .find(|message| message.message_id == id && may_read(conn, &message.to))
         {
-            let receipt =
-                crate::mesh_retry::retry(false, || mesh.read(&id)).await.map_err(|e| {
-                    RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
-                })?;
+            let receipt = mark_read(mesh, &id).await?;
             message.state = Some(receipt.state.clone());
             return Ok(json!({"message": message, "receipt": receipt}));
         }
@@ -232,6 +233,23 @@ async fn read(
             _ => return Err(forbidden()),
         }
     }
+}
+
+/// Marks `id` read at the hub, tried again on a failure that passes, all within `READ_WAIT`: the
+/// bound of a read through the hub a person waits on (`mesh_relay::read`), so `acpmux inbox read`
+/// waits no longer than `acpmux last HOST/NAME`. Before it, three tries of the HTTP client's 30 s
+/// and their backoff could hold the caller 92 s. A failure once the bound has passed (a try it
+/// cut short among them) is a read the hub did not answer, worded and retryable as that read's.
+async fn mark_read(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<crate::mesh::Receipt, RpcError> {
+    let deadline = tokio::time::Instant::now() + super::mesh_relay::read::READ_WAIT;
+    crate::mesh_retry::retry_within(false, deadline, || mesh.read(id)).await.map_err(|e| {
+        if tokio::time::Instant::now() >= deadline {
+            RpcError::new(-32000, "the mesh hub did not answer the read of the team message")
+                .with_data(json!({"reason": "mesh.read_unanswered", "retryable": true}))
+        } else {
+            RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
+        }
+    })
 }
 
 async fn ack(
@@ -249,6 +267,60 @@ async fn ack(
         RpcError::internal(format!("the mesh hub did not accept the acknowledgement: {e}"))
     })?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
+}
+
+/// `_acpmux/team/listen`: open, list (`ls`) or close a listen on another member's agent address,
+/// or `read` what that address received. The hub decides who may listen (the address owner's
+/// grant) and answers a read only through an open listen, so a read page is passed on whole:
+/// [`may_read`] scopes this daemon's own addresses, not another member's.
+async fn listen(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
+    let op = required(params, "op")?;
+    let refused = |what: &str, e: crate::mesh::HubError| {
+        RpcError::invalid_params(format!("the mesh hub refused the listen {what}: {e}")).with_data(
+            json!({
+                "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
+                "retryable": !e.refused,
+            }),
+        )
+    };
+    let value = match op.as_str() {
+        "open" => {
+            let address = listen_address(params)?;
+            let ttl = params.get("ttlSeconds").and_then(Value::as_u64);
+            serde_json::to_value(
+                mesh.listen_open(&address, ttl).await.map_err(|e| refused("open", e))?,
+            )
+        }
+        "ls" => serde_json::to_value(mesh.listens().await.map_err(|e| refused("list", e))?),
+        "close" => {
+            let id = required(params, "id")?;
+            if !crate::mesh::is_listen_id(&id) {
+                return Err(RpcError::invalid_params("id must be a listen id (lsn_ and 32 hex)"));
+            }
+            serde_json::to_value(mesh.listen_close(&id).await.map_err(|e| refused("close", e))?)
+        }
+        "read" => {
+            let address = listen_address(params)?;
+            let before = params.get("before").and_then(Value::as_u64);
+            serde_json::to_value(
+                mesh.team_messages(false, Some(&address), before)
+                    .await
+                    .map_err(|e| refused("read", e))?,
+            )
+        }
+        _ => return Err(RpcError::invalid_params("op must be open, ls, close or read")),
+    };
+    Ok(value.unwrap_or(Value::Null))
+}
+
+/// The `to` of a listen, as `@member/agent`.
+fn listen_address(params: &Value) -> Result<String, RpcError> {
+    let raw = required(params, "to")?;
+    let address = format!("@{}", raw.strip_prefix('@').unwrap_or(&raw));
+    if !super::mesh_send::valid_team_address(&address) {
+        return Err(RpcError::invalid_params("to must be a team address, @member/agent"));
+    }
+    Ok(address)
 }
 
 pub(super) fn forbidden() -> RpcError {

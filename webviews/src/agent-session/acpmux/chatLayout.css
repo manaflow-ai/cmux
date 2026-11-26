@@ -1,0 +1,63 @@
+/* The chat's structure a look reshapes (chatLayout.ts; the agentPane.display.layout.* settings).
+   The page root carries one data attribute per slot that is off its default; with none set the
+   chat draws exactly as before. Every arm keeps a message's padding, line height and column share
+   (model.ts measures those), so switching a look under an open chat never re-measures a row. */
+
+/* Message layout: flat rows. A prompt sits on the column's leading edge with no fill, marked by an
+   accent rule at its leading side (a dense, code-first agent app's transcript). The rule is an
+   inset shadow, not a border, so the text box keeps its width. */
+:root[data-chat-messages="flat"] .cv-user {
+  align-items: flex-start;
+}
+:root[data-chat-messages="flat"] .cv-user__bubble,
+:root[data-chat-messages="flat"] .acpmux-shell .cv-user__bubble {
+  --glass-tint: transparent;
+  --glass-opaque: transparent;
+  --glass-edge: transparent;
+  border-radius: 0;
+  box-shadow: inset 2px 0 0 var(--cv-user-rule, color-mix(in srgb, var(--agent-accent, var(--cv-fg)) 70%, transparent));
+  color: var(--cv-text-strong, var(--cv-text));
+}
+
+/* Message layout: cards. A prompt is a softly outlined card on the leading edge, the reply flows
+   under it as plain prose (a warm chat assistant app's transcript). */
+:root[data-chat-messages="card"] .cv-user {
+  align-items: flex-start;
+}
+:root[data-chat-messages="card"] .cv-user__bubble,
+:root[data-chat-messages="card"] .acpmux-shell .cv-user__bubble {
+  --glass-edge: var(--cv-user-bubble-edge, var(--cv-strong-rule));
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 6%, transparent));
+  border-radius: var(
+    --cv-user-bubble-radius,
+    calc(var(--cv-look-bubble-radius, 3) * var(--grid-base) * var(--cv-bubble-scale))
+  );
+}
+
+/* Message box shape: a pill (a minimal chat assistant app's composer) or square and docked (a
+   dense code-first app's). Only the corner changes; the box keeps its size. */
+:root[data-chat-composer="pill"] .acpmux-composer-box,
+:root[data-chat-composer="pill"] .acpmux-asks-stack {
+  --acpmux-composer-radius: 26px;
+}
+:root[data-chat-composer="square"] .acpmux-composer-box,
+:root[data-chat-composer="square"] .acpmux-asks-stack {
+  --acpmux-composer-radius: 4px;
+}
+
+/* Chat header: quiet. The header's tools fade out until the pointer is over the header or a tool
+   has focus, so the chat reads with no chrome above it. They stay in place and clickable. */
+:root[data-chat-header="quiet"] .acpmux-header .acpmux-header-tools {
+  opacity: 0;
+  transition: opacity var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
+}
+:root[data-chat-header="quiet"] .acpmux-header:hover .acpmux-header-tools,
+:root[data-chat-header="quiet"] .acpmux-header:focus-within .acpmux-header-tools,
+:root[data-chat-header="quiet"] .acpmux-header:has([data-popup-open]) .acpmux-header-tools {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-chat-header="quiet"] .acpmux-header .acpmux-header-tools {
+    transition: none;
+  }
+}

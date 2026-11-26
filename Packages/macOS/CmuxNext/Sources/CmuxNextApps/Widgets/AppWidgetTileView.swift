@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// One widget tile: the widget's scene (``AppSceneHostingView``, the sidebar's AppKit scene path) on a
 /// rounded card, laid out to fill the tile. Let it crash: while the widget's render throws, the
-/// tile keeps its last scene, dimmed, with a quiet "Retrying" line; it never blanks. In edit mode a
+/// tile keeps its last scene, dimmed, and says "Retrying" only once the failure has lasted the shared connection
+/// bound (``QuietHold/connectionDelay``, 10 s: a render that recovers on its retry says nothing); it never blanks. In edit mode a
 /// minus badge removes it and the scene takes no clicks (the area drags the tile instead).
 final class AppWidgetTileView: NSView {
     let instance: String
@@ -15,6 +17,9 @@ final class AppWidgetTileView: NSView {
     let removeBadge = AppWidgetBadgeView()
     private var feed: Task<Void, Never>?
     private var shownStale: String??
+    /// Holds the "Retrying" line back until the failure lasts ``QuietHold/connectionDelay``.
+    private let hintHold: QuietHold
+    private var hintDue = false
 
     var isEditing = false {
         didSet {
@@ -29,9 +34,11 @@ final class AppWidgetTileView: NSView {
         didSet { if isLifted != oldValue { Motion.sidebar.animate(.fadeIn, in: self, { animator().alphaValue = isLifted ? 0.4 : 1 }) } }
     }
 
-    init(instance: String, mount: AppMount) {
+    init(instance: String, mount: AppMount, hintDelay: Duration = QuietHold.connectionDelay,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.instance = instance
         self.mount = mount
+        hintHold = QuietHold(owner: "app-widget-stale-hint", delay: hintDelay, clock: clock)
         scene = AppSceneHostingView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         scene.fillsBounds = true
         super.init(frame: .zero)
@@ -77,8 +84,20 @@ final class AppWidgetTileView: NSView {
         guard shownStale != .some(reason) else { return }
         shownStale = .some(reason)
         let stale = reason != nil
-        staleHint.isHidden = !stale
-        themedToolTip = reason.map(AppWidgetStrings.staleHelp)
+        isStaleNow = stale
+        // A new stretch of failing waits again (a second reason inside one stretch does not restart it); a retry
+        // that lands in time draws no line at all.
+        if !stale { hintDue = false }
+        hintHold.update(stale) { [weak self] in
+            guard let self else { return }
+            hintDue = true
+            staleHint.isHidden = false
+            needsLayout = true
+        }
+        staleHint.isHidden = !(stale && hintDue)
+        // The tooltip is the reason, one line; VoiceOver hears the whole sentence.
+        themedToolTip = reason
+        setAccessibilityHelp(reason.map(AppWidgetStrings.staleHelp))
         Motion.sidebar.animate(.fadeIn, in: self, { scene.animator().alphaValue = stale ? AppWidgetTileView.staleOpacity : 1 })
         needsLayout = true
     }
@@ -86,7 +105,10 @@ final class AppWidgetTileView: NSView {
     /// How much of a stale tile's scene shows.
     static let staleOpacity: CGFloat = 0.45
     /// Whether the tile shows its stale look (tests).
-    var isStale: Bool { !staleHint.isHidden }
+    private(set) var isStaleNow = false
+    var isStale: Bool { isStaleNow }
+    /// Whether the "Retrying" line shows (tests): only after the failure has lasted the hold.
+    var isRetryHintShown: Bool { !staleHint.isHidden }
 
     /// The tile's corner radius: Apple's widget corners, nested in the sidebar's surfaces.
     static var cornerRadius: CGFloat { Metrics.surfaceCornerRadius }

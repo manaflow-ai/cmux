@@ -2,12 +2,14 @@ import { PromptHeads } from "../promptHeads";
 import type { MinimapTick, MinimapTurn } from "./model";
 
 /// Logical rail rows: a count-only prefix, then the prompts the chat's index names (`earlier`, older than the held
-/// rows), then the prompts we hold. Geometry and spacers use `length`; only displayed rows and interaction targets
+/// rows), then the prompts we hold, then the prompts newer than them a window of the chat lets go of (`later`). Geometry and spacers use `length`; only displayed rows and interaction targets
 /// ask for a placeholder or an indexed prompt, so a long chat's rail keeps no object a prompt it does not draw.
 export class RailRows<T extends MinimapTick> {
   readonly length: number;
   /// Where the held prompts start: past the count-only and the indexed ones.
   readonly heldStart: number;
+  /// Where the newer prompts (`later`) start: past the held ones.
+  readonly laterStart: number;
   private keys?: Map<string, number>;
 
   constructor(
@@ -16,9 +18,11 @@ export class RailRows<T extends MinimapTick> {
     readonly sessionId: string,
     private readonly pending: (sessionId: string, index: number) => T,
     readonly earlier: PromptHeads = PromptHeads.EMPTY,
+    readonly later: PromptHeads = PromptHeads.EMPTY,
   ) {
     this.heldStart = pendingCount + earlier.length;
-    this.length = this.heldStart + items.length;
+    this.laterStart = this.heldStart + items.length;
+    this.length = this.laterStart + later.length;
   }
 
   at(index: number): T | undefined {
@@ -26,7 +30,8 @@ export class RailRows<T extends MinimapTick> {
     if (at < 0 || at >= this.length) return undefined;
     if (at < this.pendingCount) return this.pending(this.sessionId, at);
     if (at < this.heldStart) return indexedTurn(this.earlier, this.sessionId, at - this.pendingCount) as unknown as T;
-    return this.items[at - this.heldStart];
+    if (at < this.laterStart) return this.items[at - this.heldStart];
+    return indexedTurn(this.later, this.sessionId, at - this.laterStart) as unknown as T;
   }
 
   keyIndex(key: string): number | undefined {
@@ -39,7 +44,9 @@ export class RailRows<T extends MinimapTick> {
     const held = this.keys.get(key);
     if (held !== undefined) return held;
     const indexed = indexedKeyIndex(this.earlier, this.sessionId, key);
-    return indexed === undefined ? undefined : indexed + this.pendingCount;
+    if (indexed !== undefined) return indexed + this.pendingCount;
+    const later = indexedKeyIndex(this.later, this.sessionId, key);
+    return later === undefined ? undefined : later + this.laterStart;
   }
 
   /// Search held prompts only; pending and indexed rows have no row of their own to find.
@@ -49,10 +56,20 @@ export class RailRows<T extends MinimapTick> {
   }
 }
 
-export const turnRows = (items: readonly MinimapTurn[], pendingCount: number, sessionId = "", earlier?: PromptHeads) =>
-  new RailRows(items, pendingCount, sessionId, pendingTurn, earlier);
-export const tickRows = (items: readonly MinimapTick[], pendingCount: number, sessionId = "", earlier?: PromptHeads) =>
-  new RailRows(items, pendingCount, sessionId, pendingTurn, earlier);
+export const turnRows = (
+  items: readonly MinimapTurn[],
+  pendingCount: number,
+  sessionId = "",
+  earlier?: PromptHeads,
+  later?: PromptHeads,
+) => new RailRows(items, pendingCount, sessionId, pendingTurn, earlier, later);
+export const tickRows = (
+  items: readonly MinimapTick[],
+  pendingCount: number,
+  sessionId = "",
+  earlier?: PromptHeads,
+  later?: PromptHeads,
+) => new RailRows(items, pendingCount, sessionId, pendingTurn, earlier, later);
 
 /// Synthesize one count-only prompt when a displayed row or an interaction reads it.
 export function pendingTurn(sessionId: string, at: number): MinimapTurn {

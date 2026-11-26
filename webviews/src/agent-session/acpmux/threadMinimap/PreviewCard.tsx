@@ -23,6 +23,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { hostGlassCover } from "../chatUnderGlass";
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { PromptMarksSession } from "./promptMarks";
@@ -53,7 +54,7 @@ const timeLabel = (at: number) =>
 const previewText = (value: string) =>
   value.split(/(\S{40,})/).map((token, index) =>
     index % 2 === 1 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
-      <span key={index} title={token}>
+      <span key={index}>
         <span aria-hidden="true">{middleEllipsis(token)}</span>
         <span className="acpmux-minimap__full-token">{token}</span>
       </span>
@@ -268,22 +269,78 @@ export const PreviewCard = React.forwardRef<
   }
   /// The content the card was last placed for: a card for another row centers again on its row.
   const placedFor = useRef<readonly unknown[]>([]);
-  // After every commit on purpose: the rail can move under the card with any render.
+  /// The one place a commit asked for, waiting: in the next frame's animation callbacks (before it
+  /// paints) or right after it paints. 0 when none waits; a newer place or unmount clears it.
+  const placeLater = useRef<{ token: number; frame: number; beforePaint: boolean }>({
+    token: 0,
+    frame: 0,
+    beforePaint: false,
+  });
+  const placeTokens = useRef(0);
+  const placeSoon = useCallback(
+    (beforePaint: boolean) => {
+      // With no frames to wait for (a DOM test's environment), the commit places it, as before.
+      if (typeof requestAnimationFrame !== "function") {
+        place();
+        return;
+      }
+      const waiting = placeLater.current;
+      if (waiting.token !== 0 && (waiting.beforePaint || !beforePaint)) return;
+      if (waiting.token !== 0) cancelAnimationFrame(waiting.frame);
+      const token = ++placeTokens.current;
+      const run = () => {
+        if (placeLater.current.token !== token) return;
+        placeLater.current = { token: 0, frame: 0, beforePaint: false };
+        place();
+      };
+      placeLater.current = {
+        token,
+        beforePaint,
+        frame: requestAnimationFrame(beforePaint ? run : () => setTimeout(run, 0)),
+      };
+    },
+    [place],
+  );
+  // After every commit on purpose: the rail can move under the card with any render. Only a card
+  // that opens is placed in the commit. A rail click's transcript commits many times a frame (pages
+  // arriving, rows mounting), and each moved the rail under the resting pointer, so the open card
+  // showed another turn, and each placed it here: a forced layout of the freshly mounted transcript
+  // per commit, the largest single cost of the click (40 to 145 ms of a 160 to 450 ms click). An open
+  // card that shows another turn is placed once in the next frame, before it paints; one that shows
+  // the same turn once right after the paint, when the read costs nothing.
   useLayoutEffect(() => {
     const node = self.current;
     if (!node) return;
-    const now = [metadata?.failure, metadata?.failed, prompt, from, reply, row];
-    if (
-      now.length !== placedFor.current.length ||
-      !now.every((value, index) => Object.is(value, placedFor.current[index]))
-    ) {
-      placedFor.current = now;
-      openTop.current = undefined;
+    // The reply by its words, not its array: the rail rebuilds its turns (every reply array) with
+    // each page the transcript loads. It is the arm's few clamped lines, cheap to compare.
+    const now = [metadata?.failure, metadata?.failed, prompt, from, JSON.stringify(reply), row];
+    const opening = placedFor.current.length === 0;
+    if (!opening && now.every((value, index) => Object.is(value, placedFor.current[index]))) {
+      placeSoon(false);
+      return;
     }
+    // Another turn centers again on its row.
+    placedFor.current = now;
+    openTop.current = undefined;
+    if (!opening) {
+      placeSoon(true);
+      return;
+    }
+    if (placeLater.current.token !== 0) cancelAnimationFrame(placeLater.current.frame);
+    placeLater.current = { token: 0, frame: 0, beforePaint: false };
     place();
   });
+  useLayoutEffect(
+    () => () => {
+      if (placeLater.current.token !== 0) cancelAnimationFrame(placeLater.current.frame);
+      placeLater.current = { token: 0, frame: 0, beforePaint: false };
+    },
+    [],
+  );
   // After the card is placed, so the blur's first measure finds it where it draws.
-  useSeeThroughBlur(self, !!layer, underCard);
+  // Over the composer, which takes no filter, it keeps the page's glass (data-glass-keeps-underlay):
+  // on the App's glass alone the composer's text would read crisp through it.
+  useSeeThroughBlur(self, !!layer, underCard, hostGlassCover);
   // Content that grows or shrinks without a render (a font loading, a wrap, the card opening over
   // its transition) places it again. One observer for the card's life, not one per row the pointer
   // crosses (each new one notifies on observe). It stops with the card: disconnected in the cleanup
@@ -328,7 +385,11 @@ export const PreviewCard = React.forwardRef<
     <div
       ref={own}
       id={id}
-      className="acpmux-minimap__card"
+      // One material (design/glass-system.md): the hover-card glass, on the App's popover glass in a
+      // see-through pane (ui/glass/hostGlass.ts). It blurs what it covers itself (useSeeThroughBlur),
+      // so it is no cover surface.
+      className="acpmux-minimap__card ui-glass ui-glass-transient"
+      data-host-glass="popover"
       data-prompt={prompt !== undefined ? "" : undefined}
       data-incoming={from !== undefined || undefined}
       data-pending={pending || undefined}
@@ -424,7 +485,6 @@ export const PreviewCard = React.forwardRef<
               href={href}
               rel="noreferrer"
               target="_blank"
-              title={href}
               onKeyDown={scrollKey}
             >
               {middleEllipsis(linkLabel(href))}

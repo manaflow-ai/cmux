@@ -8,21 +8,29 @@
 //! (not one the person stopped) and leaves when a Chief post names it (`a12`,
 //! as a word; a subagent link carries the id too). A turn that saw the report
 //! and ended without naming it leaves a check; when it is due and no turn
-//! runs, one retry turn starts on an `[untold]` note that names it. After that
-//! it is dropped and logged: the host never posts on the Chief's behalf ("no
-//! fake messages"), and a Chief that still says nothing gets no loop. A
+//! runs, one retry turn starts on an `[untold]` note that names it. An
+//! unambiguous result is posted by the host, while a report needing Chief
+//! judgment keeps the `[untold]` model turn. A Chief that still says nothing
+//! gets no loop. A
 //! subagent Chief sends back to work (tell, restart, resume) leaves too: its
 //! next report is the one to tell.
 
 use std::time::{Duration, Instant};
 
 use cmux_conversation::{Op, Part};
+use optchat_core::Kind;
 
 use super::{Brain, Phase, Source, now_ms};
 use crate::state::{SubStatus, Untold};
 
 /// The first word of an outcome retry turn's note.
 pub const UNTOLD_TAG: &str = "[untold]";
+
+/// Idempotency prefixes for host-authored chat messages. They are distinct
+/// from Chief `send`/turn keys so a host post never answers a person's
+/// pending message or counts as a model turn.
+pub const HOST_OUTCOME_KEY: &str = "host-outcome:";
+pub const HOST_SPAWN_KEY: &str = "host-spawn:";
 
 /// The wait after the turn that saw a report ended, before the check: a
 /// batching window, so subagents that finish close together are told in one
@@ -45,13 +53,14 @@ impl Brain {
     }
 
     /// Subagent `id`'s final report was delivered: its outcome waits to be told.
-    pub(super) fn note_finished(&mut self, id: &str) {
+    pub(super) fn note_finished(&mut self, id: &str, report: &str, policy: Option<&str>) {
         if self.state.untold.iter().any(|u| u.id == id) {
             return;
         }
         self.state.untold.push(Untold {
             id: id.to_owned(),
             since_ms: now_ms(),
+            requires_chief: outcome_requires_chief(report, policy),
             ..Untold::default()
         });
         self.save();
@@ -63,9 +72,13 @@ impl Brain {
     pub(super) fn outcome_resumed(&mut self, id: &str) {
         // Nor does the running turn owe it now (landed_told.rs).
         self.turn_landed.retain(|(i, _)| i != id);
+        let reopened = self.state.sub(id).is_some_and(|(_, sub)| sub.reopened);
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.reopened = false;
+        }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
-        if self.state.untold.len() != before {
+        if reopened || self.state.untold.len() != before {
             self.save();
         }
     }
@@ -83,6 +96,13 @@ impl Brain {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let host_outcome = self
+            .state
+            .untold
+            .iter()
+            .find(|u| u.posted_key.as_deref() == Some(client_key(op)))
+            .map(|u| u.id.clone());
+        let host_spawn = client_key(op).starts_with(HOST_SPAWN_KEY);
         // Every open subagent it names was told now (`<open-items>`).
         let now = self.now();
         let mut told = false;
@@ -92,21 +112,43 @@ impl Brain {
             .values_mut()
             .flat_map(|r| r.subs.iter_mut())
         {
-            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            let open = sub.at_work()
+                || sub.waiting()
+                || matches!(sub.status, SubStatus::Done | SubStatus::Reported);
             if open && names(&text, &sub.id) {
                 sub.told_ms = now;
                 told = true;
             }
         }
+        let host_spawn_note =
+            host_spawn.then_some("host posted the subagent start; it is in the Chief log");
         if self.state.untold.is_empty() {
             if told {
                 self.save();
             }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
+            }
             return;
         }
         let before = self.state.untold.len();
-        self.state.untold.retain(|u| !names(&text, &u.id));
+        self.state
+            .untold
+            .retain(|u| host_outcome.as_deref() != Some(u.id.as_str()) && !names(&text, &u.id));
         if self.state.untold.len() != before {
+            if let Some(id) = host_outcome {
+                let note = format!("host posted subagent {id}'s result; it is in the Chief log");
+                if let Err(e) = self.chat.append(Kind::Note, &note) {
+                    (self.log)(&format!("logging host outcome {id} failed: {e}"));
+                }
+            }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
+            }
             self.save();
         }
     }
@@ -121,7 +163,9 @@ impl Brain {
     /// A turn ended: each untold subagent whose report it saw gets a check,
     /// and every pending check moves to the same batching window.
     pub(super) fn schedule_outcome_checks(&mut self) {
-        if self.state.untold.is_empty() {
+        // Under the loop guard no check is due: the person's next turn
+        // carries the outcomes (budget_hold.rs).
+        if self.state.untold.is_empty() || self.budget_held() {
             return;
         }
         let now = now_ms();
@@ -157,6 +201,19 @@ impl Brain {
         {
             return;
         }
+        // The loop guard refuses every send: a retry turn could post nothing.
+        // The outcomes wait, kept and not retried, for the person's next
+        // message, whose turn names them (budget_hold.rs).
+        if self.budget_held() {
+            for u in self.state.untold.iter_mut() {
+                if u.due_ms.is_some_and(|d| d <= now) {
+                    u.due_ms = None;
+                }
+            }
+            self.save();
+            (self.log)("outcome checks wait: the loop guard refuses the Chief's messages");
+            return;
+        }
         if self.phase != Phase::Idle || self.resume_at.is_some() {
             let later = now + UNTOLD_WAIT.as_millis() as u64;
             for u in self.state.untold.iter_mut() {
@@ -168,9 +225,18 @@ impl Brain {
             return;
         }
         let mut retry: Vec<String> = Vec::new();
+        let mut post: Vec<String> = Vec::new();
         let mut dropped: Vec<String> = Vec::new();
         for u in self.state.untold.iter_mut() {
             if u.due_ms.is_none_or(|d| d > now) {
+                continue;
+            }
+            if u.posted_key.is_some() {
+                continue;
+            }
+            if !u.requires_chief {
+                u.due_ms = None;
+                post.push(u.id.clone());
                 continue;
             }
             if u.tries >= MAX_UNTOLD_TRIES {
@@ -189,6 +255,9 @@ impl Brain {
                 dropped.join(", ")
             ));
         }
+        for id in post {
+            self.post_due_outcome(&id);
+        }
         if !retry.is_empty() {
             (self.log)(&format!(
                 "outcome not told yet: {}; starting a retry turn",
@@ -201,6 +270,154 @@ impl Brain {
         } else {
             self.save();
         }
+    }
+
+    /// Posts a host-authored message into the Chief conversation. The outbox
+    /// is durable, and the key is saved on the matching outcome before the
+    /// daemon is flushed, so a restart cannot lose or duplicate the post.
+    /// False when it was not posted, or the owner already refused it.
+    pub(super) fn host_post(
+        &mut self,
+        key: String,
+        text: String,
+        outcome_id: Option<&str>,
+    ) -> bool {
+        let Some(conversation) = self.state.conversation.clone() else {
+            if let Some(id) = outcome_id
+                && let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id)
+            {
+                u.requires_chief = true;
+                u.due_ms = Some(now_ms());
+                self.save();
+            }
+            return false;
+        };
+        if let Some(id) = outcome_id {
+            // The loop guard refuses the Chief's posts: a held outcome stays
+            // untold for the person's next message (budget_hold.rs).
+            if self.budget_held() {
+                return false;
+            }
+            let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id) else {
+                return false;
+            };
+            if u.posted_key.is_some() {
+                return false;
+            }
+            u.posted_key = Some(key.clone());
+        }
+        self.state.outbox.push(super::answer_entry(
+            conversation,
+            &key,
+            &text,
+            Vec::new(),
+            Vec::new(),
+        ));
+        self.save();
+        self.flush_outbox();
+        // A refusal the flush already met (host_post_refused) cleared the
+        // key: the outcome is the Chief's again, so the caller keeps its turn.
+        outcome_id.is_none_or(|id| {
+            self.state
+                .untold
+                .iter()
+                .find(|u| u.id == id)
+                .is_none_or(|u| u.posted_key.is_some())
+        })
+    }
+
+    /// A host-authored post was refused. Keep the report and wake the Chief
+    /// so it can decide how to recover, rather than silently dropping it.
+    pub(super) fn host_post_refused(&mut self, key: &str) -> bool {
+        let Some(id) = key.strip_prefix(HOST_OUTCOME_KEY) else {
+            return false;
+        };
+        let Some(u) = self.state.untold.iter_mut().find(|u| u.id == id) else {
+            return false;
+        };
+        u.posted_key = None;
+        u.requires_chief = true;
+        // Under the loop guard a retry turn could post nothing: the outcome
+        // waits for the person's next message (budget_hold.rs).
+        if self.state.budget_hold {
+            u.due_ms = None;
+            self.save();
+            return true;
+        }
+        u.due_ms = Some(now_ms());
+        self.save();
+        self.queue(untold_note(&[id.to_owned()]), Source::Note);
+        true
+    }
+
+    /// A no-text spawn post was refused. Reuse the old note as a recovery
+    /// path, but only after the host message itself failed.
+    pub(super) fn host_spawn_refused(&mut self, key: &str) -> bool {
+        let Some(ids) = key.strip_prefix(HOST_SPAWN_KEY) else {
+            return false;
+        };
+        let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
+        if ids.is_empty() || ids.iter().any(String::is_empty) {
+            return false;
+        }
+        if self.budget_held() {
+            self.hold_spawns(ids);
+        } else {
+            self.queue(crate::brain::spawn_text::no_text_note(&ids), Source::Note);
+        }
+        true
+    }
+
+    /// Host-post an ordinary finished result once its batching window is due.
+    pub(super) fn post_due_outcome(&mut self, id: &str) -> bool {
+        let Some((report, ws_id)) = self
+            .state
+            .sub(id)
+            .map(|(_, s)| (s.report.clone().unwrap_or_default(), s.ws_id.clone()))
+        else {
+            return false;
+        };
+        if self
+            .state
+            .untold
+            .iter()
+            .find(|u| u.id == id)
+            .and_then(|u| u.posted_key.as_ref())
+            .is_some()
+        {
+            return false;
+        }
+        let key = format!("{HOST_OUTCOME_KEY}{id}");
+        let mut text = format!("[{id}] {report}\n{}", crate::agent_chat::footer(id));
+        if self.chief.show_after_report
+            && let Some(block) = crate::show::block_in(&report, ws_id.as_deref())
+        {
+            text.push('\n');
+            text.push_str(&block);
+        }
+        self.host_post(key, text, Some(id))
+    }
+}
+
+/// Reports that still need the Chief's judgment keep the model turn. The
+/// host can relay a completed, non-error result, while ask-floor work, a
+/// harness failure, an open question, or an explicit decision request stays
+/// in the existing `[untold]` path.
+pub fn outcome_requires_chief(report: &str, policy: Option<&str>) -> bool {
+    policy == Some(crate::approval::ASK)
+        || crate::auto_resume::error_line(report).is_some()
+        // A host-written report ("(turn failed: ...)", "(did not start:
+        // ...)", "(failed: ...)") is a failure, never a mechanical result.
+        || report.trim_start().starts_with('(')
+        || !crate::check_in::report_is_final(report)
+        || report.to_ascii_lowercase().contains("approval")
+        || report.to_ascii_lowercase().contains("decision")
+}
+
+fn client_key(op: &Op) -> &str {
+    match op {
+        Op::MessageSend { client_msg_id, .. } => client_msg_id,
+        _ => "",
     }
 }
 
@@ -245,5 +462,34 @@ mod tests {
         assert_eq!(batched_due(1_000, 1_000 + hold - 10), 1_000 + hold);
         // Past the hold already: due now.
         assert_eq!(batched_due(1_000, 1_000 + hold + 5), 1_000 + hold + 5);
+    }
+
+    #[test]
+    fn final_report_can_use_a_host_post() {
+        assert!(!outcome_requires_chief(
+            "Implemented and verified in PR #42.",
+            None
+        ));
+    }
+
+    #[test]
+    fn judgment_reports_keep_the_model_turn() {
+        assert!(outcome_requires_chief(
+            "The harness failed: API Error: timeout",
+            None
+        ));
+        assert!(outcome_requires_chief("Should I restart the worker?", None));
+        assert!(outcome_requires_chief(
+            "(turn failed: You've hit your weekly limit)",
+            None
+        ));
+        assert!(outcome_requires_chief(
+            "The change is ready for approval.",
+            None
+        ));
+        assert!(outcome_requires_chief(
+            "Completed the requested work.",
+            Some(crate::approval::ASK)
+        ));
     }
 }

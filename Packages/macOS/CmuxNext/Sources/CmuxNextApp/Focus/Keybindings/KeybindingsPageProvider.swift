@@ -195,7 +195,7 @@ final class KeybindingsPageProvider: PageProvider {
         // A held key's repeats are not more strokes (holding ⌥⌘0 a moment recorded ⌥⌘0 ⌥⌘0).
         guard !event.isARepeat else { return }
         guard var recorder,
-              let recorded = recorder.record(KeyRecorder.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
+              let recorded = recorder.record(services.registry.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
         self.recorder = recorder
         if recorded.done || recorded.cancelled { stopRecording() }

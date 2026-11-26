@@ -44,6 +44,6 @@ enum AgentChatIdentifierHandlers {
 enum AgentChatIdentifierStrings {
     static var notAChat: String {
         String(localized: "agentChat.copyIdentifier.notAChat", defaultValue: "Only a started agent chat has an identifier to copy.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

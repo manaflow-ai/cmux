@@ -169,6 +169,8 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -176,6 +178,8 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -305,6 +309,20 @@ BUNDLE_INPUTS = (
     "schemas/design-scale/design-scale.json",
     # The theme slots the slot registry imports (src/slots/registry.ts).
     "schemas/theme/slots.json",
+    # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+    "schemas/layout-motion/contract.json",
+    # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
+    "schemas/transcript-look/transcript-look.json",
+    # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
+    "examples/gallery/gallery.json", "examples/looks/*",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -324,7 +342,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -355,7 +373,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
@@ -603,8 +621,10 @@ class Route:
         self.reasons.append(reason)
 
     def macos(self) -> bool:
-        """Any tier that needs a Mac: the placement job places these runs."""
-        return self.native or self.webview or self.swift or self.generated or self.daemon
+        """Any tier that needs a Mac: the placement job places these runs. The Mac fast tier is one: a change
+        only it reads (its registry, runner or job action, outside every Swift compile's inputs since #48937)
+        must still place it."""
+        return self.native or self.webview or self.swift or self.generated or self.daemon or self.fast_tier()
 
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
@@ -966,7 +986,7 @@ def split_top(text: str, operator: str) -> list[str] | None:
 
 def linux_values(expression: str) -> bool:
     """Whether every value an expression can give is a Linux label: `a && b || c` gives b or c, so each
-    `||` alternative's last `&&` operand must be a literal naming ubuntu or a variable whose name says
+    `||` alternative's last `&&` operand must be a literal naming ubuntu, 'cmux-linux', or a variable whose name says
     LINUX (a parenthesised group is read the same way). Anything else may be a Mac."""
     alternatives = split_top(expression.strip(), "||")
     if not alternatives:
@@ -980,18 +1000,11 @@ def linux_values(expression: str) -> bool:
             if not linux_values(value[1:-1]):
                 return False
         elif re.fullmatch(r"'[^']*'", value):
-            if "ubuntu" not in value:
+            if "ubuntu" not in value and value != "'cmux-linux'":
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
             return False
     return True
-
-
-# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
-# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
-# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
-PORTABLE_RUNNERS = frozenset(
-    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
@@ -1052,6 +1065,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")

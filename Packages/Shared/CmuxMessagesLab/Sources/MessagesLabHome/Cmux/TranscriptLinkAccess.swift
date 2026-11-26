@@ -120,6 +120,29 @@ final class TranscriptLinkElement: NSAccessibilityElement {
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
+    /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
+    /// CuaDriver indexes a node, so a target can click it, only when that list is not empty (cmux-cua
+    /// ax/tree.rs). The custom action below never reached it: on Nightly 4552290304601, which has it, the
+    /// walk of 2026-11-25T06:25Z still found the link unindexed. AppKit answers AXActionNames and performs
+    /// an action through these two methods, so the press is listed and routed here.
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if action == .press { _ = accessibilityPerformPress() }
+    }
+    /// The same press as a named action. AppKit lists no AXPress in this element's AXActionNames (the
+    /// onboarding walk of 2026-11-23T05:04Z: the link sat in the tree with role AXLink but CuaDriver, which
+    /// indexes only a node that advertises an action or a settable value, gave it no index), and a custom
+    /// action is always listed, so an automation client and VoiceOver's actions menu both reach it.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        [NSAccessibilityCustomAction(name: CmuxStrings.openLinkAction) { [weak self] in self?.accessibilityPerformPress() ?? false }]
+    }
+}
+
+extension CmuxStrings {
+    /// A transcript link's accessibility action (TranscriptLinkElement): opens it as a click does.
+    static var openLinkAction: String {
+        String(localized: "home.transcript.link.open", defaultValue: "Open link", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
 }
 
 extension ChatController {

@@ -25,7 +25,8 @@ const STATE_VERSION: u32 = 1;
 pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_LIVE_INVITATIONS: usize = 256;
-const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// How long a daemon holds an invitation's enrollment for a person's approval.
+pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Device-id prefix of a grant issued by a trusted-network listener. Such a
 /// connection is admitted by the network it arrived on; it is never revoked by
 /// the daemon's device list or its carrier policy, only by leaving the network.
@@ -71,6 +72,13 @@ pub struct EnrollmentInvitation {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relay_access: Vec<EnrollmentRelayAccess>,
     pub approval_required: bool,
+    /// The minting machine's hub route: its node key as the hub knows it (`daemonId`,
+    /// `wgPublicKey` in `acpmux machine status --json`, standard base64 of 32 bytes). Its route
+    /// hints are often only its own loopback daemon; another machine reaches that through its
+    /// acpmux and the hub carrier (`--via-machine KEY`), and redeeming uses this when the person
+    /// named none. Absent on invitations from before it, and on machines not joined to a hub.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_machine: Option<String>,
 }
 
 impl std::fmt::Debug for EnrollmentInvitation {
@@ -86,7 +94,23 @@ impl std::fmt::Debug for EnrollmentInvitation {
             .field("route_hints", &route_debug_labels(&self.route_hints))
             .field("relay_access_count", &self.relay_access.len())
             .field("approval_required", &self.approval_required)
+            .field("via_machine", &self.via_machine)
             .finish()
+    }
+}
+
+/// Whether `text` is a hub machine key (`daemonId`): standard padded base64 of 32 bytes, the
+/// form `--via-machine` takes and the hub answers for.
+pub fn is_hub_machine_key(text: &str) -> bool {
+    base64::engine::general_purpose::STANDARD.decode(text).is_ok_and(|bytes| bytes.len() == 32)
+}
+
+fn validate_via_machine(via_machine: Option<&str>) -> Result<(), IdentityError> {
+    match via_machine {
+        Some(key) if !is_hub_machine_key(key) => Err(IdentityError::Invalid(
+            "invitation via_machine is not a machine node key (base64 of 32 bytes)".into(),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -97,6 +121,7 @@ impl EnrollmentInvitation {
 
     pub fn to_uri(&self) -> Result<String, IdentityError> {
         validate_relay_access(&self.route_hints, &self.relay_access)?;
+        validate_via_machine(self.via_machine.as_deref())?;
         let json = serde_json::to_vec(self).map_err(IdentityError::Json)?;
         let uri = format!(
             "{ENROLLMENT_URI_PREFIX}{}",
@@ -136,6 +161,7 @@ impl EnrollmentInvitation {
         }
         invitation.secret_bytes()?;
         validate_relay_access(&invitation.route_hints, &invitation.relay_access)?;
+        validate_via_machine(invitation.via_machine.as_deref())?;
         Ok(invitation)
     }
 }
@@ -182,6 +208,10 @@ pub struct KnownDaemon {
     pub auth: KnownDaemonAuth,
     pub first_seen_at_unix: u64,
     pub last_used_at_unix: u64,
+    /// The daemon's machine on the hub ([`EnrollmentInvitation::via_machine`]), kept from the
+    /// invitation that enrolled it, so a later connect reaches its loopback route the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_machine: Option<String>,
 }
 
 impl std::fmt::Debug for KnownDaemon {
@@ -194,6 +224,7 @@ impl std::fmt::Debug for KnownDaemon {
             .field("auth", &self.auth)
             .field("first_seen_at_unix", &self.first_seen_at_unix)
             .field("last_used_at_unix", &self.last_used_at_unix)
+            .field("via_machine", &self.via_machine)
             .finish_non_exhaustive()
     }
 }
@@ -334,10 +365,33 @@ impl ClientIdentityStore {
             auth,
             first_seen_at_unix: now,
             last_used_at_unix: now,
+            via_machine: None,
         };
         candidate.daemons.insert(fingerprint, record.clone());
         self.commit_client_state(transaction, candidate)?;
         Ok(record)
+    }
+
+    /// Keep `via_machine`, the hub machine key the daemon `fingerprint` is reached through
+    /// ([`KnownDaemon::via_machine`]). None when no daemon has that fingerprint.
+    pub async fn remember_via_machine(
+        &self,
+        fingerprint: &str,
+        via_machine: &str,
+    ) -> Result<Option<KnownDaemon>, IdentityError> {
+        validate_via_machine(Some(via_machine))?;
+        let (transaction, mut candidate) = self.reload_client_state().await?;
+        let routes_changed = transaction.routes_changed;
+        let Some(existing) = candidate.daemons.get_mut(fingerprint) else {
+            if routes_changed {
+                self.commit_client_state(transaction, candidate)?;
+            }
+            return Ok(None);
+        };
+        existing.via_machine = Some(via_machine.to_owned());
+        let record = existing.clone();
+        self.commit_client_state(transaction, candidate)?;
+        Ok(Some(record))
     }
 
     pub async fn remember_verified_route(
@@ -1138,12 +1192,14 @@ pub fn default_state_dir() -> Option<PathBuf> {
         return Some(path.into());
     }
     // Every Apple target keeps app state under Library/Application Support;
-    // on iOS HOME is the app's sandbox container.
+    // on iOS HOME is the app's sandbox container. On macOS cmux NEXT owns
+    // `Application Support/cmux-next`; `Application Support/cmux` is Classic's.
     #[cfg(target_vendor = "apple")]
     {
+        let app_dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
         std::env::var_os("HOME")
             .map(PathBuf::from)
-            .map(|home| home.join("Library/Application Support/cmux/remote"))
+            .map(|home| home.join("Library/Application Support").join(app_dir).join("remote"))
     }
     #[cfg(not(target_vendor = "apple"))]
     {
@@ -1577,8 +1633,12 @@ mod tests {
         let grant =
             claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap();
 
-        auth.revoke(&grant.device_id).await.unwrap();
+        let revoked = auth.revoke(&grant.device_id).await.unwrap();
 
+        // The reply names the device, so `enroll revoke` can say which one.
+        assert_eq!(revoked.id, grant.device_id);
+        assert_eq!(revoked.fingerprint, device.fingerprint());
+        assert!(revoked.revoked_at_unix.is_some());
         assert!(!auth.grant_is_current(&grant).await);
         assert!(!auth.device_is_active(&grant.device_id).await);
         let error =
@@ -1780,5 +1840,100 @@ mod tests {
         assert_eq!(routing["direct"], "127.0.0.1:7777");
         assert_eq!(routing["relay"], "https://relay.test/");
         assert!(!routing.contains_key("ticket"));
+    }
+
+    fn invitation_with(via_machine: Option<String>) -> EnrollmentInvitation {
+        let daemon = StaticIdentity::generate().unwrap();
+        EnrollmentInvitation {
+            version: STATE_VERSION,
+            id: "invite".into(),
+            secret: encode_key(&[7; 32]),
+            daemon_public_key: encode_key(&daemon.public_key()),
+            daemon_fingerprint: public_key_fingerprint(&daemon.public_key()),
+            daemon_name: "agent-remote".into(),
+            expires_at_unix: unix_time().unwrap() + 600,
+            route_hints: vec!["ws://127.0.0.1:7781/".into()],
+            relay_access: vec![],
+            approval_required: true,
+            via_machine,
+        }
+    }
+
+    const NODE_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+
+    /// An invitation carries its machine's hub route, so a machine elsewhere can reach the
+    /// loopback-only daemon it names; the field is additive and absent when unset.
+    #[test]
+    fn an_invitation_carries_its_machines_hub_route() {
+        let invitation = invitation_with(Some(NODE_KEY.into()));
+        let uri = invitation.to_uri().unwrap();
+        let decoded = EnrollmentInvitation::from_uri(&uri).unwrap();
+        assert_eq!(decoded.via_machine.as_deref(), Some(NODE_KEY));
+        assert_eq!(decoded, invitation);
+        let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(uri.trim_start_matches(ENROLLMENT_URI_PREFIX))
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(json.get("via_machine").and_then(|v| v.as_str()), Some(NODE_KEY));
+        let plain = invitation_with(None).to_uri().unwrap();
+        let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(plain.trim_start_matches(ENROLLMENT_URI_PREFIX))
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert!(json.get("via_machine").is_none(), "{json}");
+    }
+
+    /// An invitation from before the field (no `via_machine` key) still decodes, with none.
+    #[test]
+    fn an_invitation_from_before_the_hub_route_still_decodes() {
+        let invitation = invitation_with(None);
+        let mut json = serde_json::to_value(&invitation).unwrap();
+        json.as_object_mut().unwrap().remove("via_machine");
+        let uri = format!(
+            "{ENROLLMENT_URI_PREFIX}{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&json).unwrap())
+        );
+        assert_eq!(EnrollmentInvitation::from_uri(&uri).unwrap().via_machine, None);
+    }
+
+    /// A hub route that is no node key is refused both ways, never dialed.
+    #[test]
+    fn an_invitation_hub_route_must_be_a_node_key() {
+        assert!(is_hub_machine_key(NODE_KEY));
+        assert!(!is_hub_machine_key("cmux16"));
+        let invitation = invitation_with(Some("cmux16".into()));
+        assert!(invitation.to_uri().is_err());
+        let json = serde_json::to_vec(&invitation).unwrap();
+        let uri = format!(
+            "{ENROLLMENT_URI_PREFIX}{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
+        );
+        assert!(EnrollmentInvitation::from_uri(&uri).is_err());
+    }
+
+    /// A daemon enrolled through an invitation keeps its hub route for later connects.
+    #[tokio::test]
+    async fn a_known_daemon_keeps_its_hub_route() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(directory.path()).unwrap();
+        let daemon = StaticIdentity::generate().unwrap();
+        let pinned = store
+            .pin_daemon(
+                "agent-remote".into(),
+                daemon.public_key(),
+                vec!["ws://127.0.0.1:7781/".into()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(pinned.via_machine, None);
+        let kept =
+            store.remember_via_machine(&pinned.fingerprint, NODE_KEY).await.unwrap().unwrap();
+        assert_eq!(kept.via_machine.as_deref(), Some(NODE_KEY));
+        let reloaded = ClientIdentityStore::load_or_create(directory.path()).unwrap();
+        let known = reloaded.known_daemons().await;
+        assert_eq!(known.first().and_then(|d| d.via_machine.as_deref()), Some(NODE_KEY));
+        assert!(store.remember_via_machine("nope", NODE_KEY).await.unwrap().is_none());
+        assert!(store.remember_via_machine(&pinned.fingerprint, "cmux16").await.is_err());
     }
 }

@@ -1,0 +1,37 @@
+# The budget of every producer (scripts/cmux-next/perf-budget-table.py; the perf cron's report prints "Budget: N over, N not measured").
+# A row: name, producer, most (the limit: a value above it is OVER), unit, rows (a full-match regex over the perf cron's row names, host
+# left off; empty: no harness feeds the cron yet), max_age_h (a value older than this is NOT MEASURED), harness, what.
+# The row's value is the worst (largest) newest value of the matching rows on any host. A row with no value (no harness, the harness
+# printed nothing, or its newest value is too old) is NOT MEASURED, never a pass. The target is "0 over, 0 not measured".
+# Limits: a limit perf-budgets.json, perf-cron.py or bundle-size-budget.json already has is used as it is ("existing"); a limit
+# from the frame-pipeline lab's design (its ARCHITECTURE.md 5.4, 15.2) says so ("lab"); a new limit with no prior target is a REGRESSION limit just above
+# the first values the cron has (the lab's form of its scripts/budgets.tsv, "regression limit"), to be lowered when a target is set.
+# name	producer	most	unit	rows	max_age_h	harness	what
+terminal.key.frame	terminal draw	8.33	ms	workspace_scaling\.type\.\d+	96	perf cron part workspace-scaling (automation-typing-bench.py)	p95 from a key in a terminal to the frame that shows it, at 1, 100 and 1,000 workspaces under agent automation. lab key.frame.max: under one 120 Hz frame
+terminal.commit.producer	terminal draw	2	ms		96	none	the time one terminal takes in a frame commit as a synchronous producer (lab 5.4: 2 ms each). NEXT has no per-commit producer timer
+page.switch.longest_frame	page frame	16.7	ms	workspace_switch\.chromium\.[^.]+\.longest_frame	96	perf cron part sidebar (perf-budgets.py workspace_switch)	the longest frame around a switch to a workspace showing a Chromium page (existing)
+page.scroll.frame	page frame	8.33	ms		96	none in the perf cron (cef-tab-bench.py runs by hand)	frame interval while a Chromium page scrolls or animates: one 120 Hz frame
+page.commit.producer	page frame	2	ms		96	none	the time one page takes in a frame commit as a synchronous producer (lab 5.4: 2 ms each)
+frame.commit.all_producers	frame commit	4	ms		96	none	all synchronous producers of one commit together (lab 5.4: 4 ms for all)
+chat.transcript.append	chat transcript	10	ms	webui\.transcript_replay\.(god\.)?long\.(token|thought|tool_call|tool_output)_ms	96	perf cron parts web-ui, web-ui-god (transcript-replay bench)	p95 of one appended transcript record (token, thought, tool call, tool output), ordinary and god chat (existing)
+chat.transcript.scroll	chat transcript	10	ms	webui\.transcript_scroll\.[^.]+\.react_ms	96	perf cron part web-ui (transcript-scroll bench)	p95 React work of one transcript scroll step: wheel, long, fling (existing)
+chat.composer.typing	chat transcript	8.33	ms	acp\.[^.]+\.typing\.(to_frame|to_paint)	96	perf cron part chat-anim (perf-budgets.py acp)	keydown in the chat composer to the next frame and paint, own and Chromium engine (existing)
+sidebar.frame	sidebar	8.33	ms	sidebar\.\d+\.(scroll|scroll_while_ticking|drag|ticking)\.frame	96	perf cron part sidebar (perf-budgets.py sidebar)	frame interval of the sidebar at 400 workspaces: scroll, drag, agents ticking (existing)
+sidebar.ticking.cpu	sidebar	10	%	sidebar\.\d+\.ticking\.cpu_pct	96	perf cron part sidebar	app CPU while 15 agents tick in the sidebar (existing)
+sidebar.switch.click_to_idle	sidebar	16.7	ms	sidebar\.\d+\.workspace_switch\.click_to_idle	96	perf cron part sidebar	a sidebar click to the main thread idle in the new workspace (existing)
+daemon.cpu.rest	daemon	0.5	%	webui\.infinite_items\.n\d+\.cpu_idle_pct	96	perf cron part infinite-items (scripts/measure/infinite-items.py)	acpmux and headless cmux-tui at rest with 10, 100 and 1,000 workspaces (the app's idle budget, perf-budgets.json idle)
+daemon.wakeups.rest	daemon	1	/s	webui\.infinite_items\.n\d+\.wakeups_per_s	96	perf cron part infinite-items	wakeups a second of the daemons at rest (lab 15.2: under 1 wakeup a second)
+daemon.mem.tui	daemon	80	MB	memory\.app_agents\.breakdown\.(empty|10)\.tui-daemon\.footprint_mb	96	perf cron part memory-agents (bench_memory.py)	cmux-tui daemon footprint, empty and with 10 chats. Regression limit: 63.8 and 66.4 on 2026-11-17
+daemon.mem.acpmux	daemon	55	MB	memory\.app_agents\.breakdown\.(empty|10)\.acpmux-daemon\.footprint_mb	96	perf cron part memory-agents	acpmux daemon footprint, empty and with 10 chats. Regression limit: 18.1 and 43.1 on 2026-11-17
+main.turn.motion	main-thread turn	8.33	ms	anim\.[^.]+\.main_ms_max	96	perf cron part chat-anim (anim-perf-terminal.py)	the longest main-thread turn during an app animation (existing: scripts/perf-bench/budgets.json animations)
+main.turn.switch	main-thread turn	16.7	ms	workspace_switch\.[^.]+\.[^.]+\.input_to_idle	96	perf cron part sidebar	a workspace switch (click, Cmd-digit, next/prev; terminal or Chromium) to the main thread idle (existing)
+main.stall.rest	main-thread turn	50	ms		96	none in the perf cron (bench-stalls.py runs by hand)	the longest time the main thread did not come back to its run loop in 40 s at rest with one terminal (lab main.stall.max)
+cpu.rest.app	CPU at rest	0.5	%	idle\.[^.]+\.app_cpu_pct	96	perf cron part home-idle (perf-budgets.py idle)	app CPU at rest with terminals, and with a static Chromium page (existing)
+cpu.rest.chat_wakeups	CPU at rest	0	n	webui\.ui\.transcript(\.webkit)?\.idle_wakeups	96	perf cron part web-ui	wakeups of an open chat transcript at rest (existing)
+cpu.rest.app_wakeups	CPU at rest	1	/s		96	none	app process wakeups a second at rest with 1, 10 and 100 terminals (lab 15.2)
+mem.app.empty	memory	1100	MB	memory\.app_agents\.empty\.total_footprint_mb	96	perf cron part memory-agents	every process of the app, no chat open. Regression limit: 909.1 (last good) and 1,035.4 (2026-11-17) (lab mem.all.1 is 390 MB without a browser engine)
+mem.app.per_chat	memory	110	MB	memory\.app_agents\.breakdown\.per_chat\.total_mb	96	perf cron part memory-agents	what one more idle agent chat costs, all processes. Regression limit: 93.4 on 2026-11-17
+mem.chat.renderer_ratio	memory	1.2	x	webui\.chat_100k_flat\.[^.]+\.renderer_mb_ratio	96	perf cron part web-ui-flat (chat-100k-flat bench)	renderer memory of a 100k-row chat over an empty chat (existing)
+disk.app	disk	700	MB		96	none in the perf cron (bundle-size.py check gates pull requests; its numbers do not reach the cron)	the app bundle (existing: bundle-size-budget.json app_max_bytes)
+disk.chat.growth_ratio	disk	1.2	x	webui\.chat_disk\.hot_growth_ratio	96	perf cron part chat-disk (scripts/measure/chat-disk-growth.py)	disk growth a simulated hour of a 100k-row live chat over an empty chat (existing)
+disk.items.per_day	disk	25	MB	webui\.infinite_items\.n\d+\.disk_mb_per_day	96	perf cron part infinite-items	disk growth a simulated day at 10, 100 and 1,000 workspaces. Regression limit: 0 to 21.7 in 2026-11-15..17 (the 10-workspace row is noisy: 7.6, 13.5, 21.7, 12.8)

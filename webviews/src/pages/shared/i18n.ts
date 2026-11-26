@@ -1,7 +1,9 @@
 // Page strings come from xcstrings tables (scripts/pages/gen-strings.mjs writes
 // `<page>/generated/strings.json`); no string lives only in TypeScript. The page picks the app's
-// language from `navigator.languages`, which WebKit sets from the app's preferred localizations.
+// language from `appLanguages()` (appLanguage.ts): the Language setting's, else
+// `navigator.languages`, which WebKit sets from the app's preferred localizations.
 import { intl } from "../../ui/intl";
+import { appLanguages } from "./appLanguage";
 
 export type StringTable = Record<string, Record<string, string>>;
 
@@ -53,7 +55,7 @@ export function formatString(text: string, args: readonly string[]): string {
   });
 }
 
-export function createStrings(table: StringTable, tags: readonly string[] = navigatorLanguages()): Strings {
+export function createStrings(table: StringTable, tags: readonly string[] = appLanguages()): Strings {
   const language = resolveLanguage(tags, Object.keys(table));
   followDocumentLanguage(Object.keys(table));
   setDocumentLanguage(language);
@@ -75,11 +77,6 @@ export function createStrings(table: StringTable, tags: readonly string[] = navi
   };
 }
 
-function navigatorLanguages(): readonly string[] {
-  const nav = globalThis.document?.defaultView?.navigator ?? globalThis.navigator;
-  return nav?.languages?.length ? nav.languages : [nav?.language ?? "en"];
-}
-
 // A document owns one languagechange listener, shared by every string table on the page.
 const documentLanguages = new WeakMap<Document, { available: readonly string[] }>();
 
@@ -97,6 +94,6 @@ function followDocumentLanguage(available: readonly string[]): void {
   const state = { available };
   documentLanguages.set(doc, state);
   doc.defaultView?.addEventListener("languagechange", () => {
-    setDocumentLanguage(resolveLanguage(navigatorLanguages(), state.available));
+    setDocumentLanguage(resolveLanguage(appLanguages(), state.available));
   });
 }

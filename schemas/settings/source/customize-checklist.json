@@ -1,0 +1,59 @@
+{
+  "$comment": "HAND-EDITED source of the customizations checklist settings; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json. The checklist itself (its steps, what marks each done, n of m) is cmux-customize checklist.rs, answered by `cmux customize checklist`.",
+  "lists": [
+    {
+      "name": "customizeChecklist",
+      "section": "general",
+      "group": {
+        "key": "settings.group.customizeChecklist",
+        "text": "Customize cmux"
+      },
+      "note": "The customizations checklist (Leo 2026-11-22: \"a customizations checklist. actually, this needs to be SOMEWHERE as a default. not just for me.\"): Settings > General's first card walks through making cmux your own, n of m done. cmux-customize checklist.rs reads these keys.",
+      "rows": [
+        {
+          "key": "customize.checklist.enabled",
+          "name": "enabled",
+          "note": "On by default for everyone. The card's Dismiss turns it off; this switch brings it back.",
+          "title": {
+            "key": "settings.customizeChecklist.enabled",
+            "text": "Show the Customize cmux Checklist"
+          },
+          "help": {
+            "key": "settings.customizeChecklist.enabled.help",
+            "text": "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "customize",
+            "checklist",
+            "getting started",
+            "onboarding",
+            "progress",
+            "setup"
+          ]
+        },
+        {
+          "key": "customize.checklist.done",
+          "name": "done",
+          "note": "The ids of the checklist steps the person checked off by hand (cmux-customize checklist.rs STEPS); a step a setting or connection already marks is done without it. An id of a step since removed is ignored.",
+          "title": {
+            "key": "settings.customizeChecklist.done",
+            "text": "Checked Off Customize Steps"
+          },
+          "help": {
+            "key": "settings.customizeChecklist.done.help",
+            "text": "The checklist steps you marked done yourself."
+          },
+          "kind": "string_list",
+          "default": [],
+          "page_hidden": "The checklist card checks steps off; the ids are not for typing.",
+          "keywords": [
+            "customize",
+            "checklist"
+          ]
+        }
+      ]
+    }
+  ]
+}

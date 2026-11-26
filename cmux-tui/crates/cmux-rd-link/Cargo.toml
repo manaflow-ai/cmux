@@ -12,9 +12,11 @@ workspace = true
 
 [features]
 # The UDP driver (a thread, one socket, STUN candidates) for the host and the viewer.
-net = ["dep:libc", "cmux-transport/local-networks"]
+# Unix waits with poll(2) (libc); Windows with WSAPoll (windows-sys, net_windows.rs).
+net = ["dep:cmux-rd-proto", "dep:libc", "dep:windows-sys", "cmux-transport/local-networks"]
 
 [dependencies]
+cmux-rd-proto = { path = "../cmux-rd-proto", optional = true }
 libc = { version = "0.2", optional = true }
 snow.workspace = true
 cmux-transport = { path = "../cmux-transport" }
@@ -22,6 +24,13 @@ cmux-transport = { path = "../cmux-transport" }
 hmac = "0.12"
 sha1 = "0.10"
 md5 = { package = "md-5", version = "0.10" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Networking_WinSock",
+    "Win32_System_Performance",
+    "Win32_System_SystemInformation",
+], optional = true }
 
 [[test]]
 name = "net"

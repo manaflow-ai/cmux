@@ -28,6 +28,7 @@ enum DebugCEF {
             "spare_window": .string(services.cache.cef.spareWindowState),
             "spare_page": .string(services.cache.cef.sparePageState),
             "spare_pages_taken": .number(Double(services.cache.cef.sparePagesTaken)),
+            "spare_release": .string(services.cache.cef.spareReleaseState),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
@@ -48,14 +49,14 @@ enum DebugCEF {
         }
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
-        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+        if let pump = services.cache.cef.pumpStats { object["pump"] = .object(pump.reportFields.mapValues { .number($0) }) }
         object["tracker"] = .object(services.cache.cef.trackerStats.reportFields.mapValues { .number($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
-        let fields = object
-        return .followUp { [work = services.work] in
+        object["launch_switches"] = .array(report.launchSwitches.map { .string($0) })
+        return .followUp { [work = services.work, fields = object] in
             var fields = fields
             // Unread (cancelled, shutting down) is null, never a footprint of 0.
             fields["footprint_mb"] = (try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }).map(JSONValue.number) ?? .null
@@ -131,21 +132,6 @@ enum DebugCEF {
 
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
-    }
-
-    /// Pump wakeups per second = the change of `work_runs` over an interval.
-    private static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
-        .object([
-            "work_runs": .number(Double(stats.workRuns)),
-            "immediate_requests": .number(Double(stats.immediateRequests)),
-            "delayed_requests": .number(Double(stats.delayedRequests)),
-            "reentrant_fires": .number(Double(stats.reentrantFires)),
-            "long_work_runs": .number(Double(stats.longWorkRuns)),
-            "follow_up_runs": .number(Double(stats.followUpRuns)),
-            "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
-            "work_ms": .number(stats.workSeconds * 1_000),
-            "fallback_ms": .number(stats.fallbackInterval * 1_000),
-        ])
     }
 
     /// Where the runtime came from and the download state (Chromium on demand).

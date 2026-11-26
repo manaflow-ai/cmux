@@ -32,6 +32,15 @@ final class AppControl {
     private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
+    /// `perf.*`: the frame and layout probes in every build, off until `perf.probes.enable` (`cmux perf profile --frames`).
+    private lazy var perfProbes = PerfProbes(
+        watchdog: watchdog,
+        frames: { [probe = DebugFrameProbe()] in
+            CmuxNextSettings.JSONValue(foundation: probe.handle(action: $0["action"]?.stringValue, raw: $0["raw"]?.boolValue == true)) ?? .null
+        },
+        layoutCounters: { DebugLayoutCounters.handle($0) },
+        tabSwitch: { DebugTabSwitch.timer.handle($0, key: "switches") },
+        workspaceSwitch: { DebugWorkspaceSwitch.timer.handle($0, key: "switches") })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
@@ -122,8 +131,16 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
+            // One cmux page's JS heap after GC, its counters and an optional CPU profile (Usage/PageProfiler.swift),
+            // Release too, off unless the hidden defaults key CMUXPageProfiler is set.
+            .async("renderers.profile") { [engine = services.cache.cef] call in
+                let report = await engine.pageProfileReport(browser: call.params["browser"]?.intValue, seconds: call.params["seconds"]?.intValue)
+                return try JSONValue.parse(CEFPageProfileReport.encoded(report))
+            }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `browser.import_offer`: where the Chrome import card stands, read-only (a NIGHTLY read-back; BrowserImportOfferReadout).
+            .mainActor("browser.import_offer") { [weak services] _ in .value(services?.onboarding.browserImportOffer.readout() ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
@@ -133,14 +150,19 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
+        // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
+        // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
+        service.router.register(perfProbes.methods())
+        // A browser tab's and its popups' pending prompts in Release too (BrowserPromptsControl), for login-flow checks on a NIGHTLY.
+        service.router.register(BrowserPromptsControl.methods(services))
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.healthFeeds.debugMethod()])  // debug.chief_pet, debug.act_as_me, debug.app_health_card: captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -304,6 +326,12 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
             },
+            // Every live agent page by the owner that holds it, and the ones with no tab that still draw (AgentTabs+Liveness).
+            .mainActor("debug.agent_pages") { [weak services] call in
+                guard let tabs = services?.madeAgentTabs else { return .value(.null) }
+                let swept = call.params["sweep"]?.boolValue == true ? tabs.sweepOrphans() : 0 // {sweep: true}: as a tab's release does a second later
+                return .value(tabs.livePages.report(owner: tabs.pageOwner(), swept: swept))
+            },
             // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
             .async("debug.cef_page_devtools") { [weak services] call in
                 guard let services else { return .null }
@@ -365,6 +393,7 @@ final class AppControl {
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: CmuxDialogKeys.onlyCancels(key: call.params["key"]?.stringValue, modifiers: call.params["modifiers"]?.arrayValue?.count ?? 0, sequence: call.params["sequence"] != nil, read: call.params["last"]?.boolValue == true || call.params["dry_run"]?.boolValue == true)) { return .value(refusal) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
@@ -667,6 +696,7 @@ final class AppControl {
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
             .mainActor("debug.view_key") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
                 return .value(DebugViewKey.send(call.params, services: services))
             }.injectingInput(),
             .mainActor("debug.focus_ring") { [weak services] call in
