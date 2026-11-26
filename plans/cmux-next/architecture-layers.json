@@ -157,6 +157,7 @@
     "CmuxVisibleRows": {"layer": "core", "package": "Packages/Shared/CmuxVisibleRows", "note": "the visible-rows work meter a list keeps (no AppKit, no UIKit)"},
     "CmuxVisibleRowsTesting": {"layer": "core", "package": "Packages/Shared/CmuxVisibleRows", "note": "the visible-rows contract test helper and its baseline (test-only link)"},
     "CmuxSentryScrubbing": {"layer": "core", "package": "Packages/Shared/CmuxSentryTelemetry", "note": "pure report scrubber"},
+    "CCmuxScreenKit": {"layer": "core", "package": "Packages/Shared/CmuxScreenKit", "note": "header-only C ABI of cmux-rd-core screen_kit"},
     "CmuxAgentCursor": {"layer": "core", "package": "Packages/Shared/CmuxAgentCursor", "note": "vendored cursor command logic, QuartzCore only"},
     "CmuxGhosttyKitLink": {"layer": "core", "package": "Packages/Shared/CmuxGhosttyKit", "note": "link shim of the Ghostty binary"},
     "GhosttyNextKit": {"layer": "core", "package": "Packages/Shared/CmuxGhosttyKit", "note": "Ghostty binary, like CCmuxAppFFI"},

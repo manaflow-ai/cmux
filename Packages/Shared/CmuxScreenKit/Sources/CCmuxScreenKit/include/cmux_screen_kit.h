@@ -1,6 +1,9 @@
 /* C ABI of the screen viewer core (cmux-rd-core `screen_kit::ffi`, feature
    `c-abi`), shared by the Mac app (linked through cmux-rd-ffi in the app
-   library) and the iOS app (through cmux-mobile-ffi). No I/O, no threads;
+   library, CCmuxAppFFI) and the iOS app (through cmux-mobile-link-ffi in
+   cmux-next-ios/rust, which depends on cmux-rd-ffi). CmuxScreenKit imports it
+   as the header-only CCmuxScreenKit target; the app resolves the symbols at
+   link. cmux-rd-core's header test checks it against the exports. No I/O, no threads;
    panics are caught and poison only the handle they hit. Strings are UTF-8
    pointer and length; nothing keeps a caller's pointer. A handle is used by
    one thread at a time. */

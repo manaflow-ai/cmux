@@ -305,7 +305,6 @@ select_packages() {
     CmuxPhonePush
     CmuxHomeRender
     CmuxRemote
-    CmuxScreenKit
     CmuxVNCWebRTC
     GlassHost
     CmuxLiveCode
