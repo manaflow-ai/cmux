@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The classic NIGHTLY's Release compile runs on the pull request path.
 
-classic-nightly-pr-build.yml must compile what nightly.yml compiles, for both
+classic-nightly-pr-build.yml must compile what nightly.yml compiles, for each
 architectures it ships, route Swift the way ci.yml's release_build area does,
 and stay advisory.
 """
@@ -43,8 +43,12 @@ class ClassicNightlyPrBuildTest(unittest.TestCase):
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/classic-nightly-release-compile.sh")], check=True)
 
     def test_workflow_compiles_both_nightly_archs_as_fleet_jobs(self) -> None:
-        self.assertIn("arch: [arm64, x86_64]", WORKFLOW)
-        self.assertIn('ARCHS="arm64 x86_64"', NIGHTLY)
+        # The matrix follows the archs NIGHTLY ships, read from nightly.yml,
+        # so a change there fails here instead of drifting silently.
+        step = NIGHTLY.split("- name: Build nightly app (Release)", 1)[1]
+        shipped = re.search(r'^\s*archs="([^"]+)"', step, re.M).group(1).split()
+        matrix = re.search(r"^\s*arch: \[([^\]]+)\]", WORKFLOW, re.M).group(1)
+        self.assertEqual([a.strip() for a in matrix.split(",")], shipped)
         self.assertIn("--script scripts/ci/classic-nightly-release-compile.sh", WORKFLOW)
         self.assertIn("--arg=--archs --arg=\"$ARCH\"", WORKFLOW)
 
