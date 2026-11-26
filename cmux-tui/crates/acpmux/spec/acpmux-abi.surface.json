@@ -1,5 +1,5 @@
 {
-  "revision": 1,
+  "revision": 2,
   "surface": {
     "event:_acpmux/admission_waiting": {
       "/*untyped*": {
@@ -1402,60 +1402,6 @@
       "/session/tags/*": {
         "ty": "string"
       },
-      "/session/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/session/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/session/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/session/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/session/taskList/items/*": {
-        "ty": "object"
-      },
-      "/session/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/session/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/session/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/session/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/session/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/session/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -1588,11 +1534,6 @@
       "/session/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/session/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/session/turn/prompt": {
         "ty": "string",
@@ -7052,6 +6993,12 @@
       }
     },
     "request:_acpmux/auto_session/leftover": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/auto_session/move": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -15534,6 +15481,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/paused_files": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/peer_add": {
       "/*untyped*": {
         "ty": "json",
@@ -16725,6 +16678,24 @@
       }
     },
     "request:_acpmux/place_chat": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_get": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_undo": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26371,18 +26342,6 @@
         "nullable": true
       }
     },
-    "request:_acpmux/task_list/get": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/task_list/set": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
     "request:_acpmux/task_new": {
       "/*untyped*": {
         "ty": "json",
@@ -32061,60 +32020,6 @@
       "/data/session/tags/*": {
         "ty": "string"
       },
-      "/data/session/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/session/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/session/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/session/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/session/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/session/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/session/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/session/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/session/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/session/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/session/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -32247,11 +32152,6 @@
       "/data/session/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/session/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/session/turn/prompt": {
         "ty": "string",
@@ -32465,6 +32365,12 @@
       }
     },
     "response:_acpmux/auto_session/leftover": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/auto_session/move": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33930,6 +33836,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/paused_files": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/peer_add": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35182,60 +35094,6 @@
       "/data/tags/*": {
         "ty": "string"
       },
-      "/data/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -35368,11 +35226,6 @@
       "/data/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/turn/prompt": {
         "ty": "string",
@@ -35537,6 +35390,24 @@
       }
     },
     "response:_acpmux/place_chat": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_get": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_undo": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37016,60 +36887,6 @@
       "/data/sessions/*/tags/*": {
         "ty": "string"
       },
-      "/data/sessions/*/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/sessions/*/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/sessions/*/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/sessions/*/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/sessions/*/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -37202,11 +37019,6 @@
       "/data/sessions/*/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/sessions/*/turn/prompt": {
         "ty": "string",
@@ -37636,18 +37448,6 @@
       }
     },
     "response:_acpmux/tailnet/state": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "response:_acpmux/task_list/get": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "response:_acpmux/task_list/set": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -38997,60 +38797,6 @@
       "/data/sessions/*/tags/*": {
         "ty": "string"
       },
-      "/data/sessions/*/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/sessions/*/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/sessions/*/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/sessions/*/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/sessions/*/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -39183,11 +38929,6 @@
       "/data/sessions/*/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/sessions/*/turn/prompt": {
         "ty": "string",
