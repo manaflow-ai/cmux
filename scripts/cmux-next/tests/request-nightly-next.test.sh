@@ -930,6 +930,45 @@ git_q -C "$src" checkout -q --detach "$pending"
 request --tree-ready "$pending"
 ! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
 rm -f "$TMP/gh-runs"
+
+# An older tree (Leo, 2026-11-26: "cant we just accept the nightly using an older tui version"): a commit whose
+# tree is a confirmed 404 and that no run builds is promoted when the newest published tree within 24 h has its
+# daemon-capabilities.json (scripts/cmux-next/older-tree-for-tip.sh, the nightly's resolver asks the same), and
+# its own nightly.yml has the line and the script. No backfill: the request is the answer.
+git_q -C "$src" checkout -q -b older-tree "$pending"
+cp "$ROOT/scripts/cmux-next/older-tree-for-tip.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/plans/cmux-next"; echo '{"capabilities": ["a"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui six, published"
+olderbase=$(git -C "$src" rev-parse HEAD)
+publish "$olderbase"
+echo seven > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui seven, never published"
+older=$(git -C "$src" rev-parse HEAD)
+branch "$older"
+olderkey=$(key "$olderbase")
+RUN_ID=140 request --tree-ready "$older"
+[[ "$status" == 0 ]] && dispatched "$older" && ! backfilled \
+  || fail "a commit with an older matching published tree must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "older published tree ${olderkey:0:12} of ${olderbase:0:12}, same daemon-capabilities.json" <<<"$out" \
+  || fail "the request must name the older tree and its commit:" "$out"
+# The helper answers the nightly's resolver the same way: the tip is the build commit, the tree is the older one.
+helper=$(cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh 2>/dev/null)
+grep -qx "source_commit=$older" <<<"$helper" && grep -qx "key=$olderkey" <<<"$helper" && grep -qx "commit=$olderbase" <<<"$helper" \
+  && grep -qx "tree_from=$olderbase 1 0" <<<"$helper" || fail "older-tree-for-tip.sh must print the tip and the older tree:" "$helper"
+# The tip's own tree published: exit 3, the resolver takes it as before.
+git_q -C "$src" checkout -q --detach "$olderbase"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "a published own tree must exit 3, got $rc"
+git_q -C "$src" checkout -q older-tree
+# Another daemon-capabilities.json: no older tree serves this app, so it waits as before.
+echo '{"capabilities": ["a", "b"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo eight > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui eight, new capability"
+newcaps=$(git -C "$src" rev-parse HEAD)
+branch "$newcaps"
+RUN_ID=141 request --tree-ready "$newcaps"
+[[ "$status" == 0 ]] && ! dispatched "$newcaps" \
+  || fail "a commit whose capabilities no published tree matches must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not promoting ${newcaps:0:12}: the nightly cannot resolve" <<<"$out" || fail "the skip must say why:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A commit whose app is the one the feed already publishes is not requested: nothing that

@@ -857,5 +857,30 @@ class CiWebWorkflowTest(unittest.TestCase):
         self.assertIn("--run-url", step["run"])
         self.assertNotIn("webviews-culprit-bisect", jobs)
 
+    def test_a_full_ci_head_into_feat_cmux_next_still_picks(self) -> None:
+        """A land-tier (full-ci) head into feat-cmux-next runs shard 1 plus the touched shard: the post-merge batch
+        runs every shard and reverts a red. CI_WEBVIEWS_FULL_TO_BATCH=0, another base or a push runs every shard."""
+        try:
+            import yaml  # noqa: PLC0415
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())["jobs"]
+        run = next(s for s in jobs["web-subarea-scope"]["steps"] if s.get("id") == "react-shards")["run"]
+        gate = next(line.strip() for line in run.splitlines() if line.strip().startswith("if [ \"$GITHUB_EVENT_NAME\" = pull_request ]"))
+        script = gate + " echo pick; else echo all; fi"
+
+        def picks(event: str, full_ci: str, base: str, to_batch: str = "1") -> bool:
+            env = dict(os.environ, GITHUB_EVENT_NAME=event, FULL_CI=full_ci, CI_WEBVIEWS_PR_BASE=base,
+                       CI_WEBVIEWS_FULL_TO_BATCH=to_batch)
+            return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
+                                  check=True).stdout.strip() == "pick"
+
+        self.assertTrue(picks("pull_request", "false", "feat-cmux-next"))
+        self.assertTrue(picks("pull_request", "true", "feat-cmux-next"))
+        self.assertFalse(picks("pull_request", "true", "feat-cmux-next", to_batch="0"))
+        self.assertFalse(picks("pull_request", "true", "main"))
+        self.assertTrue(picks("pull_request", "false", "main"))
+        self.assertFalse(picks("push", "false", ""))
+
 if __name__ == "__main__":
     unittest.main()
