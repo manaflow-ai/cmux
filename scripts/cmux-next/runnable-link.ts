@@ -206,6 +206,8 @@ const whyNot = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g
 
 // Snapshots this script left behind (a run killed before its finally) count against the team's snapshot quota; run
 // 45703015793 had both the link mint and the plain snapshot refused with cloud.quota.exceeded. Sweep them like machines.
+// This sweep sees only this user's rows; the provider budget is team-wide, so unnamed snapshots no record lists are
+// reaped by the platform instead (cmux-platform#2216: staging reaps them after 24 h).
 const snapshotRows = (list: any): any[] => (Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? []);
 
 // Returns the ids it deleted. A delete that returns has not yet freed its slot: run 45756094330 swept both stray link
