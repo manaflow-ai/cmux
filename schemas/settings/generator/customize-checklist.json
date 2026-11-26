@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/customize-checklist.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+CustomizeChecklist.generated.swift",
-  "type": "CustomizeChecklistSettingsSchema",
-  "lists": {
-    "customizeChecklist": ["descriptors", "CustomizeChecklistSettingsSchema"]
-  }
-}

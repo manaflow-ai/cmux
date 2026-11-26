@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Chooses the server this Mac registers its device keys with; only the person sets it."
-}

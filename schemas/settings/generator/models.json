@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/models.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Models.generated.swift",
-  "type": "ModelsSettingsSchema",
-  "lists": {
-    "models": ["descriptors", "ModelsSettings"]
-  }
-}

@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/subsessions.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Subsessions.generated.swift",
-  "type": "SubsessionSettingsSchema",
-  "lists": {
-    "subsessions": ["descriptors", "SubsessionSettings"]
-  }
-}

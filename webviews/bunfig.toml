@@ -1,3 +1,0 @@
-[test]
-# Loads Base UI's environment check before any test file (test/preload.ts says why).
-preload = ["./test/preload.ts"]
