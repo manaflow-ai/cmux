@@ -170,7 +170,7 @@ done
 
 # 0. Stamp the cmux server launchd plists from the final bundle id, before the
 # app signature seals them. Mirrors stamp() of feat-cmux-next
-# scripts/cmux-next/bundle-server-helper.sh (blob eed69f81), with plistlib for
+# scripts/cmux-next/bundle-server-helper.sh, with plistlib for
 # plutil; both write sorted keys.
 python3 -I - "$APP_PATH" <<'PY'
 import os, plistlib, re, sys
@@ -205,6 +205,10 @@ cli = "Contents/Resources/bin/cmux"
 stamp("LaunchAgents", "com.cmux.server.plist", cli, os.path.isfile(os.path.join(contents, cli[9:])),
       f"{bundle_id}.server", [cli, "host", "run", "--mode", "user"],
       {"RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False}, "ThrottleInterval": 10, "ProcessType": "Standard"})
+preread = "Contents/Resources/bin/cmux-launch-preread"
+stamp("LaunchAgents", "com.cmux.launch-preread.plist", preread,
+      os.path.isfile(os.path.join(contents, preread[9:])), f"{bundle_id}.launch-preread",
+      [preread], {"RunAtLoad": True, "ProcessType": "Background", "LowPriorityIO": True, "Nice": 10})
 PY
 if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   "$SCRIPTS_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
