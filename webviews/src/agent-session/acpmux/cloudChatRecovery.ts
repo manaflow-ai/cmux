@@ -34,10 +34,17 @@ export function cloudChatUnavailable(
   unavailable: ChatUnavailable,
   state: CloudChatState | undefined,
   machine?: string,
+  resuming = false,
 ): ChatUnavailable {
   const named = machine ?? ("machine" in unavailable ? unavailable.machine : undefined);
   if (state === "deleted") return { reason: "machineDeleted", ...(named ? { machine: named } : {}) };
-  if (state === "paused") return { reason: "paused", ...(named ? { machine: named } : {}) };
+  // A resume the person asked for keeps its card, spinner and all, from the click until the chat opens:
+  // the machine reading live before its chat attaches no longer swaps the card for a blank page or
+  // "Reconnecting…" for a moment (cmux#55066: "a resume this machine weird thing").
+  // Only while the chat itself is just not reached yet: a definitive answer (deleted, not found) wins.
+  const stillReaching = unavailable.reason === "offline" || unavailable.reason === "connecting";
+  if (state === "paused" || (resuming && state === "live" && stillReaching))
+    return { reason: "paused", ...(named ? { machine: named } : {}) };
   return unavailable;
 }
 

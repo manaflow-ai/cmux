@@ -1,0 +1,18 @@
+{
+  "cmuxProfile": 1,
+  "name": "lamina-slate",
+  "description": "Lamina Slate dark: a layered, translucent desktop look (neutral, flatter and denser): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "settings": {
+    "appearance.themeFile": "lamina-slate",
+    "layout.paneSeparation": "borders",
+    "layout.panePadding": 2,
+    "layout.paneBorderColor": "#34363b",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.cards.tips": false,
+    "agentPane.display.width": 860,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "notifications.toast.style": "flat"
+  }
+}

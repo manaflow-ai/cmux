@@ -58,4 +58,17 @@ import Testing
         #expect(abs(a.bottom - b.bottom) <= 1,
                 "\(density): \(a.bottom) pt below a one-line row's text, \(b.bottom) pt below a two-line row's")
     }
+
+    /// Leo 2026-11-24: "we need to have more things decoupled from possible shifts". An expanded row's title (and the icon and
+    /// marks centered on its line) stays put while its second or third line arrives or leaves.
+    @Test func anExpandedRowsTitleDoesNotMoveWhenDetailLinesArrive() {
+        typealias Row = WorkspaceRowView
+        let none = Row.stackedDetailLines(expanded: true, subtitle: false, meta: false)
+        let sub = Row.stackedDetailLines(expanded: true, subtitle: true, meta: false)
+        let both = Row.stackedDetailLines(expanded: true, subtitle: true, meta: true)
+        let onlyMeta = Row.stackedDetailLines(expanded: true, subtitle: false, meta: true)
+        #expect(none == 1 && sub == 1 && onlyMeta == 1, "a detail line arriving in an expanded row changes the title's stack")
+        #expect(both == 2)
+        #expect(Row.stackedDetailLines(expanded: false, subtitle: false, meta: false) == 0, "one-line densities keep their own stack")
+    }
 }

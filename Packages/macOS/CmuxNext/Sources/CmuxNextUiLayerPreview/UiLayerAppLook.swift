@@ -9,11 +9,11 @@ public import CmuxTheme
 /// reads it, so the UI host's windows wear the same theme, accent and background without
 /// Ghostty, a daemon or the app itself.
 ///
-/// Every channel shares `~/.config/cmux/cmux-next.json` (`CmuxConfigFile.defaultURL`), so the
+/// Every channel shares `~/.config/cmux-next/cmux-next.json` (`CmuxConfigFile.defaultURL`), so the
 /// host parses that file with the app's own `CmuxConfigSnapshot`: `appearance.theme`,
 /// `appearance.accent`, `appearance.themeEdits`, the window Opacity and Material, and
 /// `appearance.background`. The terminal theme under it comes from the Ghostty config files the
-/// app layers (Ghostty's own, then classic cmux's layer), and theme files from the user's
+/// app layers (Ghostty's own, then NEXT’s imported layer), and theme files from the user's
 /// themes folder, an installed cmux or Ghostty app, or the checkout's `Resources/ghostty/themes`.
 ///
 /// ```swift
@@ -104,7 +104,7 @@ public nonisolated struct UiLayerAppLook: Equatable, Sendable {
         [CmuxConfigFile.defaultURL(home: home, environment: environment)] + ghosttyConfigURLs(home: home, environment: environment)
     }
 
-    /// Ghostty's default files, then classic cmux's layer for the stable and nightly channels
+    /// Ghostty's default files, then NEXT’s imported layer for the stable and nightly channels
     /// (`GhosttyRuntime.loadDefaultFiles`), in the order the app loads them.
     static func ghosttyConfigURLs(home: URL, environment: [String: String]) -> [URL] {
         let configHome = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
@@ -115,8 +115,8 @@ public nonisolated struct UiLayerAppLook: Equatable, Sendable {
             configHome.appending(path: "ghostty/config.ghostty"),
             support.appending(path: "com.mitchellh.ghostty/config"),
             support.appending(path: "com.mitchellh.ghostty/config.ghostty"),
-            support.appending(path: "com.cmuxterm.app/config.ghostty"),
-            support.appending(path: "com.cmuxterm.app/config"),
+            CmuxConfigFile.defaultURL(home: home, environment: environment)
+                .deletingLastPathComponent().appending(path: "classic-ghostty/config.ghostty"),
         ]
     }
 

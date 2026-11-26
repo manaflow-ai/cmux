@@ -34,6 +34,16 @@ pub(super) struct Record {
     /// What the target answered (it forgot the move, so a "no" holds).
     #[serde(default)]
     pub landed: Option<bool>,
+    /// The pump's mark sent with the begin (`agent-transfer-begin-token-v1`), saved before it
+    /// is sent. A record with no `transfer_id` is a begin whose answer was lost: the source's
+    /// `transfer.moving` refusal hands this token back for the move that begin made.
+    #[serde(default)]
+    pub begin_token: Option<String>,
+    /// The source tab's public id (its `agent-transfer-source` or begin answer): a restart of
+    /// the source daemon restores the tab in a new surface slot, so a give back, commit or
+    /// check after one names the tab by this. None from a source too old to answer it.
+    #[serde(default)]
+    pub source_tab: Option<String>,
 }
 
 /// Where the record of one chat's move is kept, locked for this run.

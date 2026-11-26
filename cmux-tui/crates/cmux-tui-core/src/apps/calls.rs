@@ -15,8 +15,11 @@ use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_ge
 use super::host::HostProcess;
 use super::http_cache;
 use super::mirror::Origin;
+use super::pane_flow;
 use super::provider;
+use super::signal_sources;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
+use super::view_state;
 
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
@@ -119,10 +122,20 @@ impl Supervisor {
                 options.get("idempotencyKey").and_then(Value::as_str).filter(|k| !k.is_empty());
             format!("app:{}:{}", key.app, own.map_or_else(mint_key, str::to_string))
         });
+        // A pane's open arguments and result (`pane_flow.rs`), answered here.
+        if pane_flow::owns(&op) {
+            return self.pane_call_locked(inner, key, generation, &process, cb, &op, &params);
+        }
+        // A view's kept state (`view_state.rs`), answered here.
+        if op == view_state::OP {
+            return self.view_state_call_locked(inner, key, &process, cb, &params);
+        }
         // Ops the daemon does not own go to their provider (the Mac app), or
         // fail at once when none is connected (APP-R1).
-        let supervisor_op =
-            op.starts_with("app.storage.") || op == "net.fetch" || self.github_read(&op, &params);
+        let supervisor_op = op.starts_with("app.storage.")
+            || op == "net.fetch"
+            || signal_sources::owns(&op)
+            || self.github_read(&op, &params);
         if !supervisor_op && !self.router.owns(&op) {
             if op == "integration.request" {
                 // The provider sees the method the grant check decided on.
@@ -192,16 +205,29 @@ impl Supervisor {
             if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
-            let storage = self.storage();
-            let storage = storage
-                .as_ref()
-                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
-            return storage
-                .call(&app, &op, &params)
-                .map(|value| json!({ "value": value }))
-                .map_err(|e| error(e.code, e.message));
+            let answer = {
+                let storage = self.storage();
+                let storage = storage
+                    .as_ref()
+                    .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+                storage
+                    .call(&app, &op, &params)
+                    .map(|value| json!({ "value": value }))
+                    .map_err(|e| error(e.code, e.message))
+            };
+            drop(inner);
+            let rebinds = matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+                && params.get("key").and_then(Value::as_str)
+                    == Some(super::page_keys::OVERRIDES_KEY);
+            if answer.is_ok() && rebinds {
+                self.page_keys_changed(&app);
+            }
+            return answer;
         }
         drop(inner);
+        if signal_sources::owns(&op) {
+            return self.signal_call(&app, &op, &params, &grant);
+        }
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)
                 .map_err(|e| error(e.code, e.message))?;

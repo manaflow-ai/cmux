@@ -171,8 +171,10 @@ else:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
     runs_on = workflow_jobs.single_runs_on(dispatch)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("dispatch-published-in runs on the nightly mini, as published-build")
+    # Our own runners, never Blacksmith: the nightly mini, or the nightly's Linux label (it holds the dispatch's App
+    # keys, which stay off the mini; run 45562645699 slept 18.4 and 12.9 min on github.token's spent hour).
+    if "blacksmith" in runs_on.lower() or not ("CI_NIGHTLY_MINI" in runs_on or "cmux-gcp-nightly-x64" in runs_on):
+        failures.append("dispatch-published-in runs on our nightly runners (the mini or the nightly Linux label), never Blacksmith")
 if TEXT.count("-f nightly_next_post_publish=") > 1:
     failures.append("only dispatch-published-in dispatches a tail run")
 if "fromJSON(inputs.nightly_next_post_publish)" in TEXT:
@@ -213,8 +215,7 @@ if SCRIPT.exists():
     sha = "a" * 40
     needs_ctx = {
         "decide": {"result": "success", "outputs": {"track": "nightly-next", "should_publish": "true",
-                                                    "published_sha": "b" * 40, "variants": '["arm64"]',
-                                                    "early_mini_jobs": " ignored "}},
+                                                    "published_sha": "b" * 40, "variants": '["arm64"]'}},
         "publish-nightly": {"result": "success", "outputs": {"build": "123", "build_sha": sha, "source": "own",
                                                              "tag_status": "updated",
                                                              "downloads": "- arm64: a.dmg\n- x86_64: b.dmg"}},

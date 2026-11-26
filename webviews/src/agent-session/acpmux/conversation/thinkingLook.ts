@@ -9,23 +9,36 @@
 //   - `agentPane.display.thinking.shimmer: "continuous"`: the band crosses the words pass after pass,
 //     eased in and out, one pass every `shimmerPeriod` ms (600 to 4000);
 //   - `agentPane.display.thinking.shimmerBand`: the band's lit width in px (0 keeps half the line);
-//   - `agentPane.display.thinking.jumpButton: "dots"`: while the agent works, Jump to latest draws three
-//     dots in the theme accent that trade size between the middle and the ends (
-//     JumpDots.css), the arrow back on hover and once the agent stops.
+//   - `agentPane.display.thinking.jumpButton: "dots"`: while the agent works, Jump to latest and the live
+//     line draw three dots in the theme accent that change shape in three stages (a big middle, big spread
+//     ends, even dots; JumpDots.css), the button's arrow back on hover and once the agent stops.
 // The host's `display` push carries them (chatDisplay.ts `setChatDisplay`), so a look install or a
 // `cmux settings set` swaps them live: they land on the document root as attributes and variables, and
 // the shimmer cadence (shimmerCadence.ts) and the Jump to latest button read them there. The settings
 // rows and their range checks are schemas/settings/source/agent-pane-display.json (Rust cmux-config
 // refuses an out-of-range value); an unknown value here falls back to the default.
+//
+// A look's own thinking dots (Leo, 2026-11-19: "the dots and the way it moves changes a lot"; "i
+// guess the particle systems could be an api as well... like the customizations thing?"):
+//   - `agentPane.display.thinking.glyph`: a `cmux.particles/1` document (cmux-app-host js/ABI.md
+//     "Particles choreography"; Rust cmux-config checks it with the one validator, particles.rs).
+//     Set, the live status line plays it before its words (ThinkingGlyph.tsx), its trigger the agent's
+//     current activity kind (thinkingGlyphModel.ts `glyphTrigger`);
+//   - `agentPane.display.thinking.jumpButton: "glyph"`: Jump to latest plays the same document while
+//     the agent works, at `agentPane.display.thinking.glyphSize` points a dot when above 0.
+// Unset, nothing is mounted and the page draws what it drew before.
 import { useSyncExternalStore } from "react";
+import { parseChoreography, type Choreography } from "../../../apps/scene/choreography";
 
 export const THINKING_SHIMMER_KEY = "agentPane.display.thinking.shimmer";
 export const THINKING_SHIMMER_PERIOD_KEY = "agentPane.display.thinking.shimmerPeriod";
 export const THINKING_SHIMMER_BAND_KEY = "agentPane.display.thinking.shimmerBand";
 export const THINKING_JUMP_BUTTON_KEY = "agentPane.display.thinking.jumpButton";
+export const THINKING_GLYPH_KEY = "agentPane.display.thinking.glyph";
+export const THINKING_GLYPH_SIZE_KEY = "agentPane.display.thinking.glyphSize";
 
 export type ThinkingShimmer = "cadenced" | "continuous";
-export type ThinkingJumpButton = "arrow" | "dots";
+export type ThinkingJumpButton = "arrow" | "dots" | "glyph";
 
 export type ThinkingLook = {
   shimmer: ThinkingShimmer;
@@ -34,6 +47,12 @@ export type ThinkingLook = {
   /** The band's lit width in px; 0 keeps the default band (half the line). */
   bandPx: number;
   jumpButton: ThinkingJumpButton;
+  /** The look's thinking dots, parsed; null draws none. */
+  glyph: Choreography | null;
+  /** The document as the host sent it (compact JSON), so the same document keeps the running glyph. */
+  glyphKey: string;
+  /** Jump to latest's dot size in points over the document's; 0 keeps the document's. */
+  glyphSize: number;
 };
 
 export const DEFAULT_THINKING_LOOK: ThinkingLook = {
@@ -41,11 +60,15 @@ export const DEFAULT_THINKING_LOOK: ThinkingLook = {
   periodMs: 1250,
   bandPx: 0,
   jumpButton: "arrow",
+  glyph: null,
+  glyphKey: "",
+  glyphSize: 0,
 };
 
 const PERIOD_MIN = 600;
 const PERIOD_MAX = 4000;
 const BAND_MAX = 240;
+const GLYPH_SIZE_MAX = 16;
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
@@ -55,16 +78,29 @@ export function resolveThinkingLook(values: Record<string, unknown> | undefined)
   const shimmer = values[THINKING_SHIMMER_KEY] === "continuous" ? "continuous" : "cadenced";
   const period = values[THINKING_SHIMMER_PERIOD_KEY];
   const band = values[THINKING_SHIMMER_BAND_KEY];
+  const document = values[THINKING_GLYPH_KEY];
+  const glyph = document === undefined || document === null ? null : parseChoreography(document);
+  const glyphSize = values[THINKING_GLYPH_SIZE_KEY];
+  const jump = values[THINKING_JUMP_BUTTON_KEY];
   return {
     shimmer,
     periodMs: finite(period) && period >= PERIOD_MIN && period <= PERIOD_MAX ? period : DEFAULT_THINKING_LOOK.periodMs,
     bandPx: finite(band) && band >= 0 && band <= BAND_MAX ? band : 0,
-    jumpButton: values[THINKING_JUMP_BUTTON_KEY] === "dots" ? "dots" : "arrow",
+    // "glyph" with no document to play keeps the arrow.
+    jumpButton: jump === "dots" ? "dots" : jump === "glyph" && glyph ? "glyph" : "arrow",
+    glyph,
+    glyphKey: glyph ? JSON.stringify(document) : "",
+    glyphSize: finite(glyphSize) && glyphSize > 0 && glyphSize <= GLYPH_SIZE_MAX ? glyphSize : 0,
   };
 }
 
 const same = (a: ThinkingLook, b: ThinkingLook) =>
-  a.shimmer === b.shimmer && a.periodMs === b.periodMs && a.bandPx === b.bandPx && a.jumpButton === b.jumpButton;
+  a.shimmer === b.shimmer &&
+  a.periodMs === b.periodMs &&
+  a.bandPx === b.bandPx &&
+  a.jumpButton === b.jumpButton &&
+  a.glyphKey === b.glyphKey &&
+  a.glyphSize === b.glyphSize;
 
 let current = DEFAULT_THINKING_LOOK;
 const listeners = new Set<() => void>();
@@ -82,7 +118,7 @@ export function applyThinkingLook(root: HTMLElement, look: ThinkingLook): void {
     delete root.dataset.thinkingBand;
     root.style.removeProperty("--cv-shimmer-band");
   }
-  if (look.jumpButton === "dots") root.dataset.jumpButton = "dots";
+  if (look.jumpButton !== "arrow") root.dataset.jumpButton = look.jumpButton;
   else delete root.dataset.jumpButton;
 }
 

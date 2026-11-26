@@ -29,7 +29,8 @@ test("a step shapes as many rows late in a long chat as early in it", () => {
     Math.max(...traces.filter((trace) => trace.turn >= from && trace.turn < to).map((trace) => trace.shaped));
   const early = most(20, 40);
   const late = most(100, TURNS);
-  expect(traces.at(-1)!.rowCount).toBeGreaterThan(500);
+  // A long chat: about four rows a turn, since a closed turn keeps only its final answer in sight.
+  expect(traces.at(-1)!.rowCount).toBeGreaterThan(400);
   // A step reshapes its own turn and the one before it (a dozen rows each here), never the chat.
   expect(late).toBeLessThan(60);
   expect(late).toBeLessThanOrEqual(early + 10);

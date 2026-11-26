@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -167,14 +168,14 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
+                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3] + TitlebarBandButton.lookMetrics + [
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.hidesControlsUntilHover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.floatOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
-                self?.applyTitlebarButtonsMode()
+                self.map { $0.applyTitlebarButtonsMode(); TitlebarBandButton.relayoutAll(in: $0) } // a look's button gap and corner too
             }
         }
         placementObservation = observePlacement()
@@ -237,8 +238,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     var showsTitlebarBadge = false {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
-    /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
+    /// The host pressure indicator after the band and the badge, then the extensions' status items (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    var extensionStatusStrip: AppStatusStripView? { didSet { oldValue?.removeFromSuperview(); extensionStatusStrip.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
     /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
     var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
@@ -246,6 +248,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The toolbar band at its fully open width in window coordinates, at the last layout
+    /// (`titlebarAccessoryReserve`): where a hover opens it to, also while it is closed.
+    var toolbarBandReserve: CGRect?
     /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
     var onMainPaneMove: (() -> Void)?
 
@@ -308,6 +313,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
         let alignedFullBand = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1), fullBandMaxX = alignedFullBand.maxX
+        toolbarBandReserve = convert(alignedFullBand, to: nil)
         let (left, bandEdge) = (sidebarSide == .left, convert(toolbarBand.frame, to: nil).maxX + Metrics.space2) // the band's edge as it closes up
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }

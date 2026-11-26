@@ -97,6 +97,45 @@ import Testing
         #expect(worked < steer)
     }
 
+    /// A turn whose steer came after its last call: the reply was written under it.
+    static func lateSteerRows(ended: Bool = true) -> [ChatRow] {
+        let store = AgentChatStore(source: PromptResendTests.Recorder())
+        var events: [AgentSessionEvent] = [
+            .userMessage(text: "fix the retry loop", promptId: "p1", turnId: "t1", attachments: [], at: at),
+            .turnStarted(turnId: "t1", at: at),
+            .update(.toolCall(call("c1", "rg -n fetchWithRetry"))),
+            .update(.agentMessageChunk(text: "Fixed: a 404 no longer retries.", messageId: "m2")),
+            .userMessage(text: "also check the timeout", promptId: "p2", turnId: "t1", attachments: [], at: at),
+        ]
+        if ended { events.append(.turnResult(turnId: "t1", status: .completed, errorText: nil, at: at.addingTimeInterval(69))) }
+        store.apply(.batch(events))
+        return ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
+                                                                   permissionBarHidden: false).flatMap(\.rows)
+    }
+
+    @Test func aSteerRightBeforeTheTurnEndsDrawsOverTheFinalReply() throws {
+        let rows = Self.lateSteerRows()
+        let worked = try #require(rows.firstIndex { $0.id == WorkedFold.rowID(turnID: "t1") })
+        let steer = try #require(rows.firstIndex { if case .steer = $0.kind { true } else { false } })
+        let reply = try #require(rows.firstIndex { Self.shows([$0], "Fixed") })
+        #expect(worked < steer && steer < reply, "the work, the person's steer, then the reply")
+    }
+
+    @Test func aRunningTurnDrawsALateSteerWhereItCame() throws {
+        let rows = Self.lateSteerRows(ended: false)
+        let steer = try #require(rows.firstIndex { if case .steer = $0.kind { true } else { false } })
+        let reply = try #require(rows.firstIndex { Self.shows([$0], "Fixed") })
+        #expect(reply < steer)
+    }
+
+    @Test func aSteerTheAgentWorkedAfterKeepsItsPlace() throws {
+        let rows = Self.rows(steer: true).unfolded
+        let steer = try #require(rows.firstIndex { if case .steer = $0.kind { true } else { false } })
+        let reply = try #require(rows.firstIndex { Self.shows([$0], "Fixed") })
+        #expect(steer < reply)
+        #expect(rows[..<steer].contains(where: Self.isWork) && rows[steer...].contains(where: Self.isWork))
+    }
+
     @Test func durationsReadAsTheMacs() {
         #expect(WorkedFold.duration(0.4) == "0s")
         #expect(WorkedFold.duration(42) == "42s")

@@ -17,6 +17,18 @@ export interface SlackInbound {
   readonly ownerUserId: string
   readonly cmuxTeamId: string
   readonly channelName?: string
+  /**
+   * cmux-platform's answer from the forum's slack-actor (RFD 0123, cmux-platform#1789): who the turn acts as and
+   * what it may do in this channel. Absent when the channel has no forum bridge: the turn runs as before.
+   */
+  readonly actor?: {
+    readonly source: "forum" | "unreachable"
+    readonly actsAs: string
+    readonly onBehalfOf: string | null
+    readonly verified: boolean
+    readonly grants: ReadonlyArray<"read" | "reply" | "run">
+    readonly bridge?: number
+  }
 }
 
 export interface SlackDestination {
@@ -46,6 +58,29 @@ export const validSlackInbound = (v: SlackInbound): boolean => {
     && typeof v.cmuxTeamId === "string" && /^team_[A-Za-z0-9_-]{1,128}$/.test(v.cmuxTeamId)
     && typeof v.permalink === "string" && /^https:\/\//.test(v.permalink) && v.permalink.length <= 4096
     && (v.channelName === undefined || (typeof v.channelName === "string" && v.channelName.length <= 100 && !/\p{Cc}/u.test(v.channelName)))
+    && (v.actor === undefined || validActor(v.actor))
+}
+
+const validActor = (a: unknown): boolean => {
+  if (!a || typeof a !== "object") return false
+  const v = a as Record<string, unknown>
+  const short = (s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 256
+  return (v.source === "forum" || v.source === "unreachable") && short(v.actsAs)
+    && (v.onBehalfOf === null || short(v.onBehalfOf)) && typeof v.verified === "boolean"
+    && Array.isArray(v.grants) && v.grants.length <= 3 && v.grants.every((g) => g === "read" || g === "reply" || g === "run")
+    && (v.bridge === undefined || (typeof v.bridge === "number" && Number.isSafeInteger(v.bridge) && v.bridge > 0))
+}
+
+/**
+ * Whether this Slack message may authorize effects: the owner's own message, and only where the channel's binding
+ * grants `run`. Without `run` (or an unreadable actor) the turn may answer but not act (RFD 0123, Permissions).
+ * A non-owner never authorizes effects here, linked or not: their asks go through the owner's approval.
+ */
+export const slackMayAct = (v: SlackInbound): boolean => {
+  if (v.isOwner !== true) return false
+  if (v.actor === undefined) return true
+  const grants: unknown = (v.actor as { grants?: unknown } | null)?.grants
+  return Array.isArray(grants) && grants.includes("run")
 }
 
 export const isOwnSlackMessage = (v: SlackInbound): boolean => v.botUserId !== undefined && v.slackUserId === v.botUserId

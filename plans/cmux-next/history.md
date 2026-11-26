@@ -124,6 +124,7 @@ one cursor.
 | `focusHistoryBack` | Go Back | Ctrl-- | 1 (navigation) |
 | `focusHistoryForward` | Go Forward | Ctrl-Shift-- | 1 |
 | `focusHistoryLast` | Go to Last Location | none | 1 |
+| `focusHistoryBackSession` | Go Back One Session | none | 1 (4.2d) |
 | `recentlyFocused` | Location History… | none | palette page |
 
 Chord choice. Ctrl-- and Ctrl-Shift-- follow the VS Code navigation pair,
@@ -284,6 +285,26 @@ entry, at most 12 rows (`LocationTrail.menuSectionLimit`); every row runs `histo
 the two new layouts end with Show All History (`history.show`) and always open. With the `surface`
 scope the page's own entry menu (4.1) is the list. Agent chats are `content: other` locations, so
 they share Chats and Pages with cmux pages until the trail records a chat kind.
+
+### 4.2d Go Back One Session
+
+Go Back One Session (`focusHistoryBackSession`, palette, Window menu, a shortcut the person sets) returns
+to the agent chat the user was in before this one. It walks its own trail of agent chats
+(`LocationTrailService.sessions`, a second `LocationTrail` in memory), not the location trail:
+
+1. Every settled agent chat tab is a step, whatever `navigation.history.scope` says, so two chats
+   in one workspace are two steps (the location trail keeps one entry per workspace by default).
+   Terminals, browser pages and cmux pages are never steps.
+2. Each press steps one chat further back, in any window or workspace; a chat whose tab closed or
+   whose agent session ended is skipped and kept. Nowhere to go refuses quietly with "No earlier
+   agent session to go back to".
+3. The chat it focuses settles without a new step (the pending rule of 4.2 rule 5); opening
+   another chat after going back drops the later steps, like Back.
+4. Clear, Remove from History and the end of an incognito session clear it as they clear the
+   location trail. It is not persisted: a relaunch starts it empty.
+
+The walk is a row of the history actions table (`cmux-window-rules` `history::actions`,
+direction `backSession`); the app binds what the table lists.
 
 ### 4.3 Existing actions mapped
 

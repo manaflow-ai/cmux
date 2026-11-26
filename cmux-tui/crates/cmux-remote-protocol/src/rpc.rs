@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Optional `mux-control` open metadata key: the line codecs a client can read,
+/// comma separated. A client that lists [`MUX_LINE_CODEC_ZLIB`] reads a
+/// daemon-to-client line of [`MUX_LINE_ZLIB_MIN_BYTES`] or more as one zlib
+/// stream (packets tagged `CMXZ` instead of `CMXL`) once the daemon's `opened`
+/// answer lists [`MUX_LINE_ZLIB_V1_FEATURE`]. A daemon that never heard of the
+/// key ignores it and a client that never sends it gets plain lines, so mixed
+/// builds keep working.
+pub const MUX_CONTROL_LINE_CODECS: &str = "line_codecs";
+pub const MUX_LINE_CODEC_ZLIB: &str = "zlib";
+/// The `opened` feature of a daemon that compresses large lines for this stream.
+pub const MUX_LINE_ZLIB_V1_FEATURE: &str = "mux-line-zlib-v1";
+/// Lines shorter than this stay plain: compressing them saves little.
+pub const MUX_LINE_ZLIB_MIN_BYTES: usize = 16 << 10;
+
 /// Optional `terminal-bytes-v1` open metadata key. With the value
 /// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
 /// negotiates terminal-host viewer-size priority when the host supports it.
@@ -180,6 +194,10 @@ pub enum RemoteCapability {
     /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
     /// key and writes them (`replace-machine-secrets`).
     SecretsV1,
+    /// `paused-reads-v1`: the session daemon answers `list-directory`, `read-file` and `search`
+    /// for a paused machine from its replica and write journal, with no wake (RFD 0144 piece 2).
+    /// A peer without it wakes the machine for those requests, as before.
+    PausedReadsV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -1058,6 +1076,37 @@ pub enum ComputerUseOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Old peer: the capability set before `paused-reads-v1`, with the catch-all every peer has.
+    #[derive(Debug, PartialEq, Eq, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    enum OldCapability {
+        WorkspaceFilesV1,
+        #[serde(untagged)]
+        Unknown(String),
+    }
+
+    #[test]
+    fn paused_reads_capability_old_and_new_peers_read_each_other() {
+        let new = serde_json::to_value([
+            RemoteCapability::WorkspaceFilesV1,
+            RemoteCapability::PausedReadsV1,
+        ])
+        .unwrap();
+        assert_eq!(new, serde_json::json!(["workspace-files-v1", "paused-reads-v1"]));
+        // An old peer keeps the new name instead of rejecting the whole response.
+        let old: Vec<OldCapability> = serde_json::from_value(new.clone()).unwrap();
+        assert_eq!(
+            old,
+            vec![OldCapability::WorkspaceFilesV1, OldCapability::Unknown("paused-reads-v1".into())]
+        );
+        // A new peer reading an old peer's list sees no paused reads and wakes the machine.
+        let from_old: Vec<RemoteCapability> =
+            serde_json::from_value(serde_json::json!(["workspace-files-v1"])).unwrap();
+        assert!(!from_old.contains(&RemoteCapability::PausedReadsV1));
+        let back: Vec<RemoteCapability> = serde_json::from_value(new).unwrap();
+        assert!(back.contains(&RemoteCapability::PausedReadsV1));
+    }
 
     #[test]
     fn terminal_bytes_service_uses_the_versioned_wire_name() {

@@ -42,8 +42,9 @@ import Testing
         #expect(await eventually { feed.rows?.count == 4 })
         #expect(feed.rows?.map(\.id) == read.rows?.map(\.id))
         #expect(feed.isShowingKeptRows)
-        #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
-                                  macsMayExist: true, searching: false, failing: false) == .updating)
+        #expect(HomeListNote.make(rows: feed.rows, homeMacID: "mac-1",
+                                  macsMayExist: true, searching: false, failing: false) == .none,
+                "kept rows say nothing while the Mac's list comes (Leo, 2026-11-24: \"they dont need to know that it's updating before they KNOW it's updating\")")
 
         // The Mac answers: its list, no longer the kept one.
         await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
@@ -51,7 +52,7 @@ import Testing
         #expect(feed.rows?.count == 4)
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
     /// faster/percievably load faster". A relaunch draws the kept rows in the first frame: they
     /// are on the feed in the same turn as `showKeptRows`, with no await. Before, they came from a
     /// disk read off the main thread, so Home's first frame said "Connecting to <Mac>…".
@@ -71,7 +72,7 @@ import Testing
         feed.showKeptRows(of: "mac-1")
         #expect(feed.rows?.map(\.id) == read.rows?.map(\.id), "the kept rows, in this turn")
         #expect(feed.isShowingKeptRows)
-        #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
+        #expect(HomeListNote.make(rows: feed.rows, homeMacID: "mac-1",
                                   macsMayExist: true, searching: false, failing: false) != .connecting)
     }
 
@@ -138,7 +139,7 @@ import Testing
         // Mac 2 has nothing kept: no rows (Home says it is connecting), not Mac 1's.
         feed.forget(unless: "mac-2")
         #expect(feed.rows == nil)
-        #expect(HomeListNote.make(rows: feed.rows, showingKept: false, homeMacID: "mac-2",
+        #expect(HomeListNote.make(rows: feed.rows, homeMacID: "mac-2",
                                   macsMayExist: true, searching: false, failing: false) == .connecting)
 
         // Back to Mac 1 while it is away: its rows in the same turn.
@@ -177,17 +178,35 @@ import Testing
     /// No Mac yet and nothing kept: Home says it is loading instead of an empty list; with no
     /// Mac on the account it says nothing.
     @Test func homeSaysItIsLoadingRatherThanShowingNothing() {
-        #expect(HomeListNote.make(rows: nil, showingKept: false, homeMacID: nil, macsMayExist: true,
+        #expect(HomeListNote.make(rows: nil, homeMacID: nil, macsMayExist: true,
                                   searching: false, failing: false) == .loading)
-        #expect(HomeListNote.make(rows: nil, showingKept: false, homeMacID: nil, macsMayExist: false,
+        #expect(HomeListNote.make(rows: nil, homeMacID: nil, macsMayExist: false,
                                   searching: false, failing: false) == .none)
-        #expect(HomeListNote.make(rows: [], showingKept: false, homeMacID: "m", macsMayExist: true,
+        #expect(HomeListNote.make(rows: [], homeMacID: "m", macsMayExist: true,
                                   searching: false, failing: false) == .none)
         // A search or the retry note speaks instead.
-        #expect(HomeListNote.make(rows: nil, showingKept: false, homeMacID: "m", macsMayExist: true,
+        #expect(HomeListNote.make(rows: nil, homeMacID: "m", macsMayExist: true,
                                   searching: true, failing: false) == .none)
-        #expect(HomeListNote.make(rows: nil, showingKept: false, homeMacID: "m", macsMayExist: true,
+        #expect(HomeListNote.make(rows: nil, homeMacID: "m", macsMayExist: true,
                                   searching: false, failing: true) == .none)
+    }
+
+    @Test func aKnownEmptyMacHomeStaysOutOfTheWarmupState() {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-empty")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: [])
+        writer.flush()
+
+        let cache = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        let feed = Self.feed(cache, account: Account())
+        feed.showKeptRows(of: "mac-empty")
+
+        #expect(feed.rows?.isEmpty == true)
+        #expect(feed.isShowingKeptRows)
+        #expect(HomeListNote.make(rows: feed.rows, homeMacID: "mac-empty",
+                                  macsMayExist: true, searching: false, failing: false) == .none)
     }
 
     /// A conversation opened from Home shows its kept messages before its channel opens, under

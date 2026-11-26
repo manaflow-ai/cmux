@@ -40,4 +40,14 @@ impl Peer {
             .ok_or_else(|| "no hub route".to_owned())?;
         carrier.dial(&daemon).await
     }
+
+    /// This peer's link over the hub carrier ended after `silent` with no byte in: the carrier
+    /// closes the kept circuit it rode if that circuit heard nothing either
+    /// (`HubCarrier::close_kept_silent_for`), so the redial does not wait on a dead one.
+    pub(crate) async fn hub_link_ended_silent(&self, silent: std::time::Duration) {
+        let Some((slot, daemon)) = self.hub_carrier.get() else { return };
+        let Some(carrier) = slot.get() else { return };
+        let Some(daemon) = daemon.clone().or_else(|| carrier.route(&self.name)) else { return };
+        carrier.close_kept_silent_for(&daemon, silent).await;
+    }
 }

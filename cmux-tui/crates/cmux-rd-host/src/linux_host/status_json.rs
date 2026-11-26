@@ -50,10 +50,16 @@ pub fn gather(now_ms: u64) -> Facts {
 fn probe_capture(backend: CaptureBackend) -> Capture {
     match backend {
         CaptureBackend::X11 => {
-            let env = std::env::var("DISPLAY").ok().filter(|v| !v.is_empty());
+            let own = super::setup::virtual_display();
+            // A DISPLAY naming that virtual display (the user environment's, so apps land on it)
+            // is read as it, so its being stopped is no reason to say unsupported.
+            let env = std::env::var("DISPLAY")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .filter(|v| own.is_none() || super::setup::display_number(v) != own);
             // Without a DISPLAY (a command over ssh), the virtual display this machine's host
             // shares, if it has one.
-            let virtual_display = env.is_none().then(super::setup::virtual_display).flatten();
+            let virtual_display = if env.is_none() { own } else { None };
             let env = env.or_else(|| virtual_display.map(|n| format!(":{n}")));
             let display = x_display(None, None, env.as_deref());
             // Only a local display is probed: a `host:N` display is a TCP connection.
@@ -106,11 +112,12 @@ fn session_bus() -> bool {
             .is_some_and(|dir| std::path::Path::new(&dir).join("bus").exists())
 }
 
-/// Whether a portal restore token (the grant `enable` makes, refreshed by every share) is
-/// saved, so Start shows no dialog.
+/// Whether shares start with no dialog: a portal restore token (the grant `enable` makes,
+/// refreshed by every share) is saved, or this is GNOME, which is cast through mutter directly
+/// and needs no grant.
 #[cfg(feature = "portal")]
 fn portal_token_saved() -> bool {
-    crate::portal::any_grant_saved()
+    !crate::capture_backend::wayland_capture().needs_grant() || crate::portal::any_grant_saved()
 }
 
 #[cfg(not(feature = "portal"))]

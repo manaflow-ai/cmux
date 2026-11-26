@@ -165,29 +165,21 @@ import Testing
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: controls)
         #expect(h.search.minY >= controls.maxY)
         #expect(h.search.minX == HomeSidebarHeaderLayout.inset && h.search.width >= HomeSidebarHeaderLayout.minimumField)
-        #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
+        // The bare filter's glyph (its box is twice the glyph) stays inside the list's inset.
+        let glyph = h.filterGlyph ?? h.filter.width / 2
+        #expect(h.filter.midX + glyph / 2 <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
     }
 
-    /// The avatar-only list: the search circle and the Unread circle side by side inside the list,
-    /// centred over the avatars; a list too narrow for both keeps the filter alone (Leo,
-    /// 2026-10-19: "the filter button also just disappeared").
+    /// The avatar-only list is Messages' strip: no search, no filter, the first row 43 pt down (the user's
+    /// recording, 2026-11-24). ⌘F still opens the field over the strip.
     @Test(arguments: [64, 76, 100, 140, 179] as [CGFloat])
-    func theAvatarListKeepsTheFilterAndShrinksSearchToACircle(_ width: CGFloat) {
+    func theAvatarListIsMessagesStrip(_ width: CGFloat) {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
-        let side = HomeSidebarHeaderMetrics.standard.side
-        #expect(h.compact && h.search.width == 0)
-        #expect(h.filter.width == side && h.filter.minX >= 0 && h.filter.maxX <= width)
-        if width >= 2 * side + HomeSidebarHeaderLayout.gap + 2 * HomeSidebarHeaderLayout.edge {
-            #expect(h.searchIcon.width == side && h.searchIcon.minX >= HomeSidebarHeaderLayout.edge)
-            #expect(h.searchIcon.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
-            #expect(abs((h.searchIcon.minX + h.filter.maxX) / 2 - width / 2) <= 0.5, "the pair is off centre at \(width)")
-        } else {
-            #expect(h.searchIcon.isEmpty)
-            #expect(abs(h.filter.midX - width / 2) <= 0.5)
-        }
-        #expect(h.listTop == HomeSidebarHeaderLayout.band)
+        #expect(h.compact && h.search.width == 0 && h.filter.isEmpty && h.searchIcon.isEmpty)
+        #expect(h.listTop == HomeSidebarHeaderLayout.stripListTop)
         let open = HomeSidebarHeaderLayout(width: width, searchOpen: true)
-        #expect(open.filter.isEmpty && open.searchIcon.isEmpty && open.buttonsCovered)
+        #expect(open.filter.isEmpty && open.searchIcon.isEmpty && open.buttonsCovered && open.search.width > 0)
+        #expect(open.listTop >= open.search.maxY)
     }
 
     @Test(arguments: [60, 100, 140] as [CGFloat])

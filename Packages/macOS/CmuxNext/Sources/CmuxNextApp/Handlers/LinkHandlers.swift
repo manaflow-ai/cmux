@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppInstallLink
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import Foundation
 
 /// cmux:// links: `link.open`, the one resolution path every link takes,
@@ -16,12 +18,16 @@ enum LinkHandlers {
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            // `<scheme>://stashed` (opened from another app, Open Link…) is the Stashed Tabs page.
-            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame,
-               url.host()?.lowercased() == "stashed" {
-                _ = try StashHandlers.show(services, focus: !background)
-                return
+            // `<scheme>://stashed` (from another app, Open Link…) is Stashed Tabs; cmux.com's Open in cmux (`<scheme>://apps|setups/install?…`) asks, then installs.
+            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame, url.host()?.lowercased() == "stashed" {
+                _ = try StashHandlers.show(services, focus: !background); return
             }
+            if let url = URL(string: trimmed), let draft = DeepLink.buildDraft(for: url, linkScheme: services.linkScheme) { // Fork and customize: a new chat, its ask unsent
+                return _ = registry.perform(DeepLink.buildChatAction, invocation: ActionInvocation(arguments: ["draft": .string(draft)], origin: .user))
+            }
+            if let url = URL(string: trimmed), AppInstallLink.matches(url, linkScheme: services.linkScheme) { return AppInstallLink.open(trimmed, bundled: services.bundledCLI, window: services.windows.active?.window ?? services.keyWindowSource()) }
+            // A screen link (`cmux://mac-screen?device=&display=`, or `https://cmux.com/deeplink/screen?…`): that device's Screen Sharing tab.
+            if let url = URL(string: trimmed), let record = MacScreenRecord(link: url, linkScheme: services.linkScheme) { return services.macScreenTabs.openAddress(record, in: nil, focus: !background) }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }

@@ -430,6 +430,22 @@
   color: var(--accent-text);
 }
 
+/* A Channels build's PR count: a link-styled toggle that opens the build's list of PRs below. */
+.channel-prs-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.channel-prs {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  white-space: normal;
+}
+
 /* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
    and kept while its switch runs, so the track reads as a list, not a column of buttons. */
 .channel-build .channel-switch {
@@ -1033,7 +1049,6 @@
     flex-direction: row;
     gap: var(--ds-space-1);
     overflow-x: auto;
-    scrollbar-width: none;
   }
 
   /* The side with categories past it fades them out (data-fade-left / data-fade-right,
@@ -1256,4 +1271,251 @@
 .accent-popover .theme-option[aria-selected="true"] {
   background: var(--row-focus);
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted
+   chip beside an experimental row's title and the Experimental sidebar entry. Off, none is drawn. */
+.beta-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-inline-start: var(--page-size-6);
+  padding: 0 var(--page-size-6);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ds-color-accent);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--page-size-18);
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.section-link .beta-chip {
+  margin-inline-start: 0;
+}
+
+/* Settings > Customize (components/CustomizeChecklist.tsx): one search over dense groups, each a
+   header with its count and one switch per row. */
+.checklist-search {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-search .search-input {
+  flex: 1;
+}
+
+.checklist-group + .checklist-group {
+  margin-top: var(--ds-space-3);
+}
+
+.checklist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-1);
+}
+
+.checklist-group-title {
+  font-size: var(--text-detail);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.checklist-count {
+  font-size: var(--text-caption);
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-toggle-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.checklist-toggle-all svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--motion-focus);
+}
+
+.checklist-toggle-all[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.checklist-items {
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+/* The title with Standup at its end; the Standup panel's lines read out loud, one per entry. */
+.checklist-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.checklist-standup {
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-standup .checklist-head {
+  align-items: center;
+}
+
+.checklist-standup .checklist-count {
+  margin-inline-start: auto;
+}
+
+.checklist-standup-lines {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.checklist-standup-lines li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+}
+
+.checklist-standup-lines .checklist-mark-icon {
+  flex: none;
+  width: 14px;
+}
+
+.checklist-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 32px;
+  padding: 4px var(--row-pad-x);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.checklist-row:last-child {
+  box-shadow: none;
+}
+
+.checklist-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.checklist-text .row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.checklist-text .row-title svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-text);
+}
+
+.checklist-help {
+  color: var(--muted-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checklist-install {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--ds-radius-control);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.checklist-empty,
+.checklist-refusal {
+  margin: 0 0 var(--ds-space-2);
+  color: var(--muted-text);
+}
+
+/* The chips layout (gallery): a wrap of pill toggles, on ones tinted. */
+.checklist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.checklist-chip,
+.checklist-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.checklist-chip {
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+}
+
+.checklist-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+
+.checklist-chip:disabled,
+.checklist-menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.checklist-mark-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.checklist-mark-icon svg,
+.checklist-chip > svg,
+.checklist-menu-item > svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The menu layout (gallery): menu-like rows, a check mark for on, no help line. */
+[data-checklist-layout="menu"] .checklist-items {
+  padding: 4px;
+}
+
+.checklist-menu-item {
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  text-align: start;
+}
+
+.checklist-menu-item:hover:not(:disabled) {
+  background: var(--accent-soft);
 }

@@ -53,16 +53,19 @@ ALLOWED: dict[str, str] = {
     **REQUIRED,
     "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
                                 "the workflow when the status is missing), about two minutes on Linux",
-    "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
-    "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
+    "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
+                                   "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
-    "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
                               "of 300 files or fewer and no full-ci/dev-build label",
+    "cloud-resume-matrix.yml": "runs only on a pull request whose body or label carries its marker; otherwise its "
+                               "plan job's `if:` skips with no runner",
+    "cloud-wake-echo.yml": "runs only on a pull request whose body carries `wake-echo: run`; otherwise its one job's "
+                           "`if:` skips with no runner",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -73,17 +76,17 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
-    "app-platform.yml": "cmux-tui/crates/cmux-app-host/** and examples/extensions/**",
+    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
-    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "chat-open-perf-report.yml": "webviews/src/agent-session/**",
+    "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
+    "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
-    "ci-artifact-transport.yml": "workers/ci-artifacts/**",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "cmux-next-remote-daemon.yml": "daemon/remote/**",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
@@ -93,23 +96,15 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
-    "coderouter-ci.yml": "coderouter/**",
+    "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
-    "fleet-test-compile.yml": "Packages/Shared/**",
-    "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
-    "mux.yml": "mux/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
-    "swift-acpmux-protocol.yml": "Packages/macOS/CmuxNext/Sources/**",
-    "swift-linux-packages.yml": "Packages/Shared/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
-    "web-complexity-trusted.yml": "web/**",
 }
 
 # Docs-only pull requests: the two of Leo's 2026-11-19 complaint that are prose (#45476 changed CLAUDE.md, which
@@ -131,7 +126,9 @@ BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
 
 
+@functools.lru_cache(maxsize=None)
 def load(name: str):
+    # Parsed once: the allowed-workflows test asks for every workflow once per base and sample (282 x 2 x 12 parses, 113 s).
     return filters.load_yaml(WORKFLOWS / name)
 
 
@@ -384,6 +381,9 @@ class Fallback(unittest.TestCase):
 
     calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
     feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
+    # A pr-router callee (web-validation.yml, #48775) starts on its own only into main: into feat-cmux-next the
+    # router calls it, so the fallback never does.
+    main_only = sorted(n for n, c in calls.items() if c["branches"] == ["main"])
 
     def plan(self, event, files, runs=(), since=1000.0):
         return docs.plan_fallback(event, self.calls, files, None if runs is None else list(runs), since)
@@ -394,23 +394,55 @@ class Fallback(unittest.TestCase):
         self.assertTrue(docs.docs_only(files[:docs.PATHS_FILTER_LIMIT]), "GitHub's first 300 are prose")
         event = pull_request_event("synchronize", changed=len(files))
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        pushed = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        self.assertEqual(set(pushed), set(self.calls), "every filtered workflow runs on a push")
+        due = sorted(set(pushed) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, files)), due)
-        self.assertEqual(set(due), set(self.calls), "every filtered workflow runs on a push")
         # A workflow GitHub did start (it saw a code file in its first 300) is not called again.
         started = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
         self.assertEqual(sorted(self.plan(event, files, started)), [n for n in due if n != "ci.yml"])
         # Into main only the workflows without a feat-cmux-next branch filter are due.
         main = pull_request_event("synchronize", base="main", changed=len(files))
-        self.assertEqual(sorted(self.plan(main, files)), sorted(set(due) - set(self.feat_only)))
+        self.assertEqual(sorted(self.plan(main, files)), sorted(set(pushed) - set(self.feat_only)))
 
     def test_unread_files_or_runs_fail_open(self):
         event = pull_request_event("opened", changed=5000)
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        opened = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        due = sorted(set(opened) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, None, None)), due)
+        main = pull_request_event("opened", base="main", changed=5000)
+        self.assertEqual(sorted(self.plan(main, None, None)), sorted(set(opened) - set(self.feat_only)))
         self.assertEqual(sorted(self.plan(event, None)), due, "no run seen: call each")
         self.assertEqual(sorted(self.plan(event, PROSE + [CODE], None)), due)
+
+    def test_a_spent_rest_budget_reads_the_files_from_the_merge_commit(self):
+        # 2026-11-25: both REST reads got 403 on a 2-file `full-ci` pull request, the gate failed open and ran ci.yml a
+        # second time (about 300 runner-min). git lists the merge commit's files instead, so 300 or fewer call nothing.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(git[:3] + ["init", "-q"], check=True)
+            Path(tmp, "base.md").write_text("base\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "base"], check=True)
+            Path(tmp, "docs").mkdir()
+            Path(tmp, "docs", "a.md").write_text("a\n")
+            Path(tmp, CODE).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, CODE).write_text("code\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "merge"], check=True)
+            here = os.getcwd()
+            os.chdir(tmp)
+            try:
+                files = docs.merge_commit_files(2)
+                self.assertIsNone(docs.merge_commit_files(3), "fewer paths than changed_files: unread")
+            finally:
+                os.chdir(here)
+        self.assertEqual(sorted(files), sorted(["docs/a.md", CODE]))
+        self.assertEqual(self.plan(pull_request_event("labeled", changed=2, label="full-ci"), files, None), [])
+        gate = (WORKFLOWS / "docs-only-fallback.yml").read_text()
+        self.assertIn("fetch-depth: 2", gate, "the gate checks out the merge commit's parent for git diff")
 
     def test_a_large_docs_only_pull_request_calls_nothing(self):
         files = PROSE + ["docs/one-more.md"]
@@ -476,7 +508,7 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):

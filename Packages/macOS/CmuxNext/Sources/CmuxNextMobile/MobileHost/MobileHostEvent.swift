@@ -33,6 +33,10 @@ public enum MobileHostEvent: Sendable, Equatable {
     case pairRequest(MobileHostPairRequest)
     /// A paired phone signed out and asks this Mac to forget it.
     case unpaired(phoneDeviceID: String)
+    /// Another of the person's paired devices (`byDeviceID`) answered the waiting request of
+    /// `phoneDeviceID` with these keys (`pair_requests.rs`): answer it as the person's Allow or
+    /// Don't Allow, only while that request with the same keys still waits.
+    case pairAnswer(phoneDeviceID: String, identityKey: String, approvalKey: String, allow: Bool, byDeviceID: String)
     /// A phone opened a streamed browser tab: start a browser host for `tab`
     /// on `url` and answer `request` (``MobileHostLaunch/browserLine(request:port:secret:)``).
     case needBrowser(request: UInt64, tab: String, url: String)
@@ -46,6 +50,9 @@ public enum MobileHostEvent: Sendable, Equatable {
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
+    /// The service answered `not_owner` for this Mac's device id (another account registered it);
+    /// hostd exits (status 79) so the app can start it again with a new id for this account.
+    case deviceIDTaken
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -94,11 +101,16 @@ public enum MobileHostEvent: Sendable, Equatable {
             guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
             let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
             self = .pairRequest(MobileHostPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
-                                               approvalKey: approval, registeredAt: registered, pairToken: wire.pairToken,
+                                               approvalKey: approval, registeredAt: registered,
                                                kind: wire.kind ?? "phone", bundleID: wire.bundleId))
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
+        case "pair_answer":
+            guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey,
+                  let allow = wire.allow, let by = wire.byDeviceId else { return nil }
+            self = .pairAnswer(phoneDeviceID: phone, identityKey: identity, approvalKey: approval, allow: allow,
+                               byDeviceID: by)
         case "need_browser":
             guard let request = wire.request, let tab = wire.tab else { return nil }
             self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
@@ -113,6 +125,8 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
+        case "device_not_owned":
+            self = .deviceIDTaken
         default:
             return nil
         }
@@ -139,11 +153,12 @@ public enum MobileHostEvent: Sendable, Equatable {
         var identityKey: String?
         var approvalKey: String?
         var registeredAtMs: Int64?
-        var pairToken: String?
         var bundleId: String?
         var kind: String?
         var request: UInt64?
         var tab: String?
         var url: String?
+        var allow: Bool?
+        var byDeviceId: String?
     }
 }

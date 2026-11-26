@@ -1,0 +1,57 @@
+## App Review notes for cmux INTERNAL (dev.cmux.app.internal, App Store Connect app 6791408425, the
+## TestFlight configuration). `asc_review_package.py --config TestFlight --app 6791408425 sync-notes`
+## writes this file to App Store Connect: lines starting "##" are dropped, each {{NAME}} is filled
+## from App Store Connect's App Review Information, and an empty value stops the run.
+## Every double-quoted label must be a string the release app shows (tests/test_asc_review_package.py).
+## The public app (com.cmux.app) uses review-notes-asc.txt. This record has no subscriptions, so its
+## Plans screen is read-only (BillingPurchaseAvailability.appsWithoutSubscriptions) and these notes
+## promise no purchase (app_review_gate.py iap.review-notes, lane internal-submission).
+cmux for iPhone is how you reach the terminals, browsers and coding agents on your Mac. You do not need a Mac, a VPN or any network setup to review it: the demo account comes with a simulated Mac whose terminals run commands on the iPhone.
+
+Prior review resolutions:
+- Guideline 2.5.2 (submission 99c2f5b0-5940-41d4-a02b-fd222d2eeeca): the app downloads and executes no code. Agents run on the user's Mac or in cmux Cloud.
+- System VPN API (submission 40f744df-e0fc-4782-9dac-aa0c79281b9f): the binary contains no packet tunnel extension and no Network Extension or VPN entitlement.
+- Guideline 1.5: the Support URL is https://cmux.com/support.
+
+Sign in (there is no password):
+1. Launch cmux INTERNAL and tap "Continue with email". On "What's your email?", enter {{DEMO_ACCOUNT_EMAIL}} and tap "Continue".
+2. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no sign-in needed). The newest email holds the code.
+3. Type the code on "Check your email". It submits on the last character. If no code arrives within two minutes, tap "Resend code".
+
+First launch:
+- If "Choose a space" appears, tap "Personal".
+- "Connect your Mac" is for people with cmux on a Mac. Tap "Not now".
+- On "Know when an agent needs you", tap "Turn on notifications" or "Not now". Either works.
+
+## REVIEW DEMO STEPS: START. The review path: the demo account's simulated Mac (terminals and
+## browser tabs on the iPhone), with no Mac and no Cloud credits.
+Review path (no Mac needed):
+The demo account has a simulated Mac named MacBook Pro, run on the iPhone. It is not a real computer, and no other account has it.
+1. Open the Workspaces tab. It lists the MacBook Pro's three workspaces: website, api-server and notes.
+2. Tap website. Its terminal opens and shows recent commands. Type a command in the message box (ls -la, git status, echo hi or htop) and tap send; the terminal answers. q quits htop.
+3. Tap Tabs (bottom right), then the cmux tab. The page opens in the app.
+## REVIEW DEMO STEPS: END
+
+Chief (optional): Home lists Chief, labeled Main · Cloud, a cmux Cloud agent. The first message asks "Chief Uses AI": its replies come from third-party AI models (Anthropic and OpenAI), so the app asks before anything is shared (Guideline 5.1.2(i)); tap "Agree and Send". Chief's info page turns sharing off again and has "Report a Response…" (Guideline 1.2). If Home shows "Chief Is Off", tap "Turn On". Without Cloud credits Chief says so in the conversation.
+
+Other screens:
+- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read". "New Message" (top right): pick a Chief or teammate under "To:" and send.
+- For other accounts, the Workspaces and Feed tabs show the workspaces and alerts of a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
+- Account deletion: Settings, the account row at the top opens "Account", then "Delete Account". After "Delete your cmux account?" the account and its data are deleted and the app signs out. Please try it last.
+
+Permissions, each optional and asked only when first used:
+- Notifications: during setup or the first message to Chief.
+- Microphone: calls and audio messages.
+- Speech Recognition: voice notes and dictation to text.
+- Camera: a photo for a message, or a Mac's pairing code.
+- Photos: attaching and saving images.
+- Face ID: only when "Require Face ID" is on in Settings.
+- Local Network: a direct link to the user's own Mac on the same network.
+
+Background audio (UIBackgroundModes audio): an audio message or call with Chief keeps recording while the iPhone is locked. To see it, start an audio message to Chief, lock the iPhone a few seconds, unlock and send: it includes what was said while locked.
+
+Purchases:
+- Settings > "Plan" shows the account's current plan.
+- This version offers no purchase, no subscription and no external purchase link.
+
+Contact during review: {{REVIEW_CONTACT_EMAIL}}, {{REVIEW_CONTACT_PHONE}}

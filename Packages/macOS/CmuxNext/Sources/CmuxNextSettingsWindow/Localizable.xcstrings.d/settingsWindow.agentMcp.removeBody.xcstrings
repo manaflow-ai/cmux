@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentMcp.removeBody" : {
+      "comment" : "Settings > MCP Servers, Claude Code and Codex: the confirmation before removing a server; %@ is the agent's config file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux removes it from %@ and keeps a copy of the file beside it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يزيله cmux من %@ ويحتفظ بنسخة من الملف بجانبه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ga uklanja iz %@ i čuva kopiju datoteke pored nje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux fjerner den fra %@ og gemmer en kopi af filen ved siden af."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux entfernt ihn aus %@ und legt eine Kopie der Datei daneben ab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux lo quita de %@ y guarda una copia del archivo a su lado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux le retire de %@ et garde une copie du fichier à côté."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux lo rimuove da %@ e conserva una copia del file accanto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux は %@ から削除し、元のファイルのコピーを隣に残します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ដកវាចេញពី %@ ហើយរក្សាច្បាប់ចម្លងឯកសារនៅក្បែរវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux가 %@에서 제거하고 파일 사본을 옆에 남깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux fjerner den fra %@ og legger en kopi av filen ved siden av."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usuwa go z %@ i zostawia obok kopię pliku."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux o remove de %@ e guarda uma cópia do arquivo ao lado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux удалит его из %@ и сохранит рядом копию файла."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะลบออกจาก %@ และเก็บสำเนาไฟล์ไว้ข้างกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux onu %@ dosyasından kaldırır ve yanına dosyanın bir kopyasını bırakır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux видалить його з %@ і збереже поруч копію файлу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gỡ nó khỏi %@ và giữ một bản sao tệp bên cạnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 会将它从 %@ 中移除，并在旁边保留文件副本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 會將它從 %@ 中移除，並在旁邊保留檔案副本。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

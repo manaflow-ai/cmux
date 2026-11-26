@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 889,
-    "mcp": 807
+    "verbs": 892,
+    "mcp": 810
   },
   "nouns": [
     {
@@ -1292,6 +1292,20 @@
           "mcpTool": "app_cloud_bring_back"
         },
         {
+          "command": "cmux cloud chief-computer",
+          "title": "Use Chief’s Own Computer…",
+          "id": "cloud.chiefComputer",
+          "mcp": true,
+          "mcpTool": "app_cloud_chief_computer"
+        },
+        {
+          "command": "cmux cloud computer-control",
+          "title": "Chief Computer Control…",
+          "id": "cloud.computerControl",
+          "mcp": true,
+          "mcpTool": "app_cloud_computer_control"
+        },
+        {
           "command": "cmux cloud copy-session-link",
           "title": "Copy Cloud Session Link",
           "id": "cloud.team.copyLink",
@@ -2283,14 +2297,14 @@
         },
         {
           "command": "cmux home switch-view",
-          "title": "Switch Home View",
+          "title": "Switch Chief View",
           "id": "home.switchView",
           "mcp": true,
           "mcpTool": "app_home_switch_view"
         },
         {
           "command": "cmux home tab",
-          "title": "Open Home in Tab",
+          "title": "Open Chief in Tab",
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
@@ -4296,7 +4310,7 @@
       "verbs": [
         {
           "command": "cmux sidebar add-home",
-          "title": "Add Home to Sidebar",
+          "title": "Add Chief to Sidebar",
           "id": "sidebar.home.add",
           "mcp": true,
           "mcpTool": "app_sidebar_add_home"
@@ -4429,7 +4443,7 @@
         },
         {
           "command": "cmux sidebar remove-home",
-          "title": "Remove Home from Sidebar",
+          "title": "Remove Chief from Sidebar",
           "id": "sidebar.home.remove",
           "mcp": true,
           "mcpTool": "app_sidebar_remove_home"
@@ -5677,6 +5691,13 @@
           "id": "workspace.archiveOthersInGroup",
           "mcp": true,
           "mcpTool": "app_workspace_archive_others_in_group"
+        },
+        {
+          "command": "cmux workspace archive-settled",
+          "title": "Archive Settled Chats",
+          "id": "workspace.archiveSettled",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_settled"
         },
         {
           "command": "cmux workspace archive-unarchive",

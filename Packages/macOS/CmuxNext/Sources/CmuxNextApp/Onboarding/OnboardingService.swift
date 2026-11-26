@@ -54,6 +54,8 @@ final class OnboardingService {
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
     var classicMigrationConfirmation: (@MainActor (ClassicImportPreview) async -> ClassicImportAnswer)?
+    /// The app installs the import of its settings and palette history alongside the settings controller.
+    var importClassicSettings: (@MainActor () async throws -> Void)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -67,12 +69,12 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
-    private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
-    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
-    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
-        _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
-    })
+        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
+    /// Settings > Agents' cmux Tools card: `agents.cmuxMcp` and `cmux setup mcp`'s report.
+    private(set) lazy var agentTools = AgentToolsCLISource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+    /// Make cmux Yours' choices over the settings owner (each pick one publish; the reload applies density's tokens); unset Opacity reads the window's.
+    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings },
+        windowOpacity: { [weak services] in (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity })
     /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -82,7 +84,7 @@ final class OnboardingService {
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = NextSupport.applicationSupportDirectory()
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
@@ -94,21 +96,39 @@ final class OnboardingService {
                 return scan.run().map(\.id)
             }.value
             guard let self else { return }
-            // Classic's saved folders, read by the daemon (`classic_import.plan`) once it is up.
-            let classic = await classicProjectFolders()
-            var seen = Set<String>()
-            projectFolders = (agent + classic).compactMap { path in
-                let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
-                return seen.insert(normalized).inserted ? normalized : nil
-            }
+            addProjectFolders(agent + (classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []))
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools, choices: $0.firstRunChoices) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, choices: $0.firstRunChoices) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
             pageLeftForSignIn = nil
             _ = TopPages.show(page, services: services)
+        }
+    }
+
+    var classicFolderDefaults: UserDefaults?
+    private static let classicFoldersKey = "classicImportedProjectFolders"
+
+    /// Remember local project suggestions from the accepted plan in NEXT's defaults.
+    func rememberClassicFolders(in plan: ClassicMigrationPlan) {
+        let folders = plan.workspaces.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+            [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
+        }
+        guard !folders.isEmpty else { return }
+        var seen = Set<String>()
+        let saved = classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []
+        let combined = (saved + folders).filter { seen.insert($0).inserted }
+        classicFolderDefaults?.set(combined, forKey: Self.classicFoldersKey)
+        addProjectFolders(combined)
+    }
+
+    private func addProjectFolders(_ folders: [String]) {
+        var seen = Set(projectFolders)
+        projectFolders += folders.compactMap { path in
+            let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            return seen.insert(normalized).inserted ? normalized : nil
         }
     }
 
@@ -145,6 +165,24 @@ final class OnboardingService {
         }
     }
 
+    /// The guided Computer Use window (`palette.computerUse.setup` and the two Grant actions, which
+    /// Settings' Grant Access runs too): every entry opens it, as the earlier app did, never System
+    /// Settings by itself. `pane`: a Grant action's grant, whose Allow starts in the window once the
+    /// grants are read (System Settings opens with the drag panel docked to it), only on the
+    /// person's own run. `byPerson` false (an agent's `cmux action run`): the window comes forward
+    /// without the keys, bounces the Dock icon while another app is active, and starts nothing:
+    /// Computer Use is never turned on, and System Settings never opens, without the person's Allow.
+    /// `inFront`: the run may change the view (the person's run, or one that asked for focus);
+    /// otherwise the window opens behind with a Dock bounce. `byPerson`: the person's own gesture
+    /// in this app (``ActionInvocation/isPersonsOwnRun``), never an agent's, a page's or a
+    /// `focus` request: only that starts the grant's Allow, which can turn Computer Use on.
+    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, inFront: Bool, byPerson: Bool) {
+        computerUseSetup.recheck()
+        presenter.show(step: .computerUse, quietly: !inFront) { model, _ in
+            if let pane, byPerson { model.computerUse.allowOnceKnown(pane) }
+        }
+    }
+
     /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
     private func openSignIn(_ line: String) async -> Bool {
         if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
@@ -163,19 +201,17 @@ final class OnboardingService {
     /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
     /// (``OnboardingWindowPresenter/historyShownKey``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        // The cmux Tools question comes at launch whatever owns the first run, for an existing
-        // installation too: until it is answered, the person's agents get no cmux server.
-        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) {
+        guard route == .windows else { return }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }
     }
 
     /// A new person's first launch opens a new agent chat, composer ready, in a workspace of its own (cmux#48416): after
-    /// the launch's tool windows close (Make cmux Yours, the cmux Tools answer), none over a top page or for terminal-first.
+    /// the launch's tool window closes (Make cmux Yours), none over a top page or for terminal-first.
     @discardableResult
     func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
         await presenter.untilClosed()
