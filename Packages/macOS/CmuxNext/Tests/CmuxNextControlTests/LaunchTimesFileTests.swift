@@ -222,7 +222,7 @@ import Testing
     /// not in ``LaunchTimesRecord/phaseMarks`` stays out, and a launch that reached none has no `phases`.
     @Test func aRowCarriesTheLaunchesPhases() throws {
         let phases: [String: Double] = [
-            "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.bind": 120,
+            "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.app_actions": 110, "dfl.bind": 120,
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
@@ -252,6 +252,20 @@ import Testing
         #expect(!line.contains(#""home.first_page""#), "only phase marks go under phases: \(line)")
         #expect(Self.record(marks: ["main_start": 41]).phases == nil)
         #expect(try !Self.temporaryFile().encodedLine(Self.record(marks: ["main_start": 41])).contains("phases"))
+    }
+
+    /// The row keeps the slowest ``LaunchTimesRecord/binderCount`` binders of the launch's `AppActions.bind`, rounded to
+    /// hundredths, and none without any (startup-under-100ms).
+    @Test func aRowKeepsTheSlowestBinders() throws {
+        let binders = Dictionary(uniqueKeysWithValues: (0..<40).map { ("Binder\($0).bind", Double($0) / 3) })
+        let record = LaunchTimesRecord(marks: ["main_start": 41], startedAt: Date(timeIntervalSince1970: 1_800_000_000), version: "1.0.0",
+                                       build: "200", commit: nil, prewarmed: false, binders: binders)
+        #expect(record.binders?.count == LaunchTimesRecord.binderCount)
+        #expect(record.binders?["Binder39.bind"] == 13)
+        #expect(record.binders?["Binder24.bind"] == 8)
+        #expect(record.binders?["Binder23.bind"] == nil)
+        #expect(try Self.temporaryFile().encodedLine(record).contains(#""binders":{"#))
+        #expect(Self.record(marks: ["main_start": 41]).binders == nil)
     }
 
     /// A row written before `phases` existed still reads back, with none.
