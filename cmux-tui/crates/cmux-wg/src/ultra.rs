@@ -144,6 +144,32 @@ pub const ENV: &str = "CMUX_WG_ULTRA";
 /// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
+/// Parities per group for bulk data (the pacer's bulk class: paced TCP
+/// transfers), at most the mode's own. Bulk needs its repair at any loss (a
+/// loss gate cut 50 ms / 2 % echo-flood goodput from 18.1 to 2.1 Mbit/s,
+/// RFD 0164 row 106), but not the four parities per four data datagrams
+/// input gets: a lost bulk datagram costs TCP a fast retransmit, a lost
+/// keystroke costs a visible stall. One parity rebuilds any one loss of a
+/// group of four, which at 2 % loss leaves about 0.4 % of groups to TCP.
+const BULK_PARITY: u8 = 1;
+/// Benches only: bulk parities per group (1 to 15), in place of
+/// [`BULK_PARITY`].
+pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
+
+/// Bulk parities per group: [`BULK_PARITY_ENV`] when set and in range, else
+/// [`BULK_PARITY`]. Read once per process.
+fn bulk_parity() -> u8 {
+    static PARITY: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *PARITY.get_or_init(|| bulk_parity_from(std::env::var(BULK_PARITY_ENV).ok().as_deref()))
+}
+
+pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
+    value
+        .and_then(|value| value.trim().parse::<u8>().ok())
+        .filter(|parity| (1..=MAX_PARITY).contains(parity))
+        .unwrap_or(BULK_PARITY)
+}
+
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
 /// pacer sent it in, not treat it as control.
@@ -341,6 +367,18 @@ impl UltraMode {
             _ => Self::Off,
         };
         mode.normalized()
+    }
+
+    /// The mode a bulk group closes in: the same code and group, at most
+    /// [`bulk_parity`] parities. Copies are not cut: duplicating bulk is a
+    /// mode someone chose by hand.
+    fn for_bulk(self) -> Self {
+        let cut = |parity: u8| parity.min(bulk_parity());
+        match self {
+            Self::Fec { group, parity } => Self::Fec { group, parity: cut(parity) },
+            Self::Rs { group, parity } => Self::Rs { group, parity: cut(parity) },
+            other => other,
+        }
     }
 
     /// Parities for a group of `members`: in proportion to `parity / group`,
@@ -870,7 +908,8 @@ impl UltraUnderlay {
 
     /// Whether a datagram of this class gets copies or parity: input at any
     /// loss (Auto decides when repair is on at all), screen state only above
-    /// 1 % measured loss. Bulk keeps the mode's repair: the pacer's bulk
+    /// 1 % measured loss. Bulk keeps repair, with fewer parities per group
+    /// ([`BULK_PARITY`]): the pacer's bulk
     /// class is mostly paced TCP connections, and with no repair their
     /// goodput at 50 ms / 2 % loss fell from 16.8 to 2.1 Mbit/s
     /// (`link_stream_bench --workload echo-flood`). Datagrams of no class
@@ -971,6 +1010,7 @@ impl UltraUnderlay {
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
         let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let mode = if group.priority == Some(Priority::Bulk) { mode.for_bulk() } else { mode };
         let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {
