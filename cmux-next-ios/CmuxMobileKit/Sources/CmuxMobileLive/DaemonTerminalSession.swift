@@ -434,8 +434,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
         // An ended terminal shows its last screen, not a spinner; a Mac that is
-        // gone says so; a reattach that gave up (its line says to type to try
-        // again) shows its last screen too.
+        // gone says so; a reattach that gave up (it starts again on its own)
+        // shows its last screen too.
         if attached || ended { return .attached }
         if macOffline { return .offline(mac: macName) }
         // Plain words: the transport's error (`lastError`) goes to the log only.
@@ -804,6 +804,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        gaveUpRetry?.cancel()
+        gaveUpRetry = nil
         streamPosition = nil
         eventTask?.cancel()
         eventTask = nil
@@ -866,6 +868,8 @@ public final class DaemonTerminalSession: TerminalSession {
             gaveUp = false
             attachRetries = 0
         }
+        gaveUpRetry?.cancel()
+        gaveUpRetry = nil
         handler?(.connection(connectionState))
         Task { await attach() }
     }
@@ -1604,6 +1608,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // it instead: the composer's quiet line with Retry, and a keystroke
             // tries again.
             gaveUp = true
+            scheduleGaveUpRetry()
             // Keys held for this reattach are dropped now, and the screen says so.
             expireInput()
             handler?(.connection(connectionState))
@@ -1739,7 +1744,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// notice and quiet line), never the transport's error text.
     nonisolated static func unreachableMessage(_ mac: String?) -> String {
         let name = mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac"
-        return "Can't reach this terminal on \(name). Retry, or type to try again."
+        return "Can't reach this terminal on \(name). It reconnects on its own."
     }
 
     /// Writes a line into the terminal itself: only for facts about the
@@ -2424,11 +2429,30 @@ public final class DaemonTerminalSession: TerminalSession {
     private var awaitingReplay = false
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
-    /// The reattach retries ran out; the next keystroke tries again.
+    /// The reattach retries ran out; the next keystroke, or ``gaveUpRetryDelay``, starts again.
     private var gaveUp = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
+    /// After the retries ran out, a fresh round starts on its own this long later (as well as on
+    /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
+    /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
+    var gaveUpRetryDelay: Duration = .seconds(30)
+    private var gaveUpRetry: Task<Void, Never>?
+
+    private func scheduleGaveUpRetry() {
+        gaveUpRetry?.cancel()
+        let delay = gaveUpRetryDelay
+        gaveUpRetry = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.gaveUpRetry = nil
+            // A Mac that is gone reattaches every session when its link comes back.
+            guard self.gaveUp, !self.macOffline else { return }
+            self.reconnect()
+        }
+    }
+
     /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
     /// which reattaches it, and spends no retry (so never gives up on it).
     nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
