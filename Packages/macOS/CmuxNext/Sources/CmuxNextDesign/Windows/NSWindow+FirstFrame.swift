@@ -24,4 +24,16 @@ extension NSWindow {
         CATransaction.flush()
         return true
     }
+
+    /// Runs `body` once, at the main run loop's next before-waiting pass, ahead of Core Animation's commit there.
+    ///
+    /// After ``commitFirstFrameNow()`` the launch's first_window_frame_committed mark (a `CATransaction` main
+    /// completion) still waits for that pass, which comes once the main queue has drained the work the launch
+    /// queued. A mark from here splits the wait: flush to here is that queued main-actor work, here to the
+    /// completion the commit itself (startup-matrix: 84-90 ms between the two marks had no span).
+    public static func atNextRunLoopWait(_ body: @escaping @Sendable () -> Void) {
+        // repeats: false drops the observer after one pass; order 0 runs before Core Animation's (2000000).
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, 0) { _, _ in body() }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
 }
