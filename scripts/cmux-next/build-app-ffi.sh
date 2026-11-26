@@ -111,13 +111,18 @@ export CARGO_TARGET_DIR="$out_root/cargo"
 if [[ "${CMUX_APP_FFI_PERSIST_TARGET:-0}" == 1 ]]; then
   # shellcheck source=scripts/ci/fleet-rust-cache.sh
   source "$repo_root/scripts/ci/fleet-rust-cache.sh"
-  CARGO_TARGET_DIR="$(fleet_rust_target_dir cmux-app-ffi "" "$crate_dir")"
-  mkdir -p "$CARGO_TARGET_DIR"
-  # A fresh crate makes cargo skip rustc, which then prints no native-static-libs
-  # (a rerun of the same commit): rebuild the top crate every time, as a cold
-  # directory did.
-  touch "$crate_dir/src/lib.rs"
-  echo "==> persistent cargo target directory $CARGO_TARGET_DIR" >&2
+  # A directory that cannot be resolved or made keeps the job-private one: a
+  # release never fails for want of a warm cache.
+  if persistent="$(fleet_rust_target_dir cmux-app-ffi "" "$crate_dir")" && mkdir -p "$persistent"; then
+    export CARGO_TARGET_DIR="$persistent"
+    # A fresh crate makes cargo skip rustc, which then prints no native-static-libs
+    # (a rerun of the same commit): rebuild the top crate every time, as a cold
+    # directory did.
+    touch "$crate_dir/src/lib.rs"
+    echo "==> persistent cargo target directory $CARGO_TARGET_DIR" >&2
+  else
+    echo "warning: no persistent cargo target directory; building cold in $CARGO_TARGET_DIR" >&2
+  fi
 fi
 export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
