@@ -118,3 +118,76 @@ test("a change of words reads the line again, and the old words still roll out a
   expect(out).not.toBeNull();
   expect(out!.style.width).toBe(`${WIDTH}px`);
 });
+
+/// A ResizeObserver that reports when the test says, each observed box at `width` px wide (the words'
+/// box) or 20 (the rest): the page's observer reports after the frame's layout, which a commit never
+/// forces.
+function fakeObserver() {
+  const live = new Set<{ callback: ResizeObserverCallback; boxes: Set<Element>; self: ResizeObserver }>();
+  class FakeResizeObserver {
+    private readonly entry: { callback: ResizeObserverCallback; boxes: Set<Element>; self: ResizeObserver };
+    constructor(callback: ResizeObserverCallback) {
+      this.entry = { callback, boxes: new Set(), self: this as unknown as ResizeObserver };
+      live.add(this.entry);
+    }
+    observe(box: Element) {
+      this.entry.boxes.add(box);
+    }
+    unobserve(box: Element) {
+      this.entry.boxes.delete(box);
+    }
+    disconnect() {
+      this.entry.boxes.clear();
+      live.delete(this.entry);
+    }
+  }
+  const report = (width: number) =>
+    act(() => {
+      for (const { callback, boxes, self } of live) {
+        const entries = [...boxes].map((target) => {
+          const inlineSize = target.matches("output.cv-thinking") ? width : 20;
+          return {
+            target,
+            borderBoxSize: [{ inlineSize, blockSize: 20 }],
+            contentRect: { width: inlineSize, height: 20 },
+          } as unknown as ResizeObserverEntry;
+        });
+        callback(entries, self);
+      }
+    });
+  return { FakeResizeObserver, report };
+}
+
+function ticking(doing: string, since: number) {
+  return (
+    <WorkingCountsContext.Provider value={counts}>
+      <Thinking since={since} now={() => 60_000} doing={doing} doingAt={1} heardKey={doing} turnTotal />
+    </WorkingCountsContext.Provider>
+  );
+}
+
+test("observed, the line reads no box for its roll-out width: its time ticks and its words roll at the reported width", () => {
+  const { FakeResizeObserver, report } = fakeObserver();
+  const had = scope.ResizeObserver;
+  scope.ResizeObserver = FakeResizeObserver;
+  try {
+    // A fresh root, so the line connects the observer above.
+    act(() => root!.unmount());
+    root = createRoot(container);
+    act(() => root!.render(ticking("Read a.ts", 0)));
+    report(87);
+    // Each tick of its time moved the line (before: one forced read of the words' box per tick).
+    for (let second = 1; second <= TOKENS; second++) act(() => root!.render(ticking("Read a.ts", -second * 1_000)));
+    expect(reads.rect).toBe(0);
+    act(() => root!.render(ticking("Read b.ts", -(TOKENS + 1) * 1_000)));
+    expect(reads.rect).toBe(0);
+    const out = container.querySelector<HTMLElement>(".cv-roll-out");
+    expect(out).not.toBeNull();
+    expect(out!.style.width).toBe("87px");
+  } finally {
+    act(() => root!.unmount());
+    root = undefined;
+    if (had === undefined) delete scope.ResizeObserver;
+    else scope.ResizeObserver = had;
+  }
+});
