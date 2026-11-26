@@ -183,7 +183,7 @@ class Terminal:
         if not self.socket:
             raise SystemExit("no cmux-tui daemon of this tag runs")
         created = self.run("tab", "create", "terminal")
-        terms = re.findall(r'"(term_[A-Za-z0-9_-]+)"', created)
+        terms = re.findall(r'"(term_[0-9a-f]{32})"', created)
         if not terms:
             raise SystemExit(f"tab create terminal named no terminal: {created}")
         self.term = terms[0]
@@ -281,7 +281,7 @@ class UnplacedTerminal(Terminal):
 
     def start(self, root):
         created = self.start_counter(root)
-        tabs = re.findall(r'"(tab_[A-Za-z0-9_-]+)"', created)
+        tabs = re.findall(r'"(tab_[0-9a-f]{32})"', created)
         if not tabs:
             raise SystemExit(f"tab create terminal named no tab: {created}")
         stream = self.attach()
