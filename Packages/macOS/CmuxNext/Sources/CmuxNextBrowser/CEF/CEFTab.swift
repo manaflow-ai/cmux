@@ -368,6 +368,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
     /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// A real page's document loaded and painted (not a blank target or an error page), each time one does: its own
+    /// timeline (navigation start, DOMContentLoaded, first contentful paint) is all in. ``onReadyForKeys`` is not that
+    /// moment for a page made with no URL: it fires on the empty document at attach, before the page loads its own.
+    @ObservationIgnored public var onRealDocumentLoaded: (@MainActor () -> Void)?
     /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
     @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
@@ -514,6 +518,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // seconds after the page shows and takes clicks, review 6594624994). A blank target or an error page paints
         // nothing of its own.
         guard documentLoaded, documentPainted || blankIsDocument || committedIsErrorPage else { return }
+        if documentPainted, !committedIsErrorPage, PageBackground.isRealPage(committedURL) { onRealDocumentLoaded?() }
         documentArrived()
     }
 
