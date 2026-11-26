@@ -30,10 +30,16 @@ const FALLBACK_NAME = "Web";
 /// The id lasts as long as the page, so each pane (each window) is its own surface.
 export function promptSurfaceMeta(): { surface: PromptSurface } | Record<string, never> {
   if (!labelled) return {};
+  return { surface: pageSurface() };
+}
+
+/// This page as a surface, whether or not its prompts are labelled: the surface its pending
+/// composer images are kept under in acpmux (composer/carriedDraftImages.ts, RFD 0138).
+export function pageSurface(): PromptSurface {
   surface ??= {
     id: crypto.randomUUID(),
     name: typeof navigator === "undefined" ? FALLBACK_NAME : deviceName(navigator.userAgent, navigator.maxTouchPoints),
     kind: "app",
   };
-  return { surface };
+  return surface;
 }
