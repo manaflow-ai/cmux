@@ -65,6 +65,7 @@ fn request(sections: usize, workspaces: usize) -> Request {
         input: sidebar(sections, workspaces),
         // The selected workspace's section is never hidden; select one in the last.
         selected: Some(format!("ws_{}", workspaces - 1)),
+        ..Default::default()
     }
 }
 
@@ -138,6 +139,7 @@ fn a_document_past_the_model_limits_is_still_refused() {
             }],
         }],
         selected: None,
+        ..Default::default()
     };
     let reply = respond(&request);
     assert!(reply.hidden_sections.is_empty());
@@ -296,6 +298,7 @@ fn sidebar_customization_stress_a_rule_for_every_workspace() {
             workspaces: Value::Object(rules),
             input: sidebar(sections, workspaces),
             selected: Some("ws_0".into()),
+            ..Default::default()
         };
         let reply = respond(&request);
         assert!(reply.problems.is_empty(), "{:?}", &reply.problems[..reply.problems.len().min(3)]);
