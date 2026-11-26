@@ -36,7 +36,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
-import { type ChaosExec, dropCommand, sessionHostKillCommand } from "./cloud-chaos.ts";
+import { type ChaosExec, dropCommand, resolveChatSurface, sessionHostKillCommand } from "./cloud-chaos.ts";
 
 export const MOVE_DIRECTIONS = ["local-cloud", "cloud-local", "cloud-cloud"] as const;
 export const MOVE_STEPS = ["before-begin", "after-begin", "frozen-sync", "after-receive", "mid-copy", "before-finish", "after-finish", "after-commit"] as const;
@@ -794,9 +794,13 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
     const t = await rpc(side, { cmd: "new-conversation-tab", workspace: ws.workspace, agent_session: { host: `registry:${id.registry_id ?? id.session_id}`, harness: "claude" } });
     // The person trusts the chat's folder (a fresh Cloud folder reads trusted already; a refusal there is noted only).
     await rpc(side, { cmd: "agent-session-trust", surface: t.surface, cwd: folder, level: "trusted", vm_kind: "owner" }).catch((e: Error) => note(`trust ${side.name}: ${e.message}`));
+    if (typeof t.tab_resource_id === "string") tabs.set(t.surface, t.tab_resource_id);
     return t.surface;
   };
+  const tabs = new Map<number, string>();
   const surface = await tab(a.src, srcFolder);
+  const buildOf = (side: MoveSide) => rpc(side, { cmd: "identify" }).then((id: any) => String(id?.build_id ?? id?.build_commit ?? "?"), () => "unreadable");
+  const srcBuild = await buildOf(a.src);
   const started = await rpc(a.src, { cmd: "agent-session-start", surface, harness: "claude", cwd: srcFolder, vm_kind: "owner", ...(a.src.kind === "cloud" && ctx.credentials ? { credentials: ctx.credentials } : {}) }, 120_000);
   const session = String(started.session ?? "");
   if (!session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
@@ -910,6 +914,16 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   await bringBack(ctx, a.carriers, [a.src, a.dst], note);
   let retry: PumpAnswer | null = null;
   if (!first.ok) {
+    // A source daemon replaced mid-move (the guest updater, or a kill) lists its tabs again under new surface slots, and
+    // the app's Retry names the tab's current one (run 45843423825: A's build changed mid-row and the retry's pre-move
+    // --surface answered agent_transfer.unknown_tab). The drill reads it again the same way.
+    const nowBuild = await buildOf(a.src);
+    if (nowBuild !== srcBuild) note(`source ${a.src.name} daemon replaced mid-move: build ${srcBuild} -> ${nowBuild}`);
+    const now = await resolveChatSurface((f) => daemonRpc(a.src.socket, f, 30_000), tabs.get(surface) ?? "", session).catch((e: Error) => { note(`retry surface: ${e.message}`); return null; });
+    if (now !== null && now !== surface) {
+      note(`retry surface: ${surface} -> ${now} (the source lists the tab again)`);
+      args[args.indexOf("--surface") + 1] = String(now);
+    }
     retry = await runPump(ctx.cmux, args, pumpEnv);
     note(`retry: ${pumpText(retry)}`);
   }
