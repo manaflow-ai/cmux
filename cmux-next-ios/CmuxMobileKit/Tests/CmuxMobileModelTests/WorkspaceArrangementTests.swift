@@ -84,6 +84,7 @@ import Testing
         #expect(SidebarArrangement().personalIndex(moving: visible[1], by: -1, among: visible, registryID: "reg") == nil)
     }
 
+    #if os(iOS) // Rust's arrangement ops (the FFI has no macOS slice); the iOS simulator run tests them.
     @Test func bulkCloseTargets() {
         let order = workspaces(["a", "b", "c", "d"])
         #expect(WorkspaceBulkClose.others.targets(of: order[1], in: order).map(\.id) == ["a", "c", "d"])
@@ -116,6 +117,7 @@ import Testing
         #expect(WorkspaceBulkClose.othersInGroup.title == "Close Other Workspaces in Group")
         #expect(WorkspaceBulkClose.all.title == "Close All Workspaces")
     }
+    #endif
 
     /// Move Workspace to Top / to Bottom and Sort: the index right before or after the anchor
     /// in the person's order without the moved workspace.
@@ -137,6 +139,7 @@ import Testing
         #expect(SidebarArrangement().personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == nil)
     }
 
+    #if os(iOS) // Rust's arrangement ops (the FFI has no macOS slice); the iOS simulator run tests them.
     @Test func edgesOfTheContainer() {
         let order = workspaces(["a", "b", "c"])
         #expect(WorkspaceEdge.top.anchor(of: order[2], in: order).map { "\($0.anchor.id) \($0.after)" } == "a false")
@@ -165,6 +168,7 @@ import Testing
         #expect(steps.map { "\($0.workspace.id) \($0.after ? "after" : "before") \($0.anchor.id)" } == ["a before c", "b after a"])
         #expect(WorkspaceSortKey.steps(from: list, to: list).isEmpty)
     }
+    #endif
 
     @Test func colorsAreTheMacPalette() {
         #expect(WorkspaceColor.allCases.map(\.title) == ["Grey", "Blue", "Red", "Yellow", "Green", "Pink", "Purple", "Cyan", "Orange"])
@@ -303,6 +307,7 @@ import Testing
         #expect(recorder.calls == ["icon a hammer", "icon a nil", "clearName c"])
     }
 
+    #if os(iOS) // Rust's arrangement ops (the FFI has no macOS slice); the iOS simulator run tests them.
     @Test func moveToTopAndBottomOfTheLooseRows() async {
         let (store, creator, recorder) = setup()
         creator.move(store.workspaces[2], to: .top)
@@ -332,6 +337,7 @@ import Testing
         await creator.settle()
         #expect(recorder.calls.count == 2)
     }
+    #endif
 
     @Test func removeAllColorsOnOneMac() async {
         let (store, creator, recorder) = setup()
@@ -354,6 +360,7 @@ import Testing
         #expect(recorder.calls.isEmpty)
     }
 
+    #if os(iOS) // Rust's arrangement ops (the FFI has no macOS slice); the iOS simulator run tests them.
     @Test func bulkCloseClosesEach() async {
         let (store, creator, recorder) = setup()
         let order = store.workspaces
@@ -362,4 +369,5 @@ import Testing
         #expect(Set(recorder.calls) == ["close b", "close c"])
         #expect(store.workspaces.map(\.id) == ["a"])
     }
+    #endif
 }

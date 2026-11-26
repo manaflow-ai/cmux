@@ -123,38 +123,6 @@ extension SidebarArrangement {
         if let pin = roomPins.first(where: { $0.session == registryID && $0.key == key }) { return pin.room }
         return rooms.sorted { $0.index < $1.index }.first { $0.follows.contains(registryID) }?.id ?? Self.defaultRoom
     }
-
-    /// The Mac's mixed sidebar order with groups (cmux-next
-    /// `PersonalSidebar.mixedSections`): walk every personal row by place;
-    /// before row i come the groups whose `top_index` is i (members in personal
-    /// order), then row i when it is loose. Workspaces without a row follow,
-    /// then the groups placed after every row. Each workspace gets its place
-    /// in that order and its group.
-    func applyGroups(to workspaces: inout [Workspace], registryID: String) {
-        let ordered = (rows ?? []).sorted { $0.index < $1.index }
-        let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let mine = ordered.filter { $0.session == registryID }
-        let groupOf: [String: String] = Dictionary(
-            mine.compactMap { row in row.group.flatMap { byID[$0] != nil ? (row.key, $0) : nil } }, uniquingKeysWith: { first, _ in first })
-        let sortedGroups = groups.sorted { $0.index < $1.index }
-        var sequence: [String] = []
-        func emit(_ group: MacWorkspaceGroup) {
-            sequence += mine.filter { groupOf[$0.key] == group.id }.map(\.key)
-        }
-        for (index, row) in ordered.enumerated() {
-            for group in sortedGroups where group.topIndex == index { emit(group) }
-            if row.session == registryID, groupOf[row.key] == nil { sequence.append(row.key) }
-        }
-        let rowed = Set(mine.map(\.key))
-        sequence += workspaces.map(\.id).filter { !rowed.contains($0) }
-        for group in sortedGroups where group.topIndex.map({ $0 >= ordered.count }) ?? true { emit(group) }
-        let position = Dictionary(sequence.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        for i in workspaces.indices {
-            let id = workspaces[i].id
-            workspaces[i].sidebarIndex = position[id] ?? sequence.count + i
-            workspaces[i].group = groupOf[id].flatMap { byID[$0] }
-        }
-    }
 }
 
 /// Group edits this phone made that the Mac's list has not shown back yet.

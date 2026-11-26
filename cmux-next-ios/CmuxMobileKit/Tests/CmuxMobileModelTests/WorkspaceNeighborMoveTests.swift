@@ -1,3 +1,4 @@
+#if os(iOS) // Rust's arrangement ops (the FFI has no macOS slice); the iOS simulator run tests them.
 import Foundation
 import Testing
 @testable import CmuxMobileModel
@@ -28,3 +29,4 @@ import Testing
         #expect(WorkspaceNeighborMove.allCases.map(\.title) == ["Move Workspace Above…", "Move Workspace Below…"])
     }
 }
+#endif
