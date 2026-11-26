@@ -105,11 +105,11 @@ impl<'a> Standbys<'a> {
     ) -> Self {
         let mut standbys =
             Self { config, framing, tls, pending: FuturesUnordered::new(), failures: 0 };
-        // Only the Durable Object relay pairs Standbys; a self-hosted relay is left as it was.
-        if framing == RelayCircuitFraming::Batch {
-            for _ in 0..STANDBY_SOCKETS {
-                standbys.open(ticket.clone(), Duration::ZERO);
-            }
+        // Both relays pair Standbys: the Durable Object and `cmux-relay` (`relay_inline.rs`). A
+        // self-hosted relay older than that refuses `Standby` (`unexpected-control`), which is
+        // `Unsupported`: three refused sockets, then one more ask per `STANDBY_UNSUPPORTED_WAIT`.
+        for _ in 0..STANDBY_SOCKETS {
+            standbys.open(ticket.clone(), Duration::ZERO);
         }
         standbys
     }
