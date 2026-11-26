@@ -104,7 +104,6 @@ fn every_action_the_cli_runs_by_cli_name_is_a_cli_action_in_the_catalog() {
     // The scan still sees the call sites it was written for; a refactor that hides them from it
     // fails here instead of passing with nothing checked.
     for known in [
-        "cloud new-terminal-on-machine",
         "cloud exec",
         "cloud file-read",
         "home invite-to-team",
