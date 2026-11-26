@@ -290,6 +290,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_row_rules" => {
+                use cmux_layout_reducer::sidebar_row_rules;
+                let request: sidebar_row_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_row_rules::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_drag_geometry" => {
                 use cmux_layout_reducer::sidebar_drag_geometry;
                 let request: sidebar_drag_geometry::Request =
