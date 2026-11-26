@@ -414,6 +414,9 @@ jobs:
     outputs:
       exports: ${{ steps.actions.outcome == 'success' && steps.actions.outputs.exports == 'true' && steps.upload.outcome == 'success' && 'true' || 'false' }}
       verified: ${{ steps.actions.outcome == 'success' && (steps.actions.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
+      # The exporter ran and could not make them: only then does the Mac make them. A checkout or setup that failed
+      # before it leaves this job red and the exports unverified (push holds them back, as when the Mac fails).
+      fallback: ${{ steps.actions.outcome == 'failure' && 'true' || 'false' }}
       # The commit the action exports were made at (the newest tip when their inputs moved).
       actions_made_at: ${{ steps.actions.outputs.made_at }}
     # NEXT's cache writer (feat-cmux-next only), for judge-action-exports.sh --publish, as the Mac job had it.
@@ -519,6 +522,9 @@ jobs:
     outputs:
       exports: ${{ steps.settings.outcome == 'success' && steps.settings.outputs.exports == 'true' && steps.upload.outcome == 'success' && 'true' || 'false' }}
       verified: ${{ steps.settings.outcome == 'success' && (steps.settings.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
+      # The exporter ran and could not make them: only then does the Mac make them. A checkout or setup that failed
+      # before it leaves this job red and the exports unverified (push holds them back, as when the Mac fails).
+      fallback: ${{ steps.settings.outcome == 'failure' && 'true' || 'false' }}
       # The commit the settings exports were made at (the newest tip when their inputs moved).
       settings_made_at: ${{ steps.settings.outputs.made_at }}
     steps:
@@ -588,7 +594,7 @@ jobs:
     needs: [action-areas, pushed-exports, action-exports-linux, settings-exports-linux]
     # The action exports only as action-exports-linux's fallback and the settings exports only as
     # settings-exports-linux's (each logs why).
-    if: ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true') || (needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true')) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' }}
+    if: ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' }}
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
@@ -616,9 +622,11 @@ jobs:
       # The commit the action exports were made at (the newest tip when their inputs moved).
       actions_made_at: ${{ steps.actions.outputs.made_at }}
       # The exports on this tree are current: regenerated, or already fresh.
-      # Skipped (that area did not change) counts as current.
-      verified: ${{ steps.actions.outcome != 'failure' }}
-      settings_verified: ${{ steps.settings.outcome != 'failure' }}
+      # Only a step that ran and passed: this job now skips an area whose Linux job failed before its exporter
+      # (that area stays unverified), and push reads an area that did not change, or that Linux verified, from
+      # action-areas and the Linux job, never from here.
+      verified: ${{ steps.actions.outcome == 'success' }}
+      settings_verified: ${{ steps.settings.outcome == 'success' }}
     # NEXT's cache writer (feat-cmux-next only): the fresh action exports go to cmux-ci-cache-next for
     # the pull requests on the commit they were made at (judge-action-exports.sh --publish).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
@@ -713,14 +721,14 @@ jobs:
       # starts on the tip when the area moved meanwhile, regenerates once, and leaves the checkout at
       # the run's commit; base-autofix-push.sh lands the exports as progress when the area moved again.
       - name: Say why the Mac makes the action exports
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         env:
           LINUX_RESULT: ${{ needs.action-exports-linux.result }}
         run: echo "::warning title=mac fallback::action exports (Linux) did not make the action exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
 
       - name: Regenerate the action exports
         id: actions
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         timeout-minutes: 40
         env:
@@ -757,14 +765,14 @@ jobs:
       # checks the tip out; the action exports above are already copied out) up to three
       # times; then they wait and this fails. Runs last: later steps read no checkout files.
       - name: Say why the Mac makes the settings exports
-        if: needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
         env:
           LINUX_RESULT: ${{ needs.settings-exports-linux.result }}
         run: echo "::warning title=mac fallback::settings exports (Linux) did not make the settings exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
 
       - name: Regenerate the settings exports
         id: settings
-        if: needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         # Below the job's 90 so a slow run fails only this step, and the upload of the action
         # exports (and of any settings export it finished) still runs.
@@ -1087,8 +1095,13 @@ jobs:
       - name: Install Linux build dependencies for clippy
         if: steps.areas.outputs.clippy == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Init the ghostty-next submodule for clippy
         if: steps.areas.outputs.clippy == 'true'

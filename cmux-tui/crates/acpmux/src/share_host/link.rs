@@ -219,6 +219,9 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
         link.detail = None;
     });
     tracing::info!("{LOG}: online as \"{}\" ({})", printable(&hub.device.name), hub.device.id);
+    // An app that asked for the identity before the daemon signed in (or before a new device)
+    // runs another one; this tells it to take the daemon's.
+    shared.announce_online();
     refresh_devices(shared);
     // Within the hub's offline grace: the shares a daemon left running that ended meanwhile.
     check_adopted(shared);
