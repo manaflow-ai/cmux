@@ -37,9 +37,9 @@ jobs:
         run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh'
       # Every other CmuxAuthRuntime suite runs on Linux (scripts/ci/swift-linux-packages.txt). These compile only
       # on Apple platforms: the two Stack boundaries need Network, the rest AuthenticationServices, Security,
-      # Darwin's URLProtocol redirects or the macOS debug log.
+      # Darwin's URLProtocol redirects or registration (StackAuthClientTeamListTests) or the macOS debug log.
       - name: Exercise the Stack refresh boundaries over loopback and the Apple-only auth suites
-        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'StackRateLimitBoundaryTests|StackTokenRefreshBoundaryTests|ASWebBrowserAuthSessionFactoryTests|KeychainStackTokenStoreTests|AuthDebugLogTests|ImportingTokenStoreTests/anAdoptedTokenNeverReachesTheAuthLogFile|PushRegistrationServiceTests/(sameOrigin|originChanges)'
+        run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'StackRateLimitBoundaryTests|StackTokenRefreshBoundaryTests|ASWebBrowserAuthSessionFactoryTests|KeychainStackTokenStoreTests|AuthDebugLogTests|StackAuthClientTeamListTests|ImportingTokenStoreTests/anAdoptedTokenNeverReachesTheAuthLogFile|PushRegistrationServiceTests/(sameOrigin|originChanges)'
       # CmuxPhonePush runs on Linux too; its Keychain migrations need Security.
       - name: Exercise the phone push Keychain migrations
         run: swift test --package-path Packages/macOS/CmuxPhonePush --filter 'PhonePushSharedStateTests/(sharedPushStateIsDeviceOnly|phonePushKeyMaterialIsDeviceOnly)'

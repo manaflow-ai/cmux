@@ -140,7 +140,7 @@ home.atlassian.com
 html.duckduckgo.com
 # the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template)
 ice2.somafm.com
-# the crates.io sparse index, fetched through the machine git cache for a cargo build in a cloud VM
+# crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute
 index.crates.io
 # images in agent replies
 lh3.googleusercontent.com
@@ -182,7 +182,7 @@ share-staging.cmux.dev
 share.cmux.dev
 # the radio player's station list and the song each station plays, only when you install it (a customize template)
 somafm.com
-# crate downloads, fetched through the machine git cache for a cargo build in a cloud VM
+# crate downloads, fetched once by a Cloud machine's crates cache for cargo on that machine, then served from its copy
 static.crates.io
 # a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic
 stun.cloudflare.com
