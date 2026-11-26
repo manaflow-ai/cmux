@@ -147,6 +147,8 @@ public final class IPhoneHostService {
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
     /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
     public internal(set) var servesPhones = false
+    /// What the card's Sign In signs in to ("Signs in to cmux.com"), the line under it; set by `wire`.
+    public internal(set) var signInBackend: String?
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
@@ -742,7 +744,8 @@ public final class IPhoneHostService {
                 // backend shared, readable only by the build that made it (-25293 for the others).
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
                                                        ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
+                                                stateDirectory: dependencies.stateDirectory,
+                                                keepsKeychainCopy: Self.mayUseFileStoreOnRefusal, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
                 let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey

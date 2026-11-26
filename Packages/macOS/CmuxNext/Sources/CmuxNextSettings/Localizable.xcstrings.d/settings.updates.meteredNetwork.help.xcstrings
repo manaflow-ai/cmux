@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.meteredNetwork.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While downloads wait, a found update shows on Settings and one click downloads it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أثناء انتظار التنزيلات، يظهر التحديث الذي تم العثور عليه في الإعدادات، وبنقرة واحدة يتم تنزيله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dok preuzimanja čekaju, pronađeno ažuriranje se prikazuje u Postavkama i jednim klikom se preuzima."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mens downloads venter, vises en fundet opdatering i Indstillinger, og ét klik downloader den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Während Downloads warten, erscheint ein gefundenes Update in den Einstellungen und wird mit einem Klick geladen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mientras las descargas esperan, una actualización encontrada aparece en Ajustes y se descarga con un clic."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pendant que les téléchargements attendent, une mise à jour trouvée apparaît dans Réglages et un clic la télécharge."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mentre i download sono in attesa, un aggiornamento trovato appare in Impostazioni e un clic lo scarica."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダウンロードを待つ間、見つかったアップデートは設定に表示され、1回のクリックでダウンロードします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខណៈពេលការទាញយករង់ចាំ បច្ចុប្បន្នភាពដែលបានរកឃើញបង្ហាញនៅក្នុងការកំណត់ ហើយការចុចម្តងនឹងទាញយកវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다운로드가 대기하는 동안 발견된 업데이트는 설정에 표시되며 한 번 클릭하면 다운로드됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mens nedlastinger venter, vises en funnet oppdatering i Innstillinger, og ett klikk laster den ned."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy pobieranie czeka, znaleziona aktualizacja pojawia się w Ustawieniach, a jedno kliknięcie ją pobiera."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enquanto os downloads aguardam, uma atualização encontrada aparece em Ajustes e um clique a baixa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пока загрузки ждут, найденное обновление показывается в Настройках, и один щелчок загружает его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขณะที่การดาวน์โหลดรออยู่ การอัปเดตที่พบจะแสดงในการตั้งค่า และคลิกครั้งเดียวเพื่อดาวน์โหลด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İndirmeler beklerken bulunan güncelleme Ayarlar'da görünür ve tek tıklama onu indirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Поки завантаження чекають, знайдене оновлення з’являється в Параметрах, і одне клацання завантажує його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trong khi chờ tải xuống, bản cập nhật tìm thấy hiển thị trong Cài đặt và một lần nhấp sẽ tải xuống."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下载等待期间，找到的更新会显示在“设置”中，点按一下即可下载。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下載等待期間，找到的更新會顯示在「設定」中，按一下即可下載。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -326,5 +326,26 @@ export function composerChips(): Record<string, string> {
   return chips;
 }
 
+/// The composer's controls' boxes as drawn (CSS pixels, rounded to a tenth): the model chip, the access (mode)
+/// chip, the effort chip and the location strip's chips. A mode switch, a Cloud pick or a Cloud start must leave
+/// the model chip where it was (cmux#53226: "make sure that the model picker doesn't move around").
+export function composerFrames(): Record<string, { x: number; y: number; width: number; height: number }> {
+  const frames: Record<string, { x: number; y: number; width: number; height: number }> = {};
+  const round = (value: number) => Math.round(value * 10) / 10;
+  const add = (name: string, selector: string) => {
+    const node = [...document.querySelectorAll<HTMLElement>(selector)].find((each) => boxOf(each));
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    frames[name] = { x: round(rect.left), y: round(rect.top), width: round(rect.width), height: round(rect.height) };
+  };
+  add("model", ".acpmux-model .acpmux-picker-button");
+  add("access", ".acpmux-access-trigger");
+  add("effort", ".acpmux-effort .acpmux-picker-button");
+  add("folder", ".acpmux-composer-context .acpmux-location-leading");
+  add("where", '.acpmux-location-picker[data-kind="computer"]');
+  add("send", ".acpmux-send");
+  return frames;
+}
+
 const label = (node: HTMLElement) =>
   (node.innerText || node.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();

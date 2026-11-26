@@ -6,11 +6,12 @@ on:
     branches: ["codex/vm-api-cloud-*"]
     paths: ["backend/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", ".github/workflows/cmux-vm-cloud.yml"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths: ["workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", "libs/vm-instance-identity/**", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
 permissions:
   contents: read
 concurrency:
-  group: vm-api-cloud-${{ github.event.pull_request.number || github.ref }}
+  group: vm-api-cloud-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   # A newer push to a pull request supersedes its check; branch pushes still finish.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
@@ -19,7 +20,10 @@ env:
 
 jobs:
   check:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-vm-cloud`
+    # (pr-pipeline.yml); a push and a pull request into any other base still run them here.
+    if: ${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     defaults:
       run:
