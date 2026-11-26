@@ -46,6 +46,9 @@ use sha2::Digest as _;
 /// The flag that turns the chain off (`0`).
 pub const FLAG: &str = "CMUX_PROJECTION_PEERS";
 
+/// Maximum body retained from an optional peer or cache response.
+pub const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
+
 /// The git object id of a blob with these bytes: sha1 for a 40-hex id, sha256 for a 64-hex id.
 /// Bytes that carry a SHA-1 collision attack hash to no id (an empty string), so they never match.
 #[must_use]
@@ -141,6 +144,27 @@ impl Http {
     }
 }
 
+fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
+    if response.content_length().is_some_and(|length| length > MAX_HTTP_BODY_BYTES as u64) {
+        return Answer::Failed;
+    }
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let remaining = MAX_HTTP_BODY_BYTES - bytes.len();
+        let read_limit = chunk.len().min(remaining.saturating_add(1));
+        let read = match response.read(&mut chunk[..read_limit]) {
+            Ok(0) => return Answer::Found(bytes),
+            Ok(read) if read <= remaining => read,
+            _ => return Answer::Failed,
+        };
+        if bytes.len().checked_add(read).is_none() {
+            return Answer::Failed;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+    }
+}
+
 impl Get for Http {
     fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
         let mut request = self.client.get(url).timeout(deadline);
@@ -150,9 +174,7 @@ impl Get for Http {
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
-            Ok(response) if response.status().is_success() => {
-                response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
-            }
+            Ok(response) if response.status().is_success() => bounded_body(response),
             _ => Answer::Failed,
         }
     }

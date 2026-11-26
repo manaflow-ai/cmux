@@ -4,7 +4,9 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { Strings } from "../shared/i18n";
 import { HomeIcon } from "./icons";
-import type { HomeChiefWork } from "./chiefWorkTypes";
+import type { HomeChiefAgent, HomeChiefPlan, HomeChiefWork } from "./chiefWorkTypes";
+import { useExperimentArm } from "../../experiments/useExperimentArm";
+import { chiefPlans, type ChiefPlansArm } from "./chiefPlans.experiment";
 import "./chiefWork.css";
 
 export interface ChiefWorkPanelProps {
@@ -14,14 +16,18 @@ export interface ChiefWorkPanelProps {
   onRefresh(): void;
   onClose(): void;
   strings: Strings;
+  /** The plans arm; else the `chief-plans` experiment's (default off). */
+  plans?: ChiefPlansArm;
 }
 
 const agentRank = { waiting: 0, working: 1, failed: 2, idle: 3 };
 const taskRank = { running: 0, unknown: 1, failed: 2, cancelled: 2, done: 2 };
 
 /** A snapshot view: no timers, subscriptions or parallel copy of the Chief's work state. */
-export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, strings }: ChiefWorkPanelProps) {
+export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, strings, plans }: ChiefWorkPanelProps) {
   const { t } = strings;
+  const experimentPlans = useExperimentArm(chiefPlans);
+  const arm = plans ?? experimentPlans;
   const agents = [...(snapshot?.agents ?? [])].sort(
     (a, b) => agentRank[a.state] - agentRank[b.state] || (a.startedAt ?? 0) - (b.startedAt ?? 0),
   );
@@ -71,6 +77,7 @@ export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, s
             <p className="hc-chief-work__empty">{t("work.empty")}</p>
           ) : (
             <>
+              {arm === "section" && <PlansSection snapshot={snapshot} agents={agents} strings={strings} />}
               {agents.length > 0 && (
                 <section aria-label={t("work.subagents")}>
                   <h3>{t("work.subagents")}</h3>
@@ -81,6 +88,9 @@ export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, s
                         <div className="hc-chief-work__text">
                           <span className="hc-chief-work__name">{agent.name}</span>
                           {agent.task && <p>{agent.task}</p>}
+                          {(arm === "inline" || arm === "steps") && agent.plan && agent.plan.total > 0 && (
+                            <PlanLine plan={agent.plan} strings={strings} look={arm} />
+                          )}
                         </div>
                         <span className="hc-chief-work__state">
                           {t(
@@ -127,6 +137,74 @@ export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, s
         </div>
       </aside>
     </KeyboardScope>
+  );
+}
+
+/** The Chief's own plans, then each subagent's, ahead of everything else. */
+function PlansSection({
+  snapshot,
+  agents,
+  strings,
+}: {
+  snapshot?: HomeChiefWork;
+  agents: readonly HomeChiefAgent[];
+  strings: Strings;
+}) {
+  const { t } = strings;
+  const rows = [...(snapshot?.plans ?? []), ...agents].filter(
+    (row): row is HomeChiefAgent & { plan: HomeChiefPlan } => !!row.plan && row.plan.total > 0,
+  );
+  if (rows.length === 0) return null;
+  return (
+    <section aria-label={t("work.plans")} className="hc-chief-work__plans">
+      <h3>{t("work.plans")}</h3>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.id} className="hc-chief-work__row" data-state={row.state}>
+            <Mark state={row.plan.done >= row.plan.total ? "done" : row.state} />
+            <div className="hc-chief-work__text">
+              <span className="hc-chief-work__name">{row.name}</span>
+              <PlanLine plan={row.plan} strings={strings} look="steps" />
+            </div>
+            <span className="hc-chief-work__state">{progress(row.plan, strings)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function progress(plan: HomeChiefPlan, strings: Strings): string {
+  const n = (value: number) => value.toLocaleString(strings.language);
+  return `${n(Math.min(plan.done, plan.total))}/${n(plan.total)}`;
+}
+
+/** One chat's plan: `inline` is the count and the step in progress on one line; `steps` adds a
+ *  progress bar and the next step. */
+function PlanLine({ plan, strings, look }: { plan: HomeChiefPlan; strings: Strings; look: "inline" | "steps" }) {
+  const { t } = strings;
+  const done = Math.min(plan.done, plan.total);
+  if (look === "inline")
+    return (
+      <p className="hc-chief-work__plan" data-look="inline">
+        <span className="hc-chief-work__plan-count">{progress(plan, strings)}</span>
+        {plan.current && <span className="hc-chief-work__plan-step">{plan.current}</span>}
+      </p>
+    );
+  return (
+    <div className="hc-chief-work__plan" data-look="steps">
+      <progress max={plan.total} value={done} aria-label={progress(plan, strings)} />
+      {plan.current && (
+        <p>
+          <span className="hc-chief-work__plan-label">{t("work.planNow")}</span> {plan.current}
+        </p>
+      )}
+      {plan.next && (
+        <p className="hc-chief-work__plan-next">
+          <span className="hc-chief-work__plan-label">{t("work.planNext")}</span> {plan.next}
+        </p>
+      )}
+    </div>
   );
 }
 

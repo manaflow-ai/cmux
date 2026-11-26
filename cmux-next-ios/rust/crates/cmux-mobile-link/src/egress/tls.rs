@@ -15,15 +15,22 @@
 //! device and the TURN server or the backend sees ciphertext, addresses and the
 //! bearer token, exactly what URLSession already hands it for the app's API
 //! calls. A certificate the OS does not trust still fails the connection.
+//!
+//! **Inspection.** A chain the OS trusts but the bundled web PKI does not is a
+//! TLS-inspecting proxy's (or a private CA's): the connection goes on, and
+//! [`inspected`] says so for that host, for the link's telemetry ("inspected"
+//! path). The inner crypto (WireGuard, the pinned peer key) is unchanged.
 
+use std::collections::HashSet;
 use std::fmt;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rustls::client::WebPkiServerVerifier;
-use rustls::client::danger::ServerCertVerifier;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
-use rustls::pki_types::CertificateDer;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, RootCertStore};
+use rustls::{DigitallySignedStruct, SignatureScheme};
 
 /// The roots a connection trusts.
 #[derive(Clone, Default)]
@@ -92,6 +99,90 @@ fn system_verifier(extra: &[CertificateDer<'static>]) -> Result<Arc<dyn ServerCe
     }
 }
 
+/// Hosts whose last verified chain the OS trusted and the bundled web PKI did
+/// not: a TLS-inspecting proxy (or a private CA) sits on the way.
+fn inspected_hosts() -> &'static Mutex<HashSet<String>> {
+    static HOSTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    HOSTS.get_or_init(Default::default)
+}
+
+/// Whether the last TLS handshake with `host` met a chain only the OS trusts
+/// (a TLS-inspecting proxy): the path is "inspected".
+pub fn inspected(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    inspected_hosts().lock().map(|hosts| hosts.contains(host)).unwrap_or(false)
+}
+
+/// Forget which hosts were inspected: the network changed.
+pub fn forget_inspected() {
+    if let Ok(mut hosts) = inspected_hosts().lock() {
+        hosts.clear();
+    }
+}
+
+fn mark(host: &str, inspected: bool) {
+    let Ok(mut hosts) = inspected_hosts().lock() else { return };
+    let changed = if inspected { hosts.insert(host.to_owned()) } else { hosts.remove(host) };
+    if changed && inspected {
+        tracing::info!(
+            host,
+            "TLS to this host is inspected: the OS trusts its chain, the public web PKI does not"
+        );
+    }
+}
+
+/// The OS verifier, which decides; beside it the bundled web PKI, whose
+/// verdict only marks the host [`inspected`] when it disagrees.
+#[derive(Debug)]
+struct Inspecting {
+    system: Arc<dyn ServerCertVerifier>,
+    public: Arc<dyn ServerCertVerifier>,
+}
+
+impl ServerCertVerifier for Inspecting {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        let verified =
+            self.system.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)?;
+        let public =
+            self.public.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now);
+        mark(&server_name.to_str(), public.is_err());
+        Ok(verified)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.system.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.system.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.system.supported_verify_schemes()
+    }
+}
+
+fn inspecting(system: Arc<dyn ServerCertVerifier>) -> Result<Arc<dyn ServerCertVerifier>, String> {
+    Ok(Arc::new(Inspecting { system, public: webpki_verifier(bundled_roots())? }))
+}
+
 fn with_verifier(verifier: Arc<dyn ServerCertVerifier>) -> Result<ClientConfig, String> {
     Ok(ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
@@ -103,8 +194,8 @@ fn with_verifier(verifier: Arc<dyn ServerCertVerifier>) -> Result<ClientConfig, 
 
 fn build(trust: &TlsTrust) -> Result<ClientConfig, String> {
     match trust {
-        TlsTrust::System => with_verifier(system_verifier(&[])?),
-        TlsTrust::SystemWith(extra) => with_verifier(system_verifier(extra)?),
+        TlsTrust::System => with_verifier(inspecting(system_verifier(&[])?)?),
+        TlsTrust::SystemWith(extra) => with_verifier(inspecting(system_verifier(extra)?)?),
         TlsTrust::Only(roots) => Ok(ClientConfig::builder_with_provider(provider())
             .with_safe_default_protocol_versions()
             .map_err(|error| error.to_string())?

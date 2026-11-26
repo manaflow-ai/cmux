@@ -147,7 +147,8 @@ impl Peer {
 
     /// Wake a parked demand wait when a setting changes whether this peer must stay connected.
     pub(crate) fn demand_changed(&self) {
-        self.wanted.demand.changed.notify_waiters();
+        // Retain one wake if the state flips between the loop's check and its select setup.
+        self.wanted.demand.changed.notify_one();
     }
 
     /// The chats of this peer local clients asked to stream (`mark_attached`); a mark outlives

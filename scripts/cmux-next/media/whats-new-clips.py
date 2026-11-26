@@ -523,6 +523,49 @@ def published(url: str, attempts: int = 3, pause: float = 2.0) -> bool:
     return False
 
 
+def pr_media_files(get=None) -> set[str] | None:
+    """Every whats-new/ path on pr-media, from one GET of its tree (GET, a REST path to its JSON, defaults to
+    `gh api`), or None when the tree cannot be read whole. The plan asks this once instead of a HEAD per clip
+    on raw.githubusercontent.com, which rate-limits a runner: on 2026-11-25 its HTTP 429s read two published
+    clips as unpublished, the plan recorded them again, and iphone-pairs-without-qr waited past PLAN_LIMIT
+    (cmux run 45636169467)."""
+    if get is None:
+        def get(path):
+            return json.loads(run(["gh", "api", path], text=True).stdout)
+    try:
+        # Two plain paths: the root listing names whats-new/'s tree, then that tree whole (410 entries on
+        # 2026-11-25; GitHub truncates past 100,000).
+        sha = next(e["sha"] for e in get(f"repos/{REPO}/contents?ref={BRANCH}")
+                   if isinstance(e, dict) and e.get("name") == "whats-new" and e.get("type") == "dir")
+        tree = get(f"repos/{REPO}/git/trees/{sha}?recursive=1")
+    except Exception as error:  # ClipError, no gh, a JSON or network error: each clip is asked on its own
+        print(f"::warning title=What's New clip::no pr-media tree read ({type(error).__name__}); "
+              "asking each clip's URL", file=sys.stderr)
+        return None
+    entries = tree.get("tree") if isinstance(tree, dict) else None
+    if not isinstance(entries, list) or tree.get("truncated"):
+        return None
+    return {f"whats-new/{e['path']}" for e in entries
+            if isinstance(e, dict) and e.get("type") == "blob" and isinstance(e.get("path"), str)}
+
+
+def listed(files: set[str] | None, fallback):
+    """An `exists` or `marker` reader for plan: a URL under URL_PREFIX that FILES does not list is not there
+    (False, or None for a marker), one it lists (or any URL, when FILES is None) is asked through FALLBACK."""
+    if files is None:
+        return fallback
+    absent = False if fallback is published else None
+    def read(url: str):
+        if url.startswith(URL_PREFIX):
+            path = "whats-new/" + url.removeprefix(URL_PREFIX)
+            if path not in files:
+                return absent
+            if fallback is published:
+                return True
+        return fallback(url)
+    return read
+
+
 def tour_module():
     spec = importlib.util.spec_from_file_location("media_tour", Path(__file__).with_name("tour.py"))
     module = importlib.util.module_from_spec(spec)
@@ -1034,7 +1077,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
             return 0
         if a.command == "plan":
-            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app, marker=failure_marker, tips=nightly_tips)
+            files = pr_media_files()
+            rows = plan(a.base, a.head, a.tours, a.limit, exists=listed(files, published), app=a.app,
+                        marker=listed(files, failure_marker), tips=nightly_tips)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0
