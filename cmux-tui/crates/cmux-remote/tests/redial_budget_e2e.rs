@@ -1045,6 +1045,78 @@ async fn a_refused_route_starts_the_next_at_once() {
     assert_eq!(other.dials_since(start), 1);
 }
 
+/// A network that goes silent and comes back with no change event (a tunnel, 8 s of loss): the
+/// dials from the silence wait on their transports' backoff, so the round keeps asking the
+/// source, and the first route it opens after the return carries the link. Before, the round
+/// held those dials until its attempt timeout (15 s) or their own retransmission.
+#[tokio::test(start_paused = true)]
+async fn a_network_that_comes_back_is_dialed_afresh() {
+    let h = harness_with(policy(), true, true).await;
+    let source = h.source.as_ref().unwrap();
+    let lost = h.group.sibling_named("test carrier (dialed in the silence)");
+    lost.hang.store(true, Ordering::Release);
+    lock(&source.others).push(lost.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    // Silence: the failed route's dial hangs, and so does every pass of the source.
+    h.group.hang.store(true, Ordering::Release);
+    source.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(*generation.borrow(), before, "nothing answers in the silence");
+    // The network is back: a pass started now opens a route. Nothing tells the link.
+    let back = h.group.sibling_named("test carrier (after the return)");
+    *lock(&source.others) = vec![back.clone()];
+    source.hang.store(false, Ordering::Release);
+    let returned = Instant::now();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = returned.elapsed();
+    assert!(took < Duration::from_secs(1), "reconnected {took:?} after the network came back");
+    assert_eq!(back.dials_since(returned), 1, "the route opened after the return carried it");
+    h.client
+        .send(Lane::Interactive, 1, Bytes::from_static(b"after"), FrameFlags::empty())
+        .await
+        .unwrap();
+}
+
+/// A network change in a raced round starts a fresh pass at once and keeps what is in flight:
+/// the round is not thrown away, and the route the pass opens carries the link.
+#[tokio::test(start_paused = true)]
+async fn a_network_change_in_a_raced_round_dials_afresh_and_keeps_the_round() {
+    let h = harness_with(policy(), true, true).await;
+    let source = h.source.as_ref().unwrap();
+    let lost = h.group.sibling_named("test carrier (on the old network)");
+    lost.hang.store(true, Ordering::Release);
+    lock(&source.others).push(lost.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    // Past the stagger: both routes hang on the old network.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let fresh = h.group.sibling_named("test carrier (on the new network)");
+    lock(&source.others).push(fresh.clone());
+    let changed = Instant::now();
+    h.client.network_changed();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = changed.elapsed();
+    assert!(took < Duration::from_millis(100), "reconnected {took:?} after the network change");
+    assert_eq!(
+        (h.group.dials_since(start), lost.dials_since(start), fresh.dials_since(start)),
+        (1, 1, 1),
+        "one round: no route was dialed again"
+    );
+}
+
 /// A source with one route is not raced against itself: the redial dials it once per round.
 #[tokio::test(start_paused = true)]
 async fn one_route_is_not_raced_against_itself() {
