@@ -132,6 +132,8 @@ pub mod github_session_env;
 pub mod god_fixture;
 pub mod hypervisor;
 pub mod install_share;
+/// Bounded journal reads reduced once into timestamped replay states.
+pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -385,8 +387,6 @@ pub mod sidecar_census;
 pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
-/// Bounded journal reads reduced once into timestamped replay states.
-pub mod journal_replay;
 pub mod perf_watch;
 pub mod scorecard;
 #[cfg(all(test, unix))]

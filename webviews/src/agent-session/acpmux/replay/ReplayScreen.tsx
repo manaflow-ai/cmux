@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
-import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import { AcpmuxDirectClient, type EventRecord, type RecordedEvents } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -50,7 +50,7 @@ export function ReplayScreen({
   sessionId: string;
   title?: string;
   /** The session's recorded events (AcpmuxDirectClient.recordedEvents). */
-  load: () => Promise<EventRecord[]>;
+  load: () => Promise<EventRecord[] | RecordedEvents>;
   onClose: () => void;
   /** Forks a live chat through the turn whose `turn_result` is `throughSeq`; absent when the chat
    * cannot be forked. */
@@ -79,7 +79,10 @@ export function ReplayScreen({
         if (!live) return;
         const client = AcpmuxDirectClient.replay(sessionId, events, (next) => live && setSnapshot(next));
         time.current = 0;
-        setLoaded({ client, timeline: replayTimeline(client.sessionEvents()) });
+        setLoaded({
+          client,
+          timeline: replayTimeline(client.sessionEvents(), (events as RecordedEvents).replaySchedule),
+        });
       },
       () => live && setLoaded("failed"),
     );
