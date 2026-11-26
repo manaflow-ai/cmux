@@ -37,6 +37,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
 
 [[test]]
+path = "tests/test_cmux_machine_channel_pr_head.py"
+lane = "manual"
+reason = "Checks scripts/ci/cmux_machine_channel_pr_head.py find (PR_HEAD_FAST_LANE): the merge takes its PR head's thin build only for a same-repo squash into feat-cmux-next with the same v2 tree key and both artifacts, waits a bounded time for a build still running, and otherwise builds; run python3 tests/test_cmux_machine_channel_pr_head.py yourself after changing it (no network)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 

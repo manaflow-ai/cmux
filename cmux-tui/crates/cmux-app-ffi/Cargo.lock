@@ -182,6 +182,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-interactivity",
  "cmux-keymap",
  "cmux-launch-image",
  "cmux-launch-record",
@@ -404,6 +405,13 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "cmux-interactivity"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
