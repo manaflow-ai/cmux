@@ -32,6 +32,8 @@ serde.workspace = true
 # raw_value: the embedded settings schema keeps each row as a slice of its text.
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
+# Swift's `count` (grapheme clusters) for a one-character shortcut key (app_ops/shortcut.rs).
+unicode-segmentation.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -149,7 +149,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Gap between the stack and the keyboard (or the bottom safe area).
     static let dockGap: CGFloat = 8
     /// Space between the last turn and the stack.
-    static let contentGap: CGFloat = 8
+    nonisolated static let contentGap: CGFloat = 8
 
     /// Either the shared probe or this controller's detached-hide recovery is
     /// driving the notified keyboard frame. Geometry and drag handling must
@@ -468,6 +468,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         super.viewDidAppear(animated)
         // The push has landed: warm the rows' first draws now, not under the push animation.
         list.allowWarmUp()
+        #if DEBUG
+        ComposerProof.start(self, screen: "chat")
+        #endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -1392,7 +1395,7 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
         // Read here so SwiftUI calls update when the Mac's chat look changes.
-        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
+        controller.applyChatLook(CmuxMobileChatLook.current)
     }
 }
 
@@ -1499,6 +1502,22 @@ private final class TopFadeView: UIView {
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
+
+#if DEBUG
+/// `-cmux-mobile-composer-proof`: the composer's cap and the strip's zero shift
+/// (`ComposerProof`, ComposerHeightCapUITests).
+extension ChatTranscriptController: ComposerProofHost {
+    var proofView: UIView { view }
+    var proofCardFrame: CGRect { surface.drawnStackFrame }
+    var proofField: ComposerReturnTextView? { surface.composerField.view }
+    var proofContentY: CGFloat? { scrollView.convert(CGPoint.zero, to: nil).y }
+    func proofSetText(_ text: String) { surface.text = text }
+    func proofSetAttachments(_ count: Int) {
+        surface.attachments = (0..<count).map { AgentAttachment(kind: .file, name: "proof-\($0).log", byteCount: 4_096) }
+    }
+    func proofSetKeyboard(_ up: Bool) { surface.composerFocused = up }
+}
+#endif
 #endif
 
 #if os(iOS)

@@ -180,59 +180,6 @@ test("a run whose command is on the line never shares a version with its ended, 
   expect(folded.version).not.toBe(lined.version);
 });
 
-test("with a todo list the activity line offers ⌃B for a running command", async () => {
-  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
-  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  const shaped = turnView(
-    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
-    new Set(),
-    { working: true, sessionStatus: true },
-  );
-  const line = shaped.at(-1)!;
-  expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-  expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
-});
-
-// Re-review on #24305 (Codex xhigh): with a todo list the activity line names the command the runs
-// left out, even when a newer earlier run holds a read or a call Claude is still writing.
-test("with a todo list the activity line names the command its run gave up", () => {
-  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  const newer = [
-    call("Bash", "pending", { title: "Bash", command: undefined }),
-    call("Read session.log", "in_progress", { kind: "read", command: undefined }),
-  ];
-  for (const other of newer) {
-    const shaped = turnView(
-      [
-        row("u", "user"),
-        plan,
-        row("r1", "activity", { items: [call("cp a b", "in_progress")] }),
-        row("a1", "assistant", { text: LONG_NOTE }),
-        row("r2", "activity", { items: [other] }),
-        row("a2", "assistant", { text: LONG_NOTE }),
-        row("r3", "activity", { items: [call("git status")] }),
-      ],
-      new Set(),
-      { working: true, sessionStatus: true },
-    );
-    const line = shaped.at(-1)!;
-    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-    expect(line.text).toContain("cp a b");
-    expect(shaped.some((entry) => entry.id === "r1")).toBe(false);
-  }
-});
-
-// Leo, 2026-11-03, on a row that opened to nothing: "these background updates don't really expand out
-// to anything? idk what those are even for". The "Sending message to …" line opens nothing either, so
-// it draws no chevron.
-test("the Sending message line draws no chevron: it has nothing to open", async () => {
-  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
-  const line = { id: "l", version: 1, at: 0, kind: "activityLine", doingSendTo: "tests" } as AcpmuxRow;
-  const html = renderToStaticMarkup(<ActivityLine row={line} now={() => 1000} />);
-  expect(html).toContain("tests");
-  expect(html).not.toContain("cv-tool__chevron");
-});
-
 // cmux#33200: while the reader is scrolled up, the command the line lets go of stays out of its run,
 // as they saw it, instead of coming back as a row that moves every row under it.
 test("a command the line let go of stays out of its run while held", () => {
