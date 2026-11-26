@@ -55,6 +55,9 @@ actor FakeOwner: InstallAuthTransport {
     var tokenTeamOverride: String?
     var replyTeamOverride: String?
     var claimOverrides: [String: String] = [:]
+    /// Production's build-space gate (backend/apps/api/src/build-space.ts spaceOf): every request is refused 403
+    /// with the code inside `error`, before auth.
+    var refusesBuildSpace = false
 
     /// The count crosses the actor boundary, not the dictionary: swift-crypto's keys are not Sendable on Linux.
     var installCount: Int { installs.count }
@@ -68,6 +71,7 @@ actor FakeOwner: InstallAuthTransport {
     func setTokenTeamOverride(_ value: String) { tokenTeamOverride = value }
     func setReplyTeamOverride(_ value: String) { replyTeamOverride = value }
     func setClaim(_ name: String, _ value: String) { claimOverrides[name] = value }
+    func setRefusesBuildSpace() { refusesBuildSpace = true }
 
     /// An unsigned JWT-shaped token whose payload names the issuer (the client
     /// only reads `iss`; the owner verifies signatures).
@@ -103,6 +107,10 @@ actor FakeOwner: InstallAuthTransport {
     private func handle(_ path: String, _ json: Data, _ bearer: String?, _ headers: [String: String]) throws -> (status: Int, body: Data) {
         let body = try JSONSerialization.jsonObject(with: json) as! [String: Any]
         headersByPath[path, default: []].append(headers)
+        if refusesBuildSpace {
+            return try reply(["error": ["code": "build_space.not_allowed",
+                                        "message": "dev build spaces are not served by the production API; use the dev or staging API"]], 403)
+        }
         switch path {
         case "/v1/ops":
             guard bearer == "session-token" else { return try reply(["code": "auth.unauthenticated"], 401) }
@@ -350,6 +358,18 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         }
         let updated = makeClient(owner, signer, record: record, clientVersion: "2.4.1")
         #expect(try await updated.installToken() == FakeOwner.expectedToken(1))
+    }
+
+    /// A dev build pointed at production is refused by the build-space gate, whose code sits inside `error`:
+    /// the refusal names it (cloud-chat-proof run 45746953100 logged only `http_403`).
+    @Test func aRefusalWhoseCodeIsInsideErrorIsNamedByThatCode() async throws {
+        let owner = FakeOwner(), signer = SoftwareSigner()
+        await owner.setRefusesBuildSpace()
+        let client = makeClient(owner, signer)
+        await #expect(throws: InstallAuthError.refused("build_space.not_allowed")) { try await client.installToken() }
+        #expect(InstallAuthError.refused("build_space.not_allowed").description
+            == "the cmux API refused the install token request (build_space.not_allowed)")
+        #expect(await signer.rotations == 0)
     }
 
     @Test func base64URLHasNoPaddingAndRoundTrips() {
