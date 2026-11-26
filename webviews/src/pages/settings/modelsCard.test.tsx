@@ -63,6 +63,7 @@ test("Connect is the last row and opens a focused picker", async () => {
   const rendered = await render(mockModels.empty);
   const personal = card(rendered).querySelector<HTMLElement>('[data-models-section="personal"]')!;
   expect(personal.textContent).toContain("Your connections");
+  expect([...personal.querySelectorAll("button")]).toEqual([add()]);
   expect(personal.querySelector(".models-rows")?.lastElementChild).toBe(add());
   expect(add().textContent).toBe("Connect");
   expect(add().dataset.variant).toBe("ghost");
@@ -82,31 +83,16 @@ test("Connect is the last row and opens a focused picker", async () => {
   expect(choice("endpoint").textContent).toContain("Add custom provider");
 });
 
-test("Claude stays listed and cannot be picked when Claude Code is missing", async () => {
+test("Claude Connect keeps the paste option when Claude Code is missing", async () => {
   const rendered = await render({ ...mockModels.empty, claudeCodeAvailable: false });
-  await click(add());
-  const claude = choice("claude");
-  expect(claude.getAttribute("aria-disabled")).toBe("true");
-  expect(claude.textContent).toContain("Disabled");
-  expect(claude.textContent).toContain("Needs Claude Code on this Mac");
-  await click(claude);
-  await press(claude, "Enter");
-  const search = document.querySelector<HTMLInputElement>('[role="combobox"][aria-label="Search providers"]')!;
-  await changeValue(search, "claude");
-  // The Anthropic key also matches and may take the highlight; the missing Claude Code row never does.
-  expect(search.getAttribute("aria-activedescendant") ?? "").not.toMatch(/-claude$/);
-  await press(search, "Enter");
-  expect(panel()?.dataset.modelsDialog).not.toBe("claude");
+  await pick("claude");
+  const dialog = panel()!;
+  expect(dialog.dataset.modelsDialog).toBe("claude");
+  expect(dialog.textContent).toContain("Needs Claude Code on this Mac");
+  expect(action(dialog, "connectClaude")!.disabled).toBe(true);
+  expect(action(dialog, "connectClaudeToken")!.disabled).toBe(true);
+  expect(dialog.querySelector("[data-models-claude-paste]")).not.toBeNull();
   expect(rendered.provider.modelRuns).toEqual([]);
-});
-
-test("a direct link to Claude shows its disabled row instead of starting a connection", async () => {
-  await render(
-    { ...mockModels.empty, claudeCodeAvailable: false },
-    "/settings/models?focus=models.add.claude&open=picker",
-  );
-  expect(choice("claude").getAttribute("aria-disabled")).toBe("true");
-  expect(panel()).toBeNull();
 });
 
 test("Move Down sends the whole new order, and the rows follow", async () => {
@@ -238,6 +224,21 @@ test("reconnecting a standalone ChatGPT row uses that account", async () => {
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", id: second.id, openBrowser: true }]);
 });
 
+test.each([false, true])(
+  "signing in to a disabled ChatGPT plan requests Cloud use only in Cloud Models (%s)",
+  async (cloud) => {
+    const models = structuredClone(mockModels.chatgptSignedOut);
+    const plan = models.personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
+    plan.enabled = false;
+    const rendered = await render(models, cloud ? "/settings/cloud" : "/settings/models");
+    await chooseAction(rendered, plan.id, "signInAgain");
+    await click(action(panel()!, "connectChatGPTDevice")!);
+    expect(rendered.provider.modelRuns).toEqual([
+      { action: "connectChatGPTDevice", id: plan.id, openBrowser: true, ...(cloud && { servesCloud: true }) },
+    ]);
+  },
+);
+
 test("a sign-in from another build offers to reconnect the same row", async () => {
   const { personal } = mockModels.chatgptForCloud;
   const plan = personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
@@ -311,9 +312,10 @@ test("API key validation, reveal, and successful submission use the existing key
   expect(dialog.querySelector("a")).toBeNull();
   expect(field.placeholder).toBe("e.g. sk-ant-…");
   expect(action(form, "addKey")!.disabled).toBe(true);
-  await changeValue(field, "has spaces");
+  await changeValue(field, "has\u0000controls");
   expect(action(form, "addKey")!.disabled).toBe(true);
-  await changeValue(field, "sk-ant-secret-0123456789");
+  await changeValue(field, " \t sk-ant-secret-\n \u200B0123456789 \r");
+  expect(action(form, "addKey")!.disabled).toBe(false);
   await click(form.querySelector('button[aria-label="Show secret"]')!);
   expect(field.type).toBe("text");
   await click(action(form, "addKey")!);
@@ -710,14 +712,31 @@ test("Escape closes an in-flight device dialog and cancels the attempt", async (
 
 test("Continue with ChatGPT waits on the browser with Cancel, and Cancel stops it", async () => {
   const rendered = await render(mockModels.macLogins);
-  await click(action(card(rendered), "connectChatGPT")!);
+  await pick("chatgpt");
+  await click(action(panel()!, "connectChatGPT")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
-  expect(card(rendered).querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
+  expect(panel()?.querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
     "Waiting for you to sign in to ChatGPT",
   );
-  await click(action(card(rendered), "cancelChatGPT")!);
+  await click(action(panel()!, "cancelChatGPT")!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
   expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();
+});
+
+test.each(["models", "cloud"])("ChatGPT browser sign-in can retry and saves one row in %s", async (section) => {
+  const rendered = await render(
+    { ...mockModels.empty, chatgpt: mockModels.chatgptError.chatgpt },
+    `/settings/${section}`,
+  );
+  await pick("chatgpt");
+  const dialog = panel()!;
+  expect(dialog.querySelector('[data-chatgpt="error"] [role="alert"]')?.textContent).toContain("didn't allow");
+  await click(action(dialog, "retryChatGPT")!);
+  expect(rendered.provider.modelRuns).toContainEqual({ action: "connectChatGPT" });
+  expect(action(dialog, "connectChatGPTDevice")).toBeNull();
+  await act(async () => rendered.provider.setModels(mockModels.chatgptForCloud));
+  expect(panel()).toBeNull();
+  expect(connectionIds(rendered).filter((id) => id === "chatgpt")).toEqual(["chatgpt"]);
 });
 
 test.each([
@@ -779,7 +798,7 @@ test("Models shows the key and local subscription rows with the same type line",
 test("Mac Claude sign-in opens in the browser and cancels when the dialog closes", async () => {
   const rendered = await render(mockModels.macOnly, "/settings/models?focus=models.add.claude&open=picker");
   expect(panel()?.querySelector("h2")?.textContent).toBe("Connect with Claude");
-  expect(panel()?.querySelector("input")).toBeNull();
+  expect(panel()?.querySelector("[data-models-claude-form] input")).toBeNull();
   await click(action(panel()!, "connectClaude")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaude", cloud: false }]);
   expect(panel()?.textContent).toContain("Finish signing in in your browser.");
@@ -879,7 +898,7 @@ test.each([
   const dialog = panel()!;
   expect(dialog.querySelector("h2")?.textContent).toBe("Connect Claude on Cloud");
   expect(dialog.textContent).toContain(copy);
-  expect(dialog.querySelector("input")).toBeNull();
+  expect(dialog.querySelector("[data-models-claude-form] input")).toBeNull();
   expect(action(dialog, "connectClaude")?.disabled).toBe(disabled);
 });
 
@@ -1043,8 +1062,8 @@ test("resuming a ChatGPT device attempt does not use an existing plan as a repla
 
 test("Connect Claude is one click: its progress line follows the host, then the sheet closes on the new row", async () => {
   const rendered = await render(mockModels.empty);
-  await click(action(card(rendered), "openClaudeToken")!);
-  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  await pick("claude");
+  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-token]")!;
   expect(form().querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!.open).toBe(false);
   await click(action(form(), "connectClaudeToken")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
@@ -1069,8 +1088,8 @@ test("Connect Claude is one click: its progress line follows the host, then the 
 
 test("Connect Claude's error shows the host's words and Try Again; Cancel withdraws a running one", async () => {
   const rendered = await render(mockModels.claudeError);
-  await click(action(card(rendered), "openClaudeToken")!);
-  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  await pick("claude");
+  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-token]")!;
   expect(form().querySelector('[role="alert"]')?.textContent).toContain("closed before you signed in");
   await click(action(form(), "retryClaudeToken")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
@@ -1081,8 +1100,8 @@ test("Connect Claude's error shows the host's words and Try Again; Cancel withdr
 
 test("Paste a token instead stays collapsed and adds the pasted token once", async () => {
   const rendered = await render(mockModels.empty);
-  await click(action(card(rendered), "openClaudeToken")!);
-  const form = panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  await pick("claude");
+  const form = panel()!.querySelector<HTMLElement>("[data-models-claude-token]")!;
   const paste = form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!;
   expect(paste.querySelector("summary")?.textContent).toBe("Paste a token instead");
   const field = form.querySelector<HTMLInputElement>('input[type="password"]')!;
@@ -1109,9 +1128,8 @@ test("the mock's one click steps through its phases, and a failure leaves its er
 });
 
 test("a cancelled one click is not a save: the sheet stays open with Connect Claude", async () => {
-  const rendered = await render(mockModels.claudeSigningIn);
-  await click(action(card(rendered), "openClaudeToken")!);
-  const form = () => panel()?.querySelector<HTMLElement>("[data-models-claude-form]");
+  await render(mockModels.claudeSigningIn);
+  const form = () => panel()?.querySelector<HTMLElement>("[data-models-claude-token]");
   await click(action(form()!, "cancelClaudeToken")!);
   expect(form()).toBeTruthy();
   expect(action(form()!, "connectClaudeToken")).toBeTruthy();

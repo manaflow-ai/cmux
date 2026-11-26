@@ -122,6 +122,9 @@ extension AgentPaneCloudStart {
     /// Offer setup only after the machine reports no usable sign-in and the local connection
     /// list confirms an addable connection is missing.
     @MainActor public func needsConnectionReply(_ message: String, machine: String? = nil, setup: CloudSetup) async -> [String: Any] {
+        if usesMachineLogin {
+            return Self.cloudSetupReply(family: "claude", model: model, machine: self.machine)
+        }
         let unrouted = await setup.unrouted(harness: harness, model: model, account: account)
         let choice = if let unrouted {
             CloudSetup.Choice.setup(family: unrouted.family, model: unrouted.model)
@@ -142,17 +145,22 @@ extension CloudSetup {
     /// The credential for this send on the resolved machine.
     public func launchReadiness(for start: AgentPaneCloudStart, checkMachineLogin: Bool = true) async -> (choice: Choice, refusal: Refusal?) {
         let ready = checkMachineLogin ? await readyClaudeMachines(for: start) : []
+        if start.usesMachineLogin {
+            return (ready.isEmpty ? .setup(family: "claude", model: start.model) : .claudeMachineLogin, nil)
+        }
         return await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty)
     }
 
     public func readyClaudeMachines(for start: AgentPaneCloudStart) async -> [String] {
-        guard Self.family(of: start.harness) == "claude" else { return [] }
+        guard Self.family(of: start.harness) == "claude", !start.usesMachineLogin || start.machine != nil else { return [] }
         return await readyClaudeMachines(machine: start.machine, environment: start.environment)
     }
 
     /// The readiness choice and candidate machines used by the first-send planner.
     package func plannerReadiness(for start: AgentPaneCloudStart) async -> (choice: Choice, machines: Set<String>) {
         let ready = await readyClaudeMachines(for: start)
+        // Keep the approved launch choice while the planner reconnects the pinned machine.
+        if start.usesMachineLogin { return (.claudeMachineLogin, Set(ready)) }
         let choice = await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty).choice
         return (choice, Set(ready))
     }

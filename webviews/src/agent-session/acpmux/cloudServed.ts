@@ -35,6 +35,9 @@ export function cloudPickerState(served: CloudServed | undefined, harness: strin
   if (!served) return undefined;
   if (served.servedHarnesses?.includes(harness)) return "ready";
   if (served.pendingHarnesses?.includes(harness)) return "pending";
+  if (served.unavailableEndpointHarnesses?.includes(harness)) return "unsupported";
+  // These guest harnesses need no Cloud model connection.
+  if (harness === "opencode" || harness === "pi") return "ready";
   const family = cloudPickerFamily(served, harness);
   if (!family) return "unsupported";
   const ready = served.families[family];

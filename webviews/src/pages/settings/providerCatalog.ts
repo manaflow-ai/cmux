@@ -110,7 +110,6 @@ type ProviderDetails = {
   /** A stored CLI login appears as a detected row in Models. */
   detectedOnly?: true;
   disabledReason?: string;
-  requiresClaudeCode?: true;
   cloud: boolean;
 };
 
@@ -195,7 +194,6 @@ export const providerCatalog: readonly CatalogProvider[] = [
     name: "Claude",
     group: "subscriptions",
     kind: "claude-login",
-    requiresClaudeCode: true,
     baseUrl: "https://claude.ai",
     keyUrl: null,
     docsUrl: "https://code.claude.com/docs/en/cli-reference",
@@ -806,22 +804,8 @@ export function canAddProvider(provider: CatalogProvider, cloud: boolean): boole
   return !provider.detectedOnly && (!cloud || provider.cloud);
 }
 
-export function providerDisabledReason(
-  provider: CatalogProvider,
-  claudeCodeAvailable?: boolean | null,
-  cloud = false,
-  claudeError?: string | null,
-): string | undefined {
-  const key =
-    provider.disabledReason ??
-    (provider.requiresClaudeCode && !cloud
-      ? claudeError === "update_claude"
-        ? "settingsWindow.models.claude.update"
-        : claudeCodeAvailable === false || claudeError === "cli_missing"
-          ? "settingsWindow.models.catalog.needsClaudeCode"
-          : undefined
-      : undefined);
-  return key ? t(key) : undefined;
+export function providerDisabledReason(provider: CatalogProvider): string | undefined {
+  return provider.disabledReason ? t(provider.disabledReason) : undefined;
 }
 
 // Example prefixes are hints. The host accepts any printable, single-word key.

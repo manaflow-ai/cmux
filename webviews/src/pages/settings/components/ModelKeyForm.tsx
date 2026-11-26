@@ -33,7 +33,8 @@ export function ModelKeyForm({
   const [submitted, setSubmitted] = useState(false);
   const [verificationFailed, setVerificationFailed] = useState(false);
   const [useVertex, setUseVertex] = useState(false);
-  const apiKey = key.trim();
+  // Match SettingsModels.withoutWhitespace before validating or checking access.
+  const apiKey = key.replace(/[\p{White_Space}\u200B-\u200D\u2060\uFEFF]+/gu, "");
   const mayUseVertex = !edit && provider.id === "google" && apiKey.startsWith("AQ.");
   const vertex = provider.id === "vertex-express" || (mayUseVertex && useVertex);
   const valid = validKey(apiKey) || (!!edit && !apiKey);

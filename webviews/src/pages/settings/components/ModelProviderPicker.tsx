@@ -29,8 +29,6 @@ export function ModelProviderPicker({
   setOpen,
   trigger,
   cloud,
-  claudeCodeAvailable,
-  claudeError,
   disabled,
   handingOff,
   onPick,
@@ -39,8 +37,6 @@ export function ModelProviderPicker({
   setOpen(open: boolean): void;
   trigger: RefObject<HTMLButtonElement | null>;
   cloud: boolean;
-  claudeCodeAvailable?: boolean | null;
-  claudeError?: string | null;
   disabled: boolean;
   handingOff: boolean;
   onPick(id: string): void;
@@ -85,15 +81,7 @@ export function ModelProviderPicker({
         initialFocus={search}
         finalFocus={handingOff ? false : trigger}
       >
-        {open && (
-          <ProviderOptions
-            search={search}
-            cloud={cloud}
-            claudeCodeAvailable={claudeCodeAvailable}
-            claudeError={claudeError}
-            onPick={onPick}
-          />
-        )}
+        {open && <ProviderOptions search={search} cloud={cloud} onPick={onPick} />}
       </Popover>
     </>
   );
@@ -102,14 +90,10 @@ export function ModelProviderPicker({
 function ProviderOptions({
   search,
   cloud,
-  claudeCodeAvailable,
-  claudeError,
   onPick,
 }: {
   search: RefObject<HTMLInputElement | null>;
   cloud: boolean;
-  claudeCodeAvailable?: boolean | null;
-  claudeError?: string | null;
   onPick(id: string): void;
 }) {
   const [query, setQuery] = useState("");
@@ -142,9 +126,7 @@ function ProviderOptions({
     },
   ] as const;
   const choices = [
-    ...groups.flatMap(({ providers }) =>
-      providers.filter((p) => !providerDisabledReason(p, claudeCodeAvailable, cloud, claudeError)).map((p) => p.id),
-    ),
+    ...groups.flatMap(({ providers }) => providers.filter((p) => !providerDisabledReason(p)).map((p) => p.id)),
     ...(!cloud ? [custom] : []),
   ];
   // The column view's arrows: Plans is one column, the keys grid two. Right and Left cross between them on the same
@@ -261,7 +243,7 @@ function ProviderOptions({
                   role="presentation"
                 >
                   {providers.map((provider) => {
-                    const reason = providerDisabledReason(provider, claudeCodeAvailable, cloud, claudeError);
+                    const reason = providerDisabledReason(provider);
                     return (
                       <DrivenRow
                         key={provider.id}

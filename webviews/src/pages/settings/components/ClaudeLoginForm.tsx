@@ -39,6 +39,7 @@ export function ClaudeLoginForm({
   recover,
   blocked,
   allowConnected,
+  unavailable,
   error,
 }: {
   models: ModelsState;
@@ -51,6 +52,7 @@ export function ClaudeLoginForm({
   recover?: boolean;
   blocked?: boolean;
   allowConnected?: boolean;
+  unavailable?: string;
   error: string | null;
 }) {
   const login = cloud ? models.cloudClaudeLogin : models.claudeLogin;
@@ -75,12 +77,13 @@ export function ClaudeLoginForm({
 
   const fallback = phase === "code";
   const disabled =
+    !!unavailable ||
     (phase === "disabled" && !(cloud && (login?.error === "update_claude" || login?.error === "cli_missing"))) ||
     (phase === "connected" && !replace && !recover && !allowConnected);
   const preparing = phase === "preparing";
   const waiting = preparing || phase === "approving" || phase === "cancelling";
   const valid = /^[!-~]{1,4096}$/.test(code.trim());
-  const failure = error ?? (login?.error ? loginMessage(login.error) : undefined);
+  const failure = error ?? unavailable ?? (login?.error ? loginMessage(login.error) : undefined);
   const action = fallback ? "finishClaudeLogin" : "connectClaude";
   if (blocked) {
     return (

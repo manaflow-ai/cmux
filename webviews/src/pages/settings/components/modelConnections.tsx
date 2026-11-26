@@ -84,7 +84,11 @@ export function useModelsRun(): {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run: Run = (gesture, onVerificationFailure) => {
-    const cancel = gesture.action === "cancelChatGPTDevice" || gesture.action === "cancelClaudeLogin";
+    const cancel =
+      gesture.action === "cancelChatGPTDevice" ||
+      gesture.action === "cancelClaudeLogin" ||
+      gesture.action === "cancelChatGPT" ||
+      gesture.action === "cancelClaudeToken";
     // A cancellation has to reach the host on its own click, including while Connect is settling.
     if (inFlight.current && !cancel) return Promise.resolve(false);
     inFlight.current += 1;

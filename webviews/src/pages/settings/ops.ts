@@ -909,7 +909,7 @@ export type ModelsRun =
   | { action: "connectClaudeToken"; label?: string }
   | { action: "cancelClaudeToken" }
   | { action: "claudeSetupToken" }
-  | { action: "addClaudeToken"; token: string; label?: string }
+  | { action: "addClaudeToken"; token: string; label?: string; replacement?: { id: string; instance: string } }
   | { action: "closeKeyPage"; url: string }
   | { action: "checkClaudeLogin"; cloud: boolean; machine?: string; environment?: string; machineName?: string }
   | { action: "cancelClaudeLogin"; cloud: boolean; machine?: string; recoverySession?: string }

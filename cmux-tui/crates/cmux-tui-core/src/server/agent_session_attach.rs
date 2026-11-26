@@ -64,6 +64,8 @@ pub use agent_session_trust::{
 };
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// Withdrawal by saved connection binding, including bindings carried by an owner move.
+pub(super) const CREDENTIAL_WITHDRAWAL_CAPABILITY: &str = "agent-session-credential-withdrawal-v1";
 /// Ordered ACP content on `agent-session-prompt`; older clients keep sending `text`.
 pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
 /// A Cloud mobile carrier connection may use the native agent-session JSON
@@ -1050,7 +1052,11 @@ pub(super) fn try_handle(
         if author.is_some() {
             return Some(refuse(writer, id, Refusal::NotTrusted));
         }
-        return Some(credentials(mux, client, id, object, writer));
+        return Some(if object.contains_key("withdraw_bindings") {
+            withdraw_credentials(mux, client, id, object, writer)
+        } else {
+            credentials(mux, client, id, object, writer)
+        });
     }
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
@@ -1340,6 +1346,53 @@ fn credentials(
     else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    let mut params = credential.as_ref().map_or_else(|| json!({}), |c| c.wire());
+    params["sessionId"] = json!(session);
+    if legacy_refresh {
+        params["legacyRefresh"] = json!(true);
+    }
+    forward_credential_update(mux, id, writer, Some(surface), params)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WithdrawCredentialsParams {
+    // Attach clients include their surface on every request. Withdrawal is machine-scoped.
+    #[serde(rename = "surface")]
+    _surface: Option<SurfaceId>,
+    withdraw_bindings: Vec<String>,
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
+}
+
+fn withdraw_credentials(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let WithdrawCredentialsParams { withdraw_bindings, vm_kind, .. } =
+        match bad_field::decode(params) {
+            Ok(params) => params,
+            Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
+        };
+    if !mux.agent_carrier_allowed(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
+    }
+    forward_credential_update(mux, id, writer, None, json!({"withdrawBindings": withdraw_bindings}))
+}
+
+fn forward_credential_update(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    writer: &MessageWriter,
+    surface: Option<SurfaceId>,
+    mut params: Value,
+) -> bool {
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return refuse(writer, id, Refusal::Unavailable);
     };
@@ -1347,16 +1400,11 @@ fn credentials(
     let spawned =
         std::thread::Builder::new().name("mux-agent-credentials".into()).spawn(move || {
             let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
-                let mut params = credential.as_ref().map_or_else(|| json!({}), |c| c.wire());
-                params["sessionId"] = json!(session);
-                if legacy_refresh {
-                    params["legacyRefresh"] = json!(true);
-                }
                 // A restart waits for the agent's new process (spawn, initialize, resume).
                 let mut reply =
                     link.call("agent/credentials.update", params.clone(), CREDENTIALS_TIMEOUT);
                 // The merge-base acpmux only accepted sessionId and env and had no bound chats.
-                if legacy_refresh
+                if params["legacyRefresh"] == true
                     && matches!(&reply, Err(LinkError::Rpc(message, _))
                         if message == "agent/credentials.update takes sessionId and env")
                 {
@@ -1369,10 +1417,13 @@ fn credentials(
                 reply.map_err(Refusal::of)
             });
             match answer {
-                Ok(reply) => {
-                    let mut reply = reply.as_object().cloned().unwrap_or_default();
-                    reply.insert("surface".into(), json!(surface));
-                    ok(&worker_writer, worker_id, Value::Object(reply))
+                Ok(mut reply) => {
+                    if let Some(surface) = surface {
+                        let mut fields = reply.as_object().cloned().unwrap_or_default();
+                        fields.insert("surface".into(), json!(surface));
+                        reply = Value::Object(fields);
+                    }
+                    ok(&worker_writer, worker_id, reply)
                 }
                 Err(refusal) => refuse(&worker_writer, worker_id, refusal),
             };

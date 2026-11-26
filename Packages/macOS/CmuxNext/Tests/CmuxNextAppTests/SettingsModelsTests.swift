@@ -26,6 +26,7 @@ import Testing
         let claudeSignedIn = OSAllocatedUnfairLock(initialState: false)
         let claudeFinishFails = OSAllocatedUnfairLock(initialState: false)
         let committedClaudeToken = OSAllocatedUnfairLock(initialState: false)
+        let modelReplies = OSAllocatedUnfairLock<[String: Result<Data, AcpmuxRPCError>]>(initialState: [:])
         let keyCheckFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
         /// `key.check`'s answer (nil: a daemon without the method, which answers `{}`).
@@ -33,6 +34,7 @@ import Testing
         let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/oauth/authorize?client_id=app_EMoamEEZ73f0CkXaXp7hrann")
         let nativeProvider = OSAllocatedUnfairLock<String?>(initialState: nil)
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
+        let savedPlanEnabled = OSAllocatedUnfairLock<Bool?>(initialState: nil)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
         /// Whether acpmux has the one-click `claude_token.*` run; false answers method not found, as an older daemon.
@@ -65,10 +67,11 @@ import Testing
         var written: [Bool] = []
     }
 
-    nonisolated static func connections(plan: Bool, spread: Bool = true) -> Data {
-        let chatgpt = plan ? """
+    nonisolated static func connections(plan: Bool, spread: Bool = true, savedPlanEnabled: Bool? = nil) -> Data {
+        let chatgpt = plan || savedPlanEnabled != nil ? """
           ,{"id":"chatgpt-1","kind":"chatgpt-plan","provider":"openai","families":["codex"],"label":"ChatGPT","email":"a@b.c",
-            "plan":"pro","signed_in":true,"enabled":true,"default_for":[],"serves_cloud":true}
+            "plan":"pro","signed_in":\(plan),"enabled":\(savedPlanEnabled ?? true),"default_for":[],"serves_cloud":true,
+            "credential_instance":"fixture-plan"}
         """ : ""
         return Data("""
         {"connections":[
@@ -106,6 +109,7 @@ import Testing
                     return nil
                 }
                 daemon.calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
+                if let reply = daemon.modelReplies.withLock({ $0[method.rawValue] }) { return try reply.get() }
                 switch method {
                 case .connections where daemon.committedClaudeToken.withLock({ $0 }):
                     return Self.claudeToken
@@ -113,7 +117,11 @@ import Testing
                     let provider = daemon.nativeProvider.withLock { $0 ?? "cursor" }
                     return Data(#"{"connections":[{"id":"\#(provider)-native-login","kind":"native-login","provider":"\#(provider)","signed_in":true,"enabled":true,"serves_cloud":false}]}"#.utf8)
                 case .connections, .connectionsSpreadSet, .connectionsOrderSet:
-                    return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true)
+                    return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true,
+                                            savedPlanEnabled: daemon.savedPlanEnabled.withLock { $0 })
+                case .accountSet where flat["id"] == "chatgpt-1" && flat["enabled"] == "true":
+                    daemon.savedPlanEnabled.withLock { $0 = true }
+                    return Data("{}".utf8)
                 case .claudeLoginStatus:
                     let signedIn = daemon.claudeSignedIn.withLock { $0 }
                     return Data(#"{"signedIn":\#(signedIn),"apiKey":false}"#.utf8)
@@ -983,6 +991,31 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func aDisabledPlanTurnsOnDuringCloudDeviceSignIn(cloud: Bool) async throws {
+        let daemon = Daemon()
+        daemon.savedPlanEnabled.withLock { $0 = false }
+        let models = make(daemon: daemon, waitForDevice: {
+            Data(#"{"status":"done","connection_id":"chatgpt-1"}"#.utf8)
+        })
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "connectChatGPTDevice", "id": "chatgpt-1", "servesCloud": .bool(cloud)], context: click)
+        await models.chatgptDeviceTask?.value
+
+        let methods = daemon.calls.withLock { $0.map(\.method) }
+        if cloud {
+            let enabled = try #require(methods.firstIndex(of: AcpmuxHarnessMethod.accountSet.rawValue))
+            let began = try #require(methods.firstIndex(of: AcpmuxHarnessMethod.chatgptDeviceBegin.rawValue))
+            #expect(enabled < began)
+            #expect(daemon.calls.withLock { $0[enabled].params } == ["id": "chatgpt-1", "enabled": "true", "instance": "fixture-plan"])
+        } else {
+            #expect(!methods.contains(AcpmuxHarnessMethod.accountSet.rawValue))
+        }
+        let plan = models.state["personal"]?["connections"]?.arrayValue?.first { $0["id"] == "chatgpt-1" }
+        #expect(plan?["enabled"] == .bool(cloud))
+        #expect(models.state["chatgptDevice"]?["phase"] == "connected")
+    }
+
+    @Test(arguments: [false, true])
     func deviceSignInOpensOnlyOnClickAndClearsItsCode(cancel: Bool) async throws {
         let daemon = Daemon()
         let opened = Opened()
@@ -1161,6 +1194,52 @@ import Testing
         #expect(row["kind"] == "claude-token")
         #expect(row["provider"] == "anthropic")
         #expect(row["servesCloud"] == .bool(true))
+    }
+
+    @Test(arguments: [true, false])
+    func replacingClaudeTokenOrdersTheNewIdentityBeforeRemovingTheOldOne(orderSucceeds: Bool) async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let old = #"{"id":"claude-token","kind":"claude-token","credential_instance":"old"}"#
+        let other = #"{"id":"claude-token-2","kind":"claude-token","credential_instance":"other"}"#
+        let new = #"{"id":"claude-token-3","kind":"claude-token","credential_instance":"new"}"#
+        let kept = orderSucceeds ? new : old
+        let removedID = orderSucceeds ? "claude-token" : "claude-token-3"
+        let removedInstance = orderSucceeds ? "old" : "new"
+        let removedReference = "keychain:cmux-model-key/claude-token-\(orderSucceeds ? "old" : "test")"
+        daemon.modelReplies.withLock {
+            $0 = [
+                AcpmuxHarnessMethod.connections.rawValue: .success(Data(#"{"connections":[\#(old),\#(other)]}"#.utf8)),
+                AcpmuxHarnessMethod.claudeTokenAdd.rawValue: .success(Data("""
+                {"connections":[\(old),\(other),\(new)],
+                 "added_connection":{"id":"claude-token-3","credential_instance":"new"}}
+                """.utf8)),
+                AcpmuxHarnessMethod.connectionsOrderSet.rawValue: orderSucceeds
+                    ? .success(Data(#"{"connections":[\#(new),\#(old),\#(other)]}"#.utf8))
+                    : .failure(AcpmuxRPCError(code: -32602, name: "connections.unknown_id", message: "refused")),
+                AcpmuxHarnessMethod.connectionsRemove.rawValue: .success(Data("""
+                {"connections":[\(kept),\(other)],"replaced_secret":"\(removedReference)"}
+                """.utf8)),
+            ]
+        }
+        let models = make(daemon: daemon, keys: keys)
+        _ = await models.loadedState()
+        let gesture: JSONValue = [
+            "action": "addClaudeToken", "token": "sk-ant-oat01-replacement",
+            "replacement": ["id": "claude-token", "instance": "old"],
+        ]
+        if orderSucceeds {
+            _ = try await models.run(gesture, context: click)
+        } else {
+            await #expect(throws: PageError.self) { _ = try await models.run(gesture, context: click) }
+        }
+
+        #expect(daemon.calls.withLock { Array($0.dropFirst()) } == [
+            Call(method: AcpmuxHarnessMethod.claudeTokenAdd.rawValue, params: ["secret": "keychain:cmux-model-key/claude-token-test"]),
+            Call(method: AcpmuxHarnessMethod.connectionsOrderSet.rawValue, params: ["ids": "claude-token-3,claude-token,claude-token-2"]),
+            Call(method: AcpmuxHarnessMethod.connectionsRemove.rawValue, params: ["id": removedID, "instance": removedInstance]),
+        ])
+        #expect(keys.deleted.withLock { $0 } == [removedReference])
     }
 
     @Test func aClaudeTokenNeedsItsShape() async throws {

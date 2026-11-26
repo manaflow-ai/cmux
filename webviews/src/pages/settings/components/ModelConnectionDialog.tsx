@@ -19,8 +19,9 @@ import {
   ENDPOINT_MARK,
 } from "../providerCatalog";
 import { t } from "../strings";
-import { ChatGPTDeviceForm } from "./ChatGPTDevicePanel";
+import { ChatGPTBrowserForm, ChatGPTDeviceForm } from "./ChatGPTDevicePanel";
 import { ClaudeLoginForm } from "./ClaudeLoginForm";
+import { ClaudeSetupTokenForm, ClaudeTokenForm } from "./ClaudeSetupTokenForm";
 import { ConnectionError, ConnectionFooter, ConnectionRegion, SignInWaiting } from "./ModelConnectionFields";
 import { ModelEndpointForm } from "./ModelEndpointForm";
 import { ModelKeyForm } from "./ModelKeyForm";
@@ -34,6 +35,11 @@ export function ModelConnectionDialog({
   visit,
   cloud,
   recoverClaude,
+  allowClaudeToken,
+  allowChatGPTBrowser,
+  tokenPending,
+  claudePending,
+  devicePending,
   claudeAttemptBlocked,
   useSettingsClaudeLogin,
   provider,
@@ -53,6 +59,11 @@ export function ModelConnectionDialog({
   visit: string;
   cloud: boolean;
   recoverClaude?: boolean;
+  allowClaudeToken: boolean;
+  allowChatGPTBrowser: boolean;
+  tokenPending: boolean;
+  claudePending: boolean;
+  devicePending: boolean;
   claudeAttemptBlocked?: boolean;
   useSettingsClaudeLogin?: boolean;
   provider?: CatalogProvider;
@@ -81,8 +92,22 @@ export function ModelConnectionDialog({
   const standaloneChatGPT = models?.personal.connections.some(
     (row) => row.id === target && row.kind === "chatgpt-plan",
   );
+  const localClaudeUnavailable =
+    !cloud && directClaude
+      ? models?.claudeLogin?.error === "update_claude"
+        ? t("settingsWindow.models.claude.update")
+        : models?.claudeCodeAvailable === false || models?.claudeLogin?.error === "cli_missing"
+          ? t("settingsWindow.models.catalog.needsClaudeCode")
+          : undefined
+      : undefined;
+  const browserPending = allowChatGPTBrowser && !!models?.chatgpt.attempt;
   const accountFamily =
-    !cloud && !useSettingsClaudeLogin && accountSignIn.inPlace
+    !cloud &&
+    !useSettingsClaudeLogin &&
+    accountSignIn.inPlace &&
+    !browserPending &&
+    !(allowClaudeToken && tokenPending) &&
+    !localClaudeUnavailable
       ? directClaude
         ? "claude"
         : (provider?.id === "chatgpt" && !standaloneChatGPT) || provider?.id === "codex-login"
@@ -93,9 +118,14 @@ export function ModelConnectionDialog({
     if (accountFamily) accountSignIn.card.onCancel?.();
     onDismiss();
   };
+  const replacingClaudeToken = rowAction?.kind === "replaceClaudeToken";
   const title = rowAction
     ? t(
-        rowAction.kind === "rename" ? "settingsWindow.models.renameTitle" : "settingsWindow.models.disconnectTitle",
+        replacingClaudeToken
+          ? "settingsWindow.models.editTitle"
+          : rowAction.kind === "rename"
+            ? "settingsWindow.models.renameTitle"
+            : "settingsWindow.models.disconnectTitle",
         rowAction.connection.label,
       )
     : provider
@@ -196,7 +226,17 @@ export function ModelConnectionDialog({
           >
             <Icon name="xmark" />
           </Button>
-          {rowAction && (
+          {replacingClaudeToken && connection?.credentialInstance && (
+            <ClaudeTokenForm
+              busy={busy}
+              run={run}
+              replacement={{ id: connection.id, instance: connection.credentialInstance, label: connection.label }}
+              error={error}
+              onDone={onClose}
+              onCancel={onDismiss}
+            />
+          )}
+          {rowAction && !replacingClaudeToken && (
             <ModelRowActionForm
               action={rowAction}
               busy={busy}
@@ -231,7 +271,7 @@ export function ModelConnectionDialog({
                 <ConnectionFooter busy={busy} onClose={dismiss} />
               </form>
             ))}
-          {!accountFamily && directClaude && (
+          {!accountFamily && directClaude && !(allowClaudeToken && tokenPending) && (
             <ClaudeLoginForm
               models={models}
               cloud={cloud}
@@ -243,7 +283,19 @@ export function ModelConnectionDialog({
               recover={recoverClaude}
               blocked={claudeAttemptBlocked}
               allowConnected={useSettingsClaudeLogin}
+              unavailable={localClaudeUnavailable}
               error={error}
+            />
+          )}
+          {allowClaudeToken && !claudePending && !accountSignIn.running && (
+            <ClaudeSetupTokenForm
+              state={models.claudeToken}
+              unavailable={localClaudeUnavailable}
+              busy={busy}
+              run={run}
+              error={tokenPending || accountFamily ? error : null}
+              onDone={onClose}
+              onCancel={onDismiss}
             />
           )}
           {provider && (provider.kind === "api-key" || provider.kind === "openai-endpoint") && (
@@ -265,6 +317,7 @@ export function ModelConnectionDialog({
           {!accountFamily &&
             provider?.kind === "subscription" &&
             !directClaude &&
+            !browserPending &&
             (isDeviceSignIn(provider.signIn) ? (
               <ChatGPTDeviceForm
                 signIn={provider.signIn}
@@ -287,6 +340,15 @@ export function ModelConnectionDialog({
                 onCancel={onDismiss}
               />
             ))}
+          {allowChatGPTBrowser && !devicePending && !accountSignIn.running && (
+            <ChatGPTBrowserForm
+              models={models}
+              busy={busy}
+              failure={accountFamily ? error : null}
+              run={run}
+              onClose={onClose}
+            />
+          )}
         </div>
       )}
     </Dialog>

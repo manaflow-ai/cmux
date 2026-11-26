@@ -18,7 +18,7 @@ import { ModelProviderMark } from "./ModelProviderMark";
 import { isCloudSubscription, markOf, tokenTimeRemaining, type Run, type SetupSelection } from "./modelConnections";
 
 export type RowAction = {
-  kind: "rename" | "disconnect";
+  kind: "rename" | "disconnect" | "replaceClaudeToken";
   connection: ModelConnection;
 };
 
@@ -136,7 +136,9 @@ export function ModelConnectionRow({
     !nativeLogin &&
     connection.kind !== "claude-login" &&
     (endpoint ? !!connection.endpoint : connection.kind === "codex-login" || !!connection.credentialInstance);
-  const disconnect = cloud ? cloudSubscription : !nativeLogin && !builtin && (!endpoint || !!connection.endpoint);
+  const disconnect = cloud
+    ? cloudSubscription || (apiKey && connection.servesCloud && !!connection.credentialInstance)
+    : !nativeLogin && !builtin && (!endpoint || !!connection.endpoint);
   const enableCloudSubscription = cloud && cloudSubscription && !legacyClaude && !connection.enabled;
   const status =
     !connection.enabled && connection.kind === "claude-token"
@@ -239,6 +241,15 @@ export function ModelConnectionRow({
             </MenuButton>
             <MenuPopup align="end" className="models-row-menu">
               {details && <div className="ui-menu-group-label models-menu-details">{details}</div>}
+              {legacyClaude && connection.credentialInstance && (
+                <MenuItem
+                  data-value="replaceClaudeToken"
+                  onSelect={() => action({ kind: "replaceClaudeToken", connection })}
+                >
+                  <Icon name="reset" />
+                  {t("settingsWindow.models.org.replace")}
+                </MenuItem>
+              )}
               {onCloudChange && (
                 <MenuItem data-value="setCloud" onSelect={onCloudChange}>
                   <Icon name="cloud" />

@@ -12,7 +12,6 @@ const { createRoot } = await import("react-dom/client");
 const { CloudSetupCard } = await import("../../agent-session/acpmux/conversation/CloudSetupCard");
 const { waitForCloudSetUp } = await import("../../agent-session/acpmux/cloudSetup");
 const { mockModels, runMockModels } = await import("./mockModels");
-const { cloudReadiness } = await import("./components/CloudModelsCard");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -35,21 +34,18 @@ const render = async (models: ModelsState, path = "/settings/cloud") => {
 };
 const card = (rendered: Rendered) => rendered.container.querySelector<HTMLElement>('[data-card="cloudModels"]')!;
 const panel = () => document.querySelector<HTMLElement>("[data-models-dialog]");
-const row = (rendered: Rendered, id: string) => card(rendered).querySelector<HTMLElement>(`[data-cloud-row="${id}"]`)!;
-const statuses = (rendered: Rendered) =>
-  Object.fromEntries(
-    [...card(rendered).querySelectorAll<HTMLElement>("[data-cloud-row]")].map(({ dataset }) => [
-      dataset.cloudRow,
-      dataset.cloudStatus,
-    ]),
-  );
+const pick = async (rendered: Rendered, id: string) => {
+  await click(card(rendered).querySelector("[data-models-add]")!);
+  await click(document.querySelector(`[data-models-choice="${id}"]`)!);
+};
 const ids = (rendered: Rendered) =>
   [...card(rendered).querySelectorAll<HTMLElement>("[data-connection]")].map((row) => row.dataset.connection);
 
 test("Cloud models sits alongside Cloud Environments and Cloud Workspaces", async () => {
-  const rendered = await render(mockModels.macLogins, "/settings/cloud");
+  const rendered = await render({ ...mockModels.macLogins, organization: mockModels.empty.organization });
   expect(card(rendered).querySelector("h3")?.textContent).toBe("Cloud models");
   expect(ids(rendered)).toEqual(["chatgpt", "claude-token"]);
+  expect(card(rendered).querySelectorAll(".models-rows > .row")).toHaveLength(3);
   expect(rendered.container.querySelector("[data-models-catalog]")).toBeNull();
   expect(rendered.container.querySelector('[data-card="cloudEnvironments"]')).not.toBeNull();
   expect(rendered.container.textContent).toContain("Cloud Workspaces");
@@ -82,19 +78,15 @@ test.each([
   expect(card(rendered).textContent).toContain("No connections yet");
 });
 
-test("with nothing connected, every row is Not set up for Cloud with its way in", async () => {
+test("an empty Cloud Models card offers one Connect entry point", async () => {
   const rendered = await render(mockModels.empty);
-  expect(statuses(rendered)).toEqual({ claude: "missing", chatgpt: "missing", apiKey: "missing" });
-  expect(row(rendered, "claude").textContent).toContain("Not set up for Cloud");
-  expect(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')?.textContent).toBe(
-    "Connect Claude",
-  );
-  expect(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')?.textContent).toBe(
-    "Paste a token instead",
-  );
-  expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')?.textContent).toBe(
-    "Sign in with ChatGPT",
-  );
+  expect(ids(rendered)).toEqual([]);
+  expect(card(rendered).textContent).toContain("No connections yet");
+  const controls = card(rendered).querySelectorAll("button");
+  expect(controls).toHaveLength(1);
+  expect(controls[0]?.textContent).toBe("Connect");
+  await pick(rendered, "anthropic");
+  expect(panel()?.dataset.modelsDialog).toBe("anthropic");
 });
 
 test.each([
@@ -419,43 +411,29 @@ test("the CLI can open Claude setup for its exact new machine name", async () =>
   });
 });
 
-test("readiness follows the Cloud start's rule: off or signed out does not count, the team's key does", () => {
-  const off = structuredClone(mockModels.claudeForCloud);
-  off.personal.connections = off.personal.connections.map((c) => ({ ...c, enabled: false }));
-  expect(cloudReadiness(off, "claude").state).toBe("off");
-  const team = structuredClone(mockModels.macOnly);
-  team.organization = {
-    team: { id: "t", name: "Acme" },
-    canEdit: false,
-    keys: [{ agent: "claude", set: true, last4: null }],
-  };
-  expect(cloudReadiness(team, "claude")).toMatchObject({ state: "ready", via: "Shared Claude key" });
-  expect(cloudReadiness(team, "chatgpt").state).toBe("missing");
-  // An OpenRouter key works on this Mac only; an Anthropic key serves Cloud.
-  expect(cloudReadiness(mockModels.macOnly, "apiKey")).toMatchObject({ state: "missing" });
-  expect(cloudReadiness(mockModels.macLogins, "apiKey")).toMatchObject({ state: "ready" });
-});
-
-test("Connect Claude runs the one click in its row, with its progress line and Cancel", async () => {
+test("Cloud Connect Claude opens the provider dialog and can cancel a setup token run", async () => {
   const rendered = await render(mockModels.macOnly);
-  await click(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')!);
+  await pick(rendered, "claude");
+  const dialog = panel()!;
+  await click(dialog.querySelector('[data-models-action="connectClaudeToken"]')!);
   expect(rendered.provider.modelRuns.filter(({ action }) => action !== "checkClaudeLogin")).toEqual([
     { action: "connectClaudeToken" },
   ]);
-  expect(panel()).toBeNull();
-  expect(row(rendered, "claude").querySelector('[data-claude-token="starting"]')?.textContent).toContain(
+  expect(dialog.querySelector('[data-claude-token="starting"]')?.textContent).toContain(
     "Opening the Claude sign-in page…",
   );
-  expect(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')).toBeNull();
-  await click(row(rendered, "claude").querySelector('[data-models-action="cancelClaudeToken"]')!);
+  expect(dialog.querySelector('[data-models-action="connectClaudeToken"]')).toBeNull();
+  await click(dialog.querySelector('[data-models-action="cancelClaudeToken"]')!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelClaudeToken" });
 });
 
-test("Paste a token instead opens Models' sheet with the paste field out, which adds the token once", async () => {
+test("Cloud Connect can paste a Claude setup token and lists the resulting connection once", async () => {
   const rendered = await render(mockModels.macOnly);
-  await click(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')!);
-  const form = panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
-  expect(form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!.open).toBe(true);
+  await pick(rendered, "claude");
+  const form = panel()!.querySelector<HTMLElement>("[data-models-claude-token]")!;
+  const paste = form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!;
+  expect(paste.open).toBe(false);
+  await click(paste.querySelector("summary")!);
   await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-ant-oat01-secret0123456789");
   await click(form.querySelector('[data-models-action="addClaudeToken"]')!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({
@@ -463,8 +441,32 @@ test("Paste a token instead opens Models' sheet with the paste field out, which 
     token: "sk-ant-oat01-secret0123456789",
   });
   expect(panel()).toBeNull();
-  expect(statuses(rendered).claude).toBe("ready");
+  expect(ids(rendered)).toEqual(["claude-token"]);
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
+});
+
+test("Cloud Models replaces a saved Claude token at its current priority", async () => {
+  const models = structuredClone(mockModels.claudeTokenOnly);
+  const original = models.personal.connections.find((row) => row.id === "claude-token")!;
+  models.personal.connections.push({ ...original, id: "claude-token-2", credentialInstance: "other-token" });
+  const rendered = await render(models);
+  await click(card(rendered).querySelector('[data-menu="connection-claude-token"]')!);
+  const replace = document.querySelector('[data-value="replaceClaudeToken"]');
+  expect(replace?.textContent).toContain("Replace");
+  await click(replace!);
+  expect(panel()?.querySelector('[data-models-action="connectClaude"]')).toBeNull();
+  await changeValue(panel()!.querySelector('input[type="password"]')!, "sk-ant-oat01-replacement-fixture");
+  await click(panel()!.querySelector('[data-models-action="addClaudeToken"]')!);
+  expect(rendered.provider.modelRuns).toEqual([
+    {
+      action: "addClaudeToken",
+      token: "sk-ant-oat01-replacement-fixture",
+      label: original.label,
+      replacement: { id: original.id, instance: original.credentialInstance! },
+    },
+  ]);
+  expect(panel()).toBeNull();
+  expect(ids(rendered)).toEqual(["claude-token-3", "claude-token-2"]);
 });
 
 test.each([true, false])(
@@ -682,9 +684,9 @@ test.each(["openai", "google", "vertex-express", "xai"])(
   },
 );
 
-test("Cloud models adds a key with Cloud use enabled", async () => {
+test("Cloud models adds a wrapped key with Cloud use enabled", async () => {
   const rendered = await render(mockModels.empty, "/settings/cloud?focus=cloudModels.add.openai");
-  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
+  await changeValue(panel()!.querySelector('input[type="password"]')!, " fixture-\n  api-\u2060key \t");
   await click(panel()!.querySelector('[data-models-action="addKey"]')!);
   expect(rendered.provider.modelRuns.at(-1)).toMatchObject({ action: "addKey", servesCloud: true });
   expect(card(rendered).querySelector('[data-connection="openai-key"]')?.textContent).toContain("API key");
@@ -988,16 +990,16 @@ test.each(["endpoint", "deepseek", "openrouter"])("Cloud Add links do not open t
   expect(rendered.provider.modelRuns).toEqual([]);
 });
 
-test("a named Cloud connection link lands on its summary row", async () => {
+test("a named Cloud connection link opens its provider dialog", async () => {
   const rendered = await render(mockModels.macOnly, "/settings/connections?focus=chatgpt");
-  expect(panel()).toBeNull();
-  expect(row(rendered, "chatgpt")).not.toBeNull();
+  expect(panel()?.dataset.modelsDialog).toBe("chatgpt");
   expect(rendered.container.querySelector(".link-missing")).toBeNull();
 });
 
 test("a signed-out Cloud ChatGPT plan opens device sign-in for that plan", async () => {
   const rendered = await render(mockModels.chatgptSignedOut);
-  await click(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')!);
+  await click(card(rendered).querySelector('[data-menu="connection-chatgpt"]')!);
+  await click(document.querySelector('[role="menuitem"][data-value="signInAgain"]')!);
   await click(panel()!.querySelector('[data-models-action="connectChatGPTDevice"]')!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({
     action: "connectChatGPTDevice",
@@ -1006,14 +1008,7 @@ test("a signed-out Cloud ChatGPT plan opens device sign-in for that plan", async
   });
 });
 
-test("the Cloud API key shortcut opens the shared credential dialog", async () => {
-  const rendered = await render(mockModels.macOnly);
-  await click(row(rendered, "apiKey").querySelector('[data-menu="cloud-api-key"]')!);
-  await click(document.querySelector('[role="menuitem"][data-value="anthropic"]')!);
-  expect(panel()?.dataset.modelsDialog).toBe("anthropic");
-});
-
-test("the Cloud key shortcut confirms Disconnect against the saved instance", async () => {
+test("the Cloud key row confirms Disconnect against the saved instance", async () => {
   const models = runMockModels(mockModels.empty, {
     action: "addKey",
     provider: "openai",
@@ -1022,7 +1017,7 @@ test("the Cloud key shortcut confirms Disconnect against the saved instance", as
   });
   const key = models.personal.connections[0]!;
   const rendered = await render(models);
-  await click(row(rendered, "apiKey").querySelector('[data-menu="cloud-connection-openai-key"]')!);
+  await click(card(rendered).querySelector('[data-menu="connection-openai-key"]')!);
   await click(document.querySelector('[role="menuitem"][data-value="remove"]')!);
   const dialog = panel()!;
   expect(dialog.dataset.modelsDialog).toBe("disconnect");

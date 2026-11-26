@@ -317,8 +317,9 @@ struct AgentPaneHandOff {
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements, completion in
             var start = start
-            if let completion, completion.bindsEnvironment, completion.environment != start.environment
-                || (start.machine != nil && completion.machine != nil && start.machine != completion.machine) {
+            if let completion, (completion.usesMachineLogin && completion.machine == nil)
+                || (completion.bindsEnvironment && (completion.environment != start.environment
+                    || (start.machine != nil && completion.machine != nil && start.machine != completion.machine))) {
                 replacements.endSandbox()
                 return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
             }

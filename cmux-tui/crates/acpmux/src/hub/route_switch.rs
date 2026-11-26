@@ -351,9 +351,10 @@ impl Hub {
         }
     }
 
-    fn route_child_is_idle(&self, session: &Session) -> bool {
+    pub(super) fn route_child_is_idle(&self, session: &Session) -> bool {
         session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
+            && !session.compacting.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
@@ -514,7 +515,9 @@ impl Hub {
             );
         }
         self.restart_on_route(session).await?;
-        Ok(json!({"routeId": route, "applied": "now"}))
+        let applied =
+            if session.route_switch.load(Ordering::SeqCst) { "after-turn" } else { "now" };
+        Ok(json!({"routeId": route, "applied": applied}))
     }
 
     /// A new chat that started in an account home keeps it as its store
@@ -558,6 +561,10 @@ impl Hub {
                     return Ok(());
                 }
             } else {
+                if session.route_switch.load(Ordering::SeqCst) && !self.route_child_is_idle(session)
+                {
+                    return Ok(());
+                }
                 session.route_switch.store(false, Ordering::SeqCst);
                 if session.child.lock().await.is_none() {
                     return Ok(());
@@ -607,10 +614,7 @@ impl Hub {
             // able to click the restart button"), so its restart must drop nothing. Such a
             // session keeps its agent and moves before its next turn (`turns.rs`).
             let idle = || {
-                if session.turn().is_none()
-                    && session.pending_permissions().is_empty()
-                    && !self.holds_work_below(&session)
-                {
+                if self.route_child_is_idle(&session) {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None
@@ -623,8 +627,9 @@ impl Hub {
                 turn = idle().filter(|_| session.route_switch.load(Ordering::SeqCst));
             }
             let Some(_turn) = turn else { return Ok(false) };
+            session.route_switch.store(true, Ordering::SeqCst);
             match self.restart_on_route(&session).await {
-                Ok(()) => Ok(true),
+                Ok(()) => Ok(!session.route_switch.load(Ordering::SeqCst)),
                 Err(e) => {
                     tracing::warn!(session = %session.id, error = %e.message, "harness restart");
                     Err((session.id.clone(), e.message))
@@ -663,8 +668,7 @@ impl Hub {
         let session = session.clone();
         tokio::spawn(async move {
             let _turn = session.turn_lock.lock().await;
-            if session.turn().is_none()
-                && session.pending_permissions().is_empty()
+            if hub.route_child_is_idle(&session)
                 && !session.read_meta(super::credentials::claude_login_needs_restart)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
@@ -754,6 +758,9 @@ impl Hub {
                 let probe = routes::probe(&r, &st).await;
                 hub.append(&s, "mux", "route_probe", probe);
             });
+        }
+        if route.file.kind == routes::RouteKind::ChatgptPlan {
+            return Some(json!({"route": {"routeId": id, "name": route.name()}}));
         }
         // A fallback never names another account: the chat keeps its folder.
         let (_, env) = self.harness_env(&meta).await;

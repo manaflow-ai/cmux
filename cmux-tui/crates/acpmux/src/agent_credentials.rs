@@ -216,7 +216,7 @@ pub(crate) fn with_stored_instance(text: &str, instance: &str) -> String {
 }
 
 // The bound form is a local route id and the Mac-scoped connection digest.
-fn valid_connection(connection: &str) -> bool {
+pub(crate) fn valid_connection(connection: &str) -> bool {
     match connection.split_once(':') {
         Some((id, digest)) => {
             crate::routes::is_route_id(id)

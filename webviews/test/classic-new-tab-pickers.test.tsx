@@ -13,6 +13,7 @@ const saved = new Map<string, { had: boolean; value: unknown }>();
 let dom: JSDOM;
 let host: HTMLElement;
 let root: Root | undefined;
+let uninstallPageKey: (() => void) | undefined;
 
 type Call = { method: string; params: Record<string, unknown> };
 type PaneWindow = Window & {
@@ -20,7 +21,7 @@ type PaneWindow = Window & {
   cmuxAcpmuxRegistry?: { register(kind: string, renderer: unknown): void };
   cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
   cmuxAcpmuxBridge?: { receive(value: unknown): void };
-  cmuxAcpmuxDebug?: { runMode(): { runMode?: string | null } };
+  cmuxAcpmuxDebug?: { runMode(mode?: string): { runMode?: string | null; error?: string } };
 };
 const paneWindow = () => dom.window as unknown as PaneWindow;
 
@@ -67,8 +68,11 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
+  uninstallPageKey?.();
+  uninstallPageKey = undefined;
   await act(async () => root?.unmount());
   root = undefined;
+  (await import("../src/agent-session/acpmux/cloudAgentPick")).clearCloudAgentPick();
   host.replaceChildren();
   dom.window.localStorage.clear();
   delete paneWindow().cmuxAcpmuxRegistry;
@@ -89,6 +93,7 @@ async function mount(
     noSummary?: boolean;
     noOptions?: boolean;
     linkedCloudMachine?: boolean;
+    cloudDraft?: boolean;
     plugin?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
   } = {},
 ) {
@@ -98,6 +103,8 @@ async function mount(
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const { resetModelCatalogForTests } = await import("../src/agent-session/acpmux/modelCatalogHost");
   resetModelCatalogForTests();
+  const draftHarness = options.cloudDraft ? "codex" : "claude";
+  const startsOnCloud = options.linkedCloudMachine || options.cloudDraft;
   const catalog = BUNDLED_MODEL_CATALOG.harnesses.map((entry) => ({
     id: entry.id,
     name: entry.name,
@@ -116,7 +123,7 @@ async function mount(
           peerConnected: { [builder.name]: true },
         }
       : {}),
-    ...(!options.noSummary
+    ...(!options.noSummary && !options.cloudDraft
       ? {
           switching: { harness: "claude", name: "Claude Code", phase: "deferred" },
           summary: {
@@ -150,11 +157,20 @@ async function mount(
       : {}),
   } as Partial<AcpmuxSnapshot>);
   const calls: Call[] = [];
+  let claudeConnected = false;
   paneWindow().webkit = {
     messageHandlers: {
       agentSession: {
         postMessage: (message: Call) => {
           calls.push(message);
+          if (options.cloudDraft) {
+            if (message.method === "cloud.connect") claudeConnected = true;
+            if (message.method === "cloud.setup.state")
+              return Promise.resolve({
+                ok: true,
+                value: { runnableFamilies: ["claude", "codex"], families: { claude: claudeConnected, codex: true } },
+              });
+          }
           if (options.linkedCloudMachine) {
             if (message.method === "cloudMachine.list")
               return Promise.resolve({ ok: true, value: { signedIn: true, loaded: true, machines: [builder] } });
@@ -163,8 +179,8 @@ async function mount(
                 ok: true,
                 value: { runnableFamilies: ["claude"], families: { claude: message.params.machine !== builder.id } },
               });
-            if (message.method === "sandbox.state") return Promise.resolve({ ok: true, value: {} });
           }
+          if (startsOnCloud && message.method === "sandbox.state") return Promise.resolve({ ok: true, value: {} });
           return Promise.resolve({
             ok: true,
             value:
@@ -175,11 +191,11 @@ async function mount(
                     newSession: true,
                     machineName: "Mac",
                     cwd: "/tmp/classic-project",
-                    ...(options.linkedCloudMachine ? { sandboxState: true, pickCloud: true } : {}),
+                    ...(startsOnCloud ? { sandboxState: true, pickCloud: true } : {}),
                     newTab: {
-                      template: options.linkedCloudMachine ? "default" : "classic",
+                      template: startsOnCloud ? "default" : "classic",
                       cwd: "/tmp/classic-project",
-                      lastAgent: "claude",
+                      lastAgent: draftHarness,
                       projects: ["/tmp/classic-project", "/Users/sample/other-project"],
                     },
                   }
@@ -193,7 +209,7 @@ async function mount(
   await act(async () => root!.render(<AcpmuxApp />));
   if (options.plugin) await act(async () => paneWindow().cmuxAcpmuxRegistry!.register("composerChips", options.plugin));
   await act(async () => paneWindow().cmuxAcpmuxBridge!.receive(snapshot));
-  expect(Boolean(host.querySelector(options.linkedCloudMachine ? ".nt-field" : ".acpmux-newtab-field"))).toBe(true);
+  expect(Boolean(host.querySelector(startsOnCloud ? ".nt-field" : ".acpmux-newtab-field"))).toBe(true);
   // Direct hosts install these actions after the handshake. Recording them checks ordering at
   // the page boundary without starting a real daemon session.
   paneWindow().cmuxAcpmuxActions = Object.fromEntries(
@@ -274,6 +290,32 @@ test("a linked Cloud machine keeps its models selectable without a positive Clau
   await act(async () => codex!.click());
   expect(items().map(label), popup().textContent ?? "").toContain("GPT-6 Astra");
   expect(popup().textContent).not.toContain("Runs on Cloud soon");
+});
+
+test.each([false, true])("returning from draft Cloud Connect starts no chat (later pick: %s)", async (laterPick) => {
+  const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
+  const { cloudAgentPick, holdCloudAgentPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  const { calls, chatCalls } = await mount({ cloudDraft: true });
+  uninstallPageKey = installPageKey(document);
+  await act(async () => expect(paneWindow().cmuxAcpmuxDebug?.runMode("cloud")).toMatchObject({ runMode: "cloud" }));
+  expect(host.querySelector('[data-menu="Model"]')?.textContent).toContain("GPT-6.2 Sol");
+  await open();
+  await act(async () => popup().querySelector<HTMLButtonElement>('[role="tab"][aria-label="Claude Code"]')!.click());
+  const connect = popup().querySelector<HTMLButtonElement>("[data-cloud-connect]")!;
+  await act(async () => connect.click());
+  expect(calls.filter(({ method }) => method === "cloud.connect").map(({ params }) => params)).toEqual([
+    { family: "claude" },
+  ]);
+  expect(cloudAgentPick()).toBeUndefined();
+  if (laterPick) await act(async () => holdCloudAgentPick({ harness: "codex", model: "gpt-6-astra" }));
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+  });
+  expect(chatCalls()).toEqual([]);
+  expect(cloudAgentPick()?.harness).toBe(laterPick ? "codex" : "claude");
+  expect(host.querySelector('[data-menu="Model"]')?.textContent).toContain(laterPick ? "GPT-6 Astra" : "Opus 5.5");
+  expect(calls.some(({ method }) => method === "cloud.startChat")).toBe(false);
 });
 
 test("a classic New Tab starts its deferred chat before changing model", async () => {

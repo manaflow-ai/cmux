@@ -245,6 +245,23 @@ struct CloudSetupTests {
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))
     }
 
+    @Test(arguments: ["claude", "codex"])
+    func anExplicitKeyOptOutRefusesEvenWithOtherCloudAccounts(family: String) async {
+        let selected = CloudSetup.Connection(id: "selected", families: [family])
+        let other = CloudSetup.Connection(id: "other", families: [family])
+        let connections = Connections(.init(personal: [other, selected], organization: [family]))
+        let rule = setup(connections)
+        rule.gateway = { [family] }
+        #expect(await rule.choose(harness: family, model: nil, account: selected.id).connectionID == selected.id)
+
+        let optedOut = CloudSetup.Connection(id: selected.id, families: [family], servesCloud: false, canServeCloud: true)
+        connections.snapshot.personal = [other, optedOut]
+        #expect(await rule.launchReadiness(harness: family, model: nil, account: selected.id, readyClaude: true).choice == .localOnly)
+        #expect(await rule.choose(harness: family, model: nil, account: nil).connectionID == other.id)
+        connections.snapshot.personal = [optedOut]
+        #expect(await rule.launchReadiness(harness: family, model: nil, account: selected.id, readyClaude: true).choice == .localOnly)
+    }
+
     /// hq#15762: a team in inference gateway mode with its gateway online serves a person with no connection of their own
     /// (production 2026-11-20 19:54Z: "No Cloud connection serves claude" with the gateway up). It is read only when
     /// nothing else serves, and a connection or the team's key still wins.

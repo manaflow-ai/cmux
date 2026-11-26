@@ -1217,7 +1217,8 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
-        if session.read_meta(super::credentials::claude_login_needs_restart)
+        if (session.read_meta(super::credentials::claude_login_needs_restart)
+            || (session.route_switch.load(Ordering::SeqCst) && self.route_child_is_idle(session)))
             && let Err(e) = Box::pin(self.restart_on_route(session)).await
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);

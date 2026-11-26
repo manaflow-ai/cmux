@@ -133,7 +133,11 @@ public final class CloudAgentCredentials {
 
     /// Reads saved connections and explicit disconnects. Nil means the list is unavailable.
     package var readCredentialConnections: (@MainActor () async -> ConnectionState?)?
-    /// Subscribes to local connection changes while a bound Cloud chat is tracked.
+    /// Reconciles withdrawn bindings on connected guests, including chats without a pane.
+    package var withdrawGuestBindings: (@MainActor ([String]) async -> Bool)?
+    private var guestWithdrawalPending = false
+
+    /// Subscribes to local connection changes while guest reconciliation is active.
     public var watchCredentialConnections: (@MainActor () async -> AsyncStream<Void>?)?
     private var keyWatch: Task<Void, Never>?
     private var keyDeliveries: [ChatKey: KeyDelivery] = [:]
@@ -143,7 +147,7 @@ public final class CloudAgentCredentials {
 
     /// Reconcile an owner's bound launches after a connection change or a guest reconnect.
     public func credentialConnectionsChanged() {
-        guard !keyDeliveries.isEmpty else { return }
+        guard withdrawGuestBindings != nil || !keyDeliveries.isEmpty else { return }
         startKeyWatch()
         queueKeySync()
     }
@@ -169,8 +173,8 @@ public final class CloudAgentCredentials {
     private func syncKeys() async {
         defer {
             keySync = nil
-            if keyDeliveries.isEmpty { keyWatch?.cancel() }
-            if keyDeliveries.values.contains(where: \.withdrawalPending) {
+            if keyDeliveries.isEmpty, withdrawGuestBindings == nil { keyWatch?.cancel() }
+            if guestWithdrawalPending || keyDeliveries.values.contains(where: \.withdrawalPending) {
                 withdrawalRetry.scheduleIfIdle(after: CloudAgentCredentialRefresher.retry) { @MainActor [weak self] in
                     self?.queueKeySync()
                 }
@@ -184,7 +188,26 @@ public final class CloudAgentCredentials {
             for (chat, delivery) in keyDeliveries {
                 await reconcile(chat, delivery: delivery, state: state)
             }
+            if let withdrawGuestBindings, !keyChangesPending {
+                let bindings = withdrawnBindings(in: state)
+                if bindings.isEmpty {
+                    guestWithdrawalPending = false
+                } else {
+                    guestWithdrawalPending = await !withdrawGuestBindings(bindings)
+                }
+            }
         }
+    }
+
+    private func withdrawnBindings(in state: ConnectionState) -> [String] {
+        var withdrawn = Set<String>(state.connections.compactMap { connection in
+            guard connection.canServeCloud, !connection.servesCloud else { return nil }
+            return binding(connection: connection.id, instance: connection.credentialInstance)
+        })
+        for (id, instances) in state.disconnected {
+            withdrawn.formUnion(instances.compactMap { binding(connection: id, instance: $0) })
+        }
+        return withdrawn.sorted()
     }
 
     private func reconcile(_ chat: ChatKey, delivery: KeyDelivery, state: ConnectionState) async {
@@ -231,7 +254,7 @@ public final class CloudAgentCredentials {
         if result == .gone, keyDeliveries[chat]?.id == delivery.id {
             keyDeliveries[chat] = nil
             stopRefresh(chat)
-            if keyDeliveries.isEmpty { keyWatch?.cancel() }
+            if keyDeliveries.isEmpty, withdrawGuestBindings == nil { keyWatch?.cancel() }
         }
         return result
     }
@@ -411,21 +434,20 @@ public final class CloudAgentCredentials {
     public func moveCredential(vmKind: String, chat: String, machine: String, harness: String?) async throws -> CloudAgentCredential? {
         guard vmKind == "owner",
               let credential = try await launchCredential(chat: chat, machine: machine, harness: harness) else { return nil }
-        // The move wire carries only environment variables. A key that requires a binding on the
-        // guest must stay on the source until the transfer protocol can carry that binding.
-        guard credential.kind != "api-key", credential.endpoint == nil else {
-            throw Failure.unavailable(connection: credential.connectionID)
+        guard credential.endpoint == nil, credential.env.count == 1, let name = credential.env.keys.first else {
+            throw Failure.refused(reason: "connections.move_unsupported")
         }
-        // A move carries no binding and is never redelivered under another name, so it uses the setup
-        // token's legacy name, which every guest's move finish accepts (a guest on the merged base only
-        // accepts `CLAUDE_CODE_OAUTH_TOKEN`).
-        if credential.env.count == 1, let token = credential.env["ANTHROPIC_AUTH_TOKEN"], token.hasPrefix("sk-ant-oat") {
-            return CloudAgentCredential(connectionID: credential.connectionID, family: credential.family, kind: credential.kind,
-                                        env: ["CLAUDE_CODE_OAUTH_TOKEN": token], expiresAt: credential.expiresAt,
-                                        harness: credential.harness, model: credential.model, endpoint: nil,
-                                        instance: credential.instance)
+        // The move carries the connection's binding with a setup token or an API key, so a later opt-out
+        // or Disconnect reaches the moved chat. A connection with no binding cannot be withdrawn: refuse.
+        switch name {
+        case "CMUX_CHATGPT_ACCESS_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN":
+            return credential
+        case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN":
+            guard credentialBinding(credential) != nil else { throw Failure.unavailable(connection: credential.connectionID) }
+            return credential
+        default:
+            throw Failure.refused(reason: "connections.move_unsupported")
         }
-        return credential
     }
 
     /// A move that carried `credential` landed on the machine's tab `surface`: as ``started(chat:machine:sessionID:on:onReauth:replace:push:)``, its ChatGPT

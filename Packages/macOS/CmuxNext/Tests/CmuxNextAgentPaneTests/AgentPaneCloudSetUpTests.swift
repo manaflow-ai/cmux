@@ -118,6 +118,36 @@ struct AgentPaneCloudSetUpTests {
         #expect(details?["machine"] as? String == "vm_sized")
     }
 
+    @Test(arguments: [false, true])
+    func aHeldClaudeSendKeepsTheApprovedMachineLoginWhenAnotherRouteAppears(savedKey: Bool) async throws {
+        let setup = CloudSetup(read: {
+            .init(personal: savedKey ? [.init(id: "claude-token", families: ["claude"])] : [],
+                  organization: savedKey ? [] : ["claude"])
+        })
+        let machine = CloudMachine(id: "vm_b", status: .running)
+        setup.claudeMachines = { [machine] }
+        var signedIn = true
+        setup.readClaudeMachineLogin = { $0 == machine.id && signedIn }
+        var start = try #require(AgentPaneCloudStart(params: [
+            "task": "held prompt", "key": UUID().uuidString, "home": true, "harness": "claude",
+        ])).onMachine(machine.id)
+        start.usesMachineLogin = true
+
+        let plan = await setup.plannerReadiness(for: start)
+        #expect(plan.choice == .claudeMachineLogin && plan.machines == [machine.id])
+        let launch = await setup.launchReadiness(for: start)
+        #expect(launch.choice == .claudeMachineLogin && launch.choice.claudeAuth == .own)
+
+        signedIn = false
+        #expect(await setup.plannerReadiness(for: start).choice == .claudeMachineLogin)
+        #expect(await setup.launchReadiness(for: start).choice == .setup(family: "claude", model: nil))
+        let reply = await start.needsConnectionReply("sign-in required", setup: setup)
+        #expect(Self.code(reply) == "cloud_setup_required")
+        let details = (reply["error"] as? [String: Any])?["details"] as? [String: Any]
+        #expect(details?["machine"] as? String == machine.id)
+        #expect(await setup.choose(harness: "claude", model: nil, account: nil) != .setup(family: "claude", model: nil))
+    }
+
     @Test(arguments: ["openrouter", "providers/custom"])
     func aLocalOnlyModelGetsARefusalInsteadOfACloudSetupWait(harness: String) async throws {
         let endpoint = try #require(CloudSetup.Connection(json: ["id": "providers/custom", "kind": "endpoint"]))

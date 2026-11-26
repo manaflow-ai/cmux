@@ -9,6 +9,7 @@ const click = (selector: string): PageFixtureStep => ({ selector, action: "click
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const action = (id: string) => click(`[data-models-action="${id}"]`);
+const pick = (id: string) => [click("[data-models-add]"), click(`[data-models-choice="${id}"]`)];
 const secret = '[data-models-dialog] input[type="password"]';
 const shown = wait('[data-card="models"]');
 const variant = (models: ModelsState, note: string, steps: PageFixtureStep[] = [shown]): SettingsPageVariant => ({
@@ -96,6 +97,8 @@ export default settingsPageEntry({
     "pages/settings/components/ModelConnectionDialog.tsx#ModelConnectionDialog",
     "pages/settings/components/ModelsCard.tsx#CloudModelsCard",
     "pages/settings/components/ChatGPTDevicePanel.tsx#ChatGPTDeviceForm",
+    "pages/settings/components/ChatGPTDevicePanel.tsx#ChatGPTBrowserForm",
+    "pages/settings/components/ClaudeSetupTokenForm.tsx#ClaudeSetupTokenForm",
     "pages/settings/components/ClaudeLoginForm.tsx#ClaudeLoginForm",
     "pages/settings/components/ModelEndpointForm.tsx#ModelEndpointForm",
     "pages/settings/components/ModelKeyForm.tsx#ModelKeyForm",
@@ -117,10 +120,12 @@ export default settingsPageEntry({
     "chatgpt-pending": variant(
       mockModels.chatgptPending,
       "Continue with ChatGPT pressed: waiting on the browser, with Cancel.",
+      [wait('[data-models-dialog="chatgpt"] [data-chatgpt="pending"]')],
     ),
     "chatgpt-error": variant(
       mockModels.chatgptError,
       "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
+      [...pick("chatgpt"), wait('[data-chatgpt="error"]')],
     ),
     "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions and API keys.", [
       shown,
@@ -136,16 +141,15 @@ export default settingsPageEntry({
     "claude-token": variant(
       mockModels.macLogins,
       "Add a Connection > Claude Code: one Connect Claude button; Paste a token instead stays collapsed.",
-      [shown, action("openClaudeToken"), { selector: "[data-models-claude-form]", action: "wait" }],
+      [...pick("claude"), wait("[data-models-claude-token]")],
     ),
     "claude-token-invalid": variant(
       mockModels.macLogins,
       "A pasted value that is not a setup token: the plain-words hint, and Add Token stays off.",
       [
-        shown,
-        action("openClaudeToken"),
+        ...pick("claude"),
         { selector: "[data-models-claude-paste] > summary", action: "click" },
-        { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
+        { selector: '[data-models-claude-token] input[type="password"]', action: "input", value: "not a token" },
       ],
     ),
     // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
@@ -193,6 +197,17 @@ export default settingsPageEntry({
     },
     "cloud-empty": cloud,
     "cloud-connections": { ...cloud, models: mockModels.macLogins },
+    "cloud-mac-only": { ...cloud, models: mockModels.macOnly },
+    "cloud-chatgpt-signed-out": { ...cloud, models: mockModels.chatgptSignedOut },
+    "cloud-chatgpt-off": { ...cloud, models: mockModels.chatgptOff },
+    "cloud-claude-token-starting": dialog("claude", mockModels.claudeStarting, cloud),
+    "cloud-claude-token-signing-in": dialog("claude", mockModels.claudeSigningIn, cloud),
+    "cloud-claude-token-saving": dialog("claude", mockModels.claudeSaving, cloud),
+    "cloud-claude-token-error": dialog("claude", mockModels.claudeError, cloud),
+    "cloud-claude-token-paste": {
+      ...cloud,
+      steps: [...pick("claude"), click("[data-models-claude-paste] > summary")],
+    },
     "cloud-coming-soon": dialog("deepseek", { ...mockModels.empty, cloudHarnesses: [] }, cloud),
     "cloud-endpoint-toggle-error": {
       ...cloud,

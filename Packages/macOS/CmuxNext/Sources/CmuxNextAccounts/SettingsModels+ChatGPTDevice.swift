@@ -122,6 +122,13 @@ extension SettingsModels {
         do {
             let environment = try await requireDaemonEnvironment()
             chatgptDeviceEnvironment = environment
+            if chatgptDevice != .cancelling, provider == .chatgpt, servesCloud == true, let id,
+               let plan = connections.first(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == provider.connectionKind }),
+               plan["enabled"] == .bool(false) {
+                var enable: [String: any Sendable] = ["id": id, "enabled": true]
+                if let instance = plan["credentialInstance"]?.stringValue { enable["instance"] = instance }
+                _ = try await daemon(environment, .accountSet, enable)
+            }
             if chatgptDevice == .cancelling {
                 chatgptDevice = .idle
                 return

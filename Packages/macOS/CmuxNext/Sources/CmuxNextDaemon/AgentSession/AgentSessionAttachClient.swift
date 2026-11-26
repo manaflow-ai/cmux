@@ -192,6 +192,7 @@ public actor AgentSessionAttachClient {
         var subscriptionCredentials = false
         var credentialReattach = false
         var boundCredentials = false
+        var credentialWithdrawal = false
         var claudeMachineLogin = false
         var claudeTeamRoute = false
         /// `agent-session-trust-vm-kind-v1`.
@@ -390,19 +391,17 @@ public actor AgentSessionAttachClient {
     /// of this tab will run, on the owner's own Cloud VM. The hint uses the start's launch inputs (``startParams``), so
     /// the machine's acpmux keys the warmed agent as that start's `session/new`. A start with different inputs starts cold.
     /// Binds nothing and answers whether acpmux took the hint.
-    /// Gemini and Grok keys go only to the bound start, which lets Cloud opt-out withdraw them.
+    /// Saved API keys go only to the bound start, which lets Cloud opt-out withdraw them.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
     public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
                         startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil) async throws -> Bool {
-        guard mode == .attach, !Self.hasNativeCloudKey(credentials) else { return false }
+        guard mode == .attach, !Self.needsKeyWithdrawal(launchEndpoint, credentials) else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
             guard served.start, model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
             }
         }
-        guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials,
-              launchEndpoint == nil || served.endpointCredentials,
-              !Self.needsKeyWithdrawal(launchEndpoint, credentials) || (served.boundCredentials && served.credentialReattach) else { return false }
+        guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials else { return false }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
@@ -546,6 +545,15 @@ public actor AgentSessionAttachClient {
         if let launchEndpoint { params["endpoint"] = launchEndpoint.wire }
         let data = try await call("agent-session-credentials", params, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
+    }
+
+    /// Withdraws all copies of the scoped bindings on the owner's guest, even without a tab.
+    package func withdrawCredentials(bindings: [String], ownerLink: @escaping OwnerLink) async throws {
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard callerOwnsVM else { throw Self.notOwner }
+        guard served.credentialWithdrawal else { return }
+        _ = try await call("agent-session-credentials", ["withdraw_bindings": bindings, "vm_kind": "owner"],
+                           timeout: .seconds(65), on: transport)
     }
 
     /// The connection recorded by this tab's own session, read over the owner's link.
@@ -1149,6 +1157,7 @@ public actor AgentSessionAttachClient {
                             subscriptionCredentials: identity.supports(Self.startSubscriptionCredentialsCapability),
                             credentialReattach: identity.supports(Self.credentialReattachCapability),
                             boundCredentials: identity.supports(DaemonCapability.agentSessionBoundCredentials.rawValue),
+                            credentialWithdrawal: identity.supports(DaemonCapability.agentSessionCredentialWithdrawal.rawValue),
                             claudeMachineLogin: identity.supports(Self.startClaudeMachineLoginCapability),
                             claudeTeamRoute: identity.supports(Self.startClaudeTeamRouteCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),

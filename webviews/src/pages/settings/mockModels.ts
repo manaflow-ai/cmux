@@ -304,17 +304,17 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     }
     case "addClaudeToken": {
       const id = nextId("claude-token", connections);
-      return personal({
-        connections: [
-          ...connections,
-          {
-            ...claudeToken,
-            id,
-            credentialInstance: crypto.randomUUID(),
-            label: run.label?.trim() || claudeToken.label,
-          },
-        ],
-      });
+      const added = {
+        ...claudeToken,
+        id,
+        credentialInstance: crypto.randomUUID(),
+        label: run.label?.trim() || claudeToken.label,
+      };
+      if (!run.replacement) return personal({ connections: [...connections, added] });
+      const replacing = find(run.replacement.id);
+      if (replacing.kind !== "claude-token" || replacing.credentialInstance !== run.replacement.instance)
+        throw new Error("the connection changed while it was open");
+      return personal({ connections: connections.map((row) => (row === replacing ? added : row)) });
     }
     case "orgKey": {
       if (!state.organization.canEdit) throw new Error("only owners and admins change the team's keys");

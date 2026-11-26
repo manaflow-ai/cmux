@@ -156,6 +156,12 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)
     }
+    /// The move can read the chosen connection, but cannot carry it to the machine.
+    package static var loginUnsupported: String {
+        String(localized: "cloud.move.loginUnsupported",
+               defaultValue: "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again.",
+               table: "Cloud", bundle: .localizedModule)
+    }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)

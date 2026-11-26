@@ -16,6 +16,68 @@ const providerNames: Record<ModelDeviceProvider, string> = {
   openrouter: "OpenRouter",
 };
 
+export function ChatGPTBrowserForm({
+  models,
+  busy,
+  failure,
+  run,
+  onClose,
+}: {
+  models: ModelsState;
+  busy: boolean;
+  failure: string | null;
+  run: Run;
+  onClose(): void;
+}) {
+  const { attempt, error } = models.chatgpt;
+  const [started, setStarted] = useState(!!attempt);
+  const [existing] = useState(
+    () => new Set(models.personal.connections.filter(({ kind }) => kind === "chatgpt-plan").map(({ id }) => id)),
+  );
+  const connected =
+    started &&
+    !attempt &&
+    !error &&
+    models.personal.connections.some((row) => row.kind === "chatgpt-plan" && row.signedIn && !existing.has(row.id));
+  const close = useEffectEvent(onClose);
+  useEffect(() => {
+    if (connected) close();
+  }, [connected]);
+
+  if (attempt) {
+    return (
+      <div className="models-form" data-chatgpt="pending">
+        <SignInWaiting>{t("connect.codex.signingIn")}</SignInWaiting>
+        <Button
+          type="button"
+          className="button"
+          data-models-action="cancelChatGPT"
+          onClick={() => void run({ action: "cancelChatGPT" })}
+        >
+          {t("settingsWindow.cancel")}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="models-form" data-chatgpt={error ? "error" : "browser"}>
+      {(error || failure) && <ConnectionError>{error ? chatgptErrorText(error) : failure}</ConnectionError>}
+      <Button
+        type="button"
+        className="button"
+        data-models-action={error || failure ? "retryChatGPT" : "connectChatGPT"}
+        disabled={busy}
+        onClick={() => {
+          setStarted(true);
+          void run({ action: "connectChatGPT" });
+        }}
+      >
+        {t(error || failure ? "settingsWindow.models.tryAgain" : "settingsWindow.cloud.chatgpt.signIn")}
+      </Button>
+    </div>
+  );
+}
+
 export function ChatGPTDeviceForm({
   models,
   signIn,

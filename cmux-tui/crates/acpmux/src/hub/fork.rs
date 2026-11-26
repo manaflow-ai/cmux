@@ -314,6 +314,18 @@ impl Hub {
             }
             None => None,
         };
+        // These forks cannot carry a delivered model connection. Refuse before copying
+        // history that the new agent would otherwise replay on the machine's default.
+        if !empty
+            && target.is_none()
+            && matches!(
+                parent_meta.family.as_deref().unwrap_or(&parent_meta.harness),
+                "gemini" | "grok"
+            )
+            && (parent_meta.credential_withdrawn || self.has_delivered_credential(session))
+        {
+            return Err(super::credentials::credential_needed());
+        }
         let keeps_claude_auth = target.is_none() && subsession.is_none();
         if is_claude
             && keeps_claude_auth

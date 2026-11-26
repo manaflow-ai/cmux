@@ -95,11 +95,16 @@ public final class CloudSetup {
         }
 
         /// The connection a Cloud chat on `family` uses (Revision 2): the picker's `account` when it
-        /// serves Cloud for that family, else the first enabled Cloud-serving one of that family in
-        /// the daemon's order, else the organization's shared key. When this Mac's connections
+        /// serves Cloud for that family. An explicitly selected connection with Cloud use off
+        /// refuses the start. Otherwise use the first enabled Cloud-serving connection in the
+        /// daemon's order, then the organization's shared key. When this Mac's connections
         /// are unread and there is no shared key, ``Choice/fallback`` represents unknown readiness.
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
+                if let account,
+                   personal.contains(where: { $0.id == account && $0.canServeCloud && !$0.servesCloud && $0.families.contains(family) }) {
+                    return .localOnly
+                }
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
                 if let pick = serving.first(where: { $0.id == account }) ?? serving.first {
                     return .connection(id: pick.id, family: family, credentialInstance: pick.credentialInstance)
@@ -140,7 +145,7 @@ public final class CloudSetup {
         case claudeMachineLogin
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
-        /// The profile runs locally and has no Cloud connection to set up.
+        /// The selected account or profile is limited to this Mac.
         case localOnly
         /// The snapshot has unknown readiness.
         case fallback
@@ -161,8 +166,8 @@ public final class CloudSetup {
         }
 
         var requiresCredentialInstance: Bool {
-            guard case .connection(_, let family, _) = self else { return false }
-            return CloudSetup.nativeHarnesses[family] != nil
+            guard case .connection(_, let family, let instance) = self else { return false }
+            return instance != nil || CloudSetup.nativeHarnesses[family] != nil
         }
 
         /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the

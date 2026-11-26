@@ -131,14 +131,14 @@ import Testing
             await client.close()
         }
         let prewarm = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
-        _ = try await prewarm.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key)
+        #expect(try await !prewarm.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key))
         await prewarm.close()
         let starts = daemon.frames.filter { $0["cmd"] as? String == "agent-session-start" }
         #expect(starts.count == (supported ? 1 : 0))
         if supported {
             #expect((starts.first?["credentials"] as? [String: Any])?["connection"] as? String == binding)
         }
-        #expect(daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" } == supported)
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
     }
 
     @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])

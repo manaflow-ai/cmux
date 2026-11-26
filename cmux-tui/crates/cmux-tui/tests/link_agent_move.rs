@@ -387,6 +387,7 @@ struct Target {
     vm_kinds: Vec<Value>,
     /// Serves `agent-transfer-credentials-v1` too.
     takes_credentials: bool,
+    takes_bound_credentials: bool,
     /// Every request's text, as the target read it.
     requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
@@ -412,6 +413,9 @@ impl Target {
         }
         self.requests.push(request.to_string());
         match cmd {
+            "identify" if self.takes_bound_credentials => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1",
+                "agent-session-credential-withdrawal-v1"]})),
             "identify" if self.takes_credentials => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1"]})),
             "identify" if self.later => Reply::Data(json!({"capabilities":
@@ -1157,6 +1161,35 @@ mod agent_move {
         assert_eq!(answer["error_code"], json!("agent_session.login_unreadable"), "{answer}");
         assert!(!answer.to_string().contains(TOKEN), "{answer}");
         assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
+    }
+
+    #[test]
+    fn a_bound_login_needs_guest_withdrawal_before_the_source_freezes() {
+        let token = "sk-ant-oat01-bound-fixture";
+        let credentials = json!({"env":{"ANTHROPIC_AUTH_TOKEN":token},
+            "connection":format!("claude-token:{}", "a".repeat(64))});
+        let stdin = credentials.to_string();
+        let args = ["--vm-kind", "owner", "--login-stdin"];
+        let older = World::new(Target { takes_credentials: true, ..Target::default() });
+        let (code, refused) = older.run_move_stdin(&args, stdin.as_bytes());
+        assert_eq!(code, 1);
+        assert_eq!(refused["error_code"], "machine_outdated");
+        assert_eq!(refused["side"], "target");
+        assert_eq!(older.count("source:agent-transfer-begin"), 0);
+        assert!(!refused.to_string().contains(token));
+
+        let current = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+        let (code, reply) = current.run_move_stdin(&args, stdin.as_bytes());
+        assert_eq!(code, 0, "{reply}");
+        assert!(!reply.to_string().contains(token));
+        let target = current.target.lock().unwrap();
+        let finish = target
+            .requests
+            .iter()
+            .filter_map(|request| serde_json::from_str::<Value>(request).ok())
+            .find(|request| request["cmd"] == "agent-transfer-finish")
+            .unwrap();
+        assert_eq!(finish["credentials"], credentials);
     }
 
     /// `--to-pid`: the owner word belongs to the link process the caller read

@@ -337,6 +337,34 @@ async fn local_chatgpt_refresh_resumes_the_chat_before_the_next_turn() {
 }
 
 #[tokio::test]
+async fn a_local_chatgpt_plan_does_not_auto_fall_back_to_a_signed_in_codex_cli() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, _) = fixture(root.path());
+    save_chatgpt(root.path(), "fixture-selected-plan");
+    let codex_home = root.path().join("codex-home");
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::write(codex_home.join("auth.json"), r#"{"tokens":{"access_token":"built-in"}}"#)
+        .unwrap();
+    assert!(routes::codex_signed_in(Some(&codex_home)));
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(root.path().to_owned()),
+            route: Some(ROUTE.into()),
+            ..NewRequest::default()
+        })
+        .await
+        .unwrap();
+    hub.child_for(&session).await.unwrap();
+
+    let failure = hub.route_failure(&session, "HTTP 429: rate limit exceeded").await.unwrap();
+    assert_eq!(failure["route"]["routeId"], ROUTE);
+    assert!(failure.get("fallback").is_none());
+    assert_eq!(routes::bindings(root.path()).chats[&session.id], ROUTE);
+    assert!(!session.route_switch.load(Ordering::SeqCst));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn a_local_chatgpt_plan_token_echo_is_redacted_from_the_journal() {
     let root = tempfile::tempdir().unwrap();
     let (hub, _) = fixture(root.path());

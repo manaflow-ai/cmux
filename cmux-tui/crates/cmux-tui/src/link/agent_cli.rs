@@ -651,8 +651,9 @@ fn fresh(
             return Err(failed);
         }
     }
-    let vm_kind = target_vm_kind(args)
-        .and_then(|kind| login.as_ref().map_or(Ok(()), |_| login_gate(args)).map(|()| kind));
+    let vm_kind = target_vm_kind(args).and_then(|kind| {
+        login.as_ref().map_or(Ok(()), |login| login_gate(args, login)).map(|()| kind)
+    });
     clock.lap("gate");
     let vm_kind = vm_kind?;
     // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
@@ -1060,10 +1061,16 @@ fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login
 
 /// Whether the target takes the login (module docs): the Cloud API said `owner`, and its daemon
 /// serves `agent-transfer-credentials-v1`.
-fn login_gate(args: &Args) -> Result<(), Failed> {
+fn login_gate(args: &Args, login: &Login) -> Result<(), Failed> {
     let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
-    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)
+    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)?;
+    if login.is_bound()
+        && !served.is_some_and(|served| served.contains(&login::WITHDRAWAL_CAPABILITY))
+    {
+        return Err(refused_login(login::Refusal::Outdated));
+    }
+    Ok(())
 }
 
 fn refused_login(refusal: login::Refusal) -> Failed {

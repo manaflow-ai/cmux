@@ -237,20 +237,19 @@ struct CloudMove {
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again, progress: progress)
         try place.advance(session, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         let owner = await Self.ownerAnswer(machine)
-        // The owner's agent login goes with the move, as a plain Cloud start's (a moved chat answered "Claude is not signed in here").
+        let credentials = services.agentTabs.cloudCredentials
         let credential: CloudAgentCredential?
-        do { credential = try await services.agentTabs.cloudCredentials?.moveCredential(vmKind: owner.vmKind, chat: session, machine: machine.machineID, harness: record.harness) }
+        do { credential = try await credentials?.moveCredential(vmKind: owner.vmKind, chat: session, machine: machine.machineID, harness: record.harness) }
+        catch CloudAgentCredentials.Failure.refused(reason: "connections.move_unsupported") { throw Failure(message: CloudMoveStrings.loginUnsupported, retry: again) }
         catch { throw Failure(message: CloudMoveStrings.loginFailed(name, CloudStrings.errorText(error)), retry: again) }
         progress.enter(.agent, name: name)
-        // The one agent move call freezes the chat, carries it with its frozen sync, then commits; it streams no phases, so
-        // `carry` is the call and `commit` its answer: every one of the reducer's steps is reported, in order.
         place.step(session, "carry")
         let moved: CloudMoveCLI.Answer
         do {
-            // A running turn goes on on the machine, with what it wrote since the sync above.
             let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
             moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
-                                            vmKind: owner.vmKind, toPID: owner.toPID, login: credential?.env)
+                                            vmKind: owner.vmKind, toPID: owner.toPID, login: credential?.env,
+                                            loginConnection: credential.flatMap { $0.kind == "claude-token" || $0.kind == "api-key" ? credentials?.credentialBinding($0) : nil })
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
@@ -258,7 +257,7 @@ struct CloudMove {
         }
         guard moved.ok, let movedSession = moved.sessionID else { throw CloudMoveFailure.moving(moved, machine: name, retry: again) }
         place.step(session, "commit")
-        // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
+        if credential?.kind == "claude-token" || credential?.kind == "api-key" { credentials?.credentialConnectionsChanged() }
         if let host = AgentTabStore.registryHost(of: machine.daemon) {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
@@ -267,10 +266,8 @@ struct CloudMove {
             services.cloud.place.forgetMachine(of: session) // the ledger names its machine now
             services.cloud.accessAsks.start(services: services)
         }
-        // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: Self.movedName(workspace, folder: chat), key: moved.transferID ?? movedSession)
-        // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab, progress: progress, credential: credential)
         return name
@@ -309,7 +306,6 @@ struct CloudMove {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
         services.cloud.place.step(shown.session, "release")
-        // Reopen Closed never offers it.
         do {
             try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
         } catch {

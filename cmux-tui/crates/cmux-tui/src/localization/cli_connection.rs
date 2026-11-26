@@ -11,6 +11,7 @@ pub(crate) struct CliConnectionMessages {
     pub(super) busy: &'static str,
     pub(super) unexpected_envelope: &'static str,
     pub(super) app_socket_only: &'static str,
+    pub model_connection_unverified: &'static str,
 }
 
 impl CliConnectionMessages {
@@ -56,6 +57,7 @@ impl CliConnectionMessages {
 }
 
 pub(super) const ENGLISH: CliConnectionMessages = CliConnectionMessages {
+    model_connection_unverified: "Couldn't verify a removable model connection with that ID. Check `cmux cloud connections`.",
     not_running: "no cmux session is running at {socket}; start one with `cmux daemon ensure` (pass the same --session or --socket)",
     stale: "{socket} is stale: no session is listening on it; start the session with `cmux daemon ensure` (pass the same --session or --socket)",
     other: "cannot connect to session socket {socket}: {error}",
@@ -67,6 +69,7 @@ pub(super) const ENGLISH: CliConnectionMessages = CliConnectionMessages {
 };
 
 pub(super) const JAPANESE: CliConnectionMessages = CliConnectionMessages {
+    model_connection_unverified: "その ID の接続を削除できることを確認できませんでした。`cmux cloud connections` で確認してください。",
     not_running: "{socket} で実行中の cmux セッションはありません。`cmux daemon ensure` で開始してください (同じ --session または --socket を指定)",
     stale: "{socket} は古いソケットです。待ち受けているセッションがありません。`cmux daemon ensure` でセッションを開始してください (同じ --session または --socket を指定)",
     other: "セッションソケット {socket} に接続できません: {error}",

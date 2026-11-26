@@ -213,17 +213,54 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.connectionChoice(chat: "tab-1", machine: "m1") == nil)
     }
 
-    /// A move to Cloud carries a saved Claude setup token under the name every guest's move finish
-    /// accepts. A guest on the merged base refuses `ANTHROPIC_AUTH_TOKEN` at Finish, after the chat froze.
-    @Test func aMoveCarriesTheSetupTokenUnderTheNameEveryGuestAccepts() async throws {
-        let credentials = CloudAgentCredentials { _ in
+    @Test func aMoveRequiresAWithdrawableSetupTokenBinding() async throws {
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
             Data(#"{"family":"claude","kind":"claude-token","env":{"ANTHROPIC_AUTH_TOKEN":"sk-ant-oat-fixture"},"credential_instance":"c0ffee00-0000-4000-8000-000000000001"}"#.utf8)
         }
         credentials.use(choice: .connection(id: "claude-token", family: "claude"), chat: "tab-1", machine: "m1")
         let moved = try #require(try await credentials.moveCredential(vmKind: "owner", chat: "tab-1", machine: "m1", harness: "claude"))
-        #expect(moved.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-fixture"])
-        #expect(moved.connectionID == "claude-token" && moved.family == "claude" && moved.kind == "claude-token")
+        #expect(moved.env == ["ANTHROPIC_AUTH_TOKEN": "sk-ant-oat-fixture"])
+        let binding = try #require(credentials.credentialBinding(moved))
+        #expect(binding.hasPrefix("claude-token:"))
         #expect(!String(describing: moved).contains("sk-ant"))
+
+        credentials.read = { _ in
+            Data(#"{"family":"claude","kind":"claude-token","env":{"ANTHROPIC_AUTH_TOKEN":"sk-ant-oat-fixture"}}"#.utf8)
+        }
+        await #expect(throws: CloudAgentCredentials.Failure.unavailable(connection: "claude-token")) {
+            try await credentials.moveCredential(vmKind: "owner", chat: "tab-1", machine: "m1", harness: "claude")
+        }
+    }
+
+    @Test(arguments: zip(["claude", "codex"], ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]))
+    func aMoveCarriesAnOptedInAPIKeyWithItsBinding(family: String, variable: String) async throws {
+        let instance = "c0ffee00-0000-4000-8000-000000000001"
+        let credentials = CloudAgentCredentials(machineIdentity: "this-mac") { _ in
+            Data(#"{"family":"\#(family)","kind":"api-key","env":{"\#(variable)":"fixture-key"},"credential_instance":"\#(instance)"}"#.utf8)
+        }
+        credentials.setup = CloudSetup(read: {
+            .init(personal: [.init(id: "saved-key", families: [family], servesCloud: true, kind: "api-key", credentialInstance: instance)], organization: nil)
+        })
+
+        let launch = try #require(try await credentials.launchCredential(chat: "tab", machine: "guest", harness: family))
+        #expect(credentials.credentialBinding(launch) != nil)
+        let moved = try #require(try await credentials.moveCredential(vmKind: "owner", chat: "tab", machine: "guest", harness: family))
+        #expect(moved.connectionID == "saved-key")
+        #expect(moved.env == [variable: "fixture-key"])
+        #expect(credentials.credentialBinding(moved) == credentials.credentialBinding(launch), "a later opt-out reaches the moved chat")
+    }
+
+    @Test(arguments: zip(["gemini", "gemini", "grok"], ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"]))
+    func aMoveRefusesAKeyThatNeedsTheNewerCredentialProtocol(family: String, variable: String) async {
+        let instance = "c0ffee00-0000-4000-8000-000000000001"
+        let credentials = CloudAgentCredentials { _ in
+            Data(#"{"family":"\#(family)","kind":"api-key","env":{"\#(variable)":"fixture-key"},"credential_instance":"\#(instance)"}"#.utf8)
+        }
+        credentials.use(choice: .connection(id: "saved-key", family: family, credentialInstance: instance), chat: "tab", machine: "guest")
+
+        await #expect(throws: CloudAgentCredentials.Failure.refused(reason: "connections.move_unsupported")) {
+            try await credentials.moveCredential(vmKind: "owner", chat: "tab", machine: "guest", harness: family)
+        }
     }
 
     @Test func aChosenConnectionThatCannotBeReadRefusesTheStart() async {
@@ -284,40 +321,40 @@ struct CloudAgentCredentialRefresherTests {
         #expect(machine.pushes.isEmpty)
     }
 
-    @Test func replacingAKeyKeepsTheBindingAndDeletingThenAddingBreaksIt() async throws {
+    @Test func replacingAKeyWithdrawsTheOriginalBindingWithoutRedelivering() async throws {
         let machine = Machine()
         let original = UUID().uuidString
         var instance = original
         var key = "fixture-first"
-        var listed: [CloudSetup.Connection]? = [.init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)]
+        var state = CloudAgentCredentials.ConnectionState(connections: [
+            .init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)
+        ])
         let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
             try keyReply(kind: "api-key", instance: instance, key: key)
         }
-        credentials.readCredentialConnections = { listed.map { .init(connections: $0) } }
+        credentials.readCredentialConnections = { state }
         let first = try await credentials.credential(forConnection: "anthropic-key")
         let expected = try #require(credentials.credentialBinding(first))
         credentials.started(chat: "chat", machine: "guest", on: first, push: machine.push)
         await credentials.keySync?.value
         #expect(machine.pushes == [first.env])
 
-        key = "fixture-rotated"
-        credentials.credentialConnectionsChanged()
-        await credentials.keySync?.value
-        #expect(try await credentials.boundCredential(expected, model: nil, harness: "claude")?.env["ANTHROPIC_API_KEY"] == key)
-        #expect(machine.pushes.last?["ANTHROPIC_API_KEY"] == key)
-
-        listed = []
-        credentials.credentialConnectionsChanged()
-        await credentials.keySync?.value
-        #expect(machine.pushes.count == 2)
-
         instance = UUID().uuidString
-        key = "fixture-new-connection"
-        listed = [.init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)]
+        key = "fixture-replacement"
+        state = .init(connections: [
+            .init(id: "anthropic-key", families: ["claude"], servesCloud: false, canServeCloud: true, credentialInstance: instance)
+        ], disconnected: ["anthropic-key": [original]])
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes == [first.env, [:]])
+
+        state = .init(connections: [
+            .init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)
+        ], disconnected: ["anthropic-key": [original]])
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
         #expect(try await credentials.boundCredential(expected, model: nil, harness: "claude") == nil)
-        #expect(machine.pushes.count == 2)
+        #expect(machine.pushes == [first.env, [:]])
     }
 
     @Test(arguments: ["chatgpt.keychain_other_build", "chatgpt.keychain_locked", "chatgpt.storage"])
@@ -490,6 +527,39 @@ struct CloudAgentCredentialRefresherTests {
         #expect(outcome.pushes == [[:], [:], first.env])
     }
 
+    @Test func relaunchWithdrawsFromGuestsWithoutOpeningAnyChat() async throws {
+        let clock = ManualClock()
+        let instance = UUID().uuidString
+        let original = CloudAgentCredentials(machineIdentity: "mac")
+        let gemini = CloudAgentCredential(connectionID: "gemini-key", family: "gemini", kind: "api-key",
+                                          env: ["GEMINI_API_KEY": "fixture-key"], expiresAt: nil, instance: instance)
+        let claude = CloudAgentCredential(connectionID: "claude-token", family: "claude", kind: "claude-token",
+                                          env: ["ANTHROPIC_AUTH_TOKEN": "sk-ant-oat-fixture"], expiresAt: nil, instance: instance)
+        let geminiBinding = try #require(original.credentialBinding(gemini))
+        let claudeBinding = try #require(original.credentialBinding(claude))
+        let expected = [geminiBinding, claudeBinding].sorted()
+
+        let relaunched = CloudAgentCredentials(machineIdentity: "mac", clock: clock)
+        relaunched.readCredentialConnections = {
+            .init(connections: [
+                .init(id: "gemini-key", families: ["gemini"], servesCloud: false, canServeCloud: true, kind: "api-key", credentialInstance: instance),
+                .init(id: "still-allowed", families: ["grok"], servesCloud: true, canServeCloud: true, kind: "api-key", credentialInstance: instance)
+            ], disconnected: ["claude-token": [instance]])
+        }
+        var withdrawals: [[String]] = []
+        relaunched.withdrawGuestBindings = { bindings in
+            withdrawals.append(bindings)
+            return false
+        }
+        relaunched.credentialConnectionsChanged()
+        await relaunched.keySync?.value
+        #expect(withdrawals == [expected])
+        try await clock.waitForSleeper()
+        clock.advance(by: CloudAgentCredentialRefresher.retry)
+        try await clock.waitForSleeper()
+        #expect(withdrawals == [expected, expected])
+    }
+
     @Test func reattachRetriesARefusedWithdrawalOfAnExplicitDisconnect() async throws {
         let machine = Machine()
         let clock = ManualClock()
@@ -574,13 +644,15 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.connectionChoice(chat: "tab-9", machine: "m1") == choice, "no choice to move leaves the tab's own")
     }
 
-    @Test(arguments: ["gemini", "grok"])
-    func aPendingStartRefusesAReplacementUnderTheSameConnectionID(family: String) async throws {
+    @Test(arguments: [
+        ("claude", "ANTHROPIC_API_KEY"), ("codex", "OPENAI_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"), ("grok", "XAI_API_KEY"),
+    ])
+    func aPendingStartRefusesAReplacementUnderTheSameConnectionID(family: String, variable: String) async throws {
         let id = "saved-key"
         let original = UUID().uuidString
         var current = original
         var key = "original-fixture"
-        let variable = family == "gemini" ? "GEMINI_API_KEY" : "XAI_API_KEY"
         let setup = CloudSetup(read: { .init(personal: [.init(id: id, families: [family], credentialInstance: current)], organization: []) })
         let credentials = CloudAgentCredentials { _ in
             try JSONSerialization.data(withJSONObject: ["family": family, "kind": "api-key", "credential_instance": current, "env": [variable: key]])

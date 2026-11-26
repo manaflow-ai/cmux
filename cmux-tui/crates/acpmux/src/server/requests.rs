@@ -4861,6 +4861,27 @@ async fn agent_credentials_update(
     params: &Value,
 ) -> Result<Value, RpcError> {
     crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+    if let Some(bindings) = params.get("withdrawBindings") {
+        let invalid =
+            || RpcError::invalid_params("withdrawBindings takes scoped connection bindings only");
+        if !params.as_object().is_some_and(|params| params.len() == 1) {
+            return Err(invalid());
+        }
+        let bindings =
+            bindings.as_array().filter(|bindings| !bindings.is_empty()).ok_or_else(invalid)?;
+        let bindings = bindings
+            .iter()
+            .map(|binding| {
+                binding
+                    .as_str()
+                    .filter(|binding| {
+                        binding.contains(':') && crate::agent_credentials::valid_connection(binding)
+                    })
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        return hub.withdraw_credential_bindings(&bindings).await;
+    }
     let id = params
         .get("sessionId")
         .and_then(Value::as_str)

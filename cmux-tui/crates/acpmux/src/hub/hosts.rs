@@ -1228,8 +1228,10 @@ impl Hub {
                         // the adoption a start itself may run.
                         // A recovered Claude login moves before the next prompt, after checking
                         // the permissions and background work this host may still hold.
-                        if s.route_switch.swap(false, Ordering::SeqCst)
+                        if s.route_switch.load(Ordering::SeqCst)
                             && !s.read_meta(super::credentials::claude_login_needs_restart)
+                            && hub.route_child_is_idle(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
                         {
                             hub.detach_child(&s).await;
                         }

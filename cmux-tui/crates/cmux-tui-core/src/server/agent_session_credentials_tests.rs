@@ -363,11 +363,37 @@ fn the_owners_prewarm_hints_the_starts_own_agent_and_binds_nothing() {
 }
 
 #[test]
-fn a_guest_does_not_forward_native_keys_to_the_unbound_pool() {
+fn withdrawal_by_binding_reaches_only_the_owners_guest_without_a_bound_tab() {
+    let bindings = json!([format!("saved-key:{}", "a".repeat(64))]);
+    let frame = json!({"cmd":"agent-session-credentials", "surface":0, "vm_kind":"owner",
+        "withdraw_bindings":bindings});
+    let mut guest = connect("withdraw-bindings", AgentStartHost::OwnerCloud, false);
+    assert_eq!(guest.client.request(frame.clone())["ok"], true);
+    let updates = guest.sent("agent/credentials.update");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["params"], json!({"withdrawBindings": bindings}));
+
+    for (label, host, phone) in [
+        ("withdraw-mac", AgentStartHost::Allowed, false),
+        ("withdraw-team", AgentStartHost::TeamVm, false),
+        ("withdraw-phone", AgentStartHost::OwnerCloud, true),
+    ] {
+        let mut refused = connect(label, host, phone);
+        assert_eq!(refused.client.request(frame.clone())["ok"], false, "{label}");
+        assert!(refused.sent("agent/credentials.update").is_empty(), "{label}");
+    }
+}
+
+#[test]
+fn a_guest_does_not_forward_saved_keys_to_the_unbound_pool() {
     let mut chat = connect("prewarm-native-keys", AgentStartHost::OwnerCloud, false);
-    for (harness, variable) in
-        [("gemini", "GEMINI_API_KEY"), ("gemini", "GOOGLE_API_KEY"), ("grok", "XAI_API_KEY")]
-    {
+    for (harness, variable) in [
+        ("claude", "ANTHROPIC_API_KEY"),
+        ("codex", "OPENAI_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"),
+        ("gemini", "GOOGLE_API_KEY"),
+        ("grok", "XAI_API_KEY"),
+    ] {
         let frame = json!({"cmd":"agent-session-prewarm","surface":chat.surface,"cwd":chat.cwd,
             "harness":harness,"vm_kind":"owner","credentials":{"env":{(variable):"fixture-key"}}});
         let reply = chat.client.request(frame);

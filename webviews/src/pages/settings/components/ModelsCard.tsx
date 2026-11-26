@@ -1,6 +1,5 @@
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Button } from "../../../ui/Button";
 import { Skeleton } from "../../../ui/Skeleton";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -17,7 +16,6 @@ import type { ModelConnection } from "../ops";
 import { revealRow } from "../keyboard";
 import { CLOUD_MODELS_ADD_FOCUS, CLOUD_MODELS_FOCUS, MODELS_ADD_FOCUS, type SettingsSearch } from "../router";
 import { t } from "../strings";
-import { ChatGPTStatus, ClaudeTokenDialog, CloudModelOverview } from "./CloudModelsCard";
 import { GroupHeader } from "./GroupHeader";
 import { ModelConnectionDialog } from "./ModelConnectionDialog";
 import { ModelConnectionRow, ModelRow, type RowAction } from "./ModelConnectionRow";
@@ -51,8 +49,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const { models, modelsSettled } = useSettingsState();
   const search = useSearch({ strict: false }) as SettingsSearch;
   const { open } = search;
-  const [tokenDialog, setTokenDialog] = useState<"connect" | "paste" | null>(null);
-  const tokenTrigger = useRef<HTMLElement | null>(null);
   const fromSend = cloud && search.fromSend;
   const family = cloud ? search.provider?.trim().toLowerCase() : undefined;
   const machine = family === "claude" ? search.machine : undefined;
@@ -79,6 +75,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const addButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const startingDevice = useRef(false);
+  const startingAlternative = useRef<{ cancel: "cancelChatGPT" | "cancelClaudeToken"; dismissed: boolean }>(null);
   const locked = busy || saving;
   const connections = models?.personal.connections ?? [];
   const cloudRows = connections.filter(
@@ -189,12 +186,13 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       : cloudProviderForFamily(family)
     : addFocus;
   const requested = requestedId ? providerById(requestedId) : undefined;
-  const requestedDisabled =
-    requested && providerDisabledReason(requested, models?.claudeCodeAvailable, cloud, models?.claudeLogin?.error);
+  const requestedDisabled = requested && providerDisabledReason(requested);
   const device = models?.chatgptDevice?.phase;
   const deviceProvider = models?.deviceProvider ?? "chatgpt";
   const devicePreset = deviceProvider === "kimi" ? "kimi-code" : deviceProvider;
   const capture = (cloud ? cloudClaude : claudeLogin)?.phase;
+  const tokenPending = !!(models?.claudeToken?.attempt || models?.claudeToken?.phase);
+  const browserPending = !!models?.chatgpt.attempt;
   const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
   const claudePending =
     capture === "preparing" || capture === "approving" || capture === "code" || capture === "cancelling";
@@ -218,7 +216,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
           ? devicePreset
           : resume && claudePending && claudeLogin
             ? "claude"
-            : undefined;
+            : resume && browserPending
+              ? "chatgpt"
+              : resume && tokenPending
+                ? "claude"
+                : undefined;
     const resumingDevice = id === devicePreset && devicePending;
     setSelection(
       id
@@ -272,6 +274,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const existingClaude =
     setup?.id === requestedId && family === "claude" && claudeConnected && !recoverySession && !setup?.target;
   const active = setup && !existingClaude ? providerById(setup.id) : undefined;
+  const allowClaudeToken = active?.id === "claude" && !setup?.target && !visitMachine && !environment && !machineName;
+  const allowChatGPTBrowser = active?.id === "chatgpt" && !setup?.target;
   const awaitingSignIn =
     active?.id === devicePreset
       ? devicePending || locked
@@ -282,8 +286,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const pick = (next: SetupSelection | RowAction, trigger?: HTMLElement | null) => {
     if ("id" in next && !next.edit) {
       const provider = providerById(next.id);
-      if (provider && providerDisabledReason(provider, models?.claudeCodeAvailable, cloud, models?.claudeLogin?.error))
-        return;
+      if (provider && providerDisabledReason(provider)) return;
     }
     if (formError) clearError();
     setFormError(false);
@@ -299,9 +302,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     if (!selection) return;
     const trigger = selection.returnTo;
     const removingTrigger =
-      rowAction?.kind === "disconnect" &&
-      (trigger?.dataset.menu === `connection-${rowAction.connection.id}` ||
-        trigger?.dataset.menu === `cloud-connection-${rowAction.connection.id}`) &&
+      (rowAction?.kind === "disconnect" || rowAction?.kind === "replaceClaudeToken") &&
+      trigger?.dataset.menu === `connection-${rowAction.connection.id}` &&
       !store.getSnapshot().models?.personal.connections.some((c) => c.id === rowAction.connection.id);
     returnFocus.current = trigger?.isConnected && !removingTrigger ? trigger : addButton.current;
     setSelection((current) => (current === selection ? null : current));
@@ -309,8 +311,17 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   };
   const dismiss = () => {
     close();
-    if (startingDevice.current || (setup?.id === devicePreset && (device === "waiting" || device === "starting"))) {
+    if (startingAlternative.current) {
+      startingAlternative.current.dismissed = true;
+    } else if (
+      startingDevice.current ||
+      (setup?.id === devicePreset && (device === "waiting" || device === "starting"))
+    ) {
       void rowRun({ action: "cancelChatGPTDevice" });
+    } else if (allowChatGPTBrowser && browserPending) {
+      void rowRun({ action: "cancelChatGPT" });
+    } else if (allowClaudeToken && tokenPending) {
+      void rowRun({ action: "cancelClaudeToken" });
     } else if ((setup?.id === "claude" || setup?.id === "claude-login") && visitLogin && (busy || claudePending)) {
       void rowRun({ action: "cancelClaudeLogin", cloud, ...claudeScope });
     }
@@ -333,26 +344,30 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         ...(machineName ? { machineName } : {}),
       });
     }
+    if (gesture.action === "connectChatGPT" || gesture.action === "connectClaudeToken") {
+      const attempt = {
+        cancel: gesture.action === "connectChatGPT" ? ("cancelChatGPT" as const) : ("cancelClaudeToken" as const),
+        dismissed: false,
+      };
+      startingAlternative.current = attempt;
+      return run(gesture).then((ok) => {
+        startingAlternative.current = null;
+        if (ok && attempt.dismissed) void rowRun({ action: attempt.cancel });
+        return ok;
+      });
+    }
     if (gesture.action !== "connectChatGPTDevice") return run(gesture, onVerificationFailure);
+    const enablePlan =
+      cloud &&
+      (gesture.provider ?? "chatgpt") === "chatgpt" &&
+      gesture.id === activeRow?.id &&
+      activeRow?.enabled === false;
     startingDevice.current = true;
-    return run(gesture).finally(() => {
+    return run(enablePlan ? { ...gesture, servesCloud: true } : gesture).finally(() => {
       startingDevice.current = false;
     });
   };
 
-  const openTokenDialog = (mode: "connect" | "paste", trigger: HTMLElement) => {
-    clearError();
-    tokenTrigger.current = trigger;
-    setTokenDialog(mode);
-  };
-  const closeTokenDialog = () => {
-    clearError();
-    setTokenDialog(null);
-  };
-  const cancelTokenDialog = () => {
-    if (models?.claudeToken?.attempt) void rowRun({ action: "cancelClaudeToken" });
-    closeTokenDialog();
-  };
   const localConnectionFocus = focus?.startsWith("models.connection.")
     ? focus.slice("models.connection.".length)
     : focus;
@@ -380,19 +395,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             />
           )}
           {error && !formError && <SettingsErrorRow message={error} />}
-          {available && cloud && !family && (
-            <CloudModelOverview
-              models={models}
-              connections={displayed}
-              canLaunch={(c) => !cloudRunnerStatus(c)}
-              focus={focus}
-              busy={locked}
-              run={rowRun}
-              onPasteToken={(trigger) => openTokenDialog("paste", trigger)}
-              onSetup={pick}
-              onDisconnect={(connection, trigger) => pick({ kind: "disconnect", connection }, trigger)}
-            />
-          )}
           {available && unsupported && (
             <div className="row" data-cloud-coming-soon="">
               <ModelRow
@@ -465,8 +467,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
           {available && (
             <ModelProviderPicker
               cloud={cloud}
-              claudeCodeAvailable={models?.claudeCodeAvailable}
-              claudeError={models?.claudeLogin?.error}
               open={pickerOpen}
               setOpen={setPickerOpen}
               trigger={addButton}
@@ -476,59 +476,21 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             />
           )}
         </div>
-        {available && !cloud && (
-          <div className="accounts-buttons">
-            {models.chatgpt.attempt || models.chatgpt.error ? (
-              <ChatGPTStatus
-                chatgpt={models.chatgpt}
-                busy={locked}
-                run={rowRun}
-                onRetry={() => void rowRun({ action: "connectChatGPT" })}
-              />
-            ) : !models.chatgptDevice ? (
-              <Button
-                className="button"
-                variant="ghost"
-                data-models-action="connectChatGPT"
-                disabled={locked}
-                onClick={() => void rowRun({ action: "connectChatGPT" })}
-              >
-                {t("settingsWindow.cloud.chatgpt.signIn")}
-              </Button>
-            ) : null}
-            <Button
-              className="button"
-              variant="ghost"
-              data-models-action="openClaudeToken"
-              disabled={locked}
-              onClick={(event) => openTokenDialog("connect", event.currentTarget)}
-            >
-              {t("settingsWindow.models.claude.add")}
-            </Button>
-          </div>
-        )}
         {currentVisit?.connected && (
           <output className="row-help" data-cloud-connected="">
             {fromSend ? t("settingsWindow.models.setup.starting") : t("settingsWindow.models.setup.connected")}
           </output>
         )}
       </section>
-      {tokenDialog && models && (
-        <ClaudeTokenDialog
-          models={models}
-          busy={locked}
-          error={error}
-          run={rowRun}
-          pasteOpen={tokenDialog === "paste"}
-          returnFocus={tokenTrigger}
-          onClose={closeTokenDialog}
-          onCancel={cancelTokenDialog}
-        />
-      )}
       <ModelConnectionDialog
         visit={request}
         cloud={cloud}
         recoverClaude={!!visitRecovery}
+        allowClaudeToken={allowClaudeToken}
+        allowChatGPTBrowser={allowChatGPTBrowser}
+        tokenPending={tokenPending}
+        claudePending={claudePending}
+        devicePending={devicePending}
         claudeAttemptBlocked={(cloud && models?.cloudClaudeApprovalBusy === true) || (claudePending && !visitLogin)}
         useSettingsClaudeLogin={setup?.useSettingsClaudeLogin}
         provider={available ? active : undefined}

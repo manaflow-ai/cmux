@@ -487,7 +487,20 @@ public final class SettingsModels {
                 try await harnesses.typeLine("claude setup-token")
             }
         case "addClaudeToken":
-            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
+            let replacing: (id: String, instance: String)?
+            if let replacement = params["replacement"] {
+                guard let id = replacement["id"]?.stringValue, let instance = replacement["instance"]?.stringValue,
+                      connections.contains(where: {
+                          $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token"
+                              && $0["credentialInstance"]?.stringValue == instance
+                      }) else {
+                    throw PageError.invalidParams("replacement needs the listed Claude token instance")
+                }
+                replacing = (id, instance)
+            } else {
+                replacing = nil
+            }
+            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue, replacing: replacing)
         case "addKey":
             let provider = params["provider"]?.stringValue ?? ""
             let key = params["key"]?.stringValue ?? ""

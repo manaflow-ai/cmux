@@ -277,16 +277,21 @@ final class CloudService {
     }
 
     func start() {
-        // A failed client-config bootstrap leaves the local app usable, but
-        // must not restore auth or start the credential relay/Cloud observers.
-        guard !configuration.apiBaseURL.isFileURL else { return }
+        guard !configuration.apiBaseURL.isFileURL else { return } // A failed bootstrap leaves the app local.
         installIDs.preload(localStore: machines.local.store)
         auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
-        // task-owner: observers; reconcile tracked credentials when a guest reconnects.
+        agentCredentials.withdrawGuestBindings = { [weak self] bindings in
+            guard let self, !policyDisabled, let owner = auth.platformUserID else { return true }
+            return await CloudAgentCredentials.withdrawModelConnections(bindings, on: machines.cloud.compactMap { machine in
+                guard machine.machine.createdBy == owner, machine.daemon.liveIdentity != nil else { return nil }
+                return (CloudMachineLinks(appLink: machine.appLink).ownerLink, AgentTabRemoteHost.endpoint(on: machine.daemon))
+            })
+        }
+        // task-owner: observers; reconcile guest credentials when a guest reconnects.
         observers.append(Task { [weak self] in
             for await _ in ObservationStream({ [weak self] in
-                self?.machines.cloud.map { $0.daemon.liveIdentity == nil ? nil : $0.daemon.store.connectionEpoch }
+                self.map { [$0.machines.local] + $0.machines.cloud.map(\.daemon) }?.map { $0.liveIdentity == nil ? nil : $0.store.connectionEpoch }
             }) {
                 self?.agentCredentials.credentialConnectionsChanged()
             }

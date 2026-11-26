@@ -163,6 +163,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::agent_session_start::AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
     agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY,
     agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY,
+    agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY,
     agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY,
     agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY,
     // A start with no folder (`agent-session-start`, already admitted): the machine makes

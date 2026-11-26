@@ -99,6 +99,7 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
+import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
 import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
@@ -150,7 +151,7 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
-import { applySwitch, browserSwitchClock, HarnessSwitch } from "./harnessSwitch";
+import { applySwitch, browserSwitchClock, defaultModel, HarnessSwitch } from "./harnessSwitch";
 import { liveAsk } from "./liveAsk";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
@@ -4904,13 +4905,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (family: string) => {
       if (connectHeldCloudSend(family, cloudSetupNeed, cloudSetupWaiting, setUpCloudNow.current)) return;
       const readPick = () => {
-        if (cloudStartShown || !cloudComposeEligible.current) return undefined;
+        if (cloudStartShown || !cloudComposeEligible.current || sessionIdRef.current) return undefined;
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
+        const cloudPick = cloudAgentPick();
         return {
-          harness: intent?.harness ?? summary?.harness,
+          harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [
+            cloudPick,
             client,
             client?.selectionToken,
             composerHandle.current,
@@ -4926,8 +4929,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         };
       };
       const select = selectFamilyOnReturn(family, readPick, () => {
-        // The normal harness-pick action already chooses that harness's saved model.
-        void callNative("chat.new", { harness: family, deferred: !sessionIdRef.current }).catch(() => undefined);
+        const model = defaultModel(family, catalogRef.current, undefined, snapshotRef.current?.summary?.cwd);
+        holdCloudAgentPick({ harness: family, ...(model ? { model } : {}) });
       });
       connectCloudPicker(family, select);
     },

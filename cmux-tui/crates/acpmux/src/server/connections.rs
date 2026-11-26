@@ -231,7 +231,7 @@ fn standard_key_endpoint(file: &RouteFile) -> Option<(&'static str, crate::byo_e
     model_endpoint(provider)
 }
 
-/// The saved reference changes on replacement while the delivered connection keeps its identity.
+/// The revision of the saved reference used by the Cloud consent action.
 pub(super) fn key_revision(file: &RouteFile) -> Option<String> {
     let provider = file.provider();
     if !serves_cloud("api-key", provider) || standard_key_endpoint(file).is_none() {
@@ -844,7 +844,7 @@ pub(super) fn add_key(
     Ok((id, state(dir, home, sources)))
 }
 
-/// Replace a standard provider key in its existing route.
+/// Keep the route's local settings while retiring the old Cloud credential.
 fn replace_key(
     dir: Option<&Path>,
     home: &Path,
@@ -863,6 +863,12 @@ fn replace_key(
                 "replacement needs a matching API-key connection".into(),
             ));
         }
+        if file.secret.as_deref() == Some(secret) {
+            return Ok(None);
+        }
+        // Publish before changing the route. The connection list hides this marker while
+        // the old identity is still present, including when writing the replacement fails.
+        routes::record_disconnect(home, id, expected_instance)?;
         Ok(file.secret.replace(secret.to_owned()))
     })
     .map_err(|e| route_error(&e))?;
@@ -1496,9 +1502,12 @@ pub(super) async fn handle(
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
             let state = blocking(move || {
-                routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
+                let added = routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
                     .map_err(|e| route_error(&e))?;
-                Ok::<_, RpcError>(state(dir.as_deref(), &home, &sources))
+                let mut reply = state(dir.as_deref(), &home, &sources);
+                reply["added_connection"] =
+                    json!({"id": added.id, "credential_instance": added.file.credential_instance});
+                Ok::<_, RpcError>(reply)
             })
             .await??;
             announce_later(hub);
@@ -1678,7 +1687,7 @@ mod tests {
     }
 
     #[test]
-    fn connection_incarnation_survives_key_replacement_but_not_id_reuse() {
+    fn replacing_a_cloud_key_requires_consent_for_a_new_credential() {
         let first = dirs();
         let second = dirs();
         let sources = ProfileSources::none();
@@ -1695,7 +1704,7 @@ mod tests {
         assert_eq!(id, other_id);
         assert_ne!(original, other_instance);
 
-        replace_key(
+        let replacement = replace_key(
             Some(&first.routes),
             &first.home,
             &id,
@@ -1705,11 +1714,29 @@ mod tests {
             &sources,
         )
         .unwrap();
+        let row = find(&replacement, &id);
+        let replacement_instance = row["credential_instance"].as_str().unwrap();
+        assert_ne!(replacement_instance, original);
+        assert_eq!(row["serves_cloud"], false);
+        assert_eq!(replacement["disconnected_credentials"][&id], json!([&original]));
+        assert_eq!(
+            credential_plan(Some(&first.routes), &first.home, &id, &sources)
+                .unwrap_err()
+                .data
+                .unwrap()["reason"],
+            "connections.not_cloud"
+        );
+
+        routes::edit(Some(&first.routes), &id, |file| {
+            file.cloud_enabled = Some(true);
+            Ok(())
+        })
+        .unwrap();
         let (_, _, _, reference, instance) =
             credential_plan(Some(&first.routes), &first.home, &id, &ProfileSources::none())
                 .unwrap();
         assert_eq!(reference.as_deref(), Some("keychain:rotated"));
-        assert_eq!(instance.as_deref(), Some(original.as_str()));
+        assert_eq!(instance.as_deref(), Some(replacement_instance));
 
         routes::remove(Some(&first.routes), &first.home, &id).unwrap();
         let (reused_id, new_instance) = connection(&first, "keychain:new");
@@ -2155,7 +2182,10 @@ secret = "keychain:work"
         assert_eq!(state_ids(&state)[0], id);
         assert_eq!(state["replaced_secret"], old);
         expected.secret = Some(new.to_owned());
-        assert_eq!(routes::find(dir, &id).unwrap().file, expected);
+        let saved = routes::find(dir, &id).unwrap().file;
+        assert_ne!(saved.credential_instance, expected.credential_instance);
+        expected.credential_instance = saved.credential_instance.clone();
+        assert_eq!(saved, expected);
         assert_eq!(routes::load(dir).0.len(), 1);
         routes::remove(dir, &d.home, &id).unwrap();
         assert!(replace_key(dir, &d.home, &id, "openai", old, &instance, &sources).is_err());
@@ -2293,6 +2323,53 @@ secret = "keychain:work"
                 credential_plan(dir, &d.home, &id, &sources).unwrap_err().data.unwrap()["reason"],
                 "connections.not_cloud"
             );
+        }
+    }
+
+    #[test]
+    fn an_older_loader_cannot_read_a_new_or_newly_opted_out_key() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let sources = ProfileSources::none();
+        for provider in ["anthropic", "openai"] {
+            for initially_enabled in [false, true] {
+                let reference = "keychain:fixture";
+                let (id, _) = add_key(
+                    dir,
+                    &d.home,
+                    provider,
+                    reference,
+                    None,
+                    &sources,
+                    initially_enabled.then_some(true),
+                )
+                .unwrap();
+                let route = routes::find(dir, &id).unwrap();
+                let older_file = || {
+                    toml::from_str::<RouteFile>(&std::fs::read_to_string(&route.path).unwrap())
+                        .unwrap()
+                };
+                if initially_enabled {
+                    routes::validate(&older_file()).unwrap();
+                    routes::edit(dir, &id, |file| {
+                        file.cloud_enabled = Some(false);
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+                // The older loader validates the raw TOML fields without decoding consent.
+                assert!(matches!(
+                    routes::validate(&older_file()),
+                    Err(routes::RouteError::SecretInline(_))
+                ));
+                let saved = routes::find(dir, &id).unwrap();
+                assert!(!saved.file.disabled);
+                assert_eq!(saved.file.secret.as_deref(), Some(reference));
+                assert_eq!(
+                    credential_plan(dir, &d.home, &id, &sources).unwrap_err().data.unwrap()["reason"],
+                    "connections.not_cloud"
+                );
+            }
         }
     }
 

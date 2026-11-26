@@ -114,6 +114,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities
             .push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY);
+        capabilities.push(agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY);
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         capabilities.extend_from_slice(mux.endpoint_start_harnesses());

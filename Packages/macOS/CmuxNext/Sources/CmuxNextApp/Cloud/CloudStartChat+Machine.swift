@@ -142,7 +142,7 @@ extension CloudStartChat {
                 ? (origin.readiness.choice, nil)
                 : await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)
             let machineLogin = connection == nil && choice == .claudeMachineLogin
-            if connection == nil, refusal?.family == "claude" { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
+            if connection == nil, refusal?.family == "claude" || (start.usesMachineLogin && !machineLogin) { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
             if start.machine != nil || machineLogin {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
                 if owned && machineLogin { return (session, plan, .own) }

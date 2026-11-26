@@ -277,10 +277,11 @@ async fn a_cloud_toggle_cannot_authorize_a_key_replaced_in_place() {
     let original = rpc
         .call(
             method::MUX_CONNECTIONS_KEY_ADD,
-            json!({"provider": "google", "secret": "env:ORIGINAL"}),
+            json!({"provider": "google", "secret": "env:ORIGINAL", "servesCloud": true}),
         )
         .await;
     let original = row(&original);
+    assert_eq!(original["serves_cloud"], true);
     let replacement = rpc
         .call(
             method::MUX_CONNECTIONS_KEY_ADD,
@@ -288,18 +289,26 @@ async fn a_cloud_toggle_cannot_authorize_a_key_replaced_in_place() {
                    "replaceInstance": original["credential_instance"]}),
         )
         .await;
+    let replaced_state = replacement["result"].clone();
     let replacement = row(&replacement);
-    assert_eq!(replacement["credential_instance"], original["credential_instance"]);
+    assert_eq!(replacement["serves_cloud"], false);
+    assert_ne!(replacement["credential_instance"], original["credential_instance"]);
     assert_ne!(replacement["key_revision"], original["key_revision"]);
+    assert_eq!(
+        replaced_state["disconnected_credentials"][id],
+        json!([original["credential_instance"]])
+    );
 
-    let refused = rpc
-        .call(
-            method::MUX_ACCOUNT_SET,
-            json!({"id": id, "instance": original["credential_instance"], "cloudUse": true,
-                   "keyRevision": original["key_revision"]}),
-        )
-        .await;
-    assert!(refused.get("error").is_some(), "{refused}");
+    for instance in [&original["credential_instance"], &replacement["credential_instance"]] {
+        let refused = rpc
+            .call(
+                method::MUX_ACCOUNT_SET,
+                json!({"id": id, "instance": instance, "cloudUse": true,
+                       "keyRevision": original["key_revision"]}),
+            )
+            .await;
+        assert!(refused.get("error").is_some(), "{refused}");
+    }
     let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
     assert_eq!(read["error"]["data"]["reason"], "connections.not_cloud");
     let enabled = rpc
@@ -310,6 +319,66 @@ async fn a_cloud_toggle_cannot_authorize_a_key_replaced_in_place() {
         )
         .await;
     assert!(enabled.get("error").is_none(), "{enabled}");
+}
+
+#[tokio::test]
+async fn an_in_flight_cloud_start_cannot_use_a_replaced_key_after_new_consent() {
+    let home = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.path = Some(home.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+    let reference = |name: &str| {
+        let path = home.path().join(name);
+        std::fs::write(&path, name).unwrap();
+        crate::router_socket::owner_only(&path);
+        format!("file:{}", path.display())
+    };
+    for (provider, variable) in [("google", "GEMINI_API_KEY"), ("xai", "XAI_API_KEY")] {
+        let id = format!("{provider}-key");
+        let row = |reply: &Value| {
+            reply["result"]["connections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        let original = rpc
+            .call(
+                method::MUX_CONNECTIONS_KEY_ADD,
+                json!({"provider": provider, "secret": reference("original-fixture"), "servesCloud": true}),
+            )
+            .await;
+        let picked = row(&original);
+        assert_eq!(picked["serves_cloud"], true);
+        let replacement = rpc
+            .call(
+                method::MUX_CONNECTIONS_KEY_ADD,
+                json!({"provider": provider, "secret": reference("replacement-fixture"), "replace": id,
+                       "replaceInstance": picked["credential_instance"]}),
+            )
+            .await;
+        let replacement = row(&replacement);
+        let enabled = rpc
+            .call(
+                method::MUX_ACCOUNT_SET,
+                json!({"id": id, "instance": replacement["credential_instance"], "cloudUse": true,
+                       "keyRevision": replacement["key_revision"]}),
+            )
+            .await;
+        assert!(enabled.get("error").is_none());
+        let credential = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
+        let delivered = &credential["result"];
+        assert_eq!(delivered["env"][variable], "replacement-fixture");
+        // The app uses these same instances to validate the choice it captured before copying.
+        assert!(delivered["credential_instance"].is_string());
+        assert_eq!(delivered["credential_instance"], replacement["credential_instance"]);
+        assert_ne!(delivered["credential_instance"], picked["credential_instance"]);
+    }
 }
 
 #[tokio::test]
@@ -344,6 +413,10 @@ async fn claude_token_add_registers_a_reference_whose_value_only_the_person_read
         .unwrap();
     assert_eq!(row["label"], "Work");
     assert_eq!(row["serves_cloud"], true);
+    let receipt = &added["result"]["added_connection"];
+    assert_eq!(receipt["id"], row["id"]);
+    assert!(receipt["credential_instance"].as_str().is_some());
+    assert_eq!(receipt["credential_instance"], row["credential_instance"]);
     assert!(!added.to_string().contains(token));
 
     let request = json!({"id": "claude-token"});

@@ -314,7 +314,27 @@ pub(super) fn run(
         Command::Help => Ok(json!({ "usage": HELP })),
         Command::Connections => io.daemon.call(method::MUX_CONNECTIONS, json!({})),
         Command::Remove { id, keychain_account } => {
-            let state = io.daemon.call(method::MUX_CONNECTIONS_REMOVE, json!({ "id": id }))?;
+            let listed = io.daemon.call(method::MUX_CONNECTIONS, json!({}))?;
+            let instance = listed
+                .get("connections")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find(|connection| {
+                    connection.get("id").and_then(Value::as_str) == Some(id.as_str())
+                })
+                .and_then(|connection| connection.get("credential_instance"))
+                .and_then(Value::as_str)
+                .filter(|instance| !instance.is_empty())
+                .ok_or_else(|| {
+                    crate::localization::catalog()
+                        .cli_connection
+                        .model_connection_unverified
+                        .to_owned()
+                })?;
+            let state = io
+                .daemon
+                .call(method::MUX_CONNECTIONS_REMOVE, json!({ "id": id, "instance": instance }))?;
             if let Some(account) = keychain_account {
                 io.keychain.delete(account);
             }

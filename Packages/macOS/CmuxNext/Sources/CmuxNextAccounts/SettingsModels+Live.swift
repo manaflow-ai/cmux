@@ -286,7 +286,7 @@ extension SettingsModels {
         } else if let servesCloud {
             params["servesCloud"] = servesCloud
         }
-        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: params, label: label, checked: checkStoredKey)
+        _ = try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: params, label: label, checked: checkStoredKey)
     }
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
@@ -294,12 +294,37 @@ extension SettingsModels {
     /// whitespace character is taken out first (`withoutWhitespace`): a terminal that wrapped the token
     /// across lines or padded it with spaces still gives the one token it printed. What is left must
     /// read as a token (`isClaudeToken`).
-    func addClaudeToken(_ token: String, label: String?) async throws {
+    func addClaudeToken(_ token: String, label: String?, replacing: (id: String, instance: String)?) async throws {
         let token = Self.withoutWhitespace(token)
         guard Self.isClaudeToken(token) else {
             throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed")
         }
-        try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
+        let reply = try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
+        guard let replacing else { return }
+        let changed = PageError.invalidParams("replacement needs both saved Claude token instances")
+        guard let added = reply["added_connection"], let id = added["id"]?.stringValue,
+              let instance = added["credential_instance"]?.stringValue, id != replacing.id else { throw changed }
+        let rows = reply["connections"]?.arrayValue ?? []
+        guard rows.contains(where: { $0["id"]?.stringValue == id && $0["credential_instance"]?.stringValue == instance }) else {
+            throw changed
+        }
+        do {
+            guard rows.contains(where: {
+                $0["id"]?.stringValue == replacing.id && $0["credential_instance"]?.stringValue == replacing.instance
+            }) else { throw changed }
+            let ids = rows.compactMap { $0["id"]?.stringValue }.filter { $0 != id }
+            // Move the new identity into position before removing the old connection.
+            let order = ids.flatMap { $0 == replacing.id ? [id, $0] : [$0] }
+            try await mutate(.connectionsOrderSet, ["ids": order])
+        } catch {
+            // The old connection was never removed. Undo the add where the daemon is reachable.
+            try? await mutate(.connectionsRemove, ["id": id, "instance": instance])
+            throw error
+        }
+        guard connections.contains(where: {
+            $0["id"]?.stringValue == id && $0["credentialInstance"]?.stringValue == instance
+        }) else { throw changed }
+        try await mutate(.connectionsRemove, ["id": replacing.id, "instance": replacing.instance])
     }
 
     nonisolated static let claudeTokenPrefix = "sk-ant-oat"
@@ -337,7 +362,7 @@ extension SettingsModels {
 
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
     private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
-                           params base: [String: any Sendable], label: String?, checked: Bool = false) async throws {
+                           params base: [String: any Sendable], label: String?, checked: Bool = false) async throws -> JSONValue {
         let environment = try await requireDaemonEnvironment()
         let reference = try await storeKey(secret, provider: store)
         var params = base
@@ -352,6 +377,7 @@ extension SettingsModels {
                                                            rollbackKeychainReference: reference))
             if reply["connections"] != nil { apply(reply) } else { await refresh() }
             if let previous = reply["replaced_secret"]?.stringValue { await deleteKey(previous) }
+            return reply
         } catch {
             // A disconnected socket can lose a successful reply. Refresh the
             // route mirror and keep its Keychain item unless the daemon refused.

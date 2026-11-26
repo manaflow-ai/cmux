@@ -398,16 +398,35 @@ test("a partial Cloud answer leaves an undecided runnable family on its local be
   expect(action("Connect Codex")).toBeUndefined();
 });
 
-test("an unsupported custom family requests model setup with its family", async () => {
-  const pi = catalog.find((entry) => entry.id === "pi")!;
+test.each([
+  ["opencode", "OpenCode"],
+  ["pi", "Pi"],
+])("the Cloud picker offers %s models without a Cloud connection", async (id, name) => {
+  const entry = { id, name, models: [{ id: "model-test", name: "Test model" }], notInstalled: true, pickable: false };
   const picker = await mount({
     cloud: cloudState({ claude: true, codex: true }),
-    selected: pi,
+    entries: [...catalog.filter((candidate) => candidate.id !== id), entry],
+  });
+  await picker.open();
+  await act(async () => tab(name)!.click());
+  expect(action(`Connect ${name}`)).toBeUndefined();
+  expect(popup().textContent).toContain("Test model");
+  await key(field(), "ArrowDown");
+  await key(field(), "Enter");
+  expect(picker.landed).toEqual(["model-test"]);
+});
+
+test("an unsupported custom family requests model setup with its family", async () => {
+  const custom = { id: "custom", name: "Custom", models: [] };
+  const picker = await mount({
+    cloud: cloudState({ claude: true, codex: true }),
+    entries: [...catalog, custom],
+    selected: custom,
     addAccount: async () => undefined,
   });
   await picker.open();
-  await act(async () => action("Connect Pi")!.click());
-  expectSettingsOpened(picker, "pi");
+  await act(async () => action("Connect Custom")!.click());
+  expectSettingsOpened(picker, "custom");
 });
 
 for (const full of [false, true]) {

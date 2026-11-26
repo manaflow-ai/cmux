@@ -11,6 +11,7 @@
     "agent-session-children-v1",
     "agent-session-content-v1",
     "agent-session-context-v1",
+    "agent-session-credential-withdrawal-v1",
     "agent-session-folders-v1",
     "agent-session-fork-v1",
     "agent-session-login-machine-v1",

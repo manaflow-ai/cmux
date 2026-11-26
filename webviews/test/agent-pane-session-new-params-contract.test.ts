@@ -30,6 +30,7 @@ const sent: Record<string, Record<string, unknown>> = {
     undefined,
     undefined,
     false,
+    undefined,
     true,
   ),
   "no project": newSessionParams({}, "claude", true),

@@ -367,16 +367,48 @@ impl Hub {
             "model": model, "harness": meta.harness, "claudeTokenRecovery": uses_claude_machine_login(&meta).then_some("machineLogin")}))
     }
 
+    /// Withdraw exact bindings delivered by the owner's Mac, including chats without a live tab.
+    pub(crate) async fn withdraw_credential_bindings(
+        self: &Arc<Self>,
+        bindings: &std::collections::BTreeSet<&str>,
+    ) -> Result<Value, RpcError> {
+        self.wait_startup().await;
+        let matching = self.session_handles().into_iter().filter_map(|session| {
+            let binding = session.read_meta(|meta| {
+                meta.credential_connection
+                    .as_deref()
+                    .filter(|binding| bindings.contains(binding))
+                    .map(str::to_owned)
+            })?;
+            Some(async move { self.revoke_bound_credential(session, Some(&binding)).await })
+        });
+        let results = futures::future::join_all(matching).await;
+        for result in results {
+            result?;
+        }
+        Ok(json!({}))
+    }
+
     /// The Cloud owner withdrew a delivered model credential.
     pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
-        let session = self.credential_session(id)?;
+        self.revoke_bound_credential(self.credential_session(id)?, None).await
+    }
+
+    async fn revoke_bound_credential(
+        self: &Arc<Self>,
+        session: Arc<Session>,
+        binding: Option<&str>,
+    ) -> Result<Value, RpcError> {
         #[cfg(unix)]
         let family = self.credential_family(&session.meta().harness).await;
         let _spawn = session.spawn_lock.lock().await;
+        let meta = session.meta();
+        if binding.is_some() && meta.credential_connection.as_deref() != binding {
+            return Ok(json!({}));
+        }
         if self.hands_off(&session) {
             return Err(withdrawal_pending());
         }
-        let meta = session.meta();
         let child = session.child.lock().await.clone();
         let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let unverified_host = child.is_none() && !Self::host_record_gone(&session.id);
@@ -619,6 +651,49 @@ mod tests {
         hub.child_for(&other).await.unwrap();
         assert!(!launched(&other).contains_key(CLAUDE_OAUTH));
         assert!(!written(&hub, &session.id).contains(FIRST), "no meta or log record holds it");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cloud_gemini_fork_refuses_to_replay_on_the_machine_account() {
+        let hub = hub_for("gemini", &["python3", FAKE]);
+        hub.config.write().await.cloud_host = true;
+        hub.config.write().await.harnesses.get_mut("gemini-fake").unwrap().env.extend([
+            ("FAKE_NO_FORK".into(), "1".into()),
+            ("GEMINI_API_KEY".into(), "machine-fixture".into()),
+        ]);
+        let credential = AgentCredential::parse(&json!({
+            "connection": "google-key",
+            "env": {"GEMINI_API_KEY": "owner-fixture"}
+        }))
+        .unwrap();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(launched(&session)["GEMINI_API_KEY"], "owner-fixture");
+
+        let prompt = || vec![json!({"type": "text", "text": "parent history"})];
+        hub.prompt(&session, prompt(), "test", false).await.unwrap();
+        let (shown, showing) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((shown, released));
+        let turn = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move { hub.prompt(&session, prompt(), "test", false).await }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), showing).await.unwrap().unwrap();
+        assert_eq!(session.status(), crate::store::SessionStatus::Running);
+        let fork = hub.fork(&session, None, None, Default::default(), None, None, true).await;
+        release.send(()).unwrap();
+        turn.await.unwrap().unwrap();
+        let error = fork.err().expect("a fork cannot use the machine's default key");
+        assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
+        assert!(hub.sessions().iter().all(|s| s.meta().parent_id.is_none()));
+        hub.shutdown_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

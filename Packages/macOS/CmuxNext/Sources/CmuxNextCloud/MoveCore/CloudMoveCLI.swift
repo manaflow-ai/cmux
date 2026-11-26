@@ -279,16 +279,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
     /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
-    /// (`--login-stdin`), which the machine starts the moved chat's agent with.
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with. `loginConnection` is the
+    /// saved connection binding the guest records for withdrawal.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil,
+                          loginConnection: String? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
             var login: Bool
         }
-        let stdin = try login.map { try JSONSerialization.data(withJSONObject: ["env": $0]) }
+        let stdin = try login.map { env in
+            var credentials: [String: Any] = ["env": env]
+            if let loginConnection { credentials["connection"] = loginConnection }
+            return try JSONSerialization.data(withJSONObject: credentials)
+        }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
                                   vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer
     }

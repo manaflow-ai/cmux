@@ -343,6 +343,14 @@ impl Hub {
         meta.created_by = None;
         // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
         super::races::settle_imported(&mut meta.races);
+        if let Live::Moved(Some(credential)) = &live
+            && let Some(binding) = credential.connection()
+        {
+            meta.credential_connection = Some(binding.to_owned());
+            meta.credential_model = None;
+            meta.credential_withdrawn = false;
+            meta.claude_token_recovery = None;
+        }
         steps.step("meta");
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
@@ -1069,6 +1077,44 @@ mod tests {
             "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": agent,
             "status": "idle", "createdAt": 1, "updatedAt": 1,
         })
+    }
+
+    #[tokio::test]
+    async fn a_moved_setup_token_can_be_withdrawn_by_its_saved_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = harness_hub(dir.path());
+        let bundle = dir.path().join("bundle");
+        std::fs::create_dir_all(bundle.join("events")).unwrap();
+        let id = uuid::Uuid::now_v7().to_string();
+        let mut meta = harness_meta(&id, "agent-setup-token");
+        meta["cwd"] = json!(dir.path());
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        let binding = format!("claude-token:{}", "a".repeat(64));
+        let token = "sk-ant-oat01-move-fixture";
+        let credential = crate::agent_credentials::AgentCredential::parse(&json!({
+            "env": {"ANTHROPIC_AUTH_TOKEN": token}, "connection": binding
+        }))
+        .unwrap();
+
+        let moved = hub
+            .import_into(&bundle, None, Live::Moved(Some(credential)), None, false, false, None)
+            .await
+            .unwrap();
+        let stored = hub.store.load(&moved.id).unwrap().unwrap();
+        assert_eq!(stored.credential_connection.as_deref(), Some(binding.as_str()));
+        assert!(!serde_json::to_string(&stored).unwrap().contains(token));
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], true);
+
+        let other = format!("claude-token:{}", "b".repeat(64));
+        hub.withdraw_credential_bindings(&std::collections::BTreeSet::from([other.as_str()]))
+            .await
+            .unwrap();
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], true);
+        hub.withdraw_credential_bindings(&std::collections::BTreeSet::from([binding.as_str()]))
+            .await
+            .unwrap();
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], false);
+        assert!(hub.store.load(&moved.id).unwrap().unwrap().credential_withdrawn);
     }
 
     /// Review of #25676: a marker write that fails before its rename takes its temporary file
