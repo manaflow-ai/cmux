@@ -77,12 +77,6 @@ def health(labels, checked=NOW):
                                run="https://github.com/x/y/actions/runs/1", minutes=5)
 
 
-# Leo, 2026-11-19: "We could use Freestyle. [...] So we should just be able to size them accordingly." Freestyle VMs
-# have 8 vCPU, so the pools whose jobs fit lead with it; the 16 and 32 vCPU pools lead with the owned GCP label.
-FREESTYLE_LED = ("linux", "linux_2", "linux_8")
-GCP_LED = ("linux_16", "linux_32")
-
-
 class Declared(unittest.TestCase):
     def test_the_declared_pools_are_valid(self) -> None:
         self.assertEqual(runner_pools.spec_problems(runner_pools.load_pools()), [])
@@ -92,10 +86,9 @@ class Declared(unittest.TestCase):
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
         # Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist": the owned GCP
         # pool leads. Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. [...] We
-        # could use Freestyle. [...] So we should just be able to size them accordingly": Freestyle leads, a full
-        # Freestyle rung overflows to the GCP pool, and Blacksmith only after both.
+        # could use Freestyle": a full GCP pool overflows to Freestyle, and Blacksmith only after it.
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["cmux-freestyle-linux-x64", "cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
+                         ["cmux-fleet-linux-x64", "cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
                           "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
@@ -108,10 +101,9 @@ class Declared(unittest.TestCase):
                 if pools[name].get("ephemeral_only"):
                     self.assertFalse(runner_pools.owned_gcp(listed[0]))
                 else:
-                    # Freestyle VMs have 8 vCPU: the pools whose jobs fit there lead with the rung, then GCP;
-                    # the bigger ones lead with GCP and never list Freestyle.
-                    lead = ["cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"] if size <= 8 else ["cmux-fleet-linux-x64"]
-                    self.assertEqual(runner_pools.owned_prefix(listed), lead, name)
+                    self.assertEqual(listed[0], "cmux-fleet-linux-x64")
+                    # Freestyle VMs have 8 vCPU: only the pools whose jobs fit there list the rung.
+                    self.assertEqual(listed[1] == "cmux-freestyle-linux-x64", size <= 8, name)
                     listed = listed[len(runner_pools.owned_prefix(listed)):]
                 self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
@@ -139,11 +131,12 @@ class Declared(unittest.TestCase):
                 with self.subTest(pool=name, label=label):
                     if index == 0 and runner_pools.owned_ephemeral(label):
                         continue
-                    # The Freestyle rung (one VM per job; never a fork's run) and the persistent GCP pool
-                    # (cmux-fleet-linux-x64) lead only pools no fork or write-token job needs fresh: those are
-                    # ephemeral_only (spec_problems()).
-                    if index < len(runner_pools.owned_prefix(runner_pools.members(spec))) \
-                            and not spec.get("ephemeral_only"):
+                    # The persistent GCP pool (cmux-fleet-linux-x64) leads only pools no fork or write-token
+                    # job needs fresh: those are ephemeral_only (spec_problems()).
+                    if index == 0 and runner_pools.owned_gcp(label) and not spec.get("ephemeral_only"):
+                        continue
+                    # So does the Freestyle rung right after it (one VM per job; never a fork's run).
+                    if index == 1 and runner_pools.owned_freestyle(label) and not spec.get("ephemeral_only"):
                         continue
                     self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
 
@@ -394,7 +387,7 @@ class Evidence(unittest.TestCase):
         # The owned GCP label stands registered and is judged by the stall rule, not by this.
         self.assertFalse(runner_pools.unproven("cmux-fleet-linux-x64", {}))
         self.assertFalse(runner_pools.unproven("cmux-freestyle-linux-x64", {}))
-        self.assertEqual(value["linux_2"], "cmux-freestyle-linux-x64")
+        self.assertEqual(value["linux_2"], "cmux-fleet-linux-x64")
         self.assertEqual(value["linux_16"], "cmux-fleet-linux-x64")
         # A start proves it: the pool leads with it again, and the proof survives a pass that sees no start.
         started = self.owned_linux_snapshot(queued=0, running=1, oldest=0, started_ago=dt.timedelta(minutes=1))
@@ -423,11 +416,7 @@ class Evidence(unittest.TestCase):
         snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
         pools = runner_pools.load_pools()
         fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
-        # Leo, 2026-11-19: "I don't know why you guys are fixated on GCP [...] We could use Freestyle": the pools
-        # that fit its 8 vCPU VMs lead with Freestyle; the 16 and 32 vCPU pools with GCP.
-        for name in FREESTYLE_LED:
-            self.assertEqual(fresh[name], "cmux-freestyle-linux-x64", name)
-        for name in GCP_LED:
+        for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
             self.assertEqual(fresh[name], label, name)
         for name in ("linux_4", "promotion"):
             self.assertRegex(fresh[name], runner_pools.EPHEMERAL, name)
@@ -435,9 +424,9 @@ class Evidence(unittest.TestCase):
         self.assertIn(label, dead)
         value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
                                           covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
-        # A full GCP pool leaves the Freestyle-led pools on Freestyle; the 16 and 32 vCPU pools, whose jobs do not
-        # fit a Freestyle VM, go to Blacksmith.
-        for name in FREESTYLE_LED:
+        # Leo, 2026-11-19: "stop fucking relying on [Blacksmith]. [...] We could use Freestyle": the 8 vCPU pools
+        # take the Freestyle rung next; the 16 and 32 vCPU pools, whose jobs do not fit a Freestyle VM, Blacksmith.
+        for name in ("linux", "linux_2", "linux_8"):
             self.assertEqual(value[name], "cmux-freestyle-linux-x64", name)
         self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
         # A full Freestyle rung too: Blacksmith takes the overflow.
@@ -484,9 +473,8 @@ class Evidence(unittest.TestCase):
         marked = {runner_pools.DEAD_KEY: {label: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
         value, _ = runner_pools.reconcile(marked, pools, dead_now=dead, served_now=started, now=NOW,
                                           covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
-        for name in FREESTYLE_LED:
-            self.assertEqual(value[name], "cmux-freestyle-linux-x64", name)
-        self.assertEqual(value["linux_16"], label)
+        for name in ("linux", "linux_2", "linux_8", "linux_16"):
+            self.assertEqual(value[name], label, name)
 
     def test_an_owned_label_with_no_idle_runner_spills_once_a_job_waited(self) -> None:
         for idle in (0, runner_pools.OWNED_IDLE_HEADROOM):
@@ -498,8 +486,8 @@ class Evidence(unittest.TestCase):
                 pools = runner_pools.load_pools()
                 value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=started, now=NOW,
                                                   covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
-                # A full GCP pool leaves the Freestyle-led pools on their lead (OWNED_FREESTYLE_LINUX); a pool too
-                # big for its 8 vCPU VMs goes straight to Blacksmith. Leo, 2026-11-19: "stop ... relying on it".
+                # A full GCP pool overflows to the Freestyle rung first (OWNED_FREESTYLE_LINUX); a pool too big for
+                # its 8 vCPU VMs goes straight to Blacksmith. Leo, 2026-11-19: "stop ... relying on it".
                 self.assertEqual(value["linux"], "cmux-freestyle-linux-x64")
                 self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
 
@@ -527,9 +515,7 @@ class Evidence(unittest.TestCase):
         fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=later)
         value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=later,
                                           covered=runner_pools.evidence_covers(None, snapshot, pools, now=later))
-        for name in FREESTYLE_LED:
-            self.assertEqual(value[name], "cmux-freestyle-linux-x64", name)
-        for name in GCP_LED:
+        for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
             self.assertEqual(value[name], label, name)
         # A wait the snapshot did measure still overflows, however fresh the snapshot is.
         snapshot["pools"][label]["oldest_queued_minutes"] = 11
@@ -541,10 +527,8 @@ class Evidence(unittest.TestCase):
         # the mirror never names the persistent pool; feat-cmux-next readers fall through to the pool instead.
         pools = runner_pools.load_pools()
         value, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
-        self.assertEqual(value["linux"], "cmux-freestyle-linux-x64")
+        self.assertEqual(value["linux"], "cmux-fleet-linux-x64")
         self.assertEqual(runner_pools.mirror_target(value, pools, "linux"), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(runner_pools.mirror_target(dict(value, linux="cmux-fleet-linux-x64"), pools, "linux"),
-                         "blacksmith-4vcpu-ubuntu-2404")
         marked = dict(value, **{runner_pools.DEAD_KEY: {"blacksmith-4vcpu-ubuntu-2404": runner_pools.iso(NOW)}})
         self.assertEqual(runner_pools.mirror_target(marked, pools, "linux"), "blacksmith-16vcpu-ubuntu-2404")
         self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
