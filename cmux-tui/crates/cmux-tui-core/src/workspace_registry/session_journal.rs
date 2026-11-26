@@ -1539,12 +1539,15 @@ fn load_journal_segment(
 }
 
 pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    // Pruned ranges are disjoint and keyed by start, so the last range has the
+    // largest end. MAX(end_sequence) would scan every range on each head read.
     let head_sequence = connection
         .prepare_cached(
             "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_pruned_ranges), 0)
+           COALESCE((SELECT end_sequence FROM journal_pruned_ranges
+                     ORDER BY start_sequence DESC LIMIT 1), 0)
          )",
         )?
         .query_row([], |row| row.get::<_, i64>(0))?;
