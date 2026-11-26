@@ -127,9 +127,13 @@ extension CEFRuntime {
     private func result(of sent: CEFDevToolsSend?, method: String, timeout: Duration) async throws -> String {
         guard let sent else { throw BrowserTabError.closed }
         if let answered = sent.answered { return try answered.get() }
-        return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
+        let reply = try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        CEFPageCaptureProbe.answered(method)
+        #endif
+        return reply
     }
 
     /// A one-way DevTools method (a freeze) in `browser`'s call order: sent now when no call of `browser` waits,
@@ -150,6 +154,9 @@ extension CEFRuntime {
     /// every call keeps its browser's order. Nil when the browser is gone.
     private func sendDevTools(_ browser: Int32, method: String, encodedParams: String) -> CEFDevToolsSend? {
         guard let shim else { return nil }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        CEFPageCaptureProbe.sent(method, params: encodedParams)
+        #endif
         // Chromium answers some methods inside the shim call (SendDevToolsMessage), before a
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on

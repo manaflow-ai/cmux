@@ -10,16 +10,23 @@ import QuartzCore
 /// holds the commit, and this app drops its own send right when every page reported (`done`) or at its own deadline.
 ///
 /// The main thread can still wait for a fenced commit: the next commit's backing-store update synchronizes with the
-/// render server (`CABackingStoreSynchronize`). A deadline on the main actor then waits for the very thread it frees,
-/// and the commit is held until the server gives up on the fence. With ``deadlineOffMain`` the deadline drops the right
-/// on the cooperative pool (``CEFFenceRight``) and only the fence's bookkeeping waits for the main actor.
+/// render server (`CABackingStoreSynchronize`). So nothing that needs the main thread releases a fence: the deadline
+/// drops the right on the cooperative pool (``CEFFenceRight``), and only the fence's bookkeeping waits for the main
+/// actor. (A deadline on the main actor waited for the very thread it frees: on the page-sync bench, 2026-11-26, a
+/// window-corner drag's commits were held 155 ms at p50 and over 1 s at p95 for a 17 ms deadline.)
 ///
 /// One fence per window per run-loop turn; every hosted page resized in that turn joins it. The process's one set of
 /// open fences is ``CEFRuntime/resizeFences``; each ``CEFLayerHosting`` is handed it.
+///
+/// How a live drag uses its fences is ``CEFFenceMode`` (a bench knob while the page-sync arms are measured).
 @MainActor
 final class CEFResizeFences {
     /// Asks the fork to take `port` for one page; true when it did (its `done` then comes once, on the main thread).
     typealias Join = (_ port: mach_port_t, _ done: @escaping @MainActor (_ presented: Bool) -> Void) -> Bool
+
+    /// After Core Animation's commit (2,000,000) and before the resize step log's own (2,000,100): ``CEFFenceMode/commit``
+    /// hands a fence to its pages' GPUs here.
+    nonisolated static let afterCommitOrder: CFIndex = 2_000_050
 
     /// This turn's fence of each window.
     private var current: [ObjectIdentifier: CEFResizeFence] = [:]
@@ -27,35 +34,52 @@ final class CEFResizeFences {
     let pace = CEFFencePace()
     private let clock: any Clock<Duration>
     private let makePort: @MainActor (CALayer) -> mach_port_t?
-    /// Whether this app's send right goes at its deadline off the main thread (``deadlineOffMainKnob``).
-    let deadlineOffMain: Bool
-
-    /// `CMUX_NEXT_CEF_FENCE_DEADLINE=background` (a `CMUX_NEXT_` knob: the launch strip keeps it): each fence's
-    /// deadline drops this app's send right on the cooperative pool, not on the main actor.
-    nonisolated static let deadlineOffMainKnob =
-        ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_DEADLINE"] == "background"
+    /// How a live drag uses the fences (``CEFFenceMode/current`` by default).
+    let mode: CEFFenceMode
+    /// ``CEFFenceMode/commit``: the fences whose window has not committed yet, and the observer after every commit that
+    /// hands them to their pages (added at launch, so a fence opened in the display cycle's own callout is handed after
+    /// that same pass's commit: an observer added during a stage misses that stage).
+    private var awaitingCommit: [CEFResizeFence] = []
+    private var afterCommit: MainRunLoopObserver?
 
     /// - Parameters:
     ///   - clock: runs this app's deadline of each fence.
     ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
     ///     of their own).
-    ///   - deadlineOffMain: drop the send right at the deadline off the main thread (``deadlineOffMainKnob`` by
-    ///     default).
+    ///   - mode: how a live drag uses the fences (``CEFFenceMode/current`` by default).
     init(clock: any Clock<Duration> = ContinuousClock(),
          makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) },
-         deadlineOffMain: Bool = CEFResizeFences.deadlineOffMainKnob) {
+         mode: CEFFenceMode = .current) {
         self.clock = clock
         self.makePort = makePort
-        self.deadlineOffMain = deadlineOffMain
+        self.mode = mode
+        if mode == .commit {
+            afterCommit = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: Self.afterCommitOrder,
+                                              drawsNothingAfterCommit: true) { [weak self] _ in self?.windowsCommitted() }
+        }
+    }
+
+    /// ``CEFFenceMode/commit``: the windows' commits of this pass went; their fences go to their pages and their
+    /// deadlines start.
+    private func windowsCommitted() {
+        guard !awaitingCommit.isEmpty else { return }
+        let fences = awaitingCommit
+        awaitingCommit = []
+        let clock = clock
+        for fence in fences {
+            fence.committed { Self.startDeadline(fence, clock: clock, after: fence.after) }
+        }
     }
 
     /// Joins one page resized in this turn to `window`'s fence for this turn (made on first use).
     /// - Parameters:
     ///   - layer: any layer of the window's tree (its context is the window's).
-    ///   - timeoutMs: the GPU's deadline for the page's frame; this app's own comes one refresh later.
-    /// - Returns: Whether the page joined.
+    ///   - timeoutMs: the GPU's deadline for the page's frame; this app's own comes one refresh later (both from the
+    ///     window's commit with ``CEFFenceMode/commit``).
+    /// - Returns: Whether the page joined (with ``CEFFenceMode/commit``: whether it was taken in to join after the
+    ///   commit).
     @discardableResult
-    func join(window: NSWindow, layer: CALayer, timeoutMs: Int32, refreshMs: Double, ask: Join) -> Bool {
+    func join(window: NSWindow, layer: CALayer, timeoutMs: Int32, refreshMs: Double, ask: @escaping Join) -> Bool {
         let key = ObjectIdentifier(window)
         let fence: CEFResizeFence
         // A fence whose right its deadline already dropped (off the main thread) takes no page.
@@ -80,44 +104,91 @@ final class CEFResizeFences {
             // This app's own deadline: the commit never waits longer than the GPU's deadline and one refresh.
             let clock = clock
             let after = Duration.milliseconds(Int64(timeoutMs)) + .microseconds(Int64(max(refreshMs, 1) * 1_000))
-            // The task holds the fence (and so its port) until the deadline or `drop()`: once the turn ended nothing
-            // else does, and a fence freed with its send right would hold the window's commits for good.
-            if deadlineOffMain {
-                let right = fence.right
-                fence.deadline = Task.detached(priority: .high) {
-                    // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
-                    do { try await clock.sleep(for: after) } catch { return }
-                    // Off the main thread: the main thread may be waiting for the commit this right holds.
-                    right.drop()
-                    await fence.expire()
-                }
+            if mode == .commit {
+                // The pages' GPUs get the fence after the window's commit, and both deadlines run from there.
+                // ``awaitingCommit`` holds the fence (and so its port) until then.
+                fence.awaitsCommit = true
+                fence.after = after
+                awaitingCommit.append(fence)
             } else {
-                fence.deadline = Task {
-                    // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
-                    do { try await clock.sleep(for: after) } catch { return }
-                    fence.expire()
-                }
+                Self.startDeadline(fence, clock: clock, after: after)
             }
         }
+        // The step and open time of the fence, for a page that reports after the fence itself is gone.
+        let (step, opened) = (fence.step, fence.opened)
         let done: @MainActor (Bool) -> Void = { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
-            guard let fence else { return }
-            fence.note("fence_page", presented ? " presented=1" : " presented=0")
+            let outcome = presented ? " presented=1" : " presented=0"
+            guard let fence else {
+                // The fence went before this page reported (its deadline, then its bookkeeping): the step log still
+                // counts the page, `late=1` (its time since the fence opened, when the main thread heard of it).
+                CEFResizeFence.note(step: step, opened: opened, "fence_page", outcome + " late=1")
+                return
+            }
+            fence.note("fence_page", outcome + (fence.dropped ? " late=1" : ""))
             fence.outstanding -= 1
             if fence.outstanding <= 0, fence.sealed { fence.drop() }
         }
-        // The port only while the right is held: a name dropped off the main thread may already name another port.
-        let joined = fence.right.withPort { port in ask(port, done) } ?? false
-        if joined {
-            fence.outstanding += 1
-            CEFHostView.trackerStats.resizeFenceJoined += 1
+        if fence.awaitsCommit {
+            // ``CEFFenceMode/commit``: the page's GPU gets the fence after the window's commit.
+            fence.pending.append((ask, done))
+            return true
         }
-        return joined
+        return fence.hand(ask, done)
     }
+
+    /// Starts `fence`'s deadline. The task holds the fence (and so its port) until the deadline or `drop()`: once the
+    /// turn ended nothing else does, and a fence freed with its send right would hold the window's commits for good.
+    private static func startDeadline(_ fence: CEFResizeFence, clock: any Clock<Duration>, after: Duration) {
+        #if CMUX_BENCH_HOOKS
+        if benchDeadlineOnMain {
+            fence.deadline = Task {
+                // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
+                do { try await clock.sleep(for: after) } catch { return }
+                fence.expire()
+            }
+            return
+        }
+        #endif
+        let right = fence.right
+        fence.deadline = Task.detached(priority: .high) {
+            // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
+            do { try await clock.sleep(for: after) } catch { return }
+            // Off the main thread: the main thread may be waiting for the commit this right holds.
+            right.drop()
+            await fence.expire()
+        }
+    }
+
+    #if CMUX_BENCH_HOOKS
+    /// Bench builds only (never shipped): `CMUX_NEXT_CEF_FENCE_DEADLINE=main` puts the deadline back on the main actor,
+    /// the shipped behaviour before lever 4a, as the page-sync arms' a0 control.
+    nonisolated static let benchDeadlineOnMain = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_DEADLINE"] == "main"
+    #endif
+}
+
+/// How a live drag's resizes use the window's fences: `CMUX_NEXT_CEF_FENCE_MODE` (a `CMUX_NEXT_` knob, kept by the
+/// launch strip), a bench arm while the page-sync bench measures them (2026-11-26). In a continuous drag a page's GPU
+/// keeps one fence, takes only a frame at exactly the fence's size, and waits 9 ms from its own receipt, which comes in
+/// the window's layout, before its commit: the renderer's frame at a step's size (the resize message, a begin frame,
+/// the draw, the display's) comes after that, or after the next step's fence replaced it, so the commit is held for no
+/// page.
+enum CEFFenceMode: String, Sendable {
+    /// Every resized page joins its turn's fence (the default).
+    case each
+    /// No fence while a person's drag moves (a window's live resize, a pane drag); one on the final size when it ends.
+    /// NIGHTLY's layer-hosted pages hold no window resize at all.
+    case release
+    /// The pages' GPUs get the fence only after the window's commit, with two refreshes for a frame at the new size;
+    /// this app's deadline (one refresh later) runs from the commit too.
+    case commit
+
+    /// The launch's mode (`each` unless `CMUX_NEXT_CEF_FENCE_MODE` names another).
+    nonisolated static let current = CEFFenceMode(rawValue: ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_MODE"] ?? "") ?? .each
 }
 
 /// This app's send right on one window fence's port, dropped once by whichever comes first: the main thread when every
-/// page reported, or the fence's deadline, which may run off the main thread (``CEFResizeFences/deadlineOffMain``).
+/// page reported, or the fence's deadline, off the main thread (the main thread may be waiting for the commit it holds).
 nonisolated final class CEFFenceRight: Sendable {
     private nonisolated struct State {
         var port: mach_port_t
@@ -169,6 +240,11 @@ final class CEFResizeFence {
     /// The resize step whose commit this fence holds, and when it opened (uptime ns), while the step log streams.
     fileprivate var step: UInt64?
     fileprivate var opened: UInt64 = 0
+    /// ``CEFFenceMode/commit``: the window has not committed yet; the pages waiting for the fence until it does, and
+    /// this app's deadline from then.
+    fileprivate var awaitsCommit = false
+    fileprivate var pending: [(CEFResizeFences.Join, @MainActor (Bool) -> Void)] = []
+    fileprivate var after: Duration = .zero
 
     fileprivate init(port: mach_port_t) {
         right = CEFFenceRight(port: port)
@@ -176,12 +252,41 @@ final class CEFResizeFence {
 
     fileprivate func seal() {
         sealed = true
-        if outstanding <= 0 { drop() }
+        if outstanding <= 0, pending.isEmpty, !awaitsCommit { drop() }
+    }
+
+    /// Hands the fence's port to one page (only while the right is held: a name dropped off the main thread may already
+    /// name another port); true when the page took it.
+    fileprivate func hand(_ ask: CEFResizeFences.Join, _ done: @escaping @MainActor (Bool) -> Void) -> Bool {
+        let joined = right.withPort { port in ask(port, done) } ?? false
+        if joined {
+            outstanding += 1
+            CEFHostView.trackerStats.resizeFenceJoined += 1
+        }
+        return joined
+    }
+
+    /// ``CEFFenceMode/commit``: the window's commit went; the waiting pages get the fence and the deadline starts.
+    fileprivate func committed(startDeadline: () -> Void) {
+        awaitsCommit = false
+        guard !dropped else { return }
+        let asks = pending
+        pending = []
+        note("fence_sent", " pages=\(asks.count)")
+        for (ask, done) in asks { _ = hand(ask, done) }
+        startDeadline()
+        if sealed, outstanding <= 0 { drop() }
     }
 
     /// A fact of this fence for its step's log (`fence_page`, `fence_released`): the time since it opened, to `at`
     /// (uptime ns; now by default).
     fileprivate func note(_ phase: String, _ detail: String, at: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        Self.note(step: step, opened: opened, phase, detail, at: at)
+    }
+
+    /// A fence's fact for the step log, given the fence's step and open time (nil step: the log was not streaming).
+    fileprivate static func note(step: UInt64?, opened: UInt64, _ phase: String, _ detail: String,
+                                 at: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         guard let step else { return }
         ResizeStepTimes.note(phase, ms: Double(at &- opened) / 1_000_000, step: step, detail: detail)
     }
@@ -205,6 +310,8 @@ final class CEFResizeFence {
         outstanding = 0
         deadline?.cancel()
         deadline = nil
+        awaitsCommit = false
+        pending = []
     }
 
     /// `-[CAContext createFencePort]` on the context of `layer`'s tree (QuartzCore SPI, as Chromium's

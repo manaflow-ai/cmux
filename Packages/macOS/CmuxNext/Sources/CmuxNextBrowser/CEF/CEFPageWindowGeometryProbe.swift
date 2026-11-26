@@ -7,8 +7,11 @@ import CmuxNextDesign
 /// streams). ``ChromiumWindowGuard`` passes on the windows' move and resize notices in these builds only. For an
 /// in-tree page the window is the Browser's headless widget window, which the fork's `CmuxParentViewTracker` resizes on
 /// a geometry update (`-updateDetached`: the widget's Views layout and its compositor's visibility), so the lines count
-/// the tracker's updates per step: `open=1` while the step has not committed yet (the update ran inside cmux's layout
-/// pass), `open=0` after its commit. `what=` names the notice (`resize`, `move`).
+/// the tracker's updates per step: `open=1` while the step's turn has not finished its commit (from the step's start
+/// until just after Core Animation's commit observer), `open=0` after. Within `open=1`, the step's `step_precommit`
+/// line (just before that observer) splits an update made in cmux's layout pass (before it) from one the fork makes
+/// once per turn after the commit (after it): lines of the main thread keep their order in the log. `what=` names the
+/// notice (`resize`, `move`).
 enum CEFPageWindowGeometryProbe {
     @MainActor static func windowMoved(_ window: NSWindow, resized: Bool) {
         guard isChromiumPageWindow(window) else { return }
