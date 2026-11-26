@@ -17,6 +17,14 @@ Run it from your cmux checkout. "Your change" is that checkout against its merge
 `origin/feat-cmux-next`: commits, staged, unstaged and untracked files under `cmux-next-ios/` and
 `scripts/`. Nothing is pushed. Hosts are reached with `reach` (from a lane VM through the lane-gh broker, which relays the slot commands on an `ios` pool host with no whole-host fleet lease: the slot lease is the admission, so a CI step or another lane on the host does not block you; `ios-live` sets `REACH_AUTO_LEASE=0` so reach never takes the host); `ios-live help` lists every command.
 
+The broker relay takes a command of at most 16384 bytes and carries no stdin, so no command carries
+host.sh. The client names a commit on origin that has its host.sh (HEAD when it is pushed, else the
+merge base with `origin/feat-cmux-next`), and the host reads host.sh at that commit from the fleet's
+git mirror (else fetches that one commit) and caches it as `~/ios-live/bin/SHA/host.sh`. An
+unpushed host.sh edit is not used, and stderr says so: push it to try it. A `swift` or `swap` patch
+rides in the command, so it must fit there (a diff of about 11 KB); a bigger one is refused with
+its size: commit and push it, then `ios-live up SHA`.
+
 ## Slots
 
 Leo, 2026-11-25: "he needs to be able to test on his phone, as well as have his agents do the
