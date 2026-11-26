@@ -2822,7 +2822,12 @@ async fn dispatch_request_with_identity(
             let reply = cmux_tailnet_front::PlacementReply::from(&applied);
             serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
         }
-        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_STATUS => {
+            let d = crate::diag_timing::Span::new("status.total");
+            let r = Ok(hub.status().await);
+            d.end_wall(0);
+            r
+        }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
         method::MUX_FELT_SNAPSHOT => {
@@ -2856,10 +2861,15 @@ async fn dispatch_request_with_identity(
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // (`hub/usage_view.rs` `read_usage_for_list`); else rows carry the last pass's.
+            let d_all = crate::diag_timing::Span::new("ls.total");
             if params.get("usage") == Some(&Value::Bool(true)) {
+                let d = crate::diag_timing::Span::new("ls.usage");
                 hub.read_usage_for_list().await;
+                d.end_wall(0);
             }
-            super::list_reply::sessions(hub, conn, &params).await
+            let r = super::list_reply::sessions(hub, conn, &params).await;
+            d_all.end_wall(0);
+            r
         }
         method::MUX_USAGE => {
             // The same usage read `_acpmux/sessions {usage: true}` makes (the cached stats at once,

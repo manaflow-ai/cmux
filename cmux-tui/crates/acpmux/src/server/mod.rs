@@ -2603,7 +2603,18 @@ async fn serve_connection_from(
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
+                let diag_spawned = crate::diag_timing::Span::new("req.spawn_delay");
                 owner.scope.spawn_named("conn-request", async move {
+                    let diag_kind = match m.as_str() {
+                        method::MUX_SESSIONS => 1,
+                        method::MUX_STATUS => 2,
+                        method::MUX_SEND_QUEUE => 3,
+                        _ => 0,
+                    };
+                    if diag_kind != 0 {
+                        diag_spawned.end_wall(diag_kind);
+                    }
+                    let diag_req = crate::diag_timing::Span::new("req.served");
                     let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
@@ -2695,6 +2706,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                     } else {
                         dual_requests::finish(first, None);
+                    }
+                    if diag_kind != 0 {
+                        diag_req.end_wall(diag_kind);
                     }
                     crate::perf_watch::request_done(perf_started, &m, conn.origin);
                     if let Some(from) = attach_from {
