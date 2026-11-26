@@ -91,6 +91,12 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.compactShortTurns" : {
+      "default" : false,
+      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
+      "title" : "Compact Summary for Short Turns",
+      "type" : "boolean"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -256,12 +262,6 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
-    "agentPane.display.pinnedPlan" : {
-      "default" : false,
-      "description" : "Keeps the agent's task list under the latest message, not over the composer.",
-      "title" : "Pin Task List in Chat",
-      "type" : "boolean"
-    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "agentPane.display.presentation",
@@ -381,6 +381,12 @@
       ],
       "title" : "Working Status Verbs",
       "type" : "string"
+    },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
     },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
@@ -2199,6 +2205,17 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
+    },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
       "title" : "Highlight Color",
@@ -3507,6 +3524,12 @@
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
     },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies your git working copy to the new machine.",
@@ -4297,6 +4320,12 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
+    "experiments.expandedEditsEstimate" : {
+      "default" : false,
+      "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
+      "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -4367,6 +4396,12 @@
       "default" : false,
       "description" : "The conversation stays visible behind the notices and the Needs your input row above the composer.",
       "title" : "See-Through Dock",
+      "type" : "boolean"
+    },
+    "experiments.startedTaskTitleChip" : {
+      "default" : false,
+      "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
+      "title" : "Started Tasks: Title Opens Chat",
       "type" : "boolean"
     },
     "experiments.terminalAgentMark" : {
