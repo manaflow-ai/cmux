@@ -135,26 +135,17 @@ async fn whole_read(
     let raw = conn.raw_text;
     let text = {
         // A peer's page is masked, which parses it: one of a few at once (`parse_budget.rs`).
-        let __t0 = std::time::Instant::now();
         let _parse = crate::parse_budget::permit().await;
-        crate::ls_prof::add(0, __t0);
-        let __t1 = std::time::Instant::now();
-        let __r = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+        within_limit(raw, LIST_PAGE_BYTES, |budget| {
             let text = hub.session_list_text(params, tools, own_only, budget)?;
             // `page_text` writes a page's cursor first.
             if own_only && text.starts_with("{\"nextCursor\"") {
                 return hub.session_list_text(params, tools, false, budget);
             }
             Ok(text)
-        });
-        crate::ls_prof::add(1, __t1);
-        __r?
+        })?
     };
-    let __t2 = std::time::Instant::now();
-    let __s = send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await;
-    crate::ls_prof::add(2, __t2);
-    crate::ls_prof::dump(if raw { "whole raw" } else { "whole masked" });
-    __s
+    send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
 }
 
 fn with_tools(params: &Value) -> Result<bool, RpcError> {

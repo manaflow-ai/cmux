@@ -263,7 +263,6 @@ mod owner_only;
 pub mod pairing;
 pub mod parent_watch;
 pub mod parse_budget;
-pub mod ls_prof;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_kept_tokens;

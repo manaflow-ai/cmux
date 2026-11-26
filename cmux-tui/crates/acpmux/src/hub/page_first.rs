@@ -375,10 +375,8 @@ impl Hub {
         own_only: bool,
         budget: usize,
     ) -> Result<String, RpcError> {
-        let __t = std::time::Instant::now();
         let mut list = self.list_rows(excludes_closed(params), own_only);
         list.mark_top_level(self, params)?;
-        crate::ls_prof::add(10, __t);
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
     }

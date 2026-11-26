@@ -770,10 +770,7 @@ impl Hub {
         };
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
-        let __t5 = std::time::Instant::now();
         let m = session.meta();
-        crate::ls_prof::add(5, __t5);
-        let __t6 = std::time::Instant::now();
         let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
@@ -1043,11 +1040,7 @@ impl Hub {
             m.agent_session_id.clone(),
             self.started_at,
         );
-        crate::ls_prof::add(6, __t6);
-        let __t7 = std::time::Instant::now();
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        crate::ls_prof::add(7, __t7);
-        let __t8 = std::time::Instant::now();
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
         // Where its journal's own recovery at the end begins, while it ends the journal: the
@@ -1138,7 +1131,6 @@ impl Hub {
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         set_composer_status(&mut summary, with_tools);
-        crate::ls_prof::add(8, __t8);
         summary
     }
 
@@ -1210,6 +1202,21 @@ impl Hub {
     /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
     /// disk walk, held status, and every pane said "Waiting for the agent service" at once
     /// (Leo, 2026-11-12, ask-64cfa32e34).
+    /// The part of [`Hub::status`] a listing reads (`_acpmux/status` with `listCounts`): the
+    /// closed rows the unfiltered list holds, of those the other machines' (decision 213), and
+    /// the peers. Counted, never built, and nothing awaited: under load the full status waits on
+    /// its host, disk and agent reads (up to their 1 s budget each), and `ls --json` read it
+    /// before its list (#58414).
+    pub fn list_counts(&self) -> Value {
+        let (all, live_ids) = self.session_counts();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
+        json!({
+            "closedListed": closed.all,
+            "closedRemoteListed": closed.remote,
+            "peers": self.peers(),
+        })
+    }
+
     pub async fn status(&self) -> Value {
         let loading = !self.store_loaded() || !self.startup_complete();
         let low = self
