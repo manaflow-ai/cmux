@@ -7,17 +7,14 @@ import CmuxNextCompat
 struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
-    /// Answers `auth.session.handoff` with its own peer checks, ahead of the access mode (NIGHTLY only).
-    let handoff: SessionHandoffResponder?
     /// Answers `auth.session.request` with its own peer checks and the person's consent, ahead of the access
     /// mode (NIGHTLY only).
     let consent: SessionConsentResponder?
 
     init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer,
-         handoff: SessionHandoffResponder? = nil, consent: SessionConsentResponder? = nil) {
+         consent: SessionConsentResponder? = nil) {
         self.configuration = configuration
         self.peer = peer
-        self.handoff = handoff
         self.consent = consent
     }
 
@@ -28,14 +25,10 @@ struct ControlAuthorizer: Sendable {
     mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !line.isEmpty else { return (nil, true) }
-        // The session handoff checks its peer itself (uid and code signature) and closes the connection
-        // after its one answer, whatever the access mode admits.
-        if configuration.accessMode != .off, let handoff, let request = handoff.request(in: line) {
-            return (await handoff.respond(to: request, peer: peer.handoff), false)
-        }
-        // The consent request checks its peer the same way (any valid signature, then the person's answer).
+        // The consent request checks its peer itself (uid, any valid signature, then the person's answer) and
+        // closes the connection after its one answer, whatever the access mode admits.
         if configuration.accessMode != .off, let consent, let request = consent.request(in: line) {
-            return (await consent.respond(to: request, peer: peer.handoff), false)
+            return (await consent.respond(to: request, peer: peer.consent), false)
         }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
 

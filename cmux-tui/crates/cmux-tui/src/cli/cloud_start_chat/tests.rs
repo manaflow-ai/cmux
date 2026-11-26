@@ -19,6 +19,8 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "direct_tests.rs"]
+mod direct_route;
 #[path = "drill_start_tests.rs"]
 mod drill_start;
 #[path = "folder_tests.rs"]
@@ -77,6 +79,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             make_room: false,
             until: None,
             allow_large: false,
+            timings: false,
+            no_focus: false,
         }
     );
     let parsed = request(&[
@@ -251,6 +255,10 @@ struct Fake {
     slow: Vec<(usize, Duration)>,
     /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
     stream: Option<Result<Value, Value>>,
+    /// Per app method, its answer, before `stream`.
+    app_answers: Vec<(&'static str, Result<Value, Value>)>,
+    /// The link sends' answers, in order; none left: no link ([`link_wait::SendFailure::NotSent`]).
+    link_sends: VecDeque<Result<Value, link_wait::SendFailure>>,
     /// The link waits' answers, in order.
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
@@ -261,6 +269,11 @@ struct Fake {
     estimated: Vec<(usize, String)>,
     /// The progress lines the run said ([`Runner::say`]).
     said: Vec<String>,
+    /// The answer to a stuck machine's look (`fresh::LOOK`), which takes no time and no scripted answer; None:
+    /// the exec route refuses it.
+    look: Option<Ran>,
+    /// The looks asked, apart from `ran`.
+    looked: Vec<Vec<String>>,
 }
 
 impl Fake {
@@ -285,17 +298,39 @@ impl Fake {
             costs: Vec::new(),
             slow: Vec::new(),
             stream: None,
+            app_answers: Vec::new(),
+            link_sends: VecDeque::new(),
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
             estimated: Vec::new(),
             said: Vec::new(),
+            look: None,
+            looked: Vec::new(),
         }
+    }
+
+    /// A stuck machine's look ([`fresh::LOOK`]): answered apart from the scripted steps.
+    fn looks(&mut self, args: &[String]) -> Option<Ran> {
+        let look = args.get(1).map(String::as_str) == Some("exec")
+            && args.iter().any(|word| word.contains("cmux stuck-machine look"));
+        if !look {
+            return None;
+        }
+        self.looked.push(args.to_vec());
+        Some(self.look.clone().unwrap_or_else(|| Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "unavailable", "message": "no exec here"}).to_string(),
+        }))
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
         self.clock += self.cost(args);
         self.ran.push(args.to_vec());
         self.answers.pop_front().expect("an answer for every step")
@@ -303,6 +338,9 @@ impl Runner for Fake {
     /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
     /// is used up and never seen.
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
         if self.clock + self.cost(args) <= until {
             return self.cmux(args);
         }
@@ -339,6 +377,9 @@ impl Runner for Fake {
     ) -> Option<Result<Value, Value>> {
         self.called.push((method.to_owned(), params));
         self.clock += Duration::from_millis(5);
+        if let Some((_, answer)) = self.app_answers.iter().find(|(name, _)| *name == method) {
+            return Some(answer.clone());
+        }
         self.stream.clone()
     }
     fn observe(
@@ -354,6 +395,23 @@ impl Runner for Fake {
         ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
+    fn send_link(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        _prompt_id: &str,
+        text: &str,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::SendFailure> {
+        self.called.push((
+            "send_link".to_owned(),
+            json!({"socket": socket, "surface": surface, "text": text}),
+        ));
+        self.clock += Duration::from_millis(100);
+        self.link_sends
+            .pop_front()
+            .unwrap_or_else(|| Err(link_wait::SendFailure::NotSent("no link".into())))
     }
     fn estimate(&mut self, folder: &str) -> Value {
         self.estimated.push((self.ran.len(), folder.to_owned()));
@@ -469,11 +527,66 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
     assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
-    // No exec after the send; the second wait starts after the first one's newest seq.
+    // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
+    // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
     assert_eq!(fake.called[0], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
-    assert_eq!(fake.called[1].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
-    assert_eq!(fake.called[2].1["after_seq"], 3);
+    assert_eq!(fake.called[1].0, "send_link");
+    assert_eq!(fake.called[2], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
+    assert_eq!(fake.called[3].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
+    assert_eq!(fake.called[4].1["after_seq"], 3);
+}
+
+/// The first prompt of a chat this run started goes over the machine's link in one round trip: no `cloud exec`
+/// for the send, and the turn is then read from the same link from the first record.
+#[test]
+fn the_first_prompt_goes_over_the_link_not_cloud_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p", "turn_id": "t", "queued": false})));
+    let update = json!({"seq": 2, "at": 1_500, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "pong"}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update,
+        {"seq": 3, "at": 2_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 3, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "no cloud exec: {:?}", fake.ran);
+    let sent = fake.called.iter().find(|(name, _)| name == "send_link").unwrap();
+    assert_eq!(sent.1["surface"], 7);
+    assert_eq!(sent.1["text"], "pong");
+}
+
+/// Without `--wait` the link send is the whole step: sent, no exec.
+#[test]
+fn a_link_send_without_wait_is_done_with_no_exec() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Ok(json!({"prompt_id": "p"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["send_route"], "link");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+/// A link that took the prompt and never answered may have delivered it: no second send by exec.
+#[test]
+fn an_unanswered_link_send_is_not_sent_again() {
+    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("timeout".into())));
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.send_failed");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
 /// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
@@ -628,6 +741,33 @@ fn the_start_sessions_own_stages_are_its_parts() {
     assert_eq!(steps[1]["step"], "cloud start-session");
     assert_eq!(steps[1]["parts"], parts);
     assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
+}
+
+/// Leo, 2026-11-19: "do we have tools for measuring cloud startup at various stages?". The answer's `stages` are
+/// cloud-journey.ts's marks, each the milliseconds from the command's start: start-session's own parts in order
+/// (a dotted sub-step is inside the step after it), then the send this run marked itself.
+#[test]
+fn the_answer_names_the_journeys_start_marks() {
+    let parts = json!([{"step": "machine", "ms": 2_000}, {"step": "connect", "ms": 1_500},
+                       {"step": "login.machine", "ms": 200}, {"step": "login", "ms": 500},
+                       {"step": "tab", "ms": 300}, {"step": "start", "ms": 600}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts;
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // The list 0-5 s, the start from 5 s, the send's exec 10-15 s; no --wait, so no turn was read.
+    assert_eq!(
+        answer["stages"],
+        json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
+               "send": 10_000, "sent": 15_000, "total": 15_000})
+    );
 }
 
 #[test]
@@ -1099,7 +1239,12 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(error["message"].as_str().unwrap().contains("acp wait sess-1"));
+    assert!(
+        error["message"].as_str().unwrap().contains(
+            "cmux cloud chat status --target machine:vm-1 --session sess-1 --after 0 --wait 20"
+        ),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1145,7 +1290,10 @@ fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
     };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed");
-    assert_eq!(error["message"], "You've hit your weekly limit");
+    // The turn's own error, explained (account_limit.rs, cmux#55066), never the turn before's reply.
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("weekly usage limit"), "{message}");
+    assert!(!message.contains("PONG-2350"), "{message}");
     assert_eq!(error["details"]["turn"]["status"], "failed");
     assert!(error["details"].get("reply").is_none(), "{error}");
 }
@@ -1190,6 +1338,97 @@ fn a_failed_turn_without_a_reply_is_a_turn_failure_with_its_reason() {
     assert_eq!(error["code"], "chat.turn_failed", "{error}");
     assert_eq!(error["message"], "model provider refused the request");
     assert!(error["details"].get("reply").is_none(), "{error}");
+}
+
+/// cmux#55066: a Claude chat whose account used up its weekly limit answered only Claude's own
+/// "You've hit your weekly limit · resets Nov 27, 7am (UTC)". The answer says which agent's
+/// account, when it resets and the two ways on, and keeps the agent's words as `agent_error`.
+#[test]
+fn a_turn_failed_on_a_used_up_usage_limit_says_what_happened_and_the_way_on() {
+    let said = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(&format!(
+            "@@wait 0\n@@history\n{{\"turns\":[{{\"seq\":3,\"endedAt\":9,\"status\":\"failed\",\
+             \"error\":\"{said}\"}}]}}\n@@last\nno reply\n@@lastexit 1\n"
+        )),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with(
+            "Claude's account hit its weekly usage limit; it resets Nov 27, 7am (UTC). Sending \
+             again fails the same way until it resets."
+        ),
+        "{message}"
+    );
+    assert!(message.contains("ask Codex instead (--agent codex)"), "{message}");
+    assert!(message.contains("`cmux harness login claude`"), "{message}");
+    let details = &error["details"];
+    assert_eq!(details["errorKind"], "usage.limit", "{error}");
+    assert_eq!(details["agent_error"], said);
+    assert_eq!(details["resets"], "Nov 27, 7am (UTC)");
+    assert_eq!(details["limitWindow"], "weekly");
+    assert_eq!(details["switch_agent"], "codex");
+    assert_eq!(details["sign_in"], "cmux harness login claude");
+}
+
+/// The same on the pushed route, for Codex's own words and a disabled account: Codex suggests
+/// Claude, and a turned-off account names no reset.
+#[test]
+fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() {
+    for (said, kind, starts) in [
+        (
+            "You've hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/codex/settings/usage \
+             to purchase more credits or try again at 6:43 PM.",
+            "usage.limit",
+            "Codex's account hit its usage limit; it resets 6:43 PM.",
+        ),
+        (
+            "API Error: 400 This organization has been disabled.",
+            "account.disabled",
+            "Codex's account was turned off by its provider",
+        ),
+        // A rate limit is not the account's allowance: its words pass through as they were.
+        ("You've hit your rate limit, slow down.", "", "You've hit your rate limit, slow down."),
+        ("You've hit your daily rate limit.", "", "You've hit your daily rate limit."),
+    ] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started_with_surface(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        ]);
+        fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+        fake.pushes.push_back(Ok(json!({"records": [
+            {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+            {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": said}},
+            {"seq": 3, "at": 1_600, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "error"}},
+        ], "last_seq": 3, "ended": "turn_end"})));
+        let Outcome::Failed { error, .. } =
+            run(&mut fake, &request(&["--agent", "codex", "--prompt", "x", "--wait"]))
+        else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "chat.turn_failed", "{error}");
+        let message = error["message"].as_str().unwrap();
+        if kind.is_empty() {
+            assert!(!message.contains("account hit"), "{message}");
+            assert!(!message.contains("--agent claude"), "{message}");
+            assert!(error["details"].get("errorKind").is_none(), "{error}");
+            continue;
+        }
+        assert!(message.starts_with(starts), "{message}");
+        assert!(message.contains("ask Claude instead (--agent claude)"), "{message}");
+        assert_eq!(error["details"]["errorKind"], kind, "{error}");
+        assert_eq!(error["details"]["agent_error"], said);
+    }
 }
 
 /// The pushed route: a turn that ends `cancelled` with no reply is `chat.turn_failed`, too.
@@ -2521,6 +2760,57 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     }
 }
 
+/// Leo's account, 2026-11-21: `cmux chat --on vm:new --harness claude --no-folder --wait` with no Cloud connection
+/// serving claude. The app refuses before any machine (CloudStartSession's Set up Cloud gate), and its retry named
+/// this run's fresh name (`cmux vm start-session --name chat-7626761eda3c4404`), a machine `cmux vm ls` never listed.
+/// The refusal comes at once, nothing is made, and its retry is this run's own command, which names no machine. A
+/// name some machine has, or a list that cannot be read, keeps the app's words.
+#[test]
+fn a_start_refused_before_its_fresh_machine_retries_with_no_machine_named() {
+    let setup = "No Cloud connection serves claude yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), \
+                 then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+    };
+    let asked = request(&["--prompt", "x", "--wait"]);
+    let mut fake = Fake::new(vec![signed_in(), refused(), signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let message = error["message"].as_str().unwrap();
+    assert_eq!(exit, 1, "{error}");
+    assert!(message.starts_with("No Cloud connection serves claude yet."), "{message}");
+    assert!(
+        message.contains("then run `cmux cloud start-chat --prompt TEXT --wait --json` again."),
+        "{message}"
+    );
+    assert!(!message.contains("chat-fresh"), "{message}");
+    // At once: one start-session and the list reads, no wait, no new-machine and no second start.
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs, ["list-machines", "start-session", "list-machines"], "{:?}", fake.ran);
+    assert_eq!(fake.paused, Duration::ZERO);
+
+    // A machine has the name now: the app's command is the one that reaches it.
+    let has = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![signed_in(), refused(), has]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // The list is not read: never refused on an unknown, the app's words stay.
+    let unread = Ran { code: 1, stdout: String::new(), stderr: "boom".into() };
+    let mut fake = Fake::new(vec![signed_in(), refused(), unread]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // A start on a named machine is the person's own retry: no list is read for it.
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["message"], setup);
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
 /// The real runner's fresh name: the run's prefix and 16 hex characters from the OS's random source, so two runs
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
@@ -2564,6 +2854,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2604,6 +2896,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
+        no_focus: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -3414,6 +3708,79 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
+}
+
+/// An app that is not connected (the relay's `unavailable`: closed, or a locked or asleep Mac) never loads its
+/// list however long one waits, so the refusal names it and says to open or unlock the app, not to run it again
+/// in a moment, and is not retryable; a connected app still loading is retryable, as its message says
+/// (ask-259986a6c4: interim-coord's 3 NIGHTLY readbacks read `cloud.list_unread` from an app not connected).
+#[test]
+fn an_app_not_connected_says_so_and_a_loading_one_is_retryable() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        let gone = json!({"code": "unavailable", "message": "needs the cmux Mac app connected"});
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Err(gone));
+        let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.app_not_connected"), 75), "{path}");
+        assert_eq!(error["retryable"], false, "{path}");
+        assert_eq!(error["details"]["app"], "not_connected", "{path}");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("open or unlock the app"), "{path}: {message}");
+        assert!(!message.contains("in a moment"), "{path}: {message}");
+        assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
+
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Ok(json!({"loaded": false, "last_error": null})));
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "cloud.list_unread", "{path}");
+        assert_eq!(error["retryable"], true, "{path}");
+    }
+}
+
+/// Leo: "you guys kept fighting focus". `--no-focus` is an agent's or a probe's start that leaves the
+/// person's app as it is: every app step it runs (`new-machine`, `start-session`) says `--no-focus`, and
+/// so does the command to ask again. Without it every step is today's, word for word.
+#[test]
+fn no_focus_reaches_every_app_step_and_the_command_again() {
+    let app_steps = |asked: &Request| {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            made(),
+            started(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        ]);
+        let Outcome::Done(_) = run(&mut fake, asked) else { panic!("{:?}", fake.ran) };
+        let steps: Vec<Vec<String>> = fake
+            .ran
+            .into_iter()
+            .filter(|step| matches!(step[1].as_str(), "new-machine" | "start-session"))
+            .collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        steps
+    };
+    let quiet = request(&["--prompt", "x", "--environment", "python-dev", "--no-focus"]);
+    for step in app_steps(&quiet) {
+        assert!(step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(again_command(&quiet, &Machine::Target("vm-1".into())).contains(" --no-focus"));
+
+    let plain = request(&["--prompt", "x", "--environment", "python-dev"]);
+    for step in app_steps(&plain) {
+        assert!(!step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(!again_command(&plain, &Machine::Target("vm-1".into())).contains("--no-focus"));
+    // `cmux cloud start-chat --help` lists it: an install that keys on it finds it there.
+    assert!(super::super::cloud_help::START_CHAT_USAGE.contains("[--no-focus]"));
 }
 
 /// cmux#46701: the composer's Cloud start picks the harness, model, effort and mode, and a folder

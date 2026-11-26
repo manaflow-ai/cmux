@@ -28,6 +28,7 @@ const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
 const BPF_RET_K: u16 = 0x06;
 // BPF_JMP | BPF_JGE | BPF_K.
+#[cfg(target_arch = "x86_64")]
 const BPF_JMP_JGE_K: u16 = 0x35;
 /// x32 syscalls share the x86_64 audit arch with this bit set in the number;
 /// every such number is killed so the denylist cannot be sidestepped.
@@ -126,30 +127,35 @@ fn denied_syscalls() -> Vec<libc::c_long> {
         libc::SYS_setdomainname,
         libc::SYS_sethostname,
     ];
-    #[cfg(target_arch = "x86_64")]
-    list.extend([
-        libc::SYS_open,
-        libc::SYS_creat,
-        libc::SYS_fork,
-        libc::SYS_vfork,
-        libc::SYS_mknod,
-        libc::SYS_mkdir,
-        libc::SYS_rmdir,
-        libc::SYS_unlink,
-        libc::SYS_rename,
-        libc::SYS_link,
-        libc::SYS_symlink,
-        libc::SYS_chmod,
-        libc::SYS_chown,
-        libc::SYS_lchown,
-        libc::SYS_uselib,
-        libc::SYS_utime,
-        libc::SYS_utimes,
-        libc::SYS_futimesat,
-        libc::SYS_inotify_init,
-    ]);
+    list.extend_from_slice(X86_64_ONLY_SYSCALLS);
     list
 }
+
+/// The denied calls only x86_64 has numbers for; newer architectures never had them.
+#[cfg(not(target_arch = "x86_64"))]
+const X86_64_ONLY_SYSCALLS: &[libc::c_long] = &[];
+#[cfg(target_arch = "x86_64")]
+const X86_64_ONLY_SYSCALLS: &[libc::c_long] = &[
+    libc::SYS_open,
+    libc::SYS_creat,
+    libc::SYS_fork,
+    libc::SYS_vfork,
+    libc::SYS_mknod,
+    libc::SYS_mkdir,
+    libc::SYS_rmdir,
+    libc::SYS_unlink,
+    libc::SYS_rename,
+    libc::SYS_link,
+    libc::SYS_symlink,
+    libc::SYS_chmod,
+    libc::SYS_chown,
+    libc::SYS_lchown,
+    libc::SYS_uselib,
+    libc::SYS_utime,
+    libc::SYS_utimes,
+    libc::SYS_futimesat,
+    libc::SYS_inotify_init,
+];
 
 pub(super) fn apply() -> Result<Report, String> {
     // SAFETY: plain prctl with integer arguments.

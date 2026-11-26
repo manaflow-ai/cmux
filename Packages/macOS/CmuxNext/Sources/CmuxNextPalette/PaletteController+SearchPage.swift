@@ -1,4 +1,40 @@
+import CmuxNextActions
+
 extension PaletteController {
+    /// The v2 scope bar's This Workspace (`PaletteV2Look.scoped`): the panes and tabs of the workspace the palette
+    /// opened over (`capturedTargets`' workspace), listed before typing, then the commands as the root curates them.
+    func thisWorkspacePage() -> PalettePageSpec {
+        let workspaceID = capturedTargets.first { $0.kind == .workspace }?.id
+        var providers: [any PaletteProvider] = []
+        if let source = sources.navigation {
+            providers.append(ScopedNavigationPaletteProvider(id: "navigation.thisWorkspace", source: source) {
+                PaletteScopeFilter.entries($0, inWorkspace: workspaceID)
+            })
+        }
+        let commands = makeRegistryProvider()
+        commands.curatesEmptyRoot = true
+        providers.append(commands)
+        return previewingActions(PalettePageSpec(
+            id: "thisWorkspace", title: PaletteStrings.scopeThisWorkspace, placeholder: PaletteStrings.thisWorkspacePlaceholder,
+            symbol: "rectangle.stack", providers: providers, showsRecent: true, scope: PaletteScopeID.thisWorkspace))
+    }
+
+    /// The v2 scope bar's Sessions: every pane and tab (agent chats among them) and the App's chat pages, nothing else.
+    func sessionsPage() -> PalettePageSpec {
+        var providers: [any PaletteProvider] = []
+        if let source = sources.navigation {
+            providers.append(ScopedNavigationPaletteProvider(id: "navigation.sessions", source: source, filter: PaletteScopeFilter.sessionEntries))
+        } else if let source = sources.tabs {
+            providers.append(TabPaletteProvider(source: source, showsItemsForEmptyQuery: true))
+        }
+        let chats = contributed(sources.searchContributions.filter(\.searchesChats), showsItemsForEmptyQuery: true)
+        providers += chats.providers
+        var page = PalettePageSpec(id: "sessions", title: PaletteStrings.scopeSessions, placeholder: PaletteStrings.sessionsPlaceholder,
+                                   symbol: "text.bubble", providers: providers, showsRecent: true, scope: PaletteScopeID.sessions)
+        page.contributedAnswers = chats.answers
+        return page
+    }
+
     /// Search (scope `search`, the sidebar's Search button;
     /// plans/cmux-next/sidebar-search.md): the providers Go to Workspace and
     /// the root already have (workspaces; groups, panes and tabs; recent
@@ -42,6 +78,9 @@ extension PaletteController {
         )
         page.queryItems = goToRows()
         page.contributedAnswers = contributed.answers
+        // Leo: "do we have any kind of filtering mechanism for the searching?": in:tabs, -in:history.
+        page.filtersBySection = true
+        page.hint = PaletteStrings.searchFiltersHint
         return previewingActions(page)
     }
 

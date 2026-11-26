@@ -36,6 +36,7 @@ enum SidebarLaneFixture {
                                   state: pick.0, since: since, error: pick.0 == .failed ? pick.step : nil, step: pick.step,
                                   unread: pick.unread, usageWarnings: pick.0 == .working ? usageWarnings : [])]
     }
+
     /// Sample agent chats for `agent_chat.list` in captures: three folders, every state a thread
     /// list draws (needs you, working, done unseen, failed, idle), at fixed ages before `now`.
     static func chats(now: Date) -> [AgentActivityLane] {

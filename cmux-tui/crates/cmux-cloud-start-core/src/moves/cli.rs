@@ -289,6 +289,12 @@ pub struct StartChatPlan {
     pub target_pane: Option<String>,
     pub create_team: Option<String>,
     pub create_sent: bool,
+    /// The route the sent create took (`direct` or `relay`); none: not sent, or sent on the relay
+    /// before routes were kept.
+    pub create_route: Option<String>,
+    /// The ledger keeps a sent create's route (`create-sent --route`): only then may the App send
+    /// a person's own create direct, since a retry must take the first send's route.
+    pub keeps_create_route: bool,
     pub environment_id: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
@@ -314,6 +320,8 @@ pub fn start_chat_plan(
         target_pane: string(object, "target_pane"),
         create_team: string(object, "create_team"),
         create_sent: boolean(object, "create_sent").unwrap_or(false),
+        create_route: string(object, "create_route"),
+        keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
@@ -433,6 +441,13 @@ pub enum Call {
         vm_kind: Option<String>,
         #[serde(default)]
         to_pid: Option<i32>,
+        /// False: no `--interrupt` ([`agent_move_flags_at_boundary`]), the hybrid start's move. An
+        /// answer without it (every Move to Cloud) interrupts, as before.
+        #[serde(default = "interrupts")]
+        interrupt: bool,
+        /// The owner's agent login comes on stdin ([`super::login`]): `--login-stdin`.
+        #[serde(default)]
+        login: bool,
     },
     /// `link machine update`: `--to-bundled`, and with `--if-older` only onto an older build.
     MachineUpdate {
@@ -444,6 +459,19 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `inference gateway status --json [--team TEAM]`: a team's inference gateway and the agents it serves now
+    /// (`serves`), which the Cloud start gate counts when nothing of the person's own serves the chat (hq#15762).
+    /// `team`: the backend team the start's machines are made in (the install's own). A team's gateway serves only
+    /// that team's machines, so the gate reads that one, never the active team's (`--team` absent).
+    InferenceGatewayStatus {
+        #[serde(default)]
+        team: Option<String>,
+        /// The caller hands its held install token on stdin (`--token-stdin`), so the read mints none: the nested
+        /// `cmux auth token --team` mint could take up to 25 s inside this read's 10 s bound, and the gate then
+        /// refused a start the gateway served (hq#19758).
+        #[serde(default)]
+        held: bool,
+    },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -452,6 +480,14 @@ pub enum Call {
     /// `link start-chat warm-spare --request JSON`: the person's paused spare, warmed on intent.
     StartChatWarmSpare {
         request: String,
+    },
+    /// `link start-chat ensure --workspace K --key K --environment ENV [--platform URL]` (the access token on stdin): a new
+    /// machine in a cloud environment (`/v1/cloud-environments`) from the platform's workspace ensure, keyed by `key`.
+    StartChatEnsure {
+        key: String,
+        environment: String,
+        #[serde(default)]
+        platform: Option<String>,
     },
     /// `link start-chat plan --request JSON`.
     StartChatPlan {
@@ -476,6 +512,9 @@ pub enum Call {
         account: String,
         team: String,
         create_key: String,
+        /// `direct` or `relay`; named only for a ledger that keeps routes (the plan's `keepsCreateRoute`).
+        #[serde(default)]
+        route: Option<String>,
     },
     StartChatCreateRefused {
         key: String,
@@ -566,7 +605,12 @@ fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-/// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order.
+fn interrupts() -> bool {
+    true
+}
+
+/// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order. A running
+/// turn stops for the move (`--interrupt`) and goes on where the chat lands.
 pub fn agent_move_flags(
     syncs: &[&FrozenSync],
     ask_first: bool,
@@ -574,6 +618,21 @@ pub fn agent_move_flags(
     to_pid: Option<i32>,
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
+    flags.extend(agent_move_flags_at_boundary(syncs, ask_first, vm_kind, to_pid));
+    flags
+}
+
+/// [`agent_move_flags`] without `--interrupt`: the hybrid start's move ([`crate::hybrid`]), which
+/// never stops a turn. Its caller begins it only at a boundary the hybrid machine chose; a turn
+/// that runs then refuses the move (the source's own rule), and the machine tries it again at the
+/// next boundary.
+pub fn agent_move_flags_at_boundary(
+    syncs: &[&FrozenSync],
+    ask_first: bool,
+    vm_kind: Option<&str>,
+    to_pid: Option<i32>,
+) -> Vec<String> {
+    let mut flags = Vec::new();
     for sync in syncs {
         if let Some(from) = &sync.from_socket {
             flags.extend(words(&["--sync", "relay", "--sync-from-socket", from]));
@@ -629,7 +688,19 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
         }
-        Call::AgentMove { from, surface, to, cwd, sync, then_sync, ask_first, vm_kind, to_pid } => {
+        Call::AgentMove {
+            from,
+            surface,
+            to,
+            cwd,
+            sync,
+            then_sync,
+            ask_first,
+            vm_kind,
+            to_pid,
+            interrupt,
+            login,
+        } => {
             let surface = surface.to_string();
             let mut args = words(&[
                 "link",
@@ -645,7 +716,11 @@ pub fn invocation(call: &Call) -> Invocation {
                 cwd,
             ]);
             let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
-            args.extend(agent_move_flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            let flags = if *interrupt { agent_move_flags } else { agent_move_flags_at_boundary };
+            args.extend(flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            if *login {
+                args.push(super::login::FLAG.to_owned());
+            }
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {
@@ -667,6 +742,17 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(150),
             min_timeout_seconds: None,
         },
+        // One status read on a start's path, before any machine: short, so a slow API costs a start little.
+        Call::InferenceGatewayStatus { team, held } => {
+            let mut args = words(&["inference", "gateway", "status", "--json"]);
+            if let Some(team) = team {
+                args.extend(words(&["--team", team]));
+            }
+            if *held {
+                args.extend(words(&["--token-stdin"]));
+            }
+            Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
+        }
         Call::StartChatReservation { release, request } => Invocation {
             args: words(&[
                 "link",
@@ -684,6 +770,24 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(95),
             min_timeout_seconds: None,
         },
+        Call::StartChatEnsure { key, environment, platform } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "ensure",
+                "--workspace",
+                key,
+                "--key",
+                key,
+                "--environment",
+                environment,
+            ]);
+            if let Some(platform) = platform {
+                args.extend(words(&["--platform", platform]));
+            }
+            // The platform call's own limit is 120 s (a new machine's admission).
+            Invocation { args, timeout_seconds: Some(150), min_timeout_seconds: None }
+        }
         Call::StartChatPlan { request } => {
             plain(words(&["link", "start-chat", "plan", "--request", request]))
         }
@@ -717,19 +821,25 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatCreateSent { key, account, team, create_key } => ledger(words(&[
-            "link",
-            "start-chat",
-            "create-sent",
-            "--key",
-            key,
-            "--account",
-            account,
-            "--team",
-            team,
-            "--create-key",
-            create_key,
-        ])),
+        Call::StartChatCreateSent { key, account, team, create_key, route } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "create-sent",
+                "--key",
+                key,
+                "--account",
+                account,
+                "--team",
+                team,
+                "--create-key",
+                create_key,
+            ]);
+            if let Some(route) = route {
+                args.extend(words(&["--route", route]));
+            }
+            ledger(args)
+        }
         Call::StartChatCreateRefused { key, account, create_key } => ledger(words(&[
             "link",
             "start-chat",

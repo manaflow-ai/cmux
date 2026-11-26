@@ -20,9 +20,11 @@ use std::future::Future;
 use std::time::Duration;
 
 /// The connect budget of a Cloud HTTPS client, TLS included, for hosts that connect in 10 to 50 ms.
+// short-gate: only the early tries; the last one connects through the patient client with no connect timeout.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Tries of one request when it does not connect.
+// short-gate: retries only a request that never connected; the last try is patient, bounded by its own total timeout.
 pub const CONNECT_TRIES: u32 = 3;
 
 /// A Cloud HTTPS client and its patient twin, built from the same settings: `fast` gives up a

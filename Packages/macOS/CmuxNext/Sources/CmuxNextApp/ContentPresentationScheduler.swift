@@ -27,7 +27,7 @@ protocol PresentablePane: AnyObject {
 /// window's focused terminal came before that terminal's surface).
 @MainActor
 final class ContentPresentationScheduler {
-    private let frames: any ControlFrameSource
+    var frames: any ControlFrameSource // a test that is the clock sets its own before any show is queued (PaneCommitMotionTests+Drop)
     private var pending: [ObjectIdentifier: any PresentablePane] = [:]
     private var order: [ObjectIdentifier] = []
     private var isScheduled = false

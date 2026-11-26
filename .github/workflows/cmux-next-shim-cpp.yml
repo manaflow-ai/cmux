@@ -17,37 +17,11 @@ name: cmux-next CEF shim C++ tests
 # by the app build, so this is the one check that runs these cases on every
 # change. Each step runs even when an earlier one failed, so one red case does
 # not hide the others.
-# Pushes run only on feat-cmux-next and main (plus pull requests); a side
+# Pushes run only on feat-cmux-next and main; a pull request runs the same
+# scripts as the shim-cpp step of ci/steps.toml (pr-pipeline.yml). A side
 # branch runs it with `gh workflow run cmux-next-shim-cpp.yml --ref <branch>`.
 
 on:
-  pull_request:
-    paths:
-      - Packages/macOS/CmuxNext/CEFShim/**
-      - scripts/cmux-next/test-shim-downloads-cpp.sh
-      - scripts/cmux-next/test-password-reveal-relay-cpp.sh
-      - scripts/cmux-next/test-shim-switches-cpp.sh
-      - scripts/cmux-next/test-auth-callback-policy-cpp.sh
-      - scripts/cmux-next/test-permission-prompt-policy-cpp.sh
-      - scripts/cmux-next/test-local-file-handoff-cpp.sh
-      - schemas/local-file-handoff/vectors.json
-      - scripts/cmux-next/test-local-file-scope-cpp.sh
-      - schemas/local-file-scope/vectors.json
-      - scripts/cmux-next/test-agent-url-policy-cpp.sh
-      - schemas/agent-url-policy/vectors.json
-      - scripts/cmux-next/test-context-proxy-cpp.sh
-      - scripts/cmux-next/test-shim-devtools-id-cpp.sh
-      - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
-      - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
-      - scripts/cmux-next/test-shim-devtools-call-target-cpp.sh
-      - scripts/cmux-next/test-cmux-page-path-cpp.sh
-      - scripts/cmux-next/test-chromium-host-wire-cpp.sh
-      - scripts/cmux-next/test-shim-file-dialog-cpp.sh
-      - scripts/cmux-next/test-shim-helper-signals-cpp.sh
-      - scripts/cmux-next/test-shim-webstore-cpp.sh
-      - scripts/cmux-next/lib/cxx.sh
-      - tests/test_cmux_next_shim_cpp_linux.py
-      - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
       - feat-cmux-next
@@ -88,14 +62,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   shim-downloads-cpp:
     name: CEF shim download state (C++)
     # Header-only C++ with no CEF and no Apple SDK: Linux, off the Mac pools.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

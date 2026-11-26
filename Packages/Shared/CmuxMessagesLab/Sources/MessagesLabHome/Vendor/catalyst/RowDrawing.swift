@@ -676,20 +676,38 @@ enum PartRenderer {
                               baseline: box.minY + first + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
             }
         } else {
+            // cmux (Lawrence 2026-11-20): the square shows a real picture (a link's image, a table's first shot) or is
+            // not drawn at all; an empty grey box read as broken. A one-line card centres its line (HomeQuotePreview).
             let thumb = CGRect(x: box.minX + 8, y: box.minY + 11.25, width: 26, height: 26)
-            ctx.saveGState()
-            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
-            ink.withAlphaComponent(0.25).setFill()
-            ctx.fill(thumb)
-            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
-                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-                let w = img.size.width * s, h = img.size.height * s
-                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            if HomeQuotePreview.hasPicture(pv.part) {
+                ctx.saveGState()
+                UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+                ink.withAlphaComponent(0.25).setFill()
+                ctx.fill(thumb)
+                if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                    let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                    let w = img.size.width * s, h = img.size.height * s
+                    img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+                } else if let picture = HomeQuotePreview.thumbnail(pv.part) {
+                    let pw = CGFloat(picture.width), ph = CGFloat(picture.height)
+                    let s = max(thumb.width / pw, thumb.height / ph)
+                    let w = pw * s, h = ph * s
+                    // Flipped context: draw the picture upright.
+                    ctx.translateBy(x: 0, y: thumb.midY * 2)
+                    ctx.scaleBy(x: 1, y: -1)
+                    ctx.interpolationQuality = .high
+                    ctx.draw(picture, in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+                }
+                ctx.restoreGState()
             }
-            ctx.restoreGState()
             let (title, sub) = pv.lines
-            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+            let x = box.minX + HomeQuotePreview.textInset(pv.part)
+            if sub.isEmpty {
+                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 28.5, in: ctx)
+            } else {
+                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 21, in: ctx)
+                TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: x, baseline: box.minY + 34, in: ctx)
+            }
         }
         ctx.endTransparencyLayer()
         ctx.restoreGState()
@@ -1025,7 +1043,8 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    private var held: [(Key, CGImage, Int, PaletteBox?)] = []
+    /// The finished bitmaps held while `testHold` is set, in the order they finished (a test may reorder them).
+    var held: [(Key, CGImage, Int, PaletteBox?)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held

@@ -2,7 +2,9 @@
 import CmuxMobileLinkFFI
 #endif
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 
 /// What the device's network did, reduced to what matters to a live link.
 public enum NetworkPathEvent: Equatable, Sendable {
@@ -42,6 +44,7 @@ public struct NetworkPathFilter: Sendable {
     }
 }
 
+#if canImport(Network)
 /// Watches the device's network with `NWPathMonitor`.
 public final class NetworkPathMonitor: @unchecked Sendable {
     public let events: AsyncStream<NetworkPathEvent>
@@ -56,6 +59,10 @@ public final class NetworkPathMonitor: @unchecked Sendable {
             #if canImport(CmuxMobileLinkFFI)
             // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
             setCellularPath(cellular: path.usesInterfaceType(.cellular))
+            // The key-to-paint histogram's network tag (Rust `key_paint`).
+            setNetworkKind(kind: path.usesInterfaceType(.cellular) ? "lte"
+                : path.usesInterfaceType(.wifi) ? "wifi"
+                : path.usesInterfaceType(.wiredEthernet) ? "wired" : "other")
             #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)
@@ -82,3 +89,4 @@ public final class NetworkPathMonitor: @unchecked Sendable {
 private final class FilterBox: @unchecked Sendable {
     var filter = NetworkPathFilter()
 }
+#endif

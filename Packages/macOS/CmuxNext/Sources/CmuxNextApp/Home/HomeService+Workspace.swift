@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHomeModel
 import CmuxNextHostedChief
 import Foundation
 
@@ -32,6 +33,7 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
+        chiefTabStep = .notStarted
         let generation = ensure.begin()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
@@ -92,7 +94,7 @@ extension HomeService {
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID, generation: Int) async throws {
         let local = services.machines.local
         guard local.supports(DaemonCapability.conversationTabs.rawValue) else {
-            homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
+            chiefTabStep = .reached("no chief tab: the daemon lacks conversation tabs")
             return
         }
         // A cloud Chief answers in its cloud main conversation: the Hosted
@@ -116,9 +118,11 @@ extension HomeService {
         // when a local Chief with history takes the tab back.
         let owner: DaemonConnection?
         if shown == nil {
-            homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
+            chiefTabStep = .waitingForOwner
             owner = await ensureOwner.connection(of: chief, generation: generation) // its connect lets this go on (HomeService.start)
-            guard owner != nil, !Task.isCancelled else { return }; DebugTimings.markLaunch("home.chief_owner_ready")
+            guard owner != nil, !Task.isCancelled else { chiefTabStep = .reached("chief owner wait ended without a connection"); return }
+            DebugTimings.markLaunch("home.chief_owner_ready")
+            chiefTabStep = .reached("chief owner \(self.chief.home.session) ready")
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
@@ -135,8 +139,10 @@ extension HomeService {
         let resolved = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
                                                   prefersLocal: prefersLocalChief)
         homeStore.rememberChief(resolved.map { .init($0) })  // the next launch draws it first; the cached one ends (CMUX-571)
-        guard let chief = resolved, HomeDock.classic else { return }
-        homeWorkspaceStep = "waiting for the home workspace in the tree"
+        guard let chief = resolved else { chiefTabStep = .reached("no chief conversation to show"); return }
+        // A docked Home shows the Chief in its dock: no tab to make here.
+        guard HomeDock.classic else { chiefTabStep = .reached("chief shown in the dock"); return }
+        chiefTabStep = .reached("waiting for the home workspace in the tree")
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
@@ -166,7 +172,7 @@ extension HomeService {
         let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {
-            homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
+            chiefTabStep = .reached("no chief tab: an empty home on a daemon without Workspace.kind")
             return
         }
         // The key lives on the service (shared by overlapping connects); a
@@ -181,7 +187,7 @@ extension HomeService {
         for surface in HomeCloudChiefs.staleChiefTabs(stale: others, chief: chief, in: local.store.workspaces) {
             try await connection.closeTab(surface)
         }
-        homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"
+        chiefTabStep = .reached(created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present")
     }
 
     // MARK: Tab content

@@ -23,7 +23,7 @@ const cloudMutation = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.clas
 const cloudRead = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "read")!.name
 const stayingMutation = "user.ensure"
 
-type Seen = { url: string; method: string; body: string; protocols: string | null }
+type Seen = { url: string; method: string; body: string; protocols: string | null; space: string | null }
 
 /** A stand-in for the platform Worker: records what reached it and answers 299. */
 const fakePlatform = (opts: { throws?: boolean } = {}) => {
@@ -32,7 +32,7 @@ const fakePlatform = (opts: { throws?: boolean } = {}) => {
     fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (opts.throws) throw new Error("platform down")
       const r = new Request(input as RequestInfo, init)
-      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol") })
+      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol"), space: r.headers.get("x-cmux-build-space") })
       return new Response("from platform", { status: 299, headers: { "x-from": "platform" } })
     })
   }
@@ -74,6 +74,20 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
   ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
   ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
+  // Cloud apps (RFD 0003): a machine's `cmux app publish|versions|rollback|ls`, sent by its agent to this origin.
+  ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
+  ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
+  ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
+  // A send's trace (cmux-platform StartTraceRoute.ts): an empty 404 here before it was listed, so no client read one.
+  ["start traces list", () => new Request(`${ORIGIN}/v1/cloud/start-traces?limit=200`)],
+  ["start trace read", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c`)],
+  ["start trace chrome", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/chrome`)],
+  ["start trace spans", () => post("/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/spans", '{"spans":[]}')],
+  // The end-to-end encrypted vault (cmux-platform SealedVaultRoute.ts): an empty 404 here before it was listed.
+  ["vault snapshot", () => new Request(`${ORIGIN}/v1/cloud/vault?vault=personal`)],
+  ["vault device add", () => post("/v1/cloud/vault/devices", '{"vault":"personal"}')],
+  ["vault item put", () => new Request(`${ORIGIN}/v1/cloud/vault/items/it_1`, { method: "PUT", body: '{"vault":"personal"}' })],
+  ["vault machine read", () => new Request(`${ORIGIN}/v1/cloud/vault/machine`)],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
@@ -219,4 +233,16 @@ describe("entry ticket spend", () => {
     await call(new Request(`${ORIGIN}/v1/health`, { headers: { "Sec-WebSocket-Protocol": `ticket.${ticket}` } }), { PLATFORM: fakePlatform().fetcher, PLATFORM_SURFACES: "cloud", WIRE_TICKET_DO: tickets.ns })
     expect(tickets.spends()).toBe(1)
   })
+
+  /** Build spaces (build-space.ts): a dev build's Cloud request reaches the platform with its space, which the
+   * platform needs to find the build's own install (its UserDO is named `dev:<slug>|<user>`). */
+  it("forwards a dev build's machine route and Cloud op with its build space", async () => {
+    const platform = fakePlatform()
+    const env = { PLATFORM_SURFACES: "cloud", PLATFORM: platform.fetcher }
+    expect((await call(post("/v1/cloud/bind", "{}", { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation), { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation)), env)).from).toBe("platform")
+    expect(platform.seen.map((s) => s.space)).toEqual(["dev:my-tag", "dev:my-tag", null])
+  })
 })
+

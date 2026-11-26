@@ -23,20 +23,17 @@ struct SessionConsentTests {
     static let mintedRefresh = "minted-refresh-\(UUID().uuidString)"
 
     /// Answers every peer as signed by `identifier` (ad hoc unless `team`).
-    struct FakeSigners: SessionHandoffSignerReading {
+    struct FakeSigners: SessionConsentSignerReading {
         var identifier: String?
         var team: String?
-        func signer(of token: audit_token_t) -> SessionHandoffSigner? {
-            identifier.map { SessionHandoffSigner(identifier: $0, teamID: team, path: "/Users/me/builds/cmux DEV feature1.app") }
+        func signer(of token: audit_token_t) -> SessionConsentSigner? {
+            identifier.map { SessionConsentSigner(identifier: $0, teamID: team, path: "/Users/me/builds/cmux DEV feature1.app") }
         }
     }
 
-    /// The server check of the client: NIGHTLY, team-signed (as in SessionHandoffTests).
-    struct FakeServerCheck: SessionHandoffCodeChecking {
-        func signingIdentifier(of token: audit_token_t, teamIdentifier: String) -> String? {
-            teamIdentifier == SessionHandoffPolicy.teamIdentifier ? SessionHandoffPolicy.serverBundleID : nil
-        }
-    }
+    /// The server check of the client: NIGHTLY, team-signed.
+    static let nightlyServer = FakeSigners(identifier: SessionConsentClient.nightlyBundleID,
+                                           team: SessionConsentClient.teamIdentifier)
 
     /// What the fakes saw.
     actor Seen {
@@ -96,8 +93,8 @@ struct SessionConsentTests {
         let seen = Seen()
         let server = try Self.makeNightly(seen: seen)
         defer { server.stop() }
-        let client = SessionHandoffClient(socketPath: server.configuration.path,
-                                          policy: SessionHandoffPolicy(codeCheck: FakeServerCheck()), timeout: .seconds(10))
+        let client = SessionConsentClient(socketPath: server.configuration.path, timeout: .seconds(10),
+                                          signers: Self.nightlyServer)
         let tokens = await client.requestTokens(bundleID: Self.dev, tag: "feature1", stackProjectID: Self.project,
                                                 apiOrigin: "https://cloud-api.cmux.dev")
         #expect(tokens?.accessToken == Self.mintedAccess)
@@ -120,6 +117,20 @@ struct SessionConsentTests {
         #expect(recipient["tag"] as? String == "feature1")
         // The answer opened nothing else: the rest of the socket still refuses this client.
         #expect(try LineClient(path: server.configuration.path).send("ping") == ControlAuthorizer.accessDenied)
+    }
+
+    @Test func theClientSendsNothingToAServerThatIsNotTeamSignedNightly() async throws {
+        let seen = Seen()
+        let server = try Self.makeNightly(seen: seen)
+        defer { server.stop() }
+        for signers in [FakeSigners(identifier: SessionConsentClient.nightlyBundleID, team: nil),
+                        FakeSigners(identifier: Self.dev, team: SessionConsentClient.teamIdentifier)] {
+            let client = SessionConsentClient(socketPath: server.configuration.path, timeout: .seconds(10), signers: signers)
+            let tokens = await client.requestTokens(bundleID: Self.dev, tag: "feature1", stackProjectID: Self.project,
+                                                    apiOrigin: "https://cloud-api.cmux.dev")
+            #expect(tokens == nil)
+        }
+        #expect(await seen.asks.isEmpty)
     }
 
     @Test func aSignatureThatIsNotTheAskedBundleIsRefused() async throws {
@@ -177,7 +188,7 @@ struct SessionConsentTests {
         #expect(await seen.asks.count == 1)
         #expect(await seen.mints.isEmpty)
         // The client reads a refusal as no session.
-        #expect(SessionHandoffClient.pair(fromResponse: Data(line.utf8)) == nil)
+        #expect(SessionConsentClient.tokens(fromResponse: Data(line.utf8)) == nil)
     }
 
     @Test func noTokenInAnyRefusal() async throws {
@@ -195,12 +206,12 @@ struct SessionConsentTests {
 
     @Test func theRealSignerReadsThisProcess() throws {
         // The fleet's test process has a valid signature (ad hoc at least): the any-signature read sees it, with
-        // a path, where the team check of `auth.session.handoff` sees nothing.
+        // a path.
         var pair: [Int32] = [-1, -1]
         #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
         defer { pair.forEach { close($0) } }
-        let peer = try #require(pair.first.flatMap(SessionHandoffPeer.init(connection:)))
-        if let signer = SessionHandoffCodeCheck().signer(of: peer.auditToken) {
+        let peer = try #require(pair.first.flatMap(SessionConsentPeer.init(connection:)))
+        if let signer = SessionConsentCodeCheck().signer(of: peer.auditToken) {
             #expect(!signer.identifier.isEmpty)
             #expect(signer.path?.isEmpty == false)
         }
