@@ -105,9 +105,10 @@
     color-mix(in srgb, var(--cmux-tone-light, #fff) 80%, transparent),
     color-mix(in srgb, var(--agent-text) 12%, transparent)
   );
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent)),
-    var(--elevation-1);
+  /* One hairline and no lift: a chip on the composer's glass is a plain control, not a glass pane of
+     its own with a shadow (no nested glass, check-no-nested-glass.ts; Leo 2026-11-22: "doubled up
+     glass/wack looking glass"). */
+  box-shadow: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {

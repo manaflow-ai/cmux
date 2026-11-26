@@ -48,6 +48,7 @@ fn wire_name_round_trips_through_serde() {
         "theme.scheme.convert",
         "theme.scheme.export",
         "theme.scheme.from_image",
+        "theme.slots.resolve",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
