@@ -1452,7 +1452,7 @@ export function ComposerPickers({
         // the model chip, with no menu and no chevron. Before acpmux answers, nothing shows.
         harnessesListed &&
         onAddAgent && (
-          <span className="acpmux-picker acpmux-model">
+          <span className="acpmux-picker acpmux-model" data-chip-icon="off">
             <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
               <span className="acpmux-model-name">{t("composer.addHarness")}</span>
             </button>
@@ -2292,6 +2292,7 @@ export function Picker({
   onOpen,
   resizeId,
   returnHint = false,
+  side = "top",
 }: {
   label: string;
   className: string;
@@ -2308,6 +2309,8 @@ export function Picker({
   resizeId?: string;
   /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
   returnHint?: boolean;
+  /// Where the menu opens: over the button (a composer's bar at the bottom of its pane), or under it (New Tab's +).
+  side?: "top" | "bottom";
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2359,7 +2362,7 @@ export function Picker({
         </MenuButton>
         <MenuPopup
           label={heading ?? label}
-          side="top"
+          side={side}
           align={align}
           // Pointer closes return to the opener (the prompt). If an action deliberately focuses a
           // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
@@ -2640,7 +2643,7 @@ export const CheckIcon = () => (
 );
 export const PlusIcon = () => (
   <Icon>
-    <path d="M8 2.75v10.5M2.75 8h10.5" />
+    <path d="M8 1.9v12.2M1.9 8h12.2" />
   </Icon>
 );
 /** The folder menu's Use path row: the folder chip's own folder outline. */
@@ -2688,8 +2691,8 @@ export const AtIcon = () => (
 );
 export const MicIcon = () => (
   <Icon>
-    <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
-    <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
+    <rect x="5.7" y="1.9" width="4.6" height="7.6" rx="2.3" />
+    <path d="M3.5 7.4a4.5 4.5 0 0 0 9 0M8 11.9v2.2" />
   </Icon>
 );
 export const SlashIcon = () => (
