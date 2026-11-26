@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -408,20 +408,29 @@ fn refused_by_proxy(udp_useless: bool, allocated: &Allocated) -> Option<DialErro
 
 /// A dial's TURN allocation, started before the dial: a redial
 /// ([`super::connect_after`]) starts it as the signaling reconnect starts,
-/// so the allocation's round trips overlap the reconnect's instead of
-/// following them. Nothing is held before the redial starts. It is the
+/// and a cold dial as soon as `/v1/ice` answers, beside the signaling
+/// socket's open ([`super::connect_with_early_turn`]), so the allocation's
+/// round trips overlap the socket's instead of following them. Nothing is
+/// held before the dial's ICE servers are known. It is the
 /// dial's own allocation ([`turn_beside`], the same path and 437 handling),
 /// and the dial takes it with the STUN wait's half of the link. Dropped
 /// unused (the reconnect failed, the dial was abandoned or dropped), it
 /// aborts the allocation: one under way releases what it opens
 /// (`TurnCarrier::allocate_on`), and one done is dropped, which deallocates
 /// (Refresh with LIFETIME 0).
-pub(crate) struct EarlyTurn {
+pub struct EarlyTurn {
     task: Option<tokio::task::JoinHandle<Allocated>>,
     stun: Option<StunSide>,
 }
 
 impl EarlyTurn {
+    /// The early allocation for a dial over `kind` on `options` (those the
+    /// dial will use, ICE servers included): only a WireGuard dial takes one.
+    /// Call it inside a Tokio runtime.
+    pub fn for_dial(kind: super::TransportKind, options: &DialOptions) -> Option<Self> {
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options))
+    }
+
     /// Start the allocation `options` ask for (`turn_early_allocated` once
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
@@ -447,6 +456,12 @@ impl EarlyTurn {
         };
         self.task = None;
         turn
+    }
+}
+
+impl std::fmt::Debug for EarlyTurn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EarlyTurn").field("taken", &self.task.is_none()).finish()
     }
 }
 
@@ -570,14 +585,30 @@ fn relay_plan(
     own_now: bool,
     peer: Option<&str>,
     ticket: Option<String>,
+    early: Option<roam::EarlyJoin>,
 ) -> Option<roam::RelayPlan> {
-    let mut endpoint = options.relay.clone()?;
-    endpoint.egress = options.egress.clone();
+    let endpoint = relay_endpoint(options)?;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
+        abort_early(early.as_ref());
         return None;
     };
-    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
+    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket, early })
+}
+
+/// This side's relay endpoint, leaving through this dial's egress (the
+/// system proxy, "proxy only"): the one every join uses, early or not.
+fn relay_endpoint(options: &DialOptions) -> Option<RelayEndpoint> {
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
+    Some(endpoint)
+}
+
+/// Stops a join started on an early ticket that no plan will take.
+fn abort_early(early: Option<&roam::EarlyJoin>) {
+    if let Some(handle) = early.and_then(|slot| slot.lock().unwrap_or_else(PoisonError::into_inner).take()) {
+        handle.abort();
+    }
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
@@ -2767,8 +2798,8 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
         .ok_or_else(|| DialError::Bye("tunnel closed".into()))
 }
 
-/// The phone's WireGuard dial: its TURN allocation is `early` (a redial's,
-/// started beside the signaling reconnect) or one it starts now, beside
+/// The phone's WireGuard dial: its TURN allocation is `early` (started
+/// beside the signaling reconnect or open) or one it starts now, beside
 /// the STUN gather.
 pub(super) fn dial_wireguard<'a>(
     signaling: &'a SignalingClient,
@@ -2859,10 +2890,15 @@ pub(super) fn dial_wireguard<'a>(
                     relayed_tls,
                     version: WG_VERSION,
                     relay: relay_offer,
+                    // A side with no path but the relay asks for its ticket now,
+                    // so its join runs while the Mac gathers and answers.
+                    ticket_early: own_relay_now,
                 },
             )
             .map_err(|e| DialError::Signaling(e.to_string()))?;
         options.timeline.mark("wg_init_sent");
+        let mut early_ticket: Option<String> = None;
+        let mut early_join: Option<roam::EarlyJoin> = None;
         let agreed;
         let reliable;
         let video_agreed;
@@ -2902,21 +2938,52 @@ pub(super) fn dial_wireguard<'a>(
                         relay_ticket = envelope.relay_ticket;
                         break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version, relay);
                     }
-                    SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                    SignalPayload::Bye { reason } => {
+                        abort_early(early_join.as_ref());
+                        return Err(DialError::Bye(reason));
+                    }
                     // A Mac that roamed before this side saw its answer:
                     // the tunnel learns its endpoints from inside.
                     SignalPayload::WgEndpoints { .. } => {}
                     // The Mac already joined the relay; so will this side.
                     SignalPayload::WgRelay {} => {}
-                    other => return Err(DialError::Unexpected(format!("{other:?}"))),
+                    // The service's answer to `ticketEarly`: this side's ticket,
+                    // before the Mac's. The join starts now, off the wait.
+                    SignalPayload::WgTicket {} => {
+                        if let (true, None, Some(endpoint), Some(ticket)) =
+                            (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
+                        {
+                            options.timeline.mark("relay_early_join");
+                            let (session, peer, used) =
+                                (session_id.to_owned(), mac.to_owned(), ticket.clone());
+                            early_ticket = Some(ticket);
+                            early_join = Some(Arc::new(Mutex::new(Some(tokio::spawn(async move {
+                                RelayCarrier::join(&endpoint, &session, &peer, Some(&used)).await
+                            })))));
+                        }
+                    }
+                    other => {
+                        abort_early(early_join.as_ref());
+                        return Err(DialError::Unexpected(format!("{other:?}")));
+                    }
                 },
-                SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
+                SessionEvent::Disconnected => {
+                    abort_early(early_join.as_ref());
+                    return Err(DialError::Signaling("disconnected".into()));
+                }
             }
         };
         if peer_ip == DIALER_OVERLAY {
+            abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
-        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        let relay = relay_plan(
+            options,
+            own_relay_now,
+            peer_relay.as_deref(),
+            relay_ticket.or(early_ticket),
+            early_join,
+        );
         if relay.is_none() && no_plain_udp(options) && turn.is_none() {
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());
@@ -3084,6 +3151,7 @@ impl Dialer for WireGuardDialer {
                 relayed_tls: peer_relayed_tls,
                 version: peer_version,
                 relay: peer_relay,
+                ticket_early: _,
             } = first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
@@ -3124,7 +3192,7 @@ impl Dialer for WireGuardDialer {
                 .relay
                 .as_ref()
                 .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, None);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());

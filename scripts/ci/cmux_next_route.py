@@ -342,7 +342,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI

@@ -192,6 +192,39 @@ fn a_layer_folder_no_entry_uses_is_left_over_and_removal_keeps_a_copy() {
 }
 
 #[test]
+fn live_bridge_settings_and_migration_inputs_load_without_a_toast() {
+    let home = Home::new();
+    let settings = json!({
+        "agents": {"desktopBridge": {"enabled": true, "entrypoints": ["claude-desktop"]}},
+        "status": {"working": "legacy"},
+        "tunable": {"diagnostics": {"focusLog": false}},
+        "remote": {"ultraMode": true},
+        "appearance.tabBarBackground": "dark",
+    });
+    home.write("cmux-next.json", &settings.to_string());
+    let report = home.customize().doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(kinds(&report), Vec::new());
+    assert_eq!(report.announce, None);
+}
+
+#[test]
+fn a_typo_beside_a_live_or_retired_key_still_reports_the_exact_key() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        &json!({
+            "agents.desktopBridge": {"enabled": false, "entrypoint": []},
+            "tunable": {"diagnostics": {"focusLog": true, "foucusLog": true}},
+        })
+        .to_string(),
+    );
+    let report = home.customize().doctor(&at(NOW));
+    assert_eq!(report.findings.len(), 2);
+    find(&report, "unknown-key:agents.desktopBridge.entrypoint");
+    find(&report, "unknown-key:tunable.diagnostics.foucusLog");
+}
+
+#[test]
 fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
     let home = Home::new();
     home.write(
@@ -205,6 +238,78 @@ fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
     assert_eq!(typo.place, "cmux-next.json:4");
     find(&report, "unknown-key:notASection");
     assert!(report.findings.iter().all(|f| f.id != "unknown-key:appearance.density"));
+}
+
+#[test]
+fn keys_our_own_tools_read_are_not_unknown() {
+    // Leo, 2026-11-25, of a toast naming agents.desktopBridge (acpmux reads it): "will this be
+    // fixed soon?" Every key file-keys.json names, and anything under it, is someone's.
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        r#"{
+  "agents": { "desktopBridge": { "enabled": true, "entrypoints": ["codex_desktop"] } },
+  "chief.turnHooks": ["x"],
+  "chief": { "turnSkills": ["y"] },
+  "shortcuts": { "bindings": { "palette": "cmd+k" } },
+  "actions": { "test": { "command": "cargo test" } },
+  "agents.desktopBridgeTypo": true
+}
+"#,
+    );
+    let report = home.customize().doctor(&at(NOW));
+    let unknown: Vec<&str> = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == FindingKind::UnknownKey)
+        .map(|f| f.id.as_str())
+        .collect();
+    assert_eq!(unknown, ["unknown-key:agents.desktopBridgeTypo"]);
+}
+
+#[test]
+fn an_edit_above_a_dismissed_key_keeps_it_dismissed() {
+    // A finding's line is not in its fingerprint: an agent's edit above a key moves it, and
+    // what the person dismissed stays dismissed (it came back when three keys' lines moved).
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true\n}\n");
+    let customize = home.customize();
+    customize.doctor_dismiss("unknown-key:mystery", &at(NOW)).unwrap();
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": {\n    \"density\": \"compact\"\n  },\n  \"mystery\": true\n}\n",
+    );
+    let moved = customize.doctor(&at(NOW));
+    let mystery = find(&moved, "unknown-key:mystery");
+    assert_eq!(mystery.line, Some(5));
+    assert!(mystery.dismissed, "the same key on another line is not new");
+}
+
+#[test]
+fn a_state_file_of_the_old_scheme_says_nothing_again() {
+    // doctor.json before version 2 held prints with the line in them: what it announced stays
+    // announced, and what it dismissed stays dismissed.
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true,\n  \"other\": 1\n}\n");
+    let customize = home.customize();
+    let before = customize.doctor(&at(NOW));
+    assert_eq!(before.findings.iter().filter(|f| f.kind == FindingKind::UnknownKey).count(), 2);
+    let file = Roots::under(home.dir.path()).state_dir.join("doctor.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(
+        &file,
+        json!({
+            "announced": { "unknown-key:mystery": "0123456789abcdef", "unknown-key:other": "0123456789abcdef" },
+            "dismissed": { "unknown-key:other": "0123456789abcdef" }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(report.announce, None);
+    assert!(find(&report, "unknown-key:other").dismissed);
+    let again = customize.doctor(&at(NOW));
+    assert!(find(&again, "unknown-key:other").dismissed, "moved over to the new print");
 }
 
 #[test]
@@ -257,9 +362,44 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     let again = customize.doctor_announce(&at(NOW)).unwrap();
     assert_eq!(again.announce, None, "nothing new");
     assert!(again.line.is_some(), "still listed");
+    // The same problem on another line is not new (its line is not in its fingerprint).
     home.write("themes/night.json", "{\n\n  \"appearance\": }\n");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(moved.announce, None, "moved, not changed: {:?}", moved.findings);
+    home.write("themes/dawn.json", "{ \"appearance\": }\n");
     let changed = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(changed.announce.is_some(), "a different problem is new: {:?}", changed.findings);
+}
+
+#[test]
+fn moving_a_misspelling_keeps_its_new_line_and_its_identity() {
+    let home = Home::new();
+    let customize = home.customize();
+    let id = "unknown-key:appearance.acent";
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    // A misspelling is information, never a toast (#55870).
+    let first = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(first.announce, None);
+    home.write("cmux-next.json", "{\n  // moved\n  \"appearance\": {\"acent\": \"red\"}\n}");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(find(&moved, id).line, Some(3));
+    assert_eq!(find(&moved, id).fingerprint, find(&first, id).fingerprint);
+    assert_eq!(moved.announce, None);
+    customize.doctor_dismiss(id, &at(NOW)).unwrap();
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    assert!(find(&customize.doctor(&at(NOW)), id).dismissed);
+
+    // Older builds saved a hash containing the line. An upgrade must honor it too.
+    let state = home.dir.path().join("state/doctor.json");
+    fs::write(
+        state,
+        json!({"announced": {id: "aa00000000000001"}, "dismissed": {id: "aa00000000000001"}})
+            .to_string(),
+    )
+    .unwrap();
+    let upgraded = customize.doctor_announce(&at(NOW)).unwrap();
+    assert!(find(&upgraded, id).dismissed);
+    assert_eq!(upgraded.announce, None);
 }
 
 #[test]

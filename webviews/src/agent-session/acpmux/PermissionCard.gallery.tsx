@@ -307,7 +307,7 @@ function GalleryPermissionCard({
       {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       {editStyle && editStyle !== "leading" && <style>{editStyles[editStyle]}</style>}
       <div className="acpmux-main">
-        <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
+        <div className="acpmux-permission acpmux-asks-stack" ref={stack} data-tooltip-escape="">
           <ShortcutsContext value={labels}>
             <PermissionCard
               permission={permission}
