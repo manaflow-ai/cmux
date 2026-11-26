@@ -1553,6 +1553,9 @@ jobs:
             python3 tests/test_nightly_fallback_covers.py
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
+            # Why: cmux#56291 moved agent-policy.json to agent-policy/ and nothing ran the Linux settings exporter's test, so every
+            # settings exports (Linux) job exited 2 and fell back to a Mac (cmux#56505).
+            bash scripts/cmux-next/tests/export-settings-linux.test.sh
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
@@ -1583,6 +1586,7 @@ jobs:
             # Why: 2026-11-24-checks-18.md
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
+            python3 tests/test_ci_guard_base_verdicts.py
             python3 tests/test_unittest_results.py
             python3 tests/test_webviews_test_history.py
             python3 tests/test_app_symbol_map.py
@@ -4177,7 +4181,7 @@ jobs:
       - name: Install Rust targets (sidebar layout reducer)
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         working-directory: cmux-tui
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: rustup target add aarch64-apple-darwin
 
       - name: Test sidebar layout reducer
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
