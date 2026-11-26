@@ -41,6 +41,8 @@ SOURCE:
   ssh:HOST                      a box you reach over SSH (one read-only probe)
   codespaces | coder            your workspaces there (gh / coder CLI, signed in)
   gitpod [PATH]                 a checkout's .gitpod.yml
+  t3code | t3 [t3code:PATH]     T3 Code's projects, thread worktrees and their
+                                Claude Code / Codex sessions (CMUX_SWITCH_KIT=1)
   daytona | exe.dev | namespace | devpod | devin | capy
                                 how that product's workspaces move (`routes`)
 
@@ -54,6 +56,34 @@ skipped (said so), and a later run in the app carries them.
 Shell history is listed unchecked (it can hold typed tokens): check it in the
 plan to carry it.
 ";
+
+/// The switch kit (cmuxterm-hq#23822) is off until `CMUX_SWITCH_KIT=1`.
+fn switch_kit_on() -> bool {
+    std::env::var("CMUX_SWITCH_KIT").is_ok_and(|v| v == "1")
+}
+
+/// `t3code` or `t3code:PATH` (a T3 home), when the switch kit is on.
+fn t3code_source(source: &str) -> Option<Option<&str>> {
+    if !switch_kit_on() {
+        return None;
+    }
+    match source {
+        "t3code" | "t3" => Some(None),
+        _ => source.strip_prefix("t3code:").map(Some),
+    }
+}
+
+/// Reads T3 Code's database read-only and plans its projects and thread worktrees.
+fn t3code_plan(home: &Path, path: Option<&str>) -> Result<Plan, String> {
+    use cmux_migrate::sources::t3code;
+    let env = std::env::var("T3CODE_HOME").ok();
+    let t3_home = match path {
+        Some(p) => std::path::absolute(p).map_err(|e| format!("{p}: {e}"))?,
+        None => t3code::home_dir(home, env.as_deref()),
+    };
+    let catalog = t3code::read(&t3_home.join(t3code::DATABASE)).map_err(|e| e.to_string())?;
+    Ok(t3code::plan(home, &t3_home, &catalog, &laptop::GitCli::default()))
+}
 
 /// One external reader (ssh probe, `gh`, `coder`) ends by then.
 const READER_BOUND: Duration = Duration::from_secs(120);
@@ -302,6 +332,9 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
             .map_err(|e| format!("{}: {e}", root.join(".gitpod.yml").display()))?;
         let repo = cmux_migrate::sources::project_files::repo_at(&root).url;
         return competitors::gitpod_plan(&root.display().to_string(), repo.as_deref(), &yml);
+    }
+    if let Some(t3) = t3code_source(source) {
+        return t3code_plan(&home, t3);
     }
     match source {
         "this-computer" | "laptop" | "this-mac" => {

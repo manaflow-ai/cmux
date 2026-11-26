@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 740,
+  "count": 739,
   "sections": [
     {
       "id": "general",
@@ -1649,14 +1649,6 @@
           "key": "sessions.keepAwakeForCommands",
           "title": "Also While Terminal Commands Run",
           "help": "A build or test running over a minute keeps the Mac awake.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Agent Sessions"
-        },
-        {
-          "key": "sessions.keepAwakeWhenLocked",
-          "title": "Keep Agents Running While Locked",
-          "help": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep.",
           "kind": "toggle",
           "default": false,
           "group": "Agent Sessions"
@@ -3537,6 +3529,19 @@
           }
         },
         {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": "Space Button Spacing",
+          "help": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 18,
+            "max": 48,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.titlebarHeight",
           "title": "Titlebar Height",
           "help": "",
@@ -4128,7 +4133,7 @@
           "title": "Customization notices",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "App Theme"
         },
         {
@@ -7890,14 +7895,6 @@
           "key": "experiments.seeThroughDock",
           "title": "See-Through Dock",
           "help": "The conversation stays visible behind the notices and the Needs your input row above the composer.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Experiments"
-        },
-        {
-          "key": "experiments.terminalHistoryFind",
-          "title": "Terminal History Find",
-          "help": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"

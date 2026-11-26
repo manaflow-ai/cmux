@@ -80,7 +80,7 @@ nonisolated extension AcpmuxEnvironment {
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
-        for key in AcpmuxEnvironment.agentLaunchKeys {
+        for key in AcpmuxEnvironment.agentLaunchKeys + AcpmuxEnvironment.traceKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
         // A DEV build's own settings file and host budget (BuildStatePaths): acpmux reads them, and a

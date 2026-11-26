@@ -1,5 +1,4 @@
 public import Foundation
-public import IrohLib
 
 /// Admission outcome carried into the host: the peer tuple the grant proved,
 /// bound to the TLS-authenticated key by the verifier closure.

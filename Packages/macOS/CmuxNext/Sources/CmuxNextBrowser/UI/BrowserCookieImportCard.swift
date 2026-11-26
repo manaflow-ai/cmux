@@ -5,7 +5,7 @@ import CmuxNextPages
 /// A toast at the bottom of the page that offers to bring the person's
 /// cookies over from another browser. Its line and answers are a React page
 /// (webviews/src/browser-chrome/cookie-import, `BrowserChromeWebHost`): the
-/// browser's icon, one line, Don't Show Again and Import as the toast's text
+/// browser's icon, one line, Never for Chrome, Not now and Import as the toast's text
 /// answers and its close button as Not Now (Leo 2026-11-08: "i dont like
 /// this. 1. looks bad. 2. not glass. 3. talks about too much irrelevant
 /// shit"). This view is the host only: the window toasts' own glass, made

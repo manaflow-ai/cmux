@@ -141,11 +141,20 @@ async fn download(choice: UltraChoice, drop: Option<usize>) -> (Duration, UltraS
     (took, stats)
 }
 
+/// Every test here runs on Cubic. The first-loss test's control (off loses
+/// more than a round trip) needs a window that loss cuts, which the default
+/// BBR keeps; the pin is process-wide, so all of them take it before their
+/// first tunnel, and none sees the controller change mid-test.
+fn pin_loss_based_congestion() {
+    cmux_wg::testing::pin_loss_based_congestion();
+}
+
 /// The 30th data datagram: the third round trip of slow start.
 const EARLY: usize = 30;
 
 #[tokio::test(start_paused = true)]
 async fn auto_adds_nothing_on_a_clean_link() {
+    pin_loss_based_congestion();
     let (clean_off, _) = download(UltraChoice::Off, None).await;
     let (clean_auto, stats) = download(UltraChoice::AUTO, None).await;
     eprintln!("clean 1 MiB at 300 ms: off {clean_off:?}, auto {clean_auto:?}, auto {stats:?}");
@@ -168,6 +177,7 @@ async fn auto_adds_nothing_on_a_clean_link() {
 
 #[tokio::test(start_paused = true)]
 async fn the_first_loss_costs_auto_about_one_round_trip() {
+    pin_loss_based_congestion();
     let (clean, _) = download(UltraChoice::Off, None).await;
     let (always, _) = download(UltraChoice::ALWAYS, Some(EARLY)).await;
     let (off, _) = download(UltraChoice::Off, Some(EARLY)).await;
@@ -247,6 +257,7 @@ async fn download_beside_a_dead_candidate(choice: UltraChoice) -> (UltraStats, U
 /// as long as the candidate is probed.
 #[tokio::test(start_paused = true)]
 async fn probes_on_a_dead_candidate_leave_auto_off() {
+    pin_loss_based_congestion();
     let (client, server, dead_sent) = download_beside_a_dead_candidate(UltraChoice::AUTO).await;
     eprintln!("dead candidate: {dead_sent} datagrams on it; client {client:?}; server {server:?}");
     assert!(dead_sent >= 20, "the dead candidate was probed throughout: {dead_sent}");

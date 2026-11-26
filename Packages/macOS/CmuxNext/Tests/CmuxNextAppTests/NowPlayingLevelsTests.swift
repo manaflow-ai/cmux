@@ -5,9 +5,9 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The Now Playing card's level bars and its Play or Pause disc: the bars sway only while a track
-/// plays and motion is allowed, as endless render-server loops (no app timer), and rest still
-/// otherwise; Play or Pause is the one filled control and follows the track.
+/// The Now Playing card's level bars: they sway only while a track plays and motion is allowed, as
+/// endless render-server loops (no app timer), and rest still otherwise. The controls' look and
+/// centering: `NowPlayingControlsCenteringTests`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingLevelsTests {
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
@@ -89,26 +89,22 @@ import Testing
         #expect(h.loops.count == 3, "turning Reduce Motion off mid-track left the bars still")
     }
 
-    @Test func playOrPauseIsTheFilledControl() throws {
+    /// Previous, Play or Pause and Next are centered on the card, so Play keeps its place for every source.
+    @Test func theControlsAreCenteredOnTheCard() throws {
         let h = Harness()
         defer { h.close() }
         h.show(playing: true)
         let play = h.card.playPauseButton
         #expect(play.accessibilityLabel() == "Pause" && play.icon == .mediaPause)
-        #expect(play.frame.height > h.card.nextButton.frame.height, "Play or Pause is no larger than Next")
-        #expect(abs(play.frame.midY - h.card.nextButton.frame.midY) < 1, "the controls are not on one line")
         let group = h.card.previousButton.frame.union(h.card.nextButton.frame)
         #expect(abs(group.midX - h.card.bounds.midX) <= 0.5, "the controls \(group) are not centered on the card \(h.card.bounds)")
         #expect(abs(play.frame.midX - h.card.bounds.midX) <= 0.5, "Play or Pause \(play.frame) is not at the card's center")
-        play.displayIfNeeded()
-        let fill = try #require(play.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
-        #expect(fill.alphaComponent > 0.9, "Play or Pause is not filled")
         h.show(playing: false)
         #expect(play.accessibilityLabel() == "Play" && play.icon == .mediaPlay)
     }
 
-    /// The disc draws the new glyph when the track plays or pauses, with no layout pass: its frame
-    /// does not change, so AppKit lays it out no more, and the old glyph stayed until something
+    /// Play or Pause draws the new glyph when the track plays or pauses, with no layout pass: its
+    /// frame does not change, so AppKit lays it out no more, and the old glyph stayed until something
     /// else did.
     @Test func playOrPauseDrawsTheNewGlyphAtOnce() throws {
         let h = Harness()
@@ -118,9 +114,9 @@ import Testing
         let pause = try #require(play.image)
         h.card.configure(NowPlayingLevelsTests.track(playing: false))
         let paused = try #require(play.image)
-        #expect(paused !== pause, "the disc still draws Pause after the track paused")
+        #expect(paused !== pause, "Play or Pause still draws Pause after the track paused")
         #expect(paused.accessibilityDescription == "Play", "the glyph reads \(paused.accessibilityDescription ?? "nothing")")
         h.card.configure(NowPlayingLevelsTests.track(playing: true))
-        #expect(play.image !== paused && play.image?.accessibilityDescription == "Pause", "the disc still draws Play after the track played")
+        #expect(play.image !== paused && play.image?.accessibilityDescription == "Pause", "Play or Pause still draws Play after the track played")
     }
 }

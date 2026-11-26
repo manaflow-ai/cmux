@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CoreImage
+import CryptoKit
 import Foundation
 import GhosttyNextKit
 import IOSurface
@@ -108,8 +109,9 @@ import UIKit
         }
     }
 
-    /// Leo's NIGHTLY Mac: Catppuccin Mocha (the side-by-side on #50696).
-    static let mocha = ["background = #1e1e2e", "foreground = #cdd6f4", "cursor-color = #f5e0dc",
+    /// Leo's NIGHTLY Mac: Catppuccin Mocha (the side-by-side on #50696). Nonisolated: `@Test(arguments:)`
+    /// reads it outside the suite's main actor.
+    nonisolated static let mocha = ["background = #1e1e2e", "foreground = #cdd6f4", "cursor-color = #f5e0dc",
                         "palette = 0=#45475a", "palette = 1=#f38ba8", "palette = 2=#a6e3a1", "palette = 3=#f9e2af",
                         "palette = 4=#89b4fa", "palette = 5=#f5c2e7", "palette = 6=#94e2d5", "palette = 7=#bac2de",
                         "palette = 8=#585b70", "palette = 9=#f38ba8", "palette = 10=#a6e3a1", "palette = 11=#f9e2af",
@@ -213,7 +215,10 @@ import UIKit
         let palette = Self.mocha.compactMap { $0.hasPrefix("palette = ") ? String($0.split(separator: "=").last ?? "") : nil }
         let appearance = CmuxMobileMacAppearance(
             theme: .init(background: "#1e1e2e", foreground: "#cdd6f4", palette: palette, backgroundOpacity: 0.8, backgroundBlur: -1),
-            wallpaper: .init(id: "van-gogh-starry-night", bytes: picture.count, tintOpacity: 0.41),
+            // The Mac names a picture by its SHA-256 in hex; the phone keeps only hex ids as file
+            // names (`CmuxMobileMacAppearanceCache.chatWallpaperFile`), so a named id never shows.
+            wallpaper: .init(id: SHA256.hash(data: picture).map { String(format: "%02x", $0) }.joined(),
+                             bytes: picture.count, tintOpacity: 0.41),
             terminal: Self.mocha)
         theme.apply(appearance, chatWallpaper: picture)
         await theme.settled()

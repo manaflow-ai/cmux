@@ -135,6 +135,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A prompt's attachments are on their way to the Mac (``AgentUploadProgress``): the chat
     /// shows the message at once, with how far its upload is, until the Mac's echo of it.
     case promptUploading(promptID: String, AgentUploadProgress)
+    /// The prompts on their way that draw a row (the Rust outbox's `pending_sends`, shown ones
+    /// only), in send order, each with what the person can do to it: Stop and Delete always,
+    /// Send now when offered. A text prompt that goes at once never appears here.
+    case pendingSends([AgentPendingSend])
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -176,6 +180,31 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
     /// Stop sending a message whose attachments are still uploading: it comes back to the composer.
     case cancelSend(promptID: String)
+    /// Delete a message on its way: it is taken back (off the Mac's queue if it may be there)
+    /// and nothing comes back to the composer.
+    case deleteSend(promptID: String)
+    /// Send now: a message waiting on a retry goes at once (the outbox's `retry_now`).
+    case retrySend(promptID: String)
+}
+
+/// A message on its way that the chat draws a row for (``AgentSessionEvent/pendingSends(_:)``).
+public struct AgentPendingSend: Hashable, Sendable {
+    public var promptID: String
+    public var text: String
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
+
+    public init(promptID: String, text: String, waiting: Bool, canSendNow: Bool, stopping: Bool) {
+        self.promptID = promptID
+        self.text = text
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
+    }
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {

@@ -282,7 +282,9 @@ EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
   python3 -I "$here/probe.py" "$out/results.json" "$out/probe.json"
   cat "$out/summary.md"
-  # Includes only explicit eval outputs, never the host's authentication token.
+  # Includes only explicit eval outputs, never the host's authentication token (nor the copy an
+  # earlier call left in $out).
+  rm -f "$out/evidence.tar.gz"
   tar -czf "$work/evidence.tar.gz" -C "$out" .
   cp "$work/evidence.tar.gz" "$out/evidence.tar.gz"
 }
@@ -496,8 +498,14 @@ with_offsets() {
 }
 
 ran=0
+done_any=0
 IFS=',' read -r -a names <<<"$targets"
 for name in "${names[@]}"; do
+  # results.json as it stands before each later target, so a run the step's timeout or a signal cuts
+  # short in a slow target (iphone-sim builds an app) still hands back the targets before it; the
+  # ones not reached read "did not run". The last call of finish, after the loop, replaces it.
+  [[ "$done_any" == 1 ]] && finish >/dev/null 2>&1
+  done_any=1
   unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY
   script="$here/targets/$name.sh"
   dir="$out/$name"

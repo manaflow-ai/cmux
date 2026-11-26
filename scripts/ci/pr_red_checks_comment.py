@@ -393,7 +393,9 @@ def changed_files(pr, remote=None):
     ref = f"refs/ran-line/{int(pr)}"
     try:
         from ci_process_tree import run_bounded  # noqa: PLC0415 - a timeout stops git's whole tree
-        run_bounded(["git", "fetch", "--quiet", "--no-tags", "--depth=2", "--filter=blob:none", remote,
+        shallow = run_bounded(["git", "rev-parse", "--is-shallow-repository"], capture_output=True, text=True,
+                              timeout=60, check=True).stdout.strip() == "true"
+        run_bounded(["git", "fetch", "--quiet", "--no-tags", *(["--depth=2"] if shallow else []), "--filter=blob:none", remote,
                      f"+refs/pull/{int(pr)}/merge:{ref}"], capture_output=True, timeout=60, check=True)
         out = run_bounded(["git", "diff", "--no-renames", "--name-only", f"{ref}^1", ref], capture_output=True,
                           text=True, timeout=30, check=True).stdout

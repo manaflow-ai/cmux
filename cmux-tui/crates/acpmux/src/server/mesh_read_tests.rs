@@ -97,6 +97,12 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            // As the hub does (cmux-platform `Core.ts`): a read names one session.
+            if m.op.as_deref() == Some("read") && m.to.session_id.is_none() && m.to.name.is_none() {
+                let mut e = HubError::refused("a read names one session by sessionId or name");
+                e.code = Some("mesh.invalid".into());
+                return Err(e);
+            }
             self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if let Some(release) = &self.send_release {
                 release.notified().await;
@@ -1444,20 +1450,26 @@ async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
     assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
 }
 
-/// A machine only the hub reaches answers a health read of itself, of no session, as a direct
-/// peer's link reads it (`peer_health.rs`), bounded to one small message.
+/// A machine only the hub reaches answers a health read of itself, as a direct peer's link
+/// reads it (`peer_health.rs`), bounded to one small message. The hub takes a read only when it
+/// names a session, so the read goes through one the hub lists there; the machine answers its
+/// health before it looks that session up. A read of the machine alone is the hub's
+/// `mesh.invalid` (every machine only the hub reaches read "resources unknown", 2026-11-25).
 #[tokio::test]
-async fn a_machine_answers_its_health_through_the_hub_of_no_session() {
+async fn a_machine_answers_its_health_through_the_hub_via_any_of_its_sessions() {
     let b = machine_b();
     let dir = tempfile::tempdir().unwrap();
     let hub = Loopback::new(&b, dir.path(), "person-1");
-    let health = host_health(&hub, "machine-b").await.unwrap();
+    let health = host_health(&hub, "machine-b", Some("any-session-of-b")).await.unwrap();
     assert!(health.is_object(), "{health}");
     assert!(health.get("unsupported").is_none(), "{health}");
     assert!(health.to_string().len() <= HEALTH_BYTES);
+    // The machine alone: refused by the hub, never sent on.
+    let alone = host_health(&hub, "machine-b", None).await.unwrap_err();
+    assert!(alone.message.contains("names one session"), "{alone:?}");
     // Another person is refused by B itself.
     let other = Loopback::new(&b, dir.path(), "person-2");
-    assert!(host_health(&other, "machine-b").await.is_err());
+    assert!(host_health(&other, "machine-b", Some("any-session-of-b")).await.is_err());
 }
 
 /// Old against new: a build before the health read refuses it as it refuses any method it does

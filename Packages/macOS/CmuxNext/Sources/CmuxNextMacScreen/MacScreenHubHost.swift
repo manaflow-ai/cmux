@@ -67,6 +67,14 @@ public final class MacScreenHubHost {
     @ObservationIgnored private var servedArrival = 0
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
+    /// Writes this Mac's sharing bit to the hub; tests replace it.
+    @ObservationIgnored var writeSharing: @MainActor (DeviceHub, Bool) async throws -> Void = { hub, on in
+        try await hub.setMacScreenShared(on)
+    }
+    /// Whether the person turned sharing off on this Mac (MacScreenStore keeps it); nil until the
+    /// store is read. The pages set it, and ``sharingChosen``, which keeps a person's switch.
+    @ObservationIgnored var sharingTurnedOff: @MainActor () -> Bool? = { nil }
+    @ObservationIgnored var sharingChosen: @MainActor (Bool) -> Void = { _ in }
 
     init(share: MacScreenShareHost) {
         self.share = share
@@ -77,9 +85,11 @@ public final class MacScreenHubHost {
 
     /// The person's switch: asks for Screen Recording (and Accessibility)
     /// when turning on, and tells the hub. Off ends a running session (the
-    /// hub revokes it too).
-    public func setSharing(_ on: Bool, requestPermissions: Bool = true) async throws {
+    /// hub revokes it too). `byPerson` (every caller but the default,
+    /// MacScreenHubHost+DefaultSharing) keeps the choice: an off stays off.
+    public func setSharing(_ on: Bool, requestPermissions: Bool = true, byPerson: Bool = true) async throws {
         guard let hub = hub() else { throw DeviceHubError.notSignedIn }
+        if byPerson { sharingChosen(on) }
         if on && requestPermissions {
             await share.refreshPermissions()
             if !share.screenRecordingGranted {
@@ -91,7 +101,7 @@ public final class MacScreenHubHost {
         busy = true
         defer { busy = false }
         do {
-            try await hub.setMacScreenShared(on)
+            try await writeSharing(hub, on)
             lastError = nil
         } catch {
             lastError = (error as? DeviceHubError)?.description ?? "\(error)"

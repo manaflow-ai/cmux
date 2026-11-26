@@ -72,3 +72,22 @@ fn a_shell_of_the_chat_itself_has_no_workflow_agent_field() {
     assert_eq!(process.workflow_agent_id, None);
     assert!(serde_json::to_value(&process).unwrap().get("workflowAgentId").is_none());
 }
+
+#[tokio::test]
+async fn pleasant_tool_labels_refresh_the_running_process_when_its_command_arrives() {
+    let (hub, session) = chat().await;
+    let mut early = shell("running", None);
+    early["params"]["update"]["command"] = json!("");
+    early["params"]["update"]["description"] = json!("cargo test");
+    for update in [early, shell("running", None)] {
+        let rec = hub.append(&session, "in", "background_task_update", update);
+        hub.note_process(&session, &rec, None);
+    }
+    {
+        let table = hub.process_table(&session);
+        assert_eq!(table.processes.len(), 1);
+        assert_eq!(table.processes[0].command, "cargo test");
+        assert_eq!(table.processes[0].description, None);
+    }
+    hub.shutdown_all().await;
+}

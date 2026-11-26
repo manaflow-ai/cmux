@@ -12,7 +12,16 @@
 # entitlements. The plain helper needs it since CEF 156 (cef-156.0.15-cmux.43):
 # Chromium 156 starts renderer and extension processes from the plain
 # "<product> Helper.app", and V8 aborts there without allow-jit ("Failed to
-# reserve virtual memory for CodeRange"). One owner for these rules: embed-cef.sh calls this for dev
+# reserve virtual memory for CodeRange"). The plain helper also gets
+# com.apple.security.cs.disable-library-validation: Chromium runs the Widevine
+# CDM (media.mojom.CdmServiceBroker) in it, and the CDM the component updater
+# installs is signed by Google's team (EQHXZ8M8AV), so under the hardened
+# runtime the kernel refused to map it ("Library Validation failed: Rejecting
+# .../libwidevinecdm.dylib", NIGHTLY 4529584712101) and every protected-media
+# page said "CreateCdmFunc not available": Spotify and Netflix could not play.
+# Chrome needs no exception (one team signs both); other Chromium browsers
+# signed by their own team carry it on the helper that loads the CDM.
+# One owner for these rules: embed-cef.sh calls this for dev
 # builds (ad hoc), scripts/sign-cmux-bundle.sh for Developer ID release
 # signing, before the main bundle is signed.
 #
@@ -51,13 +60,25 @@ if [[ "$identity" != "-" ]]; then
 fi
 
 jit="$(mktemp "${TMPDIR:-/tmp}/cmux-cef-helper-jit.XXXXXX")"
-trap 'rm -f "$jit"' EXIT
+cdm="$(mktemp "${TMPDIR:-/tmp}/cmux-cef-helper-cdm.XXXXXX")"
+trap 'rm -f "$jit" "$cdm"' EXIT
 cat > "$jit" <<'ENT'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.allow-jit</key><true/>
+</dict>
+</plist>
+ENT
+# The plain helper: allow-jit, and the Widevine CDM (Google's signature) may load.
+cat > "$cdm" <<'ENT'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
 </dict>
 </plist>
 ENT
@@ -144,7 +165,9 @@ fi
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] || continue
   case "$helper" in
-    *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
+    *" Helper.app")
+      "$sign_tool" "${flags[@]}" --entitlements "$cdm" "$helper" ;;
+    *" Helper (GPU).app"|*" Helper (Renderer).app")
       "$sign_tool" "${flags[@]}" --entitlements "$jit" "$helper" ;;
     *)
       "$sign_tool" "${flags[@]}" "$helper" ;;
