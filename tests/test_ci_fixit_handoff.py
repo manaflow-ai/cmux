@@ -372,6 +372,30 @@ class WorkflowTest(unittest.TestCase):
         for job in ("web-typecheck", "webviews-typecheck"):
             self.assertIn("fixit_nofix", web["jobs"][job]["outputs"])
 
+    def test_every_nightly_type_check_reaches_the_handoff(self) -> None:
+        """Every nightly.yml job that runs the webview type check hands a red with no machine fix to fixit-handoff.
+
+        2026-11-25 01:59-04:26Z: a TS2339 (`rollingSummary`, #51813 against #49723) failed four NEXT nightlies in
+        early-nightly-webviews, "nightly webview checks before the signer". fixit-compile logged "the red is left for
+        a fix agent", but that job had no fixit_nofix output and fixit-handoff neither needed it nor read it, while
+        the two jobs it does read (check-nightly-webviews, nightly-next-one) are skipped on that path. So
+        fixit-handoff.yml had 0 runs ever, and the feed published nothing for 5 h."""
+        jobs = self.load("nightly.yml")["jobs"]
+        dispatch = jobs["fixit-handoff"]
+        needs = dispatch["needs"] if isinstance(dispatch["needs"], list) else [dispatch["needs"]]
+        checkers = [name for name, job in jobs.items()
+                    if "fast_gate_webviews_checks.py" in json.dumps(job.get("steps", []))
+                    and "--skip typecheck" not in json.dumps(job.get("steps", []))]
+        self.assertIn("early-nightly-webviews", checkers)
+        for name in checkers:
+            with self.subTest(job=name):
+                self.assertIn("fixit_nofix", jobs[name].get("outputs", {}), f"{name} gives the hand-off no signal")
+                steps = jobs[name]["steps"]
+                self.assertTrue(any("fixit_handoff.py signal" in str(step.get("run", "")) for step in steps),
+                                f"{name} never reads fixit-compile's record")
+                self.assertIn(name, needs, f"fixit-handoff does not wait for {name}")
+                self.assertIn(f"needs.{name}.outputs.fixit_nofix == 'true'", dispatch["if"])
+
 
 if __name__ == "__main__":
     unittest.main()

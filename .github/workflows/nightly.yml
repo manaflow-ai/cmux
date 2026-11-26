@@ -3486,6 +3486,9 @@ jobs:
       # The commit whose webview checks failed, only while vars.NIGHTLY_COMPONENT_GATES is 'block': then
       # nightly-next-one and retry-nightly-next skip it. Default: a red check is a stale-part report, not a hold.
       red_sha: ${{ vars.NIGHTLY_COMPONENT_GATES == 'block' && steps.checks.outcome == 'failure' && needs.decide.outputs.head_sha || '' }}
+      # fixit-compile found no machine fix for the type check: the fixit-handoff job dispatches its revert on this commit.
+      fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
+      fixit_sha: ${{ steps.fixit-nofix.outputs.nofix == 'true' && needs.decide.outputs.head_sha || '' }}
     steps:
       - *github-token-for-git
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -3515,6 +3518,12 @@ jobs:
         # Leo, 2026-11-25: "are we able to decouple". A red here is a report; the nightly still publishes.
         continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}
         run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
+      # The one-job loop's only type check: without this a red reached no fixer (2026-11-25 01:59-04:26Z, four
+      # nightlies; fixit-handoff.yml had never run). The checks step may continue on error, so !cancelled(), not failure().
+      - name: Hand a type error with no machine fix to fixit-handoff
+        id: fixit-nofix
+        if: ${{ !cancelled() && steps.checks.outcome == 'failure' }}
+        run: python3 -I scripts/ci/oops/fixit_handoff.py signal >> "$GITHUB_OUTPUT"
       - name: Note the red webview checks as a stale part
         if: ${{ !cancelled() && steps.checks.outcome == 'failure' && vars.NIGHTLY_COMPONENT_GATES != 'block' }}
         run: bash scripts/ci/nightly-steps/stale-part.sh webview-checks "the webview checks failed on ${{ needs.decide.outputs.head_sha }}; the nightly publishes anyway"
@@ -8434,8 +8443,8 @@ jobs:
   # 2026-11-22: "if the fix is clear i think you guys should be able to unilaterally push commits directly." A job of
   # its own that only dispatches; check-nightly-webviews stays read-only.
   fixit-handoff:
-    needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
+    needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one, early-nightly-webviews]
+    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true' || needs.early-nightly-webviews.outputs.fixit_nofix == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:
@@ -8448,7 +8457,8 @@ jobs:
         env:
           GH_BUDGET_WAIT_MAX_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          # early-nightly-webviews checks the tip (decide's head), which can be newer than the build commit.
+          SHA: ${{ needs.early-nightly-webviews.outputs.fixit_nofix == 'true' && needs.early-nightly-webviews.outputs.fixit_sha || needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check=webviews -f origin="$ORIGIN"
 
