@@ -1513,7 +1513,7 @@ export async function runStartBench(args: {
     try {
       const source = machineOf(await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} source`, size }, `${args.tag}-start-source`));
       try {
-        await waitMachine(args.api, source, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        await waitRunning(args.api, source, 300_000);
         const exec = platformExec(source);
         for (let i = 0; i < 120; i++) { if ((await exec(DAEMON_CHECK, 30_000).catch(() => ({ stdout: "" }))).stdout.includes("daemon-ok")) break; await sleep(2_000); }
         const snap = await args.api.op("cloud.snapshot.create", { machine: source, name: `start bench ${args.tag}` }, `${args.tag}-start-snapshot`);
@@ -1623,7 +1623,7 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length, probes: probes.length, probes_failed: probes.filter((r) => execProbeHop(r) !== null).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows, probes: probes.map((r) => ({ ...r, cause: scrub(r.cause, args.journey.secrets) })) }, null, 2)}\n`);
   };
   try {
-    await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    await waitRunning(args.api, machine, 300_000);
     const exec = directExec(args.api, machine, args.journey);
     const post = (body: unknown, timeoutMs: number) => args.api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, timeoutMs);
     const probe = async (condition: EnsureBenchCondition, kind: ExecProbeKind, run: number, holdS: number) => {
@@ -1920,7 +1920,7 @@ export async function runPreclaimBurst(args: {
       let postBindLoginWhy: string | null = "the claim answered no machine";
       if (typeof machine === "string") {
         step = "wait running";
-        await waitMachine(api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        await waitRunning(api, machine, 300_000);
         if (loginMode === "post-bind") {
           step = "post-bind login";
           const copyAt = Date.now();
@@ -2045,6 +2045,43 @@ export async function waitMachine(api: Api, machine: string, want: (m: any) => b
     await sleep(1000);
   }
   throw new Error(`timed out after ${budgetMs} ms; last status ${last?.status} host ${last?.host}${lastError ? `; last error ${lastError}` : ""}`);
+}
+
+/**
+ * How long a create that timed out `provisioning, host null` waits for the platform's own verdict before cleanup
+ * deletes it. The platform fails such a machine (cloud.machine.never_bound or create_overdue) 5 min after its bind
+ * token was minted, which is up to about 30 s after the create answered, and probes the guest first
+ * (cmux-platform NeverBoundProbe.ts); a delete before then leaves no cause in its log (prod journey 45767907054).
+ */
+export const PLATFORM_VERDICT_GRACE_MS = 90_000;
+
+/** The platform's failure code for a machine stuck before running, waited at most graceMs; null if it never failed. */
+export async function platformVerdict(api: Api, machine: string, graceMs = PLATFORM_VERDICT_GRACE_MS, pollMs = 3000): Promise<string | null> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < graceMs) {
+    const row: any = await api.read("cloud.machine.get", { machine }).catch(() => null);
+    if (row?.status === "failed") {
+      const e = row.error ?? row.failure ?? row.reason ?? row.status_reason;
+      return String((e && typeof e === "object" ? e.code ?? e.message : e) ?? "failed, no code");
+    }
+    if (row && row.status !== "provisioning" && row.status !== "starting") return null;
+    await sleep(Math.min(pollMs, Math.max(0, graceMs - (Date.now() - t0))));
+  }
+  return null;
+}
+
+/** waitMachine for running with a host; a timeout with no host waits for the platform's verdict and names it. */
+export async function waitRunning(api: Api, machine: string, budgetMs: number, graceMs = PLATFORM_VERDICT_GRACE_MS, pollMs = 3000): Promise<any> {
+  try {
+    return await waitMachine(api, machine, (x) => x.status === "running" && Boolean(x.host), budgetMs);
+  } catch (error) {
+    const message = String((error as Error).message);
+    if (!/^timed out after .* host (null|undefined)/.test(message)) throw error;
+    const t0 = Date.now();
+    const code = await platformVerdict(api, machine, graceMs, pollMs);
+    const waited = Math.round((Date.now() - t0) / 1000);
+    throw new Error(`${message}; platform verdict ${code ?? `none within ${waited} s`}`);
+  }
 }
 
 /** ES256 over the UTF-8 message, base64url raw r||s (host-agent.ts signMessage). */
@@ -3625,13 +3662,16 @@ export type WarmHomeAnswer = { state: "ready" | "not_ready" | "unsupported"; rea
 /** Parse warm-home's optional JSON answer. Older guest images print nothing because the command is absent. */
 export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   let answer: any;
-  for (const line of stdout.split(/\r?\n/).map((line) => line.trim()).reverse()) {
-    if (!line.startsWith("{")) continue;
+  // acpmux's --json prints pretty JSON (cli/output.rs print_json, to_string_pretty): the answer spans lines, from a
+  // line that opens with "{" to the end. Try each such start, the last first; a diagnostic line can come before it.
+  const lines = stdout.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].trim().startsWith("{")) continue;
     try {
-      answer = JSON.parse(line);
+      answer = JSON.parse(lines.slice(i).join("\n"));
       break;
     } catch {
-      // The command can include a non-JSON diagnostic before its answer.
+      // Not the answer's first line (an inner object, or a non-JSON diagnostic).
     }
   }
   if (!answer || typeof answer !== "object") {
@@ -5128,7 +5168,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
-      const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      const m = await waitRunning(api, created.id, 300_000);
       J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
@@ -5277,7 +5317,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitMachine(api, id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+            const m = await waitRunning(api, id, 300_000);
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");
@@ -5450,7 +5490,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const g = await J.step("gateway machine", async () => {
         const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
-        const m = await waitMachine(api, gatewayMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+        const m = await waitRunning(api, gatewayMachine, 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
       });
       gwExec = directExec(api, g.id, J);
@@ -6346,7 +6386,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const m = await waitMachine(api, created.id, (x) => x.status === "paused", idlePauseDeadlineMs(policyS, POST_CHAT_HOLD_S)).catch(async (error) => {
           // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
           // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
-          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
+          // The workload names a held port but not its owner: list the guest's listeners with their processes, read
+          // after the wait so it cannot itself hold the clock (11-26: every staging walk machine held one ephemeral
+          // loopback port, RFD 0144).
+          const ss = await exec("ss -ltnpH 2>&1 | head -20", 30_000).catch((e) => ({ code: -1, stdout: String((e as Error).message ?? e), stderr: "" }));
+          const listeners = ss.stdout.trim().split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join(" | ").slice(0, 1200);
+          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}; listeners ${listeners || `none (exit ${ss.code})`}`);
         });
         const took = Math.round((Date.now() - idleSet) / 1000);
         return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
