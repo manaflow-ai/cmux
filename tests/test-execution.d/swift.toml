@@ -10,6 +10,11 @@ path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_linux_reach.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_swift_linux_reach.py"
+
+[[test]]
 path = "tests/test_swift_linux_targets.py"
 lane = "linux-guard"
 
