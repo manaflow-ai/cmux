@@ -82,8 +82,10 @@ Ask rule (goal ask-to-nightly-under-2h): a ready pull request whose body names o
 digits, the id leo-asks gives it) is handed off to land from its first head, as if `ready-to-land` were on it: it runs
 the landing tier and `cmux/land-tier` is `success` at once. Agents waited for green before asking to land, so an ask's
 real CI started only at the label: on 11-25..26, cmux#57020 waited 137 min, #57341 121, #57515 55 and #57798 41 with no
-landing-tier CI before `ready-to-land`. About 12 ask PRs a day, one landing tier each, sooner. A draft stays cheap.
-CI_ASK_LANDING=0 turns it off.
+landing-tier CI before `ready-to-land`. Only the head GitHub sends with `opened`, `reopened` or `ready_for_review`
+gets it: a later push (`synchronize`) falls back to the usual rule (cheap until `ready-to-land`), so an ask PR pays one
+landing tier at open, the same minutes as asking to land at open (lane-9's CI-minutes goal: a push after open must not
+pay the tier again). About 12 ask PRs a day. A draft stays cheap. CI_ASK_LANDING=0 turns it off.
 
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
@@ -110,6 +112,8 @@ LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to lan
 LAND_BASE = "feat-cmux-next"
 # A Leo ask's id (leo-asks): a pull request body naming one is handed off to land from its first head (the ask rule).
 ASK_ID = re.compile(r"\bask-[0-9a-f]{10}\b")
+# The pull_request actions whose head the ask rule hands off: the head at open or at ready, never a later push.
+ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
@@ -270,9 +274,10 @@ def labels_of(event: dict) -> set[str]:
 
 
 def for_ask(event: dict, switch: str | None = None) -> bool:
-    """Whether EVENT's pull request body names a Leo ask (ASK_ID) and the ask rule is on (CI_ASK_LANDING, default 1)."""
+    """Whether EVENT is the head at open or ready (ASK_ACTIONS) of a pull request whose body names a Leo ask (ASK_ID),
+    with the ask rule on (CI_ASK_LANDING, default 1). A later push (synchronize) is never handed off by the ask rule."""
     on = os.environ.get("CI_ASK_LANDING", "1") if switch is None else switch
-    if (on or "1").strip() == "0":
+    if (on or "1").strip() == "0" or event.get("action") not in ASK_ACTIONS:
         return False
     body = (event.get("pull_request") or {}).get("body")
     return isinstance(body, str) and bool(ASK_ID.search(body))

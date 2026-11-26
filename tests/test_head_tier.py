@@ -193,6 +193,24 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_ASK_LANDING"] = old
 
+    def test_the_ask_rule_hands_off_only_the_head_at_open_or_ready_never_a_later_push(self) -> None:
+        # lane-9's CI-minutes goal: a push after open must not pay the landing tier again; it waits for ready-to-land.
+        for action in ("opened", "reopened", "ready_for_review"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertTrue(head_tier.for_ask(e, switch="1"), action)
+            self.assertEqual(self.tier(e), "full", action)
+        for action in ("synchronize", "edited", "labeled"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertFalse(head_tier.for_ask(e, switch="1"), action)
+        e = land_event(action="synchronize")
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "cheap")
+        e = land_event(action="synchronize", labels=("ready-to-land",))
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "full")  # the label still hands a later push off, as for any PR
+
     def test_decide_reads_the_switch_from_the_environment(self) -> None:
         old = os.environ.get("CI_LAND_TIER")
         try:
