@@ -4,6 +4,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
+import { agentKey } from "../../shared/agentKey";
 import { watchFocusVisible } from "../focusVisibleMark";
 import React, {
   useCallback,
@@ -94,7 +95,7 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { cloudPickChoices, rememberCloudPick, startedProjectChoices } from "./startedProject";
+import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./startedProject";
 import { callNative } from "../callNative";
 import {
   canonicalAddress,
@@ -146,7 +147,8 @@ import { StashedChip } from "../composer/StashedChip";
 import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import { mentionQuery } from "../mentionMenuModel";
-import { toolMentionsIn } from "../toolMentions";
+import { toolMentionsIn, isToolCommand } from "../toolMentions";
+import { withFolderCommands, skillsFirst, folderChats } from "./folderCommands";
 import {
   applyCommand,
   insertsText,
@@ -222,6 +224,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// gesture still opens the setup window and the prompt stays (CMUX-682).
   /// `late`: the send resumed after a wait (files read, dictation ended, setup done): hold and say why only.
   holdsSend?(text: string, place: ComputerUsePlace, late?: boolean): boolean;
+  /// A chat's last command list as acpmux keeps it (direct.ts `sessionCommands`): the New Tab's `/`
+  /// menu lists the person's newest chat in its folder until its own deferred chat answers.
+  readChatCommands?(sessionId: string): Promise<SlashCommand[]>;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -1083,7 +1088,8 @@ export function NewTabScreen(props: Props) {
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
-    const skills = agent === listed ? snapshot.commands : undefined;
+    // The list the menu showed, a kept chat's included, so a skill picked from it goes as Codex reads it.
+    const skills = agent === listed ? slashCommands : undefined;
     const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
@@ -1250,19 +1256,62 @@ export function NewTabScreen(props: Props) {
   const ask = harness
     ? { harness, agent: agentName(harness, askEntry?.name), ...(askModel ? { model: askModel } : {}) }
     : undefined;
-  // Shell mode's text is a command line, where a `/` starts a path.
-  const commandAt = shell ? undefined : commandTrigger;
+  // Shell mode's text is a command line, where a `/` starts a path. A `$word` is Codex's skill mark:
+  // it opens the menu only while the chat starts on a Codex profile, by its family (Lucas 2026-11-24),
+  // else it is a price or a shell variable.
+  const commandAt =
+    shell || (commandTrigger?.mark === "$" && agentKey(askEntry?.family ?? harness) !== "codex")
+      ? undefined
+      : commandTrigger;
   const commandQuery = commandAt?.query;
+  // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
+  // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
+  // Until the agent's deferred chat answers (its start can take seconds), the list of the person's
+  // newest chat of that agent in this folder, which acpmux keeps (folderCommands.ts). Skills first, A to Z.
+  const keptKey = `${harness ?? ""}\u0000${chatFolder ?? ""}`;
+  const [keptRead, setKeptRead] = useState<{ key: string; commands: SlashCommand[] }>();
+  const keptCommands = keptRead?.key === keptKey ? keptRead.commands : undefined;
+  const slashCommands = useMemo(
+    () =>
+      skillsFirst(
+        withFolderCommands(snapshot.commands ?? [], keptCommands).filter((command) => !isToolCommand(command)),
+      ),
+    [snapshot.commands, keptCommands],
+  );
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const commandOpening = commandAt !== undefined;
   const savedPrompts = useSavedPrompts(commandOpening);
   const menuCommands = useMemo(
-    () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
-    [savedPrompts, snapshot.commands],
+    () => [...savedPromptCommands(savedPrompts), ...slashCommands],
+    [savedPrompts, slashCommands],
   );
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);
+  // The kept list is read as the menu opens, once per opening: the chat list is looked at only
+  // then (from a ref), never on each change to it, so busy chats cost nothing while it stays open.
+  // The newest chats of that agent there go first; one with no list yet (a deferred chat that never
+  // started, this page's own included) gives way to the next, and an empty answer is never kept.
+  const readChatCommands = props.readChatCommands;
+  const keptReadFor = keptRead?.key;
+  const sessionsNow = useRef(snapshot.sessions);
+  sessionsNow.current = snapshot.sessions;
+  useEffect(() => {
+    if (!commandOpening || !readChatCommands || keptReadFor === keptKey) return;
+    const chats = folderChats(sessionsNow.current, harness, chatFolder);
+    if (chats.length === 0) return;
+    let current = true;
+    void (async () => {
+      for (const chat of chats) {
+        const commands = await readChatCommands(chat).catch(() => [] as SlashCommand[]);
+        if (!current) return;
+        if (commands.length > 0) return setKeptRead({ key: keptKey, commands });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [commandOpening, readChatCommands, keptReadFor, keptKey, harness, chatFolder]);
   const commandMatches = useMemo(
     () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
     [commandAt, menuCommands],
@@ -1292,12 +1341,14 @@ export function NewTabScreen(props: Props) {
   const menuQuery = atOpen ? atWord?.query : commandQuery;
   // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
   // or the list closing forgets it (adjusted while rendering, before any key reads it).
-  if (commandArrowedAt !== undefined && (!commandsOpen || menuQuery !== commandArrowedAt))
+  // The word with its mark: a row the arrows chose at `/emil` is not chosen at `$emil`.
+  const menuWord = menuQuery === undefined ? undefined : `${atOpen ? "@" : (commandAt?.mark ?? "/")}${menuQuery}`;
+  if (commandArrowedAt !== undefined && (!commandsOpen || menuWord !== commandArrowedAt))
     setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
   const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
-  const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
+  const commandNames = useSlashNames(shell ? undefined : slashCommands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;
@@ -2097,7 +2148,7 @@ export function NewTabScreen(props: Props) {
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : menuMatches.length - 1)) % menuMatches.length,
         );
-        setCommandArrowedAt(menuQuery);
+        setCommandArrowedAt(menuWord);
         return;
       }
       // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row
@@ -2883,7 +2934,7 @@ export function NewTabScreen(props: Props) {
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
                 <HelpSheet
-                  commands={snapshot.commands}
+                  commands={slashCommands}
                   onInsert={(picked) => {
                     setHelpOpen(false);
                     setText(applyCommand("", 0, picked).text);
