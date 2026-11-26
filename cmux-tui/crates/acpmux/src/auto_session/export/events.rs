@@ -28,7 +28,7 @@ pub(crate) async fn upload<C: AutoCloud>(
     fence: &Fence,
     after: u64,
 ) -> CloudResult<u64> {
-    let through = session.meta().last_seq;
+    let through = session.read_meta(|meta| meta.last_seq);
     let mut after = after;
     let mut gaps = 0usize;
     while after < through {
