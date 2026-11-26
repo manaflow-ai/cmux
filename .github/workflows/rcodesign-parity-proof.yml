@@ -170,7 +170,7 @@ jobs:
     # with no environment or secret; its consumers check its sha256.
     if: github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -428,7 +428,7 @@ jobs:
     name: Compare the payloads
     if: ${{ !inputs.helper_first }}
     needs: [prep, sign-codesign, sign-rcodesign]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -550,7 +550,7 @@ jobs:
   dmg:
     name: Build the DMG (hdiutil)
     needs: notarize-app
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -663,7 +663,7 @@ jobs:
     name: Apple's tools and a quarantined launch on a fresh Mac
     needs: [sign-codesign, sign-rcodesign, notarize-app, notarize-dmg]
     # No environment and no secrets: this job runs the app.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -753,7 +753,7 @@ jobs:
     if: inputs.launch_reference
     needs: sign-codesign
     # No environment and no secrets: this job runs the app.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read

@@ -32,6 +32,7 @@ on:
           - app-info
           - versions
           - age-rating
+          - declarations-check
           - review-detail
           - submissions
           - get

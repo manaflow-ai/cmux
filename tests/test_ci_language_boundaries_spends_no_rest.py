@@ -89,6 +89,21 @@ class LabelEvents(unittest.TestCase):
         context["github"]["event"].pop("label")
         self.assertEqual(jobs_started(document(), context), ["language-boundaries"])
 
+    def test_a_title_or_body_edit_starts_no_job(self) -> None:
+        # The check reads only the changed files and the labels; agents and bots edit PR bodies all day.
+        for changes in ({"body": {"from": "old"}}, {"title": {"from": "old"}}, {}):
+            with self.subTest(changes=changes):
+                context = event("edited", "harness:claude", state="open")
+                context["github"]["event"].pop("label")
+                context["github"]["event"]["changes"] = changes
+                self.assertEqual(jobs_started(document(), context), [])
+
+    def test_a_base_change_runs_the_check(self) -> None:
+        context = event("edited", "harness:claude", state="open")
+        context["github"]["event"].pop("label")
+        context["github"]["event"]["changes"] = {"base": {"ref": {"from": "main"}}}
+        self.assertEqual(jobs_started(document(), context), ["language-boundaries"])
+
     def test_a_skipped_label_run_holds_no_concurrency_group(self) -> None:
         # A workflow-level group would let the skipped run cancel the real check in flight.
         self.assertNotIn("concurrency", document())

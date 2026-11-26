@@ -490,6 +490,30 @@ function handleLegalAndDocsRoutes(
     url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
   }
+  return handleEnglishOnlyDocsRoute(request, pathname, "/docs/main-thread");
+}
+
+/**
+ * An English-only docs page: keep its canonical URL unprefixed and bypass
+ * locale detection, so a browser language preference cannot select a 404.
+ */
+function handleEnglishOnlyDocsRoute(
+  request: NextRequest,
+  pathname: string,
+  docsPath: string,
+): NextResponse | undefined {
+  const bare = pathname.replace(/\/$/, "");
+  if (bare === docsPath) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${docsPath}`;
+    return NextResponse.rewrite(url);
+  }
+  const prefixed = bare.match(/^\/([a-z]{2}(?:-[A-Z]{2})?)(\/docs\/.+)$/);
+  if (prefixed && prefixed[2] === docsPath && prefixed[1] !== "en") {
+    const url = request.nextUrl.clone();
+    url.pathname = docsPath;
+    return NextResponse.redirect(url, 301);
+  }
   return undefined;
 }
 

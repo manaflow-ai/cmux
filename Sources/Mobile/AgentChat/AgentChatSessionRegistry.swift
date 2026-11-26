@@ -349,6 +349,30 @@ final class AgentChatSessionRegistry {
         storeRecord(record, replacing: previous)
     }
 
+    /// Settles the working sessions of one agent on a terminal whose turn the program-status
+    /// fallback settled (an Esc interrupt or a lost Stop hook): the built-in pill already reads
+    /// Idle, and agents[].status must agree (#39157). A turn that started after the idle edge is
+    /// newer work and stays working; later hooks remain authoritative.
+    ///
+    /// - Returns: The number of sessions settled.
+    @discardableResult
+    func noteProgramStatusIdle(surfaceID: String, source: String, at edge: Date) -> Int {
+        let kind = ChatAgentKind(source: source)
+        let sessionIDs = indexedRecords(surfaceID: surfaceID)
+            .filter { record in
+                guard record.agentKind == kind, case .working(let since) = record.state else { return false }
+                return since <= edge
+            }
+            .map(\.sessionID)
+        for sessionID in sessionIDs {
+            update(sessionID: sessionID) { record in
+                record.setHookLifecycleState(.idle)
+                if edge > record.lastActivityAt { record.lastActivityAt = edge }
+            }
+        }
+        return sessionIDs.count
+    }
+
     /// Optimistically marks sessions on a terminal as working when the user
     /// supplies input to a needs-input prompt. The next hook remains
     /// authoritative and can move the session back to needs-input or idle.

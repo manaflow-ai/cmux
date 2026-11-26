@@ -2601,6 +2601,43 @@ class ReadTokenSplitTests(unittest.TestCase):
         self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
         self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
 
+    def test_at_the_floor_a_capped_cancel_still_reads_its_run_and_cancels(self):
+        """2026-11-24 19:05Z, sweep 45464022363: the listing left glaeda-route at READ_TOKEN_FLOOR, then each planned
+        cancel's guard read (the run, read again before its POST) was refused at that floor, so 22 merged or closed
+        pull requests' runs and 6 h 51 min lost-assignment runs stayed queued sweep after sweep. The guard reads now
+        go on cmux-bot's token, as the cancel does, and the listing still stops at the floor."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        github.rate_limits["core (read token)"] = {"remaining": 2900}
+        run = make_run(status="queued")
+        ghost = make_run(status="queued", age=60 * 48)
+        state = {run["id"]: dict(run), ghost["id"]: dict(ghost)}
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token, method, url = request.get_header("Authorization"), request.get_method(), request.full_url
+            sent.append((method, token, url.rsplit("/actions/", 1)[-1]))
+            run_id = int(url.split("/runs/")[1].split("/")[0])
+            if method == "POST":
+                state[run_id]["status"] = "completed"
+                return self.Response(b"{}", self.budget("7000"))
+            return self.Response(json.dumps(state[run_id]).encode(), self.budget("7000"))
+
+        candidate = janitor.Candidate(run, "stale-pr", "PR is merged", janitor.macos_usage(mac_jobs(queued=1)))
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            results, failures = janitor.cancel_plan(github, [candidate])
+            orphan_results, orphan_failures = janitor.cancel_orphans(
+                github, orphan_plan(find([ghost], {})), sleep=lambda _: None)
+            # Past the cancels the floor holds again: the listing's reads are not sent.
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(1)
+        self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
+        self.assertEqual((orphan_results[ghost["id"]], orphan_failures), ("cancelled", 0))
+        self.assertEqual({token for _, token, _ in sent}, {"Bearer bot"})
+        self.assertEqual(len(sent), 5)
+        self.assertFalse(github.cancel_phase)
+
     def test_no_floor_or_a_reset_window_reads_as_before(self):
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
         github.use_read_token("reader")
@@ -4407,6 +4444,32 @@ class FleetGatesTests(unittest.TestCase):
         self.assertEqual(gates, janitor.fleet_gates(json.dumps(gates_reading()))[0])
         self.assertEqual(gates["version"], 1)
         self.assertNotIn("disk", gates)
+
+    def test_the_dashboards_live_reading_with_an_owned_linux_label_is_read(self):
+        # The 2026-11-21 CI_FLEET_GATES carried `cmux-fleet-linux-x64` (native Linux listeners, owned fleet capacity
+        # beside the glaeda pools), with other_by and a disk inventory. This reader took glaeda- labels alone and
+        # refused that reading whole, so every starved-label page (cmux#55737, #55844) said "no fleet gate reading".
+        row = dict(gates_reading()["labels"]["glaeda-std-xcode-26.6"],
+                   held_offline={"total": 2, "units": 1, "cpu": 0, "livelock": 0, "other": 1,
+                                 "other_by": {"host_lock": 1, "memory": 0, "restart": 0, "rest": 0}})
+        linux = {"listening": 3, "busy": 40, "held_offline": {"total": 0, "units": 0, "cpu": 0, "livelock": 0,
+                                                              "other": 0}, "down": 2, "unreported": 0, "queued": 19,
+                 "oldest_queued_s": 900, "as_of": "2026-09-22T16:58:00Z"}
+        live = dict(gates_reading(), version=2, disk={"hosts": [{"host": "m1", "free_gib": 80}]},
+                    labels={"glaeda-std-xcode-26.6": row, "cmux-fleet-linux-x64": linux})
+        gates, why = janitor.fleet_gates(json.dumps(live))
+        self.assertIsNone(why)
+        self.assertEqual(sorted(gates["labels"]), ["cmux-fleet-linux-x64", "glaeda-std-xcode-26.6"])
+        self.assertEqual(gates["labels"]["cmux-fleet-linux-x64"]["busy"], 40)
+        self.assertNotIn("other_by", gates["labels"]["glaeda-std-xcode-26.6"]["held_offline"])
+        # the dashboard's cut body (no disk, other_by or per-label as_of) reads the same
+        cut = {"version": 2, "as_of": live["as_of"], "labels": {
+            label: {k: v for k, v in dict(r, held_offline={k: v for k, v in r["held_offline"].items()
+                                                           if k != "other_by"}).items() if k != "as_of"}
+            for label, r in live["labels"].items()}}
+        self.assertEqual(janitor.fleet_gates(json.dumps(cut)), (gates, None))
+        self.assertTrue(janitor.fleet_gates_label("cmux-fleet-linux-x64"))
+        self.assertFalse(janitor.fleet_gates_label("cmux-fleet-linux-x64-big"))
 
     def test_a_reading_out_of_shape_is_refused_whole(self):
         bad = {

@@ -166,3 +166,29 @@ test('the job timeout outlasts finding the run, the whole wait and the report', 
   assert.ok(timeout >= findMinutes + proof.WAIT_MINUTES + 3 * retryMinutes,
     `timeout-minutes ${timeout} < ${findMinutes} + ${proof.WAIT_MINUTES} + 3 x ${retryMinutes}`);
 });
+
+test('an expired cmux-bot token mid-wait moves to github.token and the verdict still lands', async () => {
+  const proof = await import('../scripts/ci/cloud_chat_proof_dispatch.mjs');
+  const primary = fakeGitHub({ faults: { get: [httpError(401, 'Bad credentials')] } });
+  // github.token sees the same repository; only the issue it files is told apart.
+  const fallbackCreated = [];
+  const fallback = { github: { rest: { ...primary.github.rest, issues: { ...primary.github.rest.issues, async create(a) { fallbackCreated.push(a); return { data: { number: 98 } }; } } } } };
+  const result = await proof.prove({ github: primary.github, fallback: fallback.github, owner: 'o', repo: 'r', agent: 'claude', requestId: 'x' });
+  assert.equal(result.error, undefined);
+  // The report reuses the rotated client, so it never touches the expired token again.
+  await proof.report({ owner: 'o', repo: 'r', agent: 'claude', green: false, verdict: 'failure', where: 'w', api: result.api });
+  assert.equal(primary.calls.created.length, 0);
+  assert.equal(fallbackCreated.length, 1);
+});
+
+test('a rate-limited cmux-bot token moves to github.token; a 404 does not', async () => {
+  const proof = await import('../scripts/ci/cloud_chat_proof_dispatch.mjs');
+  const used = [];
+  const api = proof.rotating('primary', 'fallback');
+  let first = true;
+  const out = await api(async (c) => { used.push(c); if (first) { first = false; throw httpError(403, 'API rate limit exceeded for installation'); } return c; });
+  assert.equal(out, 'fallback');
+  const plain = proof.rotating('primary', 'fallback');
+  await assert.rejects(plain(async () => { throw httpError(404, 'Not Found'); }), /Not Found/);
+  assert.deepEqual(used, ['primary', 'fallback']);
+});

@@ -18,9 +18,9 @@ Use `--base <ref>` for another comparison base and `--work-file <path>` when a t
 ## Hard rules
 
 - Every user-facing string is localized. Never a bare string literal in SwiftUI `Text()`, `Button()`, alert titles, tooltips, menus, or dialogs.
-- Swift/AppKit/SwiftUI: `String(localized: "key.name", defaultValue: "English text")`, with keys in `Resources/Localizable.xcstrings`. Every feature PR includes translated entries for all supported macOS languages required by `scripts/localization_catalog.py` (currently `en`, `de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`, `ja`), subject to the exact omission records below. English and Japanese entries are always required.
+- Swift/AppKit/SwiftUI: `String(localized: "key.name", defaultValue: "English text")`, with keys in `Resources/Localizable.xcstrings`. A feature PR writes the source locales, English and Japanese, which are always required. The other macOS locales (`de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`) are filled on main by the `localization-fill` workflow (`scripts/localization_fill.py`), which lands them as its own PR; until then they show the English `defaultValue`. A PR may still include them, and any it includes are validated. `scripts/localization_catalog.py check --strict` requires every locale.
 - `defaultValue`, English fallback text, schema descriptions, and copied English strings do not count as localization. Record deliberate invariant literals in `scripts/localization-allowed-omissions.json`, with the exact source and omission class. A correct translation that shares the English spelling needs a documented `identityLocales` exception for that key and locale; the translated entry remains required.
-- Localized web/docs content updates every locale declared by `web/i18n/routing.ts`, with a matching `web/messages/<locale>.json` entry plus any localized data structures carrying inline translations.
+- Localized web/docs content adds the key to `web/messages/en.json` and `web/messages/ja.json`. The `localization-fill` workflow fills the other locales declared by `web/i18n/routing.ts` on main; until then `web/i18n/messages.ts` falls back to English. Localized data structures carrying inline translations still need every locale. Keys meant to stay English in some locales are listed under `englishOnly` in `scripts/localization-fill-state.json`.
 - A localization audit is required for every user-facing change.
 
 ## Audit checklist
@@ -30,12 +30,12 @@ Before finishing a task that changes UI, Settings rows, menus, shortcut metadata
 Run `./scripts/localize-changes` first and resolve every reported translation row or human-attention item.
 
 1. Enumerate the changed user-facing surfaces.
-2. Verify each surface has a catalog key and translated values for every supported macOS locale (`en`, `de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`, `ja`) in the feature PR, unless an exact omission record allows an absent value. Omission records still require `en` and `ja` entries.
+2. Verify each surface has a catalog key with `en` and `ja` values in the feature PR. The bot fills the other macOS locales (`de`, `fr`, `ar`, `es`, `zh-Hant`, `zh-Hans`, `ko`) on main.
 3. Parse the touched localization files and compare changed message keys across locales.
 4. Run `rg` over changed Swift/TS/TSX/docs files for newly introduced bare English.
 5. State in the final handoff what audit was performed, or explicitly say what could not be verified.
 
-`Resources/Localizable.xcstrings`, `Resources/InfoPlist.xcstrings`, and the linked macOS package catalogs must pass `python3 scripts/localization_catalog.py check`. New keys must carry all nine macOS locale entries unless covered by an exact omission record; `en` and `ja` entries remain required. Preserve printf placeholders and use plural variations for count strings where the source has a count.
+`Resources/Localizable.xcstrings`, `Resources/InfoPlist.xcstrings`, and the linked macOS package catalogs must pass `python3 scripts/localization_catalog.py check`. New keys must carry `en` and `ja` entries; the bot fills the other seven, and `check --strict` requires all nine unless covered by an exact omission record. Preserve printf placeholders and use plural variations for count strings where the source has a count.
 
 Count strings are recorded in `scripts/localization-plurals.json` with the English source and the argument numbers that select plurals. Every required plural category must contain translated text. Use substitutions when more than one count varies or when the count is not the first argument. Arabic requires zero/one/two/few/many/other; French and Spanish include many. Keep every message inside the catalog's `strings` object so Xcode compiles it.
 

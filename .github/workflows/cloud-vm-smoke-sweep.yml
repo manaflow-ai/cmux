@@ -49,7 +49,16 @@ jobs:
           bun-version: "1.3.14"
 
       - name: Cache Bun packages
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-cloud-vm-smoke-sweep-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-cloud-vm-smoke-sweep-
+
+      - name: Cache Bun packages (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-cloud-vm-smoke-sweep-${{ hashFiles('web/bun.lock') }}

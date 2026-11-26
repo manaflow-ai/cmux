@@ -49,9 +49,10 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   clones that register only when a job is handed to them, so with no reader queued there nothing ever marked it dead
   and the pool led with a label no runner had ever taken (2026-11-22 ~07:26Z, linux_owned_small on
   glaeda-linux-arm64; unproven());
-- points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
-  release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
-  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
+- points each pool at its first member with no mark. With every member marked it keeps its first member: a pool
+  never names a label outside its declared members (allowed()). A release valve to the next smaller size
+  (cmux#45852) sent linux_16 and linux_8 to 2 vCPU on 2026-11-18 from 13:18Z, where cmux-tui's thin legs took
+  25-44 min instead of 2-8 and 7 aarch64 legs failed with rustc OOM (job 134837837144). A Blacksmith
   Linux pool lists its smaller sizes before its larger ones (grows_before_shrinking(), checked by
   spec_problems()), so a size stalled by the org's vCPU cap moves its jobs down, never up into the sizes the
   cap starves first;
@@ -204,11 +205,13 @@ def owned_gcp(label: object) -> bool:
 
 
 # The Freestyle Linux rung's label (pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
-# same-repository job. Blacksmith's runners never take it. It sits right after the owned GCP lead (or leads) in an x64
-# pool whose jobs need no fresh machine, with a Blacksmith x64 member after it (spec_problems()): a full GCP pool moves
-# to Freestyle, and a full Freestyle rung moves to Blacksmith (label_evidence()'s full mark, as for the GCP lead).
-# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] We
-# could use Freestyle."
+# same-repository job. Blacksmith's runners never take it. It leads an x64 pool whose jobs need no fresh machine and
+# fit 8 vCPU, with the owned GCP label after it and a Blacksmith x64 member after both (spec_problems()): a full
+# Freestyle rung moves to GCP, and a full GCP pool moves to Blacksmith (label_evidence()'s full mark). GCP and
+# Freestyle form the pool's owned prefix in either order, each at most once. Leo, 2026-11-19: "We still keep
+# Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] I don't know why you guys are
+# fixated on GCP when we literally have the partnership with Freestyle. We could use Freestyle. [...] So we should
+# just be able to size them accordingly."
 OWNED_FREESTYLE_LINUX = frozenset(pr_runner_pool.OWNED_FREESTYLE_LINUX)
 
 
@@ -218,8 +221,8 @@ def owned_freestyle(label: object) -> bool:
 
 
 def owned_lead(label: object) -> bool:
-    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the GCP pool (owned_gcp())
-    or the Freestyle rung after it (owned_freestyle()). None has a size or is probed; a full one overflows."""
+    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the Freestyle rung
+    (owned_freestyle()) or the GCP pool (owned_gcp()), the last two in either order. None has a size or is probed; a full one overflows."""
     return owned_ephemeral(label) or owned_gcp(label) or owned_freestyle(label)
 
 
@@ -292,35 +295,11 @@ def memory_floor(spec: Mapping[str, Any]) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
-def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """The release valve's candidates for an x64 Blacksmith Linux pool, largest first: every x64 Blacksmith Linux
-    label some pool declares that is smaller than this pool's smallest member, on the same image. Empty for any
-    other pool (macOS, Windows, arm64 or hosted).
-
-    2026-11-18: linux_16 is [16, 32] vCPU. 16 vCPU was marked dead at 01:18Z and 32 vCPU had started nothing since
-    about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
-    (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
-    by the next pass, so it could not be set by hand either."""
-    # An owned Linux member (owned_lead()) has no size: the valve is judged on the Blacksmith members.
-    sizes = [X64_SIZE.match(label) for label in members(spec) if not owned_lead(label)]
-    if not sizes or not all(sizes):
-        return []
-    images = {match.group(2) for match in sizes}
-    floor = min(int(match.group(1)) for match in sizes)
-    # min_vcpu (memory_floor()): the valve never goes below the size the pool's jobs fit in.
-    least = memory_floor(spec)
-    found: dict[str, int] = {}
-    for other in pools.values():
-        for label in members(other):
-            match = X64_SIZE.match(label)
-            if match and match.group(2) in images and least <= int(match.group(1)) < floor:
-                found[label] = int(match.group(1))
-    return sorted(found, key=lambda label: -found[label])
-
-
 def allowed(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Every label RUNNER_POOLS may hold for a pool: its members, then its release valve (valve_labels())."""
-    return [*members(spec), *(label for label in valve_labels(spec, pools) if label not in members(spec))]
+    """Every label RUNNER_POOLS may hold for a pool: its declared members, nothing else. A size outside them may be
+    too small for the pool's jobs: a busy size makes a job slower, a too-small one makes it fail (rustc OOM on
+    2 vCPU, 2026-11-18)."""
+    return members(spec)
 
 
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -345,9 +324,12 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                     found.append(f"{where}: {member} is an owned Linux VM label; it may only lead a pool, with a "
                                  "Blacksmith member after it to overflow to (OWNED_EPHEMERAL_LINUX)")
             elif owned_gcp(member):
-                if member != listed[0] or not any(X64_SIZE.match(other) for other in listed[1:]):
-                    found.append(f"{where}: {member} is the owned GCP Linux label; it may only lead an x64 pool, with "
-                                 "a Blacksmith x64 member after it to overflow to (OWNED_GCP_LINUX)")
+                at = listed.index(member)
+                if not all(owned_freestyle(other) for other in listed[:at]) \
+                        or not any(X64_SIZE.match(other) for other in listed[at + 1:]):
+                    found.append(f"{where}: {member} is the owned GCP Linux label; it may only lead an x64 pool or "
+                                 "follow its Freestyle lead, with a Blacksmith x64 member after it to overflow to "
+                                 "(OWNED_GCP_LINUX)")
                 if spec.get("ephemeral_only"):
                     found.append(f"{where}: {member} is the owned GCP Linux label, whose persistent runners take it "
                                  "too; an ephemeral_only pool's jobs need a fresh machine (OWNED_GCP_LINUX)")
@@ -370,7 +352,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
         first = X64_SIZE.match(listed[0])
         if first and int(first.group(1)) >= MEMORY_FLOOR_REQUIRED_FROM and not least:
             found.append(f"{where}: a pool led by {first.group(1)} vCPU declares min_vcpu, the smallest size its jobs fit "
-                         "in, so the release valve never sends them below it (memory_floor())")
+                         "in, so nothing sends them below it (memory_floor())")
         for member in listed:
             size = X64_SIZE.match(member)
             if least and size and int(size.group(1)) < least:
@@ -433,7 +415,7 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         if isinstance(value[name], str) and value[name] in allowed(spec, pools):
             clean[name] = value[name]
         else:
-            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member or release valve of "
+            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of "
                            f"pools.{name}; reset")
     marks = value.get(DEAD_KEY, {})
     if isinstance(marks, dict):
@@ -471,15 +453,15 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is neither its member nor
-    its release valve (allowed())."""
+    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is not one of its declared
+    members (allowed())."""
     found = []
     for name, spec in sorted(pools.items()):
         label = value.get(name)
         if not isinstance(label, str) or not label:
             found.append(f"{VARIABLE} has no {name}: every job reading fromJSON(vars.{VARIABLE}).{name} fails")
         elif label not in allowed(spec, pools):
-            found.append(f"{VARIABLE}.{name}={label!r} is not a member or release valve of pools.{name} "
+            found.append(f"{VARIABLE}.{name}={label!r} is not a member of pools.{name} "
                          f"({', '.join(allowed(spec, pools))})")
     return found
 
@@ -549,15 +531,19 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
 
 
 def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]], least: int = 0) -> str | None:
-    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: the same image
-    (so the same arch), the largest size at most `label`'s (the release valve's direction), else the smallest larger
-    one, never below `least` vCPU (RAW_LABEL_MIN_VCPU). None when no other allowed size of that image is live."""
+    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: a member of a pool
+    that declares `label` (so the same arch, and a size that pool's jobs were declared to fit), the largest size at
+    most `label`'s, else the smallest larger one, never below `least` vCPU (RAW_LABEL_MIN_VCPU). None when no such
+    member is live: the variable stays, as a pool with every member dead keeps its first member, rather than move a
+    32 vCPU build onto 2 vCPU (2026-11-18)."""
     match = BLACKSMITH_LINUX.match(label)
     if not match:
         return None
     size, image, dead = int(match.group(1)), match.group(2), set(dead)
     sizes: dict[str, int] = {}
     for spec in pools.values():
+        if label not in members(spec):
+            continue
         for member in members(spec):
             other = BLACKSMITH_LINUX.match(member)
             if other and other.group(2) == image and member != label and member not in dead \
@@ -662,7 +648,7 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         # serves every x64 Linux label, so nothing waits on it; not a pools.linux member, so the writer never
         # routes the pool's own readers there.
         if current not in allowed_labels and current not in PERSISTENT_LINUX_POOL_LABELS:
-            found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
+            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} "
                          f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
@@ -904,11 +890,10 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         if candidates and unproven(candidates[0], served) and current.get(name) == candidates[0]:
             lines.append(f"pools.{name}: no runner has ever taken a job on {candidates[0]}; passed over")
         if chosen is None:
-            # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
-            # leaving the pool on a label that starts nothing. With none, the first member, as before.
-            chosen = next((label for label in valve_labels(spec, pools) if label not in skipped), candidates[0])
-            if chosen != candidates[0] and current.get(name) != chosen:
-                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
+            # Every member is dead: the first member, never a size outside the declared members (allowed()).
+            chosen = candidates[0]
+            if current.get(name) != chosen:
+                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); keeping the first member")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen

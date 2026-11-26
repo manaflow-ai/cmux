@@ -7,8 +7,7 @@ import type {
 } from "@apple/app-store-server-library";
 
 import type { AppleSubscriptionStatus } from "../../../db/schema";
-import type { PersonalPlanId } from "../pro";
-import { appleBillingPeriodForProduct, appleUsdListPrice, planIdForAppleProduct } from "./config";
+import { appleBillingPeriodForProduct, appleUsdListPrice, planIdForAppleProduct, type ApplePlanId } from "./config";
 
 export type AppleSubscriptionState = {
   readonly originalTransactionId: string;
@@ -16,7 +15,7 @@ export type AppleSubscriptionState = {
   readonly bundleId: string;
   readonly environment: string;
   readonly productId: string;
-  readonly planId: PersonalPlanId;
+  readonly planId: ApplePlanId;
   readonly status: AppleSubscriptionStatus;
   readonly autoRenewEnabled: boolean | null;
   readonly autoRenewProductId: string | null;
