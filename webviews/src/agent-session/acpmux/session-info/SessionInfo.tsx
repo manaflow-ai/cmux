@@ -85,10 +85,8 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import type { ResumeActions } from "../subagents/ResumeControl";
-import { AlsoHereSection } from "./AlsoHereSection";
 import { CarriedSection, carriedSummary } from "./CarriedSection";
 import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
-import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
@@ -109,7 +107,6 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { type UsageEntry } from "./usageEntries";
 import type { ChatPlace } from "../chatMachine";
 import { samePanelProps } from "./samePanelProps";
-import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
 import {
   type SessionInfoPlacement,
@@ -400,7 +397,6 @@ export function SessionInfo({
   onShowTurn,
   allSessions,
   usageSessions = allSessions,
-  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -499,10 +495,9 @@ export function SessionInfo({
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
   /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
-  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  /// (usageEntries.ts).
   usageSessions?: readonly UsageEntry[];
-  alsoHere?: readonly AlsoHere[];
-  /// Opens one of them.
+  /// Opens a chat (a Usage row).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -881,28 +876,13 @@ export function SessionInfo({
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
   // A command a workflow's agent started is listed under that agent, not as the chat's own.
   const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
-  // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
-  // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
-  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
-  const alsoHereSection = alsoHereRows.length > 0 && (
-    <SessionInfoSection
-      id="alsoHere"
-      title={t("sessionInfo.alsoHere")}
-      open={state.alsoHere}
-      onOpenChange={fold("alsoHere")}
-      meta={value(String(alsoHereRows.length))}
-    >
-      <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
-    </SessionInfoSection>
-  );
   const tasks = servers.length + commands.length + scheduled.length + workflows.length + agentSide.length > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
       open={state.tasks}
       onOpenChange={fold("tasks")}
-      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text"), as Also here's count.
+      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text").
       meta={running > 0 ? value(String(running)) : undefined}
     >
       {workflows.length > 0 && (
@@ -980,7 +960,6 @@ export function SessionInfo({
           outputs: outputsSection,
           subagents: subagentsSection,
           tasks,
-          alsoHere: alsoHereSection,
           ...appNodes,
         }}
       />
