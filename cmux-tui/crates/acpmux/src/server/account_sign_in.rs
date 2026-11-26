@@ -505,6 +505,8 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(error(e));
         }
     };
+    // Whether git on this machine now uses the GitHub sign-in (GitHub only).
+    let mut git = None;
     let account = match (&p.add, p.agent) {
         (Some(add), _) => {
             let (dir, _) = routes::places(&*hub.config.read().await);
@@ -526,12 +528,23 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             }
         }
         (None, Agent::Github) => match cli(hub, Agent::Github).await {
-            Ok(cli) => github::accounts(&cli)
-                .await
-                .into_iter()
-                .find(|a| a.active)
-                .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
-                .or(p.account.clone()),
+            Ok(cli) => {
+                // git on this machine signs in through gh too, so clone and push work (a
+                // Cloud machine's "Sign in with GitHub"); a failure keeps the gh sign-in.
+                git = Some(match github::setup_git(&cli).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!(error = %e.message, "account sign-in: gh auth setup-git");
+                        false
+                    }
+                });
+                github::accounts(&cli)
+                    .await
+                    .into_iter()
+                    .find(|a| a.active)
+                    .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
+                    .or(p.account.clone())
+            }
             Err(_) => p.account.clone(),
         },
         (None, _) => p.account.clone(),
@@ -547,7 +560,11 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             tracing::warn!(agent = p.agent.name(), error = %e.message, "account sign-in: mark chats");
         }
     }
-    Ok(json!({"signedIn": true, "account": account}))
+    let mut reply = json!({"signedIn": true, "account": account});
+    if let (Some(git), Some(obj)) = (git, reply.as_object_mut()) {
+        obj.insert("git".to_owned(), Value::Bool(git));
+    }
+    Ok(reply)
 }
 
 async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {

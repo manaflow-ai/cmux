@@ -133,10 +133,7 @@ fn chat_guidance_is_its_own_first_turn_block_beside_a_persons_override() {
     append_snapshot(Some(&parts), &mut blocks);
     assert_eq!(blocks.len(), 2, "{blocks:?}");
     let text = blocks[1]["text"].as_str().unwrap();
-    assert!(
-        text.starts_with("<cmux-guidance-context>") && text.contains("acpmux pr-wait"),
-        "{text}"
-    );
+    assert!(text.starts_with("<cmux-guidance-context>") && text.contains("HOST/NAME"), "{text}");
     assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
     assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
 }
