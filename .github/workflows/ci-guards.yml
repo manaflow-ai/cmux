@@ -1680,6 +1680,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
 
+      - name: Validate every continuation job waits through a GitHub API rate limit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_continuation_jobs_wait_through_rate_limits.py
+
       - name: Validate nightly and DEV publish jobs send gh calls as the release App first
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_publish_app_token_workflow.py

@@ -273,6 +273,12 @@ jobs:
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Download exact polling inputs
         run: |
           set -euo pipefail
@@ -424,6 +430,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -683,6 +695,12 @@ jobs:
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Download outer polling metadata
         run: |
           set -euo pipefail
@@ -761,6 +779,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1001,6 +1025,12 @@ jobs:
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Download stapled-app polling metadata
         run: |
           set -euo pipefail
@@ -1079,6 +1109,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1394,9 +1430,11 @@ jobs:
           release = None
           for attempt in range(4):
               try:
-                  # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
+                  # The installed gh wrappers wait out a rate limit: gh_budget_wait.sh up to an hour,
+                  # reserved before it sleeps, so a shorter kill spends the wait and the next try
+                  # fails at once. Outlast the whole hour.
                   result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
-                                          capture_output=True, text=True, timeout=240)
+                                          capture_output=True, text=True, timeout=3900)
               except subprocess.TimeoutExpired as expired:
                   # Keep what gh printed before it stalled (a rate-limit refusal), then retry.
                   seen = expired.stderr or expired.stdout or b""
