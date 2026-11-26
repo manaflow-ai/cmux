@@ -908,7 +908,7 @@ impl Peer {
         ssh_tokens: Option<(tokens::Tokens, bool)>,
     ) -> Result<Opened, DialError> {
         let opened = match via {
-            Via::Ssh => self.open_ssh(ssh_tokens).await,
+            Via::Ssh => self.ssh_login(self.open_ssh(ssh_tokens)).await,
             Via::Url => self.open_url(For::Link).await,
             Via::Wireguard | Via::Link | Via::Tailnet => {
                 self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
@@ -1139,22 +1139,25 @@ impl Peer {
                 let (token, peer_token) = self
                     .direct_credentials(None)
                     .ok_or_else(|| "no token for the peer yet".to_owned())?;
-                let (child, stream, remote_port, errors) = self.spawn_tunnel()?;
-                let req = self.ws_request(
-                    &format!("ws://127.0.0.1:{remote_port}"),
-                    Some(&token),
-                    peer_token.as_deref(),
-                )?;
-                let stream: BoxDuplex = Box::new(stream);
-                let (ws, _) = tokio_tungstenite::client_async_with_config(
-                    req,
-                    Heard::default().wrap(stream),
-                    Some(crate::server::ws_config()),
-                )
+                self.ssh_login(async {
+                    let (child, stream, remote_port, errors) = self.spawn_tunnel()?;
+                    let req = self.ws_request(
+                        &format!("ws://127.0.0.1:{remote_port}"),
+                        Some(&token),
+                        peer_token.as_deref(),
+                    )?;
+                    let stream: BoxDuplex = Box::new(stream);
+                    let (ws, _) = tokio_tungstenite::client_async_with_config(
+                        req,
+                        Heard::default().wrap(stream),
+                        Some(crate::server::ws_config()),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    self.note_token_path(via, false);
+                    Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
+                })
                 .await
-                .map_err(|e| e.to_string())?;
-                self.note_token_path(via, false);
-                Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }

@@ -270,7 +270,9 @@ pub mod peer_link;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
+// A host-wide bound on peer links' ssh logins in flight.
 pub(crate) mod peer_notice_outbox;
+pub mod peer_ssh_logins;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
