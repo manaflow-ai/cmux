@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/cmux-next/cmux-tui-build-profiles.json
-            .gitmodules
+            /.gitmodules
           sparse-checkout-cone-mode: false
       - id: read
         shell: bash
