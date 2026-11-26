@@ -410,7 +410,8 @@ extension NewTabPage {
             return false
         }
         // The page's folder is this Mac's: the chat's folder on its machine instead.
-        guard CloudFrontedChats.openOnCloud(request.kind == .terminal ? .terminal : .browser, chat: chat, typing: typing, services: services) else { return false }
+        let kind: RightColumnPlacement.Kind = request.kind == .terminal ? .terminal : .browser
+        guard CloudFrontedChats.openOnCloud(kind, chat: chat, typing: typing, services: services) else { return false }
         if !request.keep { close() }
         return true
     }
