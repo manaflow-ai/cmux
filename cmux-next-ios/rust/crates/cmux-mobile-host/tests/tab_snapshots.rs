@@ -167,28 +167,32 @@ impl Phone {
 
     /// Applies whatever arrives within `wait`.
     async fn drain(&mut self, wait: Duration) {
-        let _ = tokio::time::timeout(wait, self.until(|_| false)).await;
+        let _ = tokio::time::timeout(wait, self.apply_until(|_| false)).await;
     }
 
     /// Applies frames until `done` holds (3 s at most).
-    async fn until(&mut self, mut done: impl FnMut(&Mirror) -> bool) {
-        tokio::time::timeout(Duration::from_secs(3), async {
-            while !done(&self.mirror) {
-                if let Some(frame) = self.deframer.next_frame().unwrap() {
-                    if let Ok(Message::Blob(b)) = Message::decode(&frame) {
-                        self.blobs.push(b.hash);
-                    }
-                    self.mirror.apply_frame(&frame).unwrap();
-                    continue;
+    async fn until(&mut self, done: impl FnMut(&Mirror) -> bool) {
+        tokio::time::timeout(Duration::from_secs(3), self.apply_until(done))
+            .await
+            .expect("phone state in time");
+    }
+
+    /// Applies frames until `done` holds, with no bound of its own: [`Self::drain`] waits
+    /// longer than [`Self::until`]'s 3 s.
+    async fn apply_until(&mut self, mut done: impl FnMut(&Mirror) -> bool) {
+        while !done(&self.mirror) {
+            if let Some(frame) = self.deframer.next_frame().unwrap() {
+                if let Ok(Message::Blob(b)) = Message::decode(&frame) {
+                    self.blobs.push(b.hash);
                 }
-                match self.channel.recv().await {
-                    Some(ChannelEvent::Data(data)) => self.deframer.push(&data),
-                    event => panic!("tabs channel ended: {event:?}"),
-                }
+                self.mirror.apply_frame(&frame).unwrap();
+                continue;
             }
-        })
-        .await
-        .expect("phone state in time");
+            match self.channel.recv().await {
+                Some(ChannelEvent::Data(data)) => self.deframer.push(&data),
+                event => panic!("tabs channel ended: {event:?}"),
+            }
+        }
     }
 }
 
