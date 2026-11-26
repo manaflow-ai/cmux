@@ -42,31 +42,70 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
     }
 
     /// The prompt's lines for this save of classic app `app` (as its Dock names it). At launch the last line says
-    /// where the import waits.
+    /// where the import waits. Which lines, parts and effects show is Rust's (`preview::Counts::lines`).
     public func lines(app: String, savedAt: Date, classicRunning: Bool, atLaunch: Bool) -> [String] {
-        typealias S = Self
-        let effects = (browserTabs + filePages > 0 ? [S.pagesLoad] : [])
-            + (sshWorkspaces > 0 ? [S.hostsConnect] : []) + (agentChats > 0 ? [S.chatsResume] : [])
-        var lines = [summary(app: app, savedAt: savedAt, classicRunning: classicRunning),
-                     effects.isEmpty ? S.opensAsSaved : String(format: S.opensAsSavedDoing, ListFormatter.localizedString(byJoining: effects))]
-        if classicRunning { lines.append(String(format: S.stillOpen, app)) }
-        if skippedCloudVMs > 0 { lines.append(S.cloudVMsSkipped(skippedCloudVMs)) }
-        if cleanup > 0 { lines.append(S.interruptedClose(cleanup)) }
-        if atLaunch { lines.append(S.later) }
-        return lines
+        plan(classicRunning: classicRunning, atLaunch: atLaunch).map { $0.words(app: app, savedAt: savedAt) }
     }
 
     /// "8 workspaces, 2 browser tabs and 1 agent chat from cmux, saved today at 1:47 PM." Workspaces always (a
     /// run may only replace interrupted ones); the rest only when there are some.
     public func summary(app: String, savedAt: Date, classicRunning: Bool) -> String {
-        typealias S = Self
-        let parts = [S.workspaces(workspaces)]
-            + (browserTabs > 0 ? [S.browserTabs(browserTabs)] : []) + (filePages > 0 ? [S.filePages(filePages)] : [])
-            + (sshWorkspaces > 0 ? [S.sshWorkspaces(sshWorkspaces)] : []) + (agentChats > 0 ? [S.agentChats(agentChats)] : [])
-        let format = classicRunning
-            ? String(localized: "classicImport.preview.summaryAutosaved", defaultValue: "%1$@ from %2$@, autosaved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
-            : String(localized: "classicImport.preview.summarySaved", defaultValue: "%1$@ from %2$@, saved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
-        return String(format: format, ListFormatter.localizedString(byJoining: parts), app, S.savedWhen(savedAt))
+        plan(classicRunning: classicRunning, atLaunch: false).first { $0.line == "summary" }?.words(app: app, savedAt: savedAt) ?? ""
+    }
+
+    private func plan(classicRunning: Bool, atLaunch: Bool) -> [Line] {
+        let counts = ["workspaces": workspaces, "browserTabs": browserTabs, "filePages": filePages, "sshWorkspaces": sshWorkspaces,
+                      "agentChats": agentChats, "skippedCloudVMs": skippedCloudVMs, "cleanup": cleanup]
+        return ImportSuggestRules.call("classic_lines", ["counts": counts, "classicRunning": classicRunning, "atLaunch": atLaunch],
+                                       as: [Line].self) ?? []
+    }
+
+    /// One line as Rust plans it (`preview::Line`).
+    private struct Line: Decodable {
+        struct Counted: Decodable {
+            var part: String
+            var count: Int
+        }
+
+        var line: String
+        var parts: [Counted]?
+        var autosaved: Bool?
+        var effects: [String]?
+        var count: Int?
+
+        func words(app: String, savedAt: Date) -> String {
+            typealias S = ClassicImportPreviewStrings
+            switch line {
+            case "summary":
+                let parts = (parts ?? []).map { counted in
+                    switch counted.part {
+                    case "browserTabs": S.browserTabs(counted.count)
+                    case "filePages": S.filePages(counted.count)
+                    case "sshWorkspaces": S.sshWorkspaces(counted.count)
+                    case "agentChats": S.agentChats(counted.count)
+                    default: S.workspaces(counted.count)
+                    }
+                }
+                let format = autosaved == true
+                    ? String(localized: "classicImport.preview.summaryAutosaved", defaultValue: "%1$@ from %2$@, autosaved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
+                    : String(localized: "classicImport.preview.summarySaved", defaultValue: "%1$@ from %2$@, saved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
+                return String(format: format, ListFormatter.localizedString(byJoining: parts), app, S.savedWhen(savedAt))
+            case "opensAsSaved":
+                let effects = (effects ?? []).map { effect in
+                    switch effect {
+                    case "hostsConnect": S.hostsConnect
+                    case "chatsResume": S.chatsResume
+                    default: S.pagesLoad
+                    }
+                }
+                return effects.isEmpty ? S.opensAsSaved : String(format: S.opensAsSavedDoing, ListFormatter.localizedString(byJoining: effects))
+            case "stillOpen": return String(format: S.stillOpen, app)
+            case "cloudVmsSkipped": return S.cloudVMsSkipped(count ?? 0)
+            case "interruptedClose": return S.interruptedClose(count ?? 0)
+            case "later": return S.later
+            default: return ""
+            }
+        }
     }
 
     /// "today at 1:47 PM", "yesterday at 9:05 AM", else "Nov 3, 2026 at 1:47 PM", inside a sentence.
@@ -139,13 +178,8 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
         String(localized: "classicImport.toast.importAgain", defaultValue: "Import…", table: "ImportSuggestions", bundle: .localizedModule)
     }
 
-    /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it.
+    /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it (Rust's `preview::app_name`).
     public static func appName(_ bundle: String) -> String {
-        let channel = { (name: String) in bundle == name || bundle.hasPrefix(name + ".") }
-        if bundle == "com.cmuxterm.app" { return "cmux" }
-        if channel("com.cmuxterm.app.nightly") { return "cmux NIGHTLY" }
-        if channel("com.cmuxterm.app.rc") { return "cmux RC" }
-        if channel("com.cmuxterm.app.staging") { return "cmux STAGING" }
-        return "cmux DEV"
+        ImportSuggestRules.call("app_name", ["bundle": bundle, "classic": "com.cmuxterm.app"], as: String.self) ?? "cmux DEV"
     }
 }
