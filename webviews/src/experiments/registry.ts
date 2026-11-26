@@ -131,6 +131,7 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { transcriptScrollPacer } from "../agent-session/acpmux/transcriptScrollPacer.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
@@ -280,6 +281,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  transcriptScrollPacer,
   shortcutKeycaps,
   holdToApprove,
   holdToApproveDuration,
