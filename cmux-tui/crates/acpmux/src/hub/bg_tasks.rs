@@ -332,7 +332,9 @@ impl Hub {
     pub(super) fn bg_running_pids(&self, session: &Session) -> Vec<u32> {
         let dir = self.bg_dir(session);
         self.bg_records(&dir)
+            .tasks
             .iter()
+            .map(|t| &t.record)
             .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
             .map(|r| r.pid)
             .collect()
