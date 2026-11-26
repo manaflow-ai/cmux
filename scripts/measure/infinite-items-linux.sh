@@ -18,6 +18,12 @@
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
 #   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
 #     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
+#   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] ...: acpmux three ways from this head (the shipped mimalloc,
+#     the system allocator: feature system-alloc, and dhat-heap) and one cmux-tui, run in turn (mimalloc, system, dhat)
+#     REPEAT times (ALLOC arm=A rI lines). The dhat arm writes its profile after the last sample (--heap-profile) and
+#     its live bytes by allocation site print as DHAT lines. A round starts only while the last round's time still
+#     fits in alloc_budget seconds from the start, so a job cap cuts repeats, not counts. Answers whether the
+#     daemon's heap is live data (dhat's bytes near mimalloc's heap) or the allocator's retention.
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -34,6 +40,8 @@ live=0
 live_counts=""
 freed=0
 cap_ab=""
+alloc_ab=0
+alloc_budget=3000
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -48,6 +56,8 @@ for arg in "$@"; do
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
+    alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
+    alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -78,6 +88,10 @@ if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
 fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
+started_at=$SECONDS
+# alloc_ab=1 builds acpmux three times: its one codegen unit (the release profile) would take most of the job's hour,
+# so every arm, the shipped allocator's too, builds it in 16. The heap a run holds is the program's data, not its code.
+[[ "$alloc_ab" == 1 ]] && export CARGO_PROFILE_RELEASE_PACKAGE_ACPMUX_CODEGEN_UNITS=16
 cd "$root/cmux-tui"
 # cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -184,6 +198,49 @@ elif [[ "$before" == ref:* ]]; then
 elif [ -n "$before" ]; then
   echo "infinite-items-linux.sh: unknown before=$before (own-exe, hosts, ref:REF)" >&2
   exit 2
+fi
+if [[ "$alloc_ab" == 1 ]]; then
+  ab="$(mktemp -d)"
+  trap 'rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
+  mkdir "$ab/mimalloc" "$ab/system" "$ab/dhat"
+  cp "$bin/acpmux" "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/mimalloc/"
+  for arm in system dhat; do
+    feature=system-alloc; [[ "$arm" == dhat ]] && feature=dhat-heap
+    t0=$SECONDS
+    (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux --features "$feature" 2>&1 | tail -n 3
+     exit "${PIPESTATUS[0]}")
+    cp "$bin/acpmux" "$ab/$arm/acpmux"
+    cp "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/$arm/"
+    echo "INFINITE-ALLOC-BUILD arm=$arm feature=$feature seconds=$((SECONDS - t0))"
+  done
+  echo "INFINITE-ALLOC repeat=$repeat counts=$counts days=$days budget_s=$alloc_budget head=$(git rev-parse HEAD) built_s=$((SECONDS - started_at))"
+  round_s=0
+  for r in $(seq 1 "$repeat"); do
+    if (( SECONDS - started_at + round_s > alloc_budget )); then
+      echo "INFINITE-ALLOC-CUT before r$r: $((SECONDS - started_at)) s spent, the last round took ${round_s} s, budget ${alloc_budget} s"
+      break
+    fi
+    t0=$SECONDS
+    for arm in mimalloc system dhat; do
+      profile=(); [[ "$arm" == dhat ]] && profile=(--heap-profile)
+      dhat_out="$ab/dhat-r$r.json"
+      ACPMUX_DHAT_OUT="$([[ "$arm" == dhat ]] && echo "$dhat_out")" \
+        python3 scripts/measure/infinite-items.py --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
+        --counts "$counts" --days "$days" ${profile[@]+"${profile[@]}"} ${extra[@]+"${extra[@]}"} 2>&1 \
+        | sed -u "s/^/ALLOC arm=$arm r$r /" || status=$?
+      if [[ "$arm" == dhat ]]; then
+        if [ -f "$dhat_out" ]; then
+          python3 scripts/measure/dhat-top.py "$dhat_out" 30 | sed -u "s/^/ALLOC arm=dhat r$r /"
+          rm -f "$dhat_out"
+        else
+          echo "ALLOC arm=dhat r$r DHAT none: $dhat_out"
+        fi
+      fi
+    done
+    round_s=$((SECONDS - t0))
+    echo "INFINITE-ALLOC-ROUND r$r seconds=$round_s"
+  done
+  exit "$status"
 fi
 # cap_ab=N: ACPMUX_RESIDENT_CAP off against N, REPEAT times each, interleaved (off, N, off, N, ...) on this
 # runner with this build; each INFINITE line carries its arm and repeat (CAPAB arm=off|capN rI).
