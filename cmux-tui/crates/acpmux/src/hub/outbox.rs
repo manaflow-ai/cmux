@@ -949,7 +949,9 @@ impl OutboxState {
                 self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
             {
                 let _ = started.send(());
-                let _ = go_on.recv();
+                // Bounded: a test that never says go on (or panics first) lets the write go on
+                // after 30 s instead of holding a runtime worker for good.
+                let _ = go_on.recv_timeout(std::time::Duration::from_secs(30));
             }
             #[cfg(test)]
             if let Some(error) =
