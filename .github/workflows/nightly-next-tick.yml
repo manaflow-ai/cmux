@@ -114,10 +114,14 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
-      # This workflow's own copy of the wrapper, not the checked-out branch's.
+      # This workflow's own copy of the wrapper, not the checked-out branch's. A reset fetch is
+      # tried once more, as the branch checkout above is: one curl 56 here ends the tick too.
       - name: Checkout the gh rate-limit wait
+        id: tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        timeout-minutes: 4
+        continue-on-error: true
+        with: &request-tooling
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -140,6 +144,11 @@ jobs:
             scripts/ci/gh_app_token.sh
             scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false
+      - name: Checkout the gh rate-limit wait (retry)
+        if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        with: *request-tooling
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
       # github.token as the fallback. Every workflow here shares github.token's budget; when
@@ -403,9 +412,13 @@ jobs:
       contents: read
     steps:
       # This workflow's own copy of the scripts; nightly_next_cancelled_tip.sh needs a git
-      # checkout with an `origin` (it reads nightly-next with ls-remote).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+      # checkout with an `origin` (it reads nightly-next with ls-remote). A reset fetch is tried
+      # once more.
+      - id: tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        continue-on-error: true
+        with: &unstick-tooling
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -425,6 +438,10 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false
+      - if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        with: *unstick-tooling
 
       # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
       # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its
