@@ -13,7 +13,9 @@ cmux-next-pr-autofix.yml's action-areas, for action-exports):
 `jobs` names the job ids that take a grant; empty (or the file missing or malformed) is off,
 and every route is what it was. A job id moves one job at a time, the heaviest first. `per_run` false gives
 plain `cmux-mac` (the CI v2 lead's ruling, 2026-11-21); true gives the opt-in per-run label
-`cmux-<run_id>-<run_attempt>-mac`, which no standing runner carries. Either rides with `xcode-<version>`
+`cmux-<run_id>-<run_attempt>-mac`, which no standing runner carries, on a run's first attempt only: a re-run
+(attempt 2 and up, as the controller's wait bound re-runs a stranded run) gets no grant and keeps the route it
+has with the switch off, so it lands on a served label. Either rides with `xcode-<version>`
 from the job's Xcode path (vars.CMUX_CI_XCODE_APP_MACOS_26), which the controller matches to a Mac that
 has it.
 
@@ -80,6 +82,8 @@ def outputs(env: Mapping[str, str], path: Path | str | None = None) -> dict[str,
     run_id = (env.get("GITHUB_RUN_ID") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip()
     if not (switch["jobs"] and run_id.isdigit() and attempt.isdigit() and same_repo_pr(env)):
+        return none
+    if switch["per_run"] and attempt != "1":
         return none
     labels = [grant_label(run_id, attempt) if switch["per_run"] else MAC_LABEL]
     xcode = xcode_label([env.get("XCODE_APP")])

@@ -45,9 +45,10 @@ env:
 jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # Every bounded step at its limit fits: Rust setup 30, the gate step 90, the gate home 20, and the report.
-    timeout-minutes: 150
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Every bounded step at its limit fits: Rust setup 30, the home's build 25, the gate step 90, the gate home 20, and
+    # the token mints (169 minutes), with room for the unbounded report steps.
+    timeout-minutes: 180
     permissions:
       contents: read
     steps:
@@ -57,6 +58,10 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
           sparse-checkout-cone-mode: false
 
       # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
@@ -99,6 +104,18 @@ jobs:
         if: steps.done.outputs.done != 'true'
         timeout-minutes: 30
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The home below only reads the rows the gates wrote, so it gets its own build before the gates run. When the
+      # gates spend their whole limit (run 45522943505: the core group alone ran past 85 minutes on a slow runner),
+      # acpmux was never built under the gate profile, and the home spent its 17 minutes compiling and wrote nothing.
+      # Built here, the home runs in seconds and writes a report, naming every gate that did not get to run.
+      - name: Build the v2 gate home
+        if: steps.done.outputs.done != 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: cmux-tui
+        # `timeout` inside the step's limit, as for the gates below: a cargo the runner leaves behind holds the lock.
+        run: timeout --signal=TERM --kill-after=60s 1380s cargo bench --profile gate -p acpmux --bench v2 --no-run
 
       - name: Run v2 gate measures
         if: steps.done.outputs.done != 'true'

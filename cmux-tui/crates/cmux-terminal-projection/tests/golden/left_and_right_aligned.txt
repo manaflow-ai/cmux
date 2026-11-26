@@ -1,0 +1,38 @@
+# left_and_right_aligned: a right prompt (zsh RPROMPT by cursor moves), a right-aligned clock, a centered title, prose and ls columns
+# Mac pane 120x24, phone 54x38
+
+## prompt, ls and aligned rows
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % ls                                                                 [main ↑2] 09:12:44|
+       ^ 0-14 fg=2; 101-105 fg=3; 107-109 fg=3; 111-118 fg=3
+s   1|AGENTS.md          Packages           cmux-next-ios      docs               scripts            workers|
+s   2|CLAUDE.md          README.md          cmux-tui           schemas            vendor|
+s   3|                                                                                                 build finished 12:01:33|
+s   4|                                                  == Release notes ==|
+       ^ 50-51 bold; 53-59 bold; 61-65 bold; 67-68 bold
+s   5|The quick brown fox jumps over the lazy dog while the terminal keeps its own width and the phone re-wraps lines at itsTh|
+s   6|leo@cosmic-gray ~/Projects/cmux %                                                                    [main ↑2] 09:12:51|
+       ^ 0-14 fg=2; 101-105 fg=3; 107-109 fg=3; 111-118 fg=3
+  (17 blank rows)
+cursor col 34 row 6
+### phone
+grid 54x38
+s   0|leo@cosmic-gray ~/Projects/cmux % ls|↩
+       ^ 0-14 fg=2
+s   1|                                   [main ↑2] 09:12:44|
+       ^ 35-39 fg=3; 41-43 fg=3; 45-52 fg=3
+s   2|AGENTS.md          Packages           cmux-next-ios|↩
+s   3|   docs               scripts            workers|
+s   4|CLAUDE.md          README.md          cmux-tui|↩
+s   5|   schemas            vendor|
+s   6|                               build finished 12:01:33|
+s   7|                 == Release notes ==|
+       ^ 17-18 bold; 20-26 bold; 28-32 bold; 34-35 bold
+s   8|The quick brown fox jumps over the lazy dog while the|↩
+s   9|terminal keeps its own width and the phone re-wraps li|↩
+s  10|nes at itsTh|
+s  11|leo@cosmic-gray ~/Projects/cmux %  [main ↑2] 09:12:51|
+       ^ 0-14 fg=2; 35-39 fg=3; 41-43 fg=3; 45-52 fg=3
+  (26 blank rows)
+cursor col 34 row 11

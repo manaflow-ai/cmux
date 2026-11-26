@@ -100,10 +100,9 @@ fn respond(
     if head.method != "GET" && head.method != "HEAD" {
         return plain(405, "Method Not Allowed");
     }
-    let Some(file) = pages.and_then(|root| resolve(root, &head.target)) else {
+    let Some((file, body)) = pages.and_then(|root| page_file(root, &head.target)) else {
         return plain(404, "Not Found");
     };
-    let Ok(body) = read_file(&file) else { return plain(404, "Not Found") };
     let content_type = content_type(&file);
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
@@ -144,6 +143,41 @@ fn page_policy(host: Option<&str>) -> String {
          connect-src 'self'{websocket}; \
          base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     )
+}
+
+/// Suffix of a page file the pages builder stores raw-deflated (CMUX-570,
+/// app size): webviews/scripts/pages/pack-pages.mjs replaces a `__shared`
+/// script no first-window page loads by `<name>.js.deflate`.
+const PACKED_SUFFIX: &str = ".deflate";
+
+/// The file `target` names and its bytes: the file itself, else its packed
+/// copy (`<file>.deflate`) inflated, under the path of the file it stands for
+/// (so its content type is the script's).
+fn page_file(root: &Path, target: &str) -> Option<(PathBuf, Vec<u8>)> {
+    let path = target.split(['?', '#']).next()?;
+    if path.ends_with(PACKED_SUFFIX) {
+        return None;
+    }
+    if let Some(file) = resolve(root, target) {
+        return read_file(&file).ok().map(|body| (file, body));
+    }
+    if path.ends_with('/') {
+        return None;
+    }
+    let packed = resolve(root, &format!("{path}{PACKED_SUFFIX}"))?;
+    let body = inflate(&read_file(&packed).ok()?)?;
+    let name = packed.file_name()?.to_str()?.strip_suffix(PACKED_SUFFIX)?.to_owned();
+    Some((packed.with_file_name(name), body))
+}
+
+/// Raw DEFLATE (RFC 1951), at most [`PAGE_FILE_MAX_BYTES`] inflated.
+fn inflate(stored: &[u8]) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    flate2::read::DeflateDecoder::new(stored)
+        .take(PAGE_FILE_MAX_BYTES + 1)
+        .read_to_end(&mut body)
+        .ok()?;
+    (body.len() as u64 <= PAGE_FILE_MAX_BYTES).then_some(body)
 }
 
 /// The bundle file for `target` (`/pages/<page>/[<file>...]`), or None.
@@ -230,4 +264,49 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
         .filter_map(|exe| exe.parent()?.parent().map(PathBuf::from))
         .flat_map(|root| PAGE_BUNDLE_LAYOUTS.map(|layout| root.join(layout)))
         .find(|dir| dir.is_dir())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn packed_tree(name: &str) -> PathBuf {
+        let stamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-page-files-{name}-{}-{stamp}", std::process::id()))
+            .join("pages");
+        std::fs::create_dir_all(root.join("__shared")).unwrap();
+        std::fs::write(root.join("__shared/kept.js"), "export const kept = 1;").unwrap();
+        let mut encoder =
+            flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(b"export const settings = 'packed';").unwrap();
+        std::fs::write(root.join("__shared/page-settings.js.deflate"), encoder.finish().unwrap())
+            .unwrap();
+        root
+    }
+
+    #[test]
+    fn a_packed_page_script_is_served_inflated_as_javascript() {
+        let root = packed_tree("served");
+        let (file, body) = page_file(&root, "/pages/__shared/page-settings.js?v=1").unwrap();
+        assert_eq!(body, b"export const settings = 'packed';");
+        assert_eq!(file.file_name().unwrap(), "page-settings.js");
+        assert_eq!(content_type(&file), "text/javascript; charset=utf-8");
+        // An unpacked file is read as it is.
+        let (_, kept) = page_file(&root, "/pages/__shared/kept.js").unwrap();
+        assert_eq!(kept, b"export const kept = 1;");
+        // The packed copy itself and missing files are not served.
+        assert!(page_file(&root, "/pages/__shared/page-settings.js.deflate").is_none());
+        assert!(page_file(&root, "/pages/__shared/missing.js").is_none());
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn a_packed_file_that_does_not_inflate_is_not_served() {
+        let root = packed_tree("corrupt");
+        std::fs::write(root.join("__shared/broken.js.deflate"), [0xff, 0xff, 0xff, 0xff]).unwrap();
+        assert!(page_file(&root, "/pages/__shared/broken.js").is_none());
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
 }

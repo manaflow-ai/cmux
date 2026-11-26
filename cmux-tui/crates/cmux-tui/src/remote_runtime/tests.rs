@@ -9,7 +9,11 @@ mod first_connect_recovery;
 #[cfg(unix)]
 mod initial_route_budget;
 #[cfg(unix)]
+mod last_good_route;
+#[cfg(unix)]
 mod ssh_forced_command;
+#[cfg(unix)]
+mod warm_standby;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
 /// client leaves it. A connect to it is refused even while the returned
@@ -147,17 +151,19 @@ enum FakeInitialRouteEvent {
 struct FakeInitialRouteAttempt {
     fail_ssh_bootstrap: bool,
     fail_provider_index: Option<usize>,
-    events: Vec<FakeInitialRouteEvent>,
+    events: std::sync::Mutex<Vec<FakeInitialRouteEvent>>,
 }
 
 #[async_trait]
 impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError> {
         self.events
+            .lock()
+            .unwrap()
             .push(FakeInitialRouteEvent::Bootstrap { endpoint: endpoint.to_string(), upgrade });
         if self.fail_ssh_bootstrap {
             Err(InitialRouteAttemptError::Route {
@@ -170,12 +176,12 @@ impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
     }
 
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<String, InitialRouteAttemptError> {
         let endpoint = request.endpoint.to_string();
-        self.events.push(FakeInitialRouteEvent::Provider(request));
+        self.events.lock().unwrap().push(FakeInitialRouteEvent::Provider(request));
         if self.fail_provider_index == Some(index) {
             Err(InitialRouteAttemptError::Route {
                 error: anyhow!("fake provider is unreachable"),
@@ -2090,10 +2096,10 @@ async fn carrier_initial_fallback_skips_network_route_before_any_dial() {
         resolved_test_route("wss://network.example/v1/link", SupportedClientAuthModes::DeviceOnly),
         resolved_test_route("ssh://carrier.example", SupportedClientAuthModes::DeviceOrCarrier),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let selected = select_initial_route(
@@ -2102,14 +2108,14 @@ async fn carrier_initial_fallback_skips_network_route_before_any_dial() {
         LanePolicy::Single,
         AuthKind::Carrier,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap();
 
     assert_eq!(selected, "ssh://carrier.example");
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://carrier.example".into(),
@@ -2165,10 +2171,10 @@ async fn carrier_route_selection_fails_without_dialing_when_every_route_is_devic
         "wss://network.example/v1/link",
         SupportedClientAuthModes::DeviceOnly,
     )];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2177,14 +2183,14 @@ async fn carrier_route_selection_fails_without_dialing_when_every_route_is_devic
         LanePolicy::Single,
         AuthKind::Carrier,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err()
     .to_string();
 
     assert!(error.contains("carrier"), "{error}");
-    assert!(attempt.events.is_empty(), "an incompatible route was dialed");
+    assert!(attempt.events.lock().unwrap().is_empty(), "an incompatible route was dialed");
 }
 
 fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
@@ -2435,10 +2441,10 @@ async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
             SupportedClientAuthModes::DeviceOnly,
         ),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let selected = select_initial_route(
@@ -2447,14 +2453,14 @@ async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap();
 
     assert_eq!(selected, "iroh://next");
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://unreachable.example".into(),
@@ -2784,10 +2790,10 @@ async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
                      capability-marker?ticket=query-marker#fragment-marker",
         ),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: Some(1),
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2796,7 +2802,7 @@ async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err()
@@ -2823,10 +2829,10 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         test_route("ssh://upgrade-user@upgrade.example"),
         test_route("wss://fallback.example/v1/link"),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2835,7 +2841,7 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         true,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err();
@@ -2844,7 +2850,7 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
     assert!(!error.to_string().contains("upgrade-user"));
     assert!(error.to_string().contains("ssh://upgrade.example"));
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [FakeInitialRouteEvent::Bootstrap {
             endpoint: "ssh://upgrade-user@upgrade.example".into(),
             upgrade: true,
@@ -2858,10 +2864,10 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         test_route("ssh://upgrade-user@upgrade.example"),
         test_route("wss://fallback.example/v1/link"),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: Some(0),
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2870,7 +2876,7 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         true,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err();
@@ -2879,7 +2885,7 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
     assert!(!error.to_string().contains("upgrade-user"));
     assert!(error.to_string().contains("ssh://upgrade.example"));
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://upgrade-user@upgrade.example".into(),
@@ -3791,4 +3797,12 @@ fn a_stale_socket_directory_record_is_replaced_under_an_owner_only_lock() {
     let error = private_socket_directory(&base, "cmux-t", &record, validate).unwrap_err();
     assert!(format!("{error:#}").contains("accessible by another user"), "{error:#}");
     assert_eq!(fs::read(&record).unwrap(), stale.as_os_str().as_bytes());
+}
+
+#[test]
+fn a_connect_timeout_reports_the_seconds_asked_for() {
+    // What is left of `--connect-timeout-seconds 3` once the CLI loaded its identity.
+    assert_eq!(whole_seconds_up(Duration::from_millis(2_930)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_secs(3)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_millis(100)), 1);
 }

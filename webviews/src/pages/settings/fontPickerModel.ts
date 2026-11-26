@@ -44,3 +44,13 @@ export function recentAfterPick(recent: readonly string[], name: string): string
 export function fontFace(name: string): string {
   return `"${name.replace(/["\\]/g, "")}", monospace`;
 }
+
+/** The App Font's stack for `name`: its own face, then the system face cmux's interface draws in
+ * (the stack WebTheme.appFontStack sends every page), so a missing face falls back to the system
+ * font, not to a fixed-pitch one. */
+export function uiFontFace(name: string): string {
+  return `"${name.replace(/["\\]/g, "")}", -apple-system, BlinkMacSystemFont, system-ui, sans-serif`;
+}
+
+/** The validation of the App Font row (`appearance.appFont`): any installed family. */
+export const UI_FONT_VALIDATION = "domain:ui_font_family";

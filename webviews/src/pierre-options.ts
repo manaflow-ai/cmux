@@ -191,6 +191,7 @@ export function codeViewUnsafeCSS(): string {
       display: flex;
       align-items: stretch;
       background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      /* one-material-allow: the diff viewer's own film under its sticky file header (--cmux-diff-glass-filter, set by the see-through diff theme), not a floating surface */
       -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
@@ -356,6 +357,7 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
+      /* one-material-allow: the file tree's sticky rows under the diff viewer's own film, not a floating surface */
       -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);

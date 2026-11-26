@@ -6,6 +6,7 @@ import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
 import { packedShikiData, UNPACK_MODULE } from "./scripts/packed-shiki-data.mjs";
 
@@ -16,6 +17,8 @@ const PIERRE_FILETYPES_QUERY = "?cmux-editor";
 const pierreFiletypes =
   fileURLToPath(new URL("./node_modules/@pierre/diffs/dist/utils/getFiletypeFromFileName.js", import.meta.url)) +
   PIERRE_FILETYPES_QUERY;
+const monacoVimSource = fileURLToPath(new URL("./node_modules/monaco-vim/src/index.ts", import.meta.url));
+const vimShiftCommand = fileURLToPath(new URL("./src/pages/editor/vimShiftCommand.ts", import.meta.url));
 
 export default defineConfig({
   cacheDir: viteCacheDir,
@@ -32,9 +35,9 @@ export default defineConfig({
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
       "src/gallery/fixtures/markdown-showcase.md",
-      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/pane-protocol-codegen.ts.
       "src/protocol/generated/**",
-      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/acpmux-protocol-codegen.ts.
       "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
@@ -60,7 +63,17 @@ export default defineConfig({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  resolve: { alias: [{ find: "cmux:pierre-filetypes", replacement: pierreFiletypes }] },
+  resolve: {
+    alias: [
+      { find: "cmux:pierre-filetypes", replacement: pierreFiletypes },
+      // The code editor's vim mode (src/pages/editor/vimMode.ts): monaco-vim from its TypeScript
+      // source, on the page's Monaco 0.57. Its published dist inlines Monaco 0.33 internals, and its
+      // imports name Monaco's pre-0.50 `esm/vs/...` paths.
+      { find: /^monaco-vim$/, replacement: monacoVimSource },
+      { find: /^monaco-editor\/esm\/vs\/editor\/editor\.api$/, replacement: "monaco-editor/editor/editor.api.js" },
+      { find: /^monaco-editor\/esm\/vs\/editor\/common\/commands\/shiftCommand$/, replacement: vimShiftCommand },
+    ],
+  },
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
@@ -70,8 +83,12 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
-    tailwindcss(),
-    // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+    // JSON imports without vite-plus's fallback source map, about 6x their size (dev-server/jsonDevSourceMap.mjs).
+    jsonDevSourceMap(),
+    // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
+    tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
+    // Shiki's grammars and themes and Monaco's UI strings stored deflated, inflated on import
+    // (CMUX-570, app size).
     packedShikiData(),
     {
       // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
@@ -272,8 +289,8 @@ function lazyChunkName(id: string): string | null {
   if (shikiTheme) {
     return `shiki-theme-${shikiTheme[1]}`;
   }
-  // What the packed grammars and themes inflate with (packed-shiki-data.mjs): one lazy chunk,
-  // loaded with the first of them, never on a page's first load.
+  // What the packed grammars, themes and Monaco UI strings inflate with (packed-shiki-data.mjs):
+  // one lazy chunk, loaded with the first of them, never on a page's first load.
   if (id === UNPACK_MODULE || id.includes("/node_modules/fflate/")) {
     return "shiki-unpack";
   }

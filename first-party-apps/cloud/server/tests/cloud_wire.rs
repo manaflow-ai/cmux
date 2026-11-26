@@ -24,6 +24,27 @@ fn listed() -> Server<WireFake> {
     s
 }
 
+fn lifecycle_observation(s: &mut Server<WireFake>, id: &str) {
+    let value = if let Some(machine) = s.projection().get(id) {
+        serde_json::to_value(machine).unwrap()
+    } else {
+        let vectors = wire_common::vectors();
+        vectors["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "machine.list.default")
+            .unwrap()["responses"][0]["body"]["value"]["machines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    s.control_plane_mut().answer("cloud.machine.get", json!({"machine":id}), None, value);
+}
+
 fn record(s: &Server<WireFake>, id: &str) -> Value {
     s.projection().get(id).map_or(Value::Null, |m| serde_json::to_value(m).expect("record"))
 }
@@ -58,7 +79,7 @@ fn pause_all_snapshots_every_page_and_preserves_partial_results() {
         "cloud.machine.list",
         json!({"limit": 100}),
         None,
-        json!({"machines": [first.clone()], "next_cursor": "next"}),
+        json!({"machines": [first], "next_cursor": "next"}),
     );
     s.control_plane_mut().answer(
         "cloud.machine.list",
@@ -249,6 +270,23 @@ fn create_options_reach_backend_and_preserve_its_capability_refusal() {
 }
 
 #[test]
+fn create_origin_and_ttl_reach_backend_unchanged() {
+    let mut s = server();
+    let args = json!({"name":"probe", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "origin":{"kind":"workflow","label":"cloud round trip","url":"https://example.com/runs/1"},
+        "ttl_seconds":3600});
+    s.control_plane_mut().answer(
+        "cloud.machine.create",
+        args.clone(),
+        Some("origin-key"),
+        json!({"error":{"code":"validation.invalid","message":"invalid params","retryable":false}}),
+    );
+    let error = err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "origin-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["upstream_code"], "validation.invalid");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));
@@ -281,6 +319,7 @@ fn list_pages_follow_the_cursor() {
 fn machine_list_relays_disk_health_to_the_app() {
     let mut s = server();
     let disk_health = json!({
+        "state": "healthy",
         "free_mb": 4096,
         "used_mb": 12288,
         "total_mb": 16384,
@@ -313,8 +352,12 @@ fn machine_list_relays_disk_health_to_the_app() {
     );
 
     let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    assert_eq!(page["machines"][0]["disk_health"], disk_health);
-    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+    // The relay adds the disk bar: 12 of 16 GB used, no split reported.
+    let mut relayed = disk_health;
+    relayed["bar"] = page["machines"][0]["disk_health"]["bar"].clone();
+    assert_eq!(relayed["bar"]["label"], "12 / 16 GB");
+    assert_eq!(page["machines"][0]["disk_health"], relayed);
+    assert_eq!(record(&s, &vm(9))["disk_health"], relayed);
 }
 
 #[test]
@@ -373,6 +416,7 @@ fn an_indeterminate_create_is_retried_with_the_same_key() {
 #[test]
 fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
     let mut s = listed();
+    lifecycle_observation(&mut s, &vm(3));
     let delete = mutation("cloud.machine.delete", json!({ "machine": vm(3) }), "key-delete-cut");
     let cut = err_json(s.handle(&delete));
     assert_eq!(cut["code"], "cmux.cloud.indeterminate", "{cut}");
@@ -394,6 +438,7 @@ fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
 #[test]
 fn a_delete_retry_after_the_delete_answers_deleted() {
     let mut s = listed();
+    lifecycle_observation(&mut s, &vm(2));
     let first = mutation("cloud.machine.delete", json!({ "machine": vm(2) }), "key-delete-1");
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })));
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })), "same key");
@@ -451,6 +496,7 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     assert_eq!(quota["upstream_code"], "cloud.quota.exceeded");
     assert_eq!(quota["details"]["plan"], "max", "the plan that lifts the limit");
 
+    lifecycle_observation(&mut s, &vm(2));
     let start = err_json(s.handle(&mutation(
         "cloud.machine.start",
         json!({ "machine": vm(2) }),
@@ -526,6 +572,9 @@ fn an_agent_principal_refusal_surfaces_as_forbidden() {
     )));
     assert_eq!(create["code"], "cmux.cloud.forbidden", "{create}");
     assert_eq!(create["upstream_code"], "auth.forbidden");
+    s.control_plane_mut().agent = false;
+    lifecycle_observation(&mut s, &vm(1));
+    s.control_plane_mut().agent = true;
     let delete = err_json(s.handle(&mutation(
         "cloud.machine.delete",
         json!({ "machine": vm(1) }),
@@ -693,6 +742,12 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
     assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
+    let usage = s.handle(&Request::new("cloud.usage.current", json!({})));
+    assert!(usage.is_ok(), "{usage:?}");
+    let usage = usage.unwrap();
+    assert_eq!(usage["usd"]["total"], 0.84, "the billing owner's price passes through");
+    assert_eq!(usage["payment_method"]["last4"], "4242");
+    assert_eq!(usage["stripe_mode"], "test");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
     assert_eq!(
@@ -745,13 +800,41 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         if let Some(key) = case["idempotency_key"].as_str() {
             request = request.key(key);
         }
+        let lifecycle =
+            matches!(op, "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete");
+        if lifecycle {
+            let id = case["params"]["machine"].as_str().expect("lifecycle machine");
+            lifecycle_observation(&mut s, id);
+        }
         let out = s.handle(&request);
         let calls = &s.control_plane().calls;
-        assert_eq!(calls.len(), 1, "{}: one backend call, got {calls:?} ({out:?})", case["name"]);
-        assert_eq!(calls[0].op, op, "{}", case["name"]);
-        assert_eq!(calls[0].params, case["params"], "{}", case["name"]);
+        if matches!(
+            case["name"].as_str(),
+            Some("machine.pause.not_running" | "machine.start.not_paused")
+        ) {
+            assert_eq!(calls.len(), 1, "invalid state must not send a mutation");
+            assert_eq!(calls[0].op, "cloud.machine.get");
+            assert_eq!(calls[0].params, case["params"]);
+            let expected = if op == "cloud.machine.pause" {
+                "cmux.cloud.not_running"
+            } else {
+                "cmux.cloud.not_paused"
+            };
+            assert_eq!(err_json(out)["code"], expected);
+            continue;
+        }
+        let expected_calls = if lifecycle { 2 } else { 1 };
         assert_eq!(
-            calls[0].idempotency_key.as_deref(),
+            calls.len(),
+            expected_calls,
+            "{}: backend calls, got {calls:?} ({out:?})",
+            case["name"]
+        );
+        let call = calls.last().expect("backend call");
+        assert_eq!(call.op, op, "{}", case["name"]);
+        assert_eq!(call.params, case["params"], "{}", case["name"]);
+        assert_eq!(
+            call.idempotency_key.as_deref(),
             case["idempotency_key"].as_str(),
             "{}",
             case["name"]

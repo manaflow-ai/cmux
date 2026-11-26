@@ -19,7 +19,8 @@
 //!   carries `_meta.provenance = {kind: "auto_resume", reason: "daemon_restart", ...}`.
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
 //!   of restarts gives up after the attempts it configures ([`configured_attempts`]), as a
-//!   transport cut does (`auto_resume_exhausted`).
+//!   transport cut does (`auto_resume_exhausted`). A move's continuation is not one of those
+//!   attempts: a turn moves as many times as a person moves it.
 //! - A crash between the continuation's `queued` record and its move to the head
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
@@ -346,56 +347,21 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
-/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
-const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
-                      turn and then did not happen. You are still on this machine, with the same \
-                      files; processes you started may have ended with the turn.";
+/// What cut the turn off ([`Cut`]), and how a takeover's tool call in flight is told.
+#[path = "restart_cut.rs"]
+mod cut;
+pub(in crate::hub) use cut::Cut;
 
-/// What cut the turn off.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::hub) enum Cut {
-    /// The daemon restarted (an update or a crash).
-    Restart,
-    /// The chat moved to another machine (`transfer_out.rs`).
-    Move,
-}
+/// The provenance key of a continuation the harness may run from its own transcript, with no
+/// prompt written ([`Cut::MoveAtBoundary`]).
+const SILENT: &str = "silent";
 
-impl Cut {
-    /// The `reason` of its records and provenance.
-    pub(in crate::hub) fn reason(self) -> &'static str {
-        match self {
-            Cut::Restart => "daemon_restart",
-            Cut::Move => "moved",
-        }
-    }
-
-    /// Whether `reason` is a queued continuation's, which goes ahead of what waited behind the
-    /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
-    pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
-        matches!(reason, Some("daemon_restart" | "moved"))
-    }
-
-    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
-    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
-    /// text.
-    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
-        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
-    }
-
-    fn opening(self) -> &'static str {
-        match self {
-            Cut::Restart => {
-                "acpmux restarted (an update or a crash) while your previous turn was running, \
-                 and the turn was cut off."
-            }
-            Cut::Move => {
-                "This chat moved to another machine while your previous turn was running, and the \
-                 turn was cut off. The files and git state came with it, but processes you \
-                 started (dev servers, watchers, background shells) did not: start again any \
-                 that you still need."
-            }
-        }
-    }
+/// Whether `provenance` is such a continuation's.
+pub(in crate::hub) fn silent(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| {
+        p.get("kind").and_then(Value::as_str) == Some("auto_resume")
+            && p.get(SILENT).and_then(Value::as_bool) == Some(true)
+    })
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -446,6 +412,24 @@ fn continue_text_for(
 }
 
 impl Hub {
+    /// How many of the continuations behind the prompt `root` a move made (`reason: "moved"`).
+    /// A move is not a failed attempt: it spends none of the waits `autoResumeDelaysMs`
+    /// configures, for a restart's chain here or a transport cut's (`auto_resume.rs`).
+    pub(in crate::hub) fn moves_behind(&self, session: &Arc<Session>, root: &str) -> usize {
+        let mut moves = 0;
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
+            if head.kind == "auto_resume_scheduled"
+                && let Some(e) = head.record()
+                && e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason())
+                && e.msg.get("promptId").and_then(Value::as_str) == Some(root)
+            {
+                moves += 1;
+            }
+            true
+        });
+        moves
+    }
+
     /// Before the cut turn `turn_id` is settled: logs the continuation that goes on with it, and
     /// returns its prompt id; `None` when it gets none (turned off, or too many attempts).
     pub(in crate::hub) fn log_restart_continuation(
@@ -462,6 +446,18 @@ impl Hub {
         session: &Arc<Session>,
         turn_id: &str,
         cut: Cut,
+    ) -> Option<String> {
+        self.log_continuation_told(session, turn_id, cut, None)
+    }
+
+    /// [`Self::log_continuation`]; `in_flight` names the tool call (name, arguments) a
+    /// takeover's snapshot says was running, which the log may not show (`auto_import.rs`).
+    pub(in crate::hub) fn log_continuation_told(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+        in_flight: Option<(&str, &str)>,
     ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
@@ -494,7 +490,16 @@ impl Hub {
         let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        // Every `auto_resume_scheduled` a move logged, by the prompt it continues: a move is no
+        // failed attempt (`moves_behind`).
+        let mut moved: Vec<String> = Vec::new();
+        // The last prompt that was no continuation: a continuation of a continuation quotes it,
+        // never the continuation before it (ten moves nested the same words ten deep).
+        let mut first_ask = None::<(String, String)>;
+        // The newest turn before the cut one and the newest prompt text before it, each by turn
+        // id: the two records come in either order.
+        let (mut ask_turn, mut ask_text) = (None::<(String, String)>, None::<(String, String)>);
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
             let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
@@ -508,6 +513,7 @@ impl Hub {
                     | "remote_floor_cancel"
                     | "turn_result"
                     | "turn_stop_requested"
+                    | "auto_resume_scheduled"
             );
             if !needs_record {
                 return true;
@@ -516,6 +522,11 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
+                }
                 "turn_started" if is_turn => {
                     started = true;
                     trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
@@ -533,7 +544,7 @@ impl Hub {
                         .map(str::to_owned)
                         .collect();
                 }
-                "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
+                "turn_started" if started && e.msg.get("carried").is_none_or(Value::is_null) => {
                     steered.clear();
                 }
                 "turn_control" if is_turn => {
@@ -561,6 +572,23 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
+                "turn_started" | "user_message" if !started => {
+                    if e.kind == "turn_started" {
+                        ask_turn = field("turnId").zip(field("promptId"));
+                    } else {
+                        ask_text = field("turnId").zip(field("text"));
+                    }
+                    if let (Some((turn, id)), Some((of, text))) = (&ask_turn, &ask_text)
+                        && turn == of
+                        && split_attempt(id).1 == 0
+                        && !text.trim().is_empty()
+                    {
+                        first_ask = Some((id.clone(), text.clone()));
+                    }
+                    if e.kind == "turn_started" && e.msg.get("carried").is_none_or(Value::is_null) {
+                        steered.clear();
+                    }
+                }
                 "turn_result" if is_turn => {
                     tool_end = Some(e.seq);
                     return false;
@@ -573,6 +601,14 @@ impl Hub {
         // continuation would drop its principal and execute as the person.
         if trigger {
             return None;
+        }
+        // A continuation's own prompt is the continuation before it: quote what was asked.
+        if let (Some((root, n)), Some((id, text)), Some(own)) =
+            (prompt_id.as_deref().map(split_attempt), first_ask, prompts.first_mut())
+            && n > 0
+            && id == root
+        {
+            *own = text;
         }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
@@ -596,7 +632,7 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
-            let _ = self.store.scan_heads(&session.id, &mut |head| {
+            let _ = self.scan_heads_off(&session.id, &mut |head| {
                 if tool_end.is_some_and(|end| head.seq >= end) {
                     return false;
                 }
@@ -618,7 +654,10 @@ impl Hub {
         });
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
-        if attempt > attempts {
+        // A person moves a chat as often as they like: a move's continuation is never refused for
+        // the count, and the moves behind a restart's are not failures it has used up.
+        let moves = moved.iter().filter(|id| id.as_str() == root).count();
+        if cut == Cut::Restart && attempt.saturating_sub(moves) > attempts {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
@@ -649,8 +688,19 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
-        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let mut text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        if let Some((name, args)) = in_flight.filter(|_| unfinished.is_empty()) {
+            cut::tell_in_flight(&mut text, cut.opening().len(), name, args);
+        }
+        let mut provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        // Nothing of the turn was cut short: the harness may go on from its own transcript.
+        if cut == Cut::MoveAtBoundary
+            && unfinished.is_empty()
+            && omitted_tools == ToolOmission::None
+            && images.is_empty()
+        {
+            provenance.set(SILENT, json!(true));
+        }
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         // Each image's source goes with it as display metadata, so the continuation's record keeps
@@ -803,6 +853,80 @@ mod tests {
         let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
         assert_eq!(id, Some(format!("p1{SUFFIX}6")));
         assert!(gave_up.is_empty(), "{gave_up:?}");
+    }
+
+    /// A move is not a failed attempt: a turn moved more times than the waits configured still
+    /// goes on where it lands, and the moves behind a restart use up none of its attempts.
+    #[tokio::test]
+    async fn a_move_spends_no_attempt_and_is_never_refused_for_the_count() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let (mut prompt, mut said) = ("p1".to_owned(), String::new());
+        for hop in 1..=10 {
+            let turn = format!("t{hop}");
+            if hop > 1 {
+                hub.append(
+                    &session,
+                    "in",
+                    "turn_started",
+                    json!({"turnId": turn, "promptId": prompt}),
+                );
+                hub.append(&session, "in", "user_message", json!({"turnId": turn, "text": said}));
+            }
+            let id = hub.log_continuation(&session, &turn, Cut::Move);
+            assert_eq!(id, Some(format!("p1{SUFFIX}{hop}")), "move {hop}");
+            // Each continuation quotes what the person asked, once, never the one before it.
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            said = queued["text"].as_str().unwrap().to_owned();
+            assert_eq!(said.matches("<message>").count(), 1, "move {hop}: {said}");
+            assert!(said.contains("<message>\ndo the thing\n</message>"), "move {hop}: {said}");
+            hub.append(&session, "in", "turn_result", json!({"turnId": turn}));
+            prompt = id.unwrap();
+        }
+        assert_eq!(hub.moves_behind(&session, "p1"), 10);
+        // Ten moves behind it, the one configured attempt is still unspent: a restart continues.
+        hub.append(&session, "in", "turn_started", json!({"turnId": "t11", "promptId": prompt}));
+        hub.append(&session, "in", "user_message", json!({"turnId": "t11", "text": "on"}));
+        let id = hub.log_restart_continuation(&session, "t11");
+        assert_eq!(id, Some(format!("p1{SUFFIX}11")));
+        hub.append(&session, "in", "turn_result", json!({"turnId": "t11"}));
+        // The second restart has no wait left.
+        hub.append(
+            &session,
+            "in",
+            "turn_started",
+            json!({"turnId": "t12", "promptId": id.unwrap()}),
+        );
+        hub.append(&session, "in", "user_message", json!({"turnId": "t12", "text": "on"}));
+        assert_eq!(hub.log_restart_continuation(&session, "t12"), None);
+        assert_eq!(exhausted(&hub).len(), 1);
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A move at a tool boundary marks its continuation as one the harness may run from its own
+    /// transcript; a move that cut the turn anywhere (`--interrupt`) does not. Both keep the
+    /// text, the reason and the id, which every other harness and every record reader use.
+    #[tokio::test]
+    async fn only_a_boundary_moves_continuation_may_run_with_no_prompt() {
+        for (cut, want) in [(Cut::MoveAtBoundary, true), (Cut::Move, false), (Cut::Restart, false)]
+        {
+            let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+            let id = hub.log_continuation(&session, "t1", cut);
+            assert_eq!(id, Some(format!("p1{SUFFIX}1")), "{cut:?}");
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            let provenance = queued.pointer("/_meta/provenance");
+            assert_eq!(silent(provenance), want, "{cut:?}: {queued}");
+            let text = queued.pointer("/text").and_then(|v| v.as_str()).unwrap();
+            assert!(text.starts_with(cut.opening()), "{cut:?}: {text}");
+            assert_eq!(Cut::MoveAtBoundary.opening(), Cut::Move.opening());
+            assert_eq!(Cut::MoveAtBoundary.reason(), Cut::Move.reason());
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(!silent(None));
+        assert!(!silent(Some(&json!({"kind": "person", "silent": true}))));
     }
 
     /// The key unset keeps the default waits' attempts, and `[]` still turns it off.

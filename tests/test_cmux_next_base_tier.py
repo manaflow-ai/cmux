@@ -35,6 +35,7 @@ import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import step_run  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 import deadline_http  # noqa: E402
 
@@ -134,6 +135,81 @@ def job(name: str, status: str, conclusion: str | None = None) -> dict:
 
 QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-next daemon tests", "queued"),
               job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
+
+
+_KEEP_QUEUED = tier.KEEP_QUEUED
+
+
+def setUpModule():
+    # The suites below (but KeepQueued) pin the off switch, CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0: a run whose
+    # Mac jobs only wait for a runner is superseded and cancelled. KeepQueued tests the default.
+    tier.KEEP_QUEUED = False
+
+
+def tearDownModule():
+    tier.KEEP_QUEUED = _KEEP_QUEUED
+
+
+class KeepQueued(unittest.TestCase):
+    """2026-11-22: run 45053417691's generated-files job waited 12 minutes for a Mac runner and the next
+    kick cancelled it as superseded at 18:25:18Z; its replacement went to the back of the Mac queue. By
+    default a run waiting in the Mac queue keeps its place, and no run is dispatched to replace it."""
+
+    def setUp(self):
+        tier.KEEP_QUEUED = True
+
+    def tearDown(self):
+        tier.KEEP_QUEUED = False
+
+    def test_the_default_is_on_and_zero_turns_it_off(self):
+        code = "import cmux_next_base_tier as t; print(t.KEEP_QUEUED)"
+        env = {k: v for k, v in os.environ.items() if k != "CMUX_NEXT_BASE_TIER_KEEP_QUEUED"}
+        for value, expected in ((None, "True"), ("", "True"), ("1", "True"), ("0", "False")):
+            run_env = dict(env) if value is None else {**env, "CMUX_NEXT_BASE_TIER_KEEP_QUEUED": value}
+            out = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "scripts" / "ci", env=run_env,
+                                 capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(out, expected, value)
+
+    def test_a_run_waiting_for_a_mac_is_neither_cancelled_nor_replaced(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "in_progress", QUEUED_MAC)
+        self.assertIsNone(kick(api, clock))
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
+
+    def test_once_its_mac_job_started_the_tip_is_dispatched_and_the_started_run_is_kept(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "in_progress", [job("cmux-next generated files", "in_progress")] + QUEUED_MAC[1:2])
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_superseded_run_with_no_mac_job_yet_is_still_cancelled(self):
+        # A run still in its Linux jobs holds no place in the Mac queue: the tip's run replaces it.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "in_progress", [job("cmux-next path routing", "in_progress")])
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(api.cancelled, [11])
+
+    def test_a_queued_run_is_left_alone_when_the_tip_already_has_a_run(self):
+        lines = []
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0 - 60, "queued", QUEUED_MAC)
+        self.assertIsNone(tier.kick(api, REPO, tier.push_paths(WORKFLOW.read_text()), now=clock.now,
+                                    sleep=clock.sleep, log=lines.append))
+        self.assertEqual(api.cancelled, [])
+        self.assertTrue(any("keeps its place in the Mac queue" in line for line in lines), lines)
+
+    def test_an_unreadable_job_list_holds_nothing_back(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "queued", None)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(api.cancelled, [])
+
+    def test_the_kick_passes_the_repository_variable(self):
+        steps = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["steps"]
+        [step] = [step for step in steps if "cmux_next_base_tier.py kick" in (step.get("run") or "")]
+        self.assertEqual(step["env"]["CMUX_NEXT_BASE_TIER_KEEP_QUEUED"], "${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}")
 
 
 class Previous(unittest.TestCase):
@@ -935,7 +1011,7 @@ class NothingAfterTheBound(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the bound is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -948,7 +1024,7 @@ class NothingAfterTheBound(unittest.TestCase):
         def start(thread):
             real(thread)
             if thread.name == "github-request":
-                time.sleep(seconds)
+                time.sleep(seconds)  # sleep-ok: a simulated loaded caller, held after it starts the request
 
         threading.Thread.start = start
         self.addCleanup(setattr, threading.Thread, "start", real)
@@ -1133,6 +1209,8 @@ class RouteStep(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
+            # The step's commands, moved to scripts/ci/cmux-next-steps/ for cmux-next.yml's size budget.
+            shutil.copytree(ROOT / "scripts/ci/cmux-next-steps", root / "scripts/ci/cmux-next-steps")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
@@ -1190,11 +1268,15 @@ class Workflows(unittest.TestCase):
         route = yaml.safe_load(WORKFLOW.read_text())["jobs"]["path_route"]
         marker = next(step for step in route["steps"] if step.get("id") == "marker")
         self.assertEqual(marker["env"]["BASE_TIER"], "${{ inputs.base_tier || false }}")
-        self.assertIn('marker.update(tip_suite="base")', marker["run"])
+        self.assertIn('marker.update(tip_suite="base")', step_run(marker))
 
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("inputs.base_tier == true", jobs["push-attribution"]["if"])
+        # The tip suite dispatches (swift test, the daemon tests) are the after-merge runs of jobs a pull request
+        # into feat-cmux-next no longer runs (2026-11-26): their red names the merges in range and pages the culprit.
+        self.assertIn("inputs.tip_swift_suite == true", jobs["push-attribution"]["if"])
+        self.assertIn("inputs.tip_daemon_suite == true", jobs["push-attribution"]["if"])
 
     def test_a_red_crash_gate_alone_starts_push_attribution(self):
         # failure() reads only the needed jobs: the crash gate is one of the base tier's jobs.
@@ -1238,12 +1320,13 @@ class Workflows(unittest.TestCase):
         self.assertNotIn("if", mint)
         kick_step = steps[-1]
         self.assertLess(steps.index(mint), steps.index(kick_step))
-        self.assertEqual(kick_step["env"], {"GH_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}"})
+        self.assertEqual(kick_step["env"], {"GH_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}",
+                                            "CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}"})
         checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
         self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
-    def test_sleeping_dispatcher_reads_the_linux_pool(self):
-        # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
+    def test_sleeping_dispatcher_takes_the_one_linux_label(self):
+        # A pure Python timer/API call takes the one Linux label, cmux-linux, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
         self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
@@ -1251,8 +1334,8 @@ class Workflows(unittest.TestCase):
         expression = cells[0]
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
-        self.assertNotIn("vars.LINUX_RUNNER", expression)
-        self.assertTrue(expression.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), expression)
+        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])|RUNNER_POOLS\)\.linux", expression), expression)
+        self.assertTrue(expression.rstrip().endswith("|| 'cmux-linux' }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]
@@ -1263,7 +1346,7 @@ class Workflows(unittest.TestCase):
         # Only the three base tier outputs are rewritten; nightly-next's Release compile (native), the DEV
         # landing compile (its own job) and the fast tier keep their push routing.
         self.assertEqual(tier.TIERS, ("daemon", "scheme", "generated"))
-        text = route_step()["run"]
+        text = step_run(route_step())
         self.assertTrue(re.search(r'"\$EVENT_NAME" == push && "\$GITHUB_REF" == refs/heads/feat-cmux-next && '
                                   r'"\$BASE_TIER_COALESCE" == true', text))
 

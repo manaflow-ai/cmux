@@ -20,6 +20,9 @@ on:
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
+      - "tests/test_check_concurrency_caller_isolated.py"
+      - "scripts/cmux-next/caller_isolation.py"
+      - "scripts/cmux-next/caller-isolated-blocking-pending.json"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -39,6 +42,9 @@ on:
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
+      - "tests/test_check_concurrency_caller_isolated.py"
+      - "scripts/cmux-next/caller_isolation.py"
+      - "scripts/cmux-next/caller-isolated-blocking-pending.json"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -65,8 +71,8 @@ jobs:
     name: cmux-next crash-class rules
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -83,6 +89,8 @@ jobs:
             scripts/ci/pr_owned_findings.py
             tests/test_check_concurrency_generic_deinit.py
             tests/test_check_concurrency_pipe_reads.py
+            tests/test_check_concurrency_caller_isolated.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
@@ -99,6 +107,12 @@ jobs:
       - name: Pipe-read rule tests
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_check_concurrency_pipe_reads.py
+
+      # The caller-isolated blocking rule is red on ProcessRunner's shape (a blocking call in a nonisolated
+      # async function, awaited from the main actor) and green with @concurrent or work.run.
+      - name: Caller-isolated blocking rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_caller_isolated.py
 
       # Every `super.<member>` must reach a selector its framework superclass
       # answers on each macOS recorded in the table, or be guarded.

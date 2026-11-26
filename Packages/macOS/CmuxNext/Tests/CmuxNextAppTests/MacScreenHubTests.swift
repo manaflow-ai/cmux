@@ -155,6 +155,26 @@ struct MacScreenDeviceRecordTests {
         #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
         #expect(pages.pendingScopes[hostID] == .view)
     }
+
+    /// `macScreen.open --autoconnect` into a tab that is not selected asks the hub at once,
+    /// not when the tab is first shown; a tab opened without a scope still waits.
+    @MainActor
+    @Test func anAutoconnectIntoABackgroundTabAsksTheHubBeforeItIsShown() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-bg-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.prepare("background", record: pages.record(forDevice: hostID, requesting: .view), byPerson: true)
+        pages.connectInBackground("background")
+        let viewer = try #require(pages.tab("background")?.pane?.model.hub)
+        // No hub in this test: the request ran, so it was refused as signed out rather than left idle.
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
+        #expect(viewer.resumeScope == nil)
+
+        pages.prepare("waiting", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        pages.connectInBackground("waiting")
+        #expect(pages.tab("waiting") == nil)
+        pages.tabClosed("background")
+        pages.tabClosed("waiting")
+    }
 }
 
 @MainActor
@@ -206,14 +226,13 @@ struct MacScreenHubCardTests {
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
         #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-        // A Linux desktop has no cmux app or Settings: its offline and not-shared steps name its screen host.
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "lane", platform: .linux)
-            == L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running."))
+        // A Linux desktop has no cmux app or Settings: its not-shared step names its screen host.
         #expect(MacScreenCardView.refusedBody(.notShared, host: "lane", platform: .linux).contains("linux-host share on"))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: .macos)
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio")
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
+        // Zero touch (Z7): offline asks nothing of the other machine, on every platform.
+        let waits = L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
+        for platform in [DevicePlatform.linux, .macos, nil] {
+            #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: platform) == waits)
+        }
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {
@@ -667,6 +686,26 @@ struct MacScreenHubViewerTests {
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
+    }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
     }
 }
 
@@ -1459,6 +1498,60 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
         #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}
+
+/// The `remoteDesktop.*` defaults seed a new session's toolbar picks, and its offer carries them:
+/// the quality's wish, the frame rate limit as a cap on `a=cmux-rd-max-fps`, the bitrate limit as `a=cmux-rd-max-kbps`.
+struct MacScreenRemoteDesktopDefaultsTests {
+    @Test func autoDefaultsAreTodaysPicks() {
+        #expect(MacScreenPages.preferences(RemoteDesktopDefaults()) == ScreenPreferences())
+    }
+
+    @Test func eachQualityMapsToTheToolbarsPreset() {
+        var defaults = RemoteDesktopDefaults()
+        let presets: [(RemoteDesktopQuality, ScreenQuality)] = [(.auto, .auto), (.sharpText, .high), (.smoothMotion, .smooth), (.lowBandwidth, .low)]
+        for (quality, preset) in presets {
+            defaults.quality = quality
+            #expect(MacScreenPages.preferences(defaults).quality == preset)
+        }
+    }
+
+    @Test func theLimitsReachTheOffer() throws {
+        var defaults = RemoteDesktopDefaults()
+        defaults.quality = .smoothMotion
+        defaults.maxFps = 30
+        defaults.maxBitrateMbps = 4
+        let preferences = MacScreenPages.preferences(defaults)
+        let wish = MacScreenRdDocument.wish(preferences.quality, refresh: 120, paneWidth: 1000, maxFps: defaults.maxFps)
+        #expect(wish == (1920, 30))
+        var offer = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        offer.maxWidth = wish.maxWidth
+        offer.maxFps = wish.maxFps
+        offer.customize(preferences)
+        #expect(offer.text.contains("a=cmux-rd-max-fps:30\r\n"))
+        #expect(offer.text.contains("a=cmux-rd-max-kbps:4000\r\n"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)) == offer)
+    }
+
+    @Test func theFrameRateLimitOnlyLowers() {
+        #expect(MacScreenRdDocument.wish(.low, refresh: 120, maxFps: 90).maxFps == 60, "a cap over the preset's rate raised it")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120, maxFps: 15).maxFps == 15, "the cap is not floored at 30")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 120).maxFps == 120, "no cap changed the rate")
+    }
+}
+
+/// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
+struct MacScreenRdCustomizeTests {
+    @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.customize(ScreenPreferences())
+        #expect(!document.text.contains("max-kbps") && !document.text.contains("cmux-rd-cursor"))
+        document.customize(ScreenPreferences(maxKbps: 10_000, showCursorInStream: false))
+        #expect(document.text.contains("a=cmux-rd-max-kbps:10000\r\n"))
+        #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: document.text))
+        #expect(parsed == document)
     }
 }
 

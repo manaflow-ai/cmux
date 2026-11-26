@@ -225,6 +225,16 @@ fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
 }
 
 #[test]
+fn bdp_window_covers_a_150_ms_path_and_stays_within_reassembly_budget() {
+    // Ten frame intervals cover the 150 ms RTT with the integer frame interval,
+    // and the extra encode slot makes eleven. The queue-derived bound still
+    // applies to a path wider than the BDP.
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(150_000, 60), 11);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(250_000, 60), 16);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(u64::MAX, 60), 16);
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
@@ -376,11 +386,12 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         true,
         10_000,
     );
-    // A small P-frame of one datagram, which the path loses: the viewer sees nothing of it.
+    // A small P-frame of one datagram and, on this idle link, its copy, which the path
+    // loses both of: the viewer sees nothing of it.
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     let p = e.damage(0, small, 20_000).expect("second frame");
     let lost = send(&mut e, &p, false, 100, 20_000);
-    assert_eq!(lost.len(), 1);
+    assert_eq!(lost.len(), 2);
     assert!(
         e.tick(true, 20_000 + TAIL_PROBE_US - 1).datagrams.is_empty(),
         "no probe before its time"
@@ -495,6 +506,113 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
 
+/// A typing-sized frame on a nearly idle link goes out twice (its one data shard
+/// and a parity copy), so losing either copy costs no tail-probe wait: the
+/// viewer rebuilds the frame from the one that arrived. On a Mac pair over a
+/// clean LAN, 11 of 300 key presses lost such a frame's only copy, and each
+/// waited the whole probe interval.
+#[test]
+fn a_small_frame_on_an_idle_link_goes_out_twice_and_survives_losing_a_copy() {
+    use cmux_rd_core::reassembly::Reassembler;
+    let mut e = engine();
+    let mut viewer = Reassembler::new(500_000);
+    let first = e.start(0).expect("first");
+    for d in send(&mut e, &first, true, 1_000, 0) {
+        let (h, payload) = DatagramHeader::decode(&d).expect("header");
+        viewer.push(&h, payload, 1_000);
+    }
+    assert_eq!(viewer.last_released(), first.frame);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    let sent = send(&mut e, &p, false, 100, 20_000);
+    assert_eq!(sent.len(), 2, "a small frame on an idle link is sent twice");
+    // The data datagram is lost; the copy alone gives the viewer the frame.
+    let copy = sent.last().expect("copy");
+    let (h, payload) = DatagramHeader::decode(copy).expect("header");
+    assert_eq!(h.kind, DatagramKind::Fec);
+    let released = viewer.push(&h, payload, 21_000);
+    assert_eq!(released.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![p.frame]);
+}
+
+/// The copy is spent only while the link is nearly idle: while the last
+/// second's sends pass 1 % of the target, a small frame goes out once.
+#[test]
+fn a_small_frame_on_a_busy_link_goes_out_once() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    // 40 KB in the last second is far over 1 % of the 8 Mbps starting target.
+    send(&mut e, &first, true, 40_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    assert_eq!(send(&mut e, &p, false, 100, 20_000).len(), 1);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: p.frame, ..Feedback::default() }),
+        true,
+        30_000,
+    );
+    // A second later the keyframe has left the window: the link is idle again.
+    let q = e.damage(0, small, 1_100_000).expect("third frame");
+    assert_eq!(send(&mut e, &q, false, 100, 1_100_000).len(), 2);
+}
+
+#[test]
+fn a_pinned_target_holds_through_heavy_loss() {
+    use cmux_rd_proto::Arrival;
+    // Half of every frame lost: the controller cuts an unpinned target, and holds a pinned
+    // one (min_bps equal to max_bps, as `cmux-rd host --pin-kbps` sets it).
+    let target = |min_bps: u64| {
+        let mut e = MediaEngine::new(
+            EngineConfig {
+                width: 640,
+                height: 480,
+                max_fps: 60,
+                start_bps: 50_000_000,
+                max_bps: 50_000_000,
+                min_bps,
+                ..EngineConfig::default()
+            },
+            0,
+        );
+        let mut req = e.start(0).expect("first");
+        let mut now = 0u64;
+        for _ in 0..90 {
+            let sent = send(&mut e, &req, req.force_idr, 20_000, now);
+            let arrivals = sent
+                .iter()
+                .step_by(2)
+                .map(|d| Arrival {
+                    transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                    arrival_us: (now + 2_000) as u32,
+                })
+                .collect();
+            now += 16_667;
+            e.on_datagram(
+                &feedback(&Feedback { acked_frame: req.frame, arrivals, ..Feedback::default() }),
+                false,
+                now,
+            );
+            let full = Rect { x: 0, y: 0, width: 640, height: 480 };
+            req = match e.damage(0, full, now) {
+                Some(r) => r,
+                None => e.poll(now + 16_667).expect("the next frame"),
+            };
+        }
+        e.stats().target_bps
+    };
+    assert!(target(EngineConfig::default().min_bps) < 50_000_000, "unpinned: loss cuts it");
+    assert_eq!(target(50_000_000), 50_000_000, "pinned: the target holds");
+}
+
 #[test]
 fn a_frame_the_encoder_dropped_is_encoded_again_with_no_new_damage() {
     // A dropped frame's change has to reach the viewer even when nothing else moves on
@@ -559,6 +677,47 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert!(end.silent_us > 100_000, "{end:?}");
     assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
+}
+
+/// A shard the viewer NACKed and the host repaired was lost on the path: the
+/// repair reuses its transport sequence, so the viewer later reports that
+/// sequence as arrived. The host's loss (the stats' `loss_pct`, and what
+/// sizes FEC) must still count it; at 1% loss with every gap repaired it
+/// read 0.0% all run (fleet Mac pair, 2026-11-16).
+#[test]
+fn a_shard_repaired_after_a_nack_still_counts_as_lost() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 30_000, 0);
+    let seq = |d: &Vec<u8>| DatagramHeader::decode(d).expect("header").0.transport_seq;
+    let lost = 2;
+    let arrivals: Vec<Arrival> = sent
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != lost)
+        .map(|(_, d)| Arrival { transport_seq: seq(d), arrival_us: 5_000 })
+        .collect();
+    let nacks = vec![Nack { frame: first.frame, indexes: vec![lost as u16] }];
+    let out = e.on_datagram(
+        &feedback(&Feedback { arrivals, nacks, ..Feedback::default() }),
+        false,
+        10_000,
+    );
+    assert!(out.datagrams.contains(&sent[lost]), "the NACKed shard is resent");
+    // The repair arrives well inside the meter's reorder grace.
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: vec![Arrival { transport_seq: seq(&sent[lost]), arrival_us: 15_000 }],
+            ..Feedback::default()
+        }),
+        false,
+        20_000,
+    );
+    // Settle every receipt.
+    e.on_datagram(&feedback(&Feedback::default()), false, 400_000);
+    assert!(e.stats().loss > 0.0, "a repaired loss is a loss: {}", e.stats().loss);
 }
 
 /// D12 drop: an engine whose path worked (a keyframe of `keyframe` bytes answered in
@@ -797,6 +956,19 @@ fn standard_never_refines_and_carries_its_profile() {
 }
 
 #[test]
+fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
+    let mut e =
+        MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
+    e.set_profile(EncodeProfile::Ultra);
+    let req = e.start(0).expect("first frame");
+    assert_eq!(
+        e.target_bps(),
+        u64::from(req.target_kbps) * 1_000,
+        "pacer gets the full wire budget"
+    );
+}
+
+#[test]
 fn ultra_refines_a_still_screen_within_two_frames() {
     let mut e = engine();
     e.set_profile(EncodeProfile::Ultra);
@@ -853,4 +1025,104 @@ fn leaving_ultra_drops_a_due_refinement() {
     e.set_profile(EncodeProfile::Standard);
     assert_eq!(e.next_deadline_us(), None);
     assert!(e.poll(1_000_000).is_none());
+}
+
+#[test]
+fn probe_planner_wiring_updates_ultra_capacity() {
+    fn run(stamp_departures: bool) -> (u64, usize, u64) {
+        let mut e = MediaEngine::new(
+            EngineConfig { start_bps: 8_000_000, max_bps: 150_000_000, ..EngineConfig::default() },
+            0,
+        );
+        e.set_profile(EncodeProfile::Ultra);
+        let start_bps = e.target_bps();
+        let _ = e.start(0).expect("startup request");
+        let mut probes = Vec::new();
+        for index in 0..16u64 {
+            let now_us = index * 100;
+            let out = e.tick(false, now_us);
+            for datagram in out.datagrams {
+                let (header, _) = DatagramHeader::decode(&datagram).expect("probe header");
+                if header.kind != DatagramKind::Probe {
+                    continue;
+                }
+                let departed_us = now_us + 10;
+                if stamp_departures {
+                    e.datagram_sent(&datagram, departed_us);
+                }
+                probes.push(header.transport_seq);
+            }
+        }
+        assert_eq!(probes.len(), 16, "one complete startup train is emitted");
+        let arrivals = probes
+            .iter()
+            .enumerate()
+            .map(|(index, &transport_seq)| cmux_rd_proto::Arrival {
+                transport_seq,
+                arrival_us: 10_000 + index as u32 * 200,
+            })
+            .collect();
+        e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), true, 20_000);
+        (e.target_bps(), probes.len(), start_bps)
+    }
+
+    let (without_departures, _, startup_bps) = run(false);
+    let (with_departures, probe_count, _) = run(true);
+    assert_eq!(without_departures, startup_bps, "enqueue-only probes cannot establish capacity");
+    assert!(with_departures > without_departures, "socket departures feed on_probe_capacity");
+    assert_eq!(probe_count, 16);
+}
+
+/// D10: one tick sends the whole startup train (a host wakes at millisecond granularity,
+/// so a train sent one datagram per tick measured the wakeup rate); the viewer's arrivals
+/// of it give a capacity, and ultra holds min(150 Mbps, 0.8 x capacity). With no probe
+/// arrivals (an old viewer ignores probes) ultra keeps its start rate.
+#[test]
+fn ultra_holds_four_fifths_of_the_probed_capacity_under_its_ceiling() {
+    fn probed(arrival_gap_us: Option<u32>) -> (u64, usize) {
+        let mut e = MediaEngine::new(
+            EngineConfig { start_bps: 8_000_000, max_bps: 150_000_000, ..EngineConfig::default() },
+            0,
+        );
+        e.set_profile(EncodeProfile::Ultra);
+        let _ = e.start(0).expect("startup request");
+        let train: Vec<Vec<u8>> = e
+            .tick(false, 0)
+            .datagrams
+            .into_iter()
+            .filter(|d| DatagramHeader::decode(d).expect("header").0.kind == DatagramKind::Probe)
+            .collect();
+        assert_eq!(train.len(), 16, "one tick sends the whole train");
+        // The host sends the train back to back and stamps each departure.
+        for d in &train {
+            e.datagram_sent(d, 50);
+        }
+        let probes: Vec<(u16, usize)> = train
+            .iter()
+            .map(|d| (DatagramHeader::decode(d).expect("header").0.transport_seq, d.len()))
+            .collect();
+        if let Some(gap) = arrival_gap_us {
+            let arrivals = probes
+                .iter()
+                .enumerate()
+                .map(|(i, &(transport_seq, _))| cmux_rd_proto::Arrival {
+                    transport_seq,
+                    arrival_us: 10_000 + i as u32 * gap,
+                })
+                .collect();
+            e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), true, 20_000);
+        }
+        (e.target_bps(), probes[0].1)
+    }
+
+    let (old_viewer, _) = probed(None);
+    assert_eq!(old_viewer, 8_000_000, "no probe arrivals: the start rate, never 150 Mbps blind");
+    // 15 probe datagrams after the first, over 15 gaps of 400 us.
+    let (target, len) = probed(Some(400));
+    let capacity = (15 * len as u64 * 8 * 1_000_000) / (15 * 400);
+    assert!(capacity * 4 / 5 > 8_000_000, "the test path is faster than the start rate");
+    assert_eq!(target, capacity * 4 / 5, "0.8 x the measured capacity");
+    // A path faster than 187.5 Mbps holds the 150 Mbps ceiling.
+    let (fast, _) = probed(Some(1));
+    assert_eq!(fast, 150_000_000);
 }

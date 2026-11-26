@@ -66,24 +66,55 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// Runs `program` in `dir`; on a failure, its last lines.
+/// Runs `program` with its stdout and stderr in one log, in the order it wrote
+/// them. Read as two pipes joined end to end, stderr's warnings came last and
+/// filled the tail: the Nightly walk of 2026-11-24 (hq run 45341531578) saw
+/// only esbuild's `No matching export` warning, never the error that stopped
+/// the build.
 fn run(dir: &Path, program: &str, args: &[&str]) -> Result<(), Failure> {
-    let output = cmux_process::Command::new(dir.join(program))
+    let log =
+        tempfile::NamedTempFile::new().map_err(|error| failure(format!("{program}: {error}")))?;
+    let file = log.reopen().map_err(|error| failure(format!("{program}: {error}")))?;
+    let copy = file.try_clone().map_err(|error| failure(format!("{program}: {error}")))?;
+    let status = cmux_process::Command::new(dir.join(program))
         .args(args)
         .current_dir(dir)
         .stdin(cmux_process::Stdio::null())
-        .output()
+        .stdout(file)
+        .stderr(copy)
+        .status()
         .map_err(|error| failure(format!("{program}: {error}")))?;
-    if output.status.success() {
+    if status.success() {
         return Ok(());
     }
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let text = std::fs::read_to_string(log.path()).unwrap_or_default();
+    Err(failure(why_failed(program, &text)))
+}
+
+/// How many of a failed build's last lines the message keeps.
+const TAIL_LINES: usize = 25;
+
+/// A failed build's message: the lines that name an error, when the tail
+/// lacks them, then the tail. A warning (`▲ [WARNING]`, `warning:`) names no
+/// error, however it is worded.
+pub(super) fn why_failed(program: &str, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
-    let tail = lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-    Err(failure(format!("{program} failed:\n{}", tail.join("\n"))))
+    let start = lines.len().saturating_sub(TAIL_LINES);
+    let (head, tail) = lines.split_at_checked(start).unwrap_or((&[], lines.as_slice()));
+    let names_error = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        !lower.contains("warning")
+            && (lower.contains("error") || line.contains('✘') || lower.contains("failed"))
+    };
+    let causes: Vec<&str> = if tail.iter().any(|line| names_error(line)) {
+        Vec::new()
+    } else {
+        head.iter().copied().filter(|line| names_error(line)).take(5).collect()
+    };
+    if causes.is_empty() {
+        return format!("{program} failed:\n{}", tail.join("\n"));
+    }
+    format!("{program} failed: {}\n…\n{}", causes.join("\n"), tail.join("\n"))
 }
 
 /// A scratch build folder next to the layers.
@@ -138,10 +169,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
                 return Ok(());
             }
             let text = std::fs::read_to_string(&log).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            let tail =
-                lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-            Err(failure(format!("{builder} failed:\n{}", tail.join("\n"))))
+            Err(failure(why_failed(builder, &text)))
         });
         let _ = std::fs::remove_file(&log);
         if first.is_ok() {
@@ -434,14 +462,19 @@ fn watch_folder(
                 .map_err(|error| failure(format!("could not watch {}: {error}", path.display())))?;
         }
     }
+    // Saves seen while a build ran: the next round builds them.
+    let mut pending: Vec<PathBuf> = Vec::new();
     loop {
-        let Ok(first) = receive.recv() else {
-            return Err(failure("the folder watch stopped".into()));
-        };
-        let mut paths: Vec<PathBuf> = first.map(|event| event.paths).unwrap_or_default();
+        let mut paths = std::mem::take(&mut pending);
+        if paths.is_empty() {
+            let Ok(first) = receive.recv() else {
+                return Err(failure("the folder watch stopped".into()));
+            };
+            paths = saved_paths(first);
+        }
         // A save is often several events: take what comes in the next moment too.
         while let Ok(more) = receive.recv_timeout(Duration::from_millis(300)) {
-            paths.extend(more.map(|event| event.paths).unwrap_or_default());
+            paths.extend(saved_paths(more));
         }
         paths.sort();
         paths.dedup();
@@ -457,11 +490,10 @@ fn watch_folder(
             }
         );
         match build_layer(customize, dir, app, false) {
+            Ok((next, seconds)) if next.web == layer.web => {
+                println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
+            }
             Ok((next, seconds)) => {
-                if next.web == layer.web {
-                    println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
-                    continue;
-                }
                 let old = std::mem::replace(&mut layer, next.clone());
                 let applied = customize.library_update_code(next.clone(), origin, now_ms());
                 // The replaced layer goes before the line that says so: a watch
@@ -485,9 +517,36 @@ fn watch_folder(
                 println!("  the build failed; the last layer stays on:\n{}", error.message);
             }
         }
-        // What the build itself changed (generated files git does not ignore,
-        // if any) is not a save.
-        while receive.try_recv().is_ok() {}
+        // A save made while the build ran is built next. The build's own
+        // reads are no save (`saved_paths`), and what it writes under the
+        // folder is git-ignored (`worth_a_build`).
+        while let Ok(event) = receive.try_recv() {
+            pending.extend(saved_paths(event));
+        }
+        if !pending.is_empty() {
+            pending = worth_a_build(dir, pending);
+        }
+    }
+}
+
+/// The paths an event changed. Linux reports a file opened or read too
+/// (`Access`): every build reads the whole folder, so counting those made a
+/// watch build again forever with nothing saved.
+fn saved_paths(event: notify::Result<notify::Event>) -> Vec<PathBuf> {
+    match event {
+        Ok(event) if saves(&event.kind) => event.paths,
+        _ => Vec::new(),
+    }
+}
+
+fn saves(kind: &notify::EventKind) -> bool {
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, MetadataKind, ModifyKind};
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) | EventKind::Other => false,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
+        _ => true,
     }
 }
 
