@@ -2277,7 +2277,7 @@ jobs:
           }
           started=$SECONDS
           if wait_for_mirror "${CHECKOUT_MIRROR_WAIT_SECONDS:-300}" && from_mirror; then
-            echo "read $BUILD_SHA from the mirror in $((SECONDS - started)) s"
+            echo "$BUILD_SHA is in the fleet mirror: read in $((SECONDS - started)) s, no fetch from origin"
           fi
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
