@@ -27,6 +27,11 @@ impl MoveTo {
             MoveTo::Local => "local",
         }
     }
+
+    /// The place a word names; None for any other word.
+    pub fn parse(text: &str) -> Option<MoveTo> {
+        MoveTo::ALL.into_iter().find(|to| to.as_str() == text)
+    }
 }
 
 impl fmt::Display for MoveTo {
