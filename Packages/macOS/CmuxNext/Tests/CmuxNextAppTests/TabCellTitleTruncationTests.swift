@@ -4,10 +4,10 @@ import CmuxNextDesignTokens
 
 @MainActor
 struct TabCellTitleTruncationTests {
-    @Test func tabChipTitlesTruncateInTheMiddle() {
+    @Test func tabTitlesStartWithoutCoreTextTruncation() {
         let cell = TabCell(item: TabItem(id: TabID("helper-1"), title: "Helper 1"))
 
-        #expect(cell.titleLayer.truncation == .middle)
+        #expect(cell.titleLayer.truncation == nil)
     }
 
     @Test func clippedTitleUsesVisibleWidthAtRestAndFullSpanForMarquee() {
