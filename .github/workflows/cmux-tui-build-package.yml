@@ -373,7 +373,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
@@ -1521,7 +1524,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download darwin arm64 binary
