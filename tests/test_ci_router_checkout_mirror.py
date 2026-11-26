@@ -20,8 +20,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/pr-router.yml"
+# Only a pool VM has the mirror: the router's one-job VM (2026-11-26, off the cmux-linux queue) and a fork's runner
+# keep blob:none, since an unfiltered depth-2 fetch from GitHub would pull every blob of the tree.
 SAME_REPO_NO_FILTER = ("${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-                       " == github.repository && '' || 'blob:none' }}")
+                       " == github.repository && startsWith(runner.name, 'cmux-runner-pool-') && '' || 'blob:none' }}")
 
 
 class RouterCheckoutReadsTheMirror(unittest.TestCase):

@@ -35,6 +35,8 @@ EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
     "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
+    "ci.yml": (1, "the `changes` router takes the CI_TRUSTED_RUNNER selector; cmux-linux queued it 11-14 min (tests/test_ci_runner_set.py)"),
+    "pr-router.yml": (1, "the `route` job takes the CI_TRUSTED_RUNNER selector; cmux-linux queued it 11-14 min (tests/test_ci_runner_set.py)"),
 }
 
 
