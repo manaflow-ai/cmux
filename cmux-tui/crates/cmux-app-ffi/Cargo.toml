@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -55,6 +55,8 @@ cmux-launch-image = { path = "../cmux-launch-image" }
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
 # The design system's rules (cmux-design-core src/ffi.rs, include/cmux_design.h: JSON ops by area).
 cmux-design-core = { path = "../cmux-design-core" }
+# The agent chat transcript's markdown parser (cmux-chat-markdown src/ffi.rs: the parsed document as bytes; the app renders).
+cmux-chat-markdown = { path = "../cmux-chat-markdown" }
 # The remote chat wire: the page's acpmux JSON-RPC in, daemon calls and page frames out as JSON effects (src/ffi.rs).
 cmux-acpmux-remote-wire = { path = "../cmux-acpmux-remote-wire" }
 # The Screenshots pane rules (cmux-screenshots src/ffi.rs: what a source lists, the listing, sources, the gate; the app reads disks and draws).

@@ -130,6 +130,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-pane-pictures",
                     # The design system's rules (cmux-design-core).
                     "cmux-design-core",
+                    # The agent chat transcript's markdown parser (cmux-chat-markdown).
+                    "cmux-chat-markdown",
                     # The remote chat wire (cmux-acpmux-remote-wire).
                     "cmux-acpmux-remote-wire",
                     "cmux-local-auth",

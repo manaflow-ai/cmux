@@ -69,6 +69,7 @@ FIRST_PARTY_GPL = {
     "cmux-launch-image",
     "cmux-pane-pictures",
     "cmux-design-core",
+    "cmux-chat-markdown",
     "cmux-acpmux-remote-wire",
     "cmux-screenshots",
     "cmux-local-auth",
