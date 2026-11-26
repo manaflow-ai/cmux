@@ -1132,8 +1132,12 @@ jobs:
           # "HTTP Error 403: Forbidden" with no reason). Retry 403/429/5xx.
           release = None
           for attempt in range(4):
-              result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
-                                      capture_output=True, text=True, timeout=60)
+              try:
+                  # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
+                  result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
+                                          capture_output=True, text=True, timeout=240)
+              except subprocess.TimeoutExpired:
+                  result = subprocess.CompletedProcess([], 1, "", "gh api timed out (HTTP 504)")
               if result.returncode == 0:
                   release = json.loads(result.stdout)
                   break
