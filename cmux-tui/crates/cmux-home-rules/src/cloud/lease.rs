@@ -60,11 +60,13 @@ pub fn cloud_id(stack_user_id: &str) -> String {
 
 /// The decoded payload of a JWT, unverified.
 pub fn claims(token: &str) -> Option<Map<String, Value>> {
-    let segments: Vec<&str> = token.split('.').collect();
-    if segments.len() != 3 {
+    let mut segments = token.split('.');
+    let (Some(_), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
         return None;
-    }
-    let data = base64url_decode(segments[1])?;
+    };
+    let data = base64url_decode(payload)?;
     match serde_json::from_slice::<Value>(&data).ok()? {
         Value::Object(map) => Some(map),
         _ => None,
