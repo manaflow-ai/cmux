@@ -95,6 +95,7 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
             scripts/ci/nightly_next_train_dispatch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
