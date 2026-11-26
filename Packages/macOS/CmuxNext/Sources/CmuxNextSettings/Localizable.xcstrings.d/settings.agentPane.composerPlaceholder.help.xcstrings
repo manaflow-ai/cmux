@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.composerPlaceholder.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "النص الظاهر في مربع رسالة فارغ. اتركه فارغًا لاستخدام نص cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tekst prikazan u praznom polju za poruku. Prazno koristi cmuxov tekst."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teksten i et tomt beskedfelt. Tom bruger cmux’ egen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Text in einem leeren Nachrichtenfeld. Leer verwendet den von cmux."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The text shown in an empty message box. Empty uses cmux's own."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El texto que se muestra en un cuadro de mensaje vacío. Vacío usa el de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le texte affiché dans une zone de message vide. Vide utilise celui de cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il testo mostrato in una casella del messaggio vuota. Vuoto usa quello di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空のメッセージ欄に表示するテキスト。空欄なら cmux 標準のものを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អត្ថបទដែលបង្ហាញក្នុងប្រអប់សារទទេ។ ទុកទទេ ប្រើអត្ថបទរបស់ cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "빈 메시지 상자에 표시할 텍스트입니다. 비워 두면 cmux 기본값을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teksten i et tomt meldingsfelt. Tomt bruker cmux sin egen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tekst widoczny w pustym polu wiadomości. Puste używa tekstu cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O texto exibido em uma caixa de mensagem vazia. Vazio usa o do cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст в пустом поле сообщения. Если пусто, используется текст cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อความที่แสดงในช่องข้อความว่าง เว้นว่างไว้เพื่อใช้ของ cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boş mesaj kutusunda gösterilen metin. Boş bırakılırsa cmux’unki kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст у порожньому полі повідомлення. Якщо порожньо, використовується текст cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Văn bản hiển thị trong hộp tin nhắn trống. Để trống sẽ dùng văn bản của cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空消息框中显示的文字。留空则使用 cmux 自带的文字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空訊息框中顯示的文字。留空則使用 cmux 內建的文字。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
