@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { WaitSpinner } from "./WaitSpinner";
 
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete globalThis.cmuxExperiments;
 });
 
 const firstFrame = (until?: boolean) =>
