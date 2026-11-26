@@ -453,6 +453,7 @@ def main():
             # Every later check needs the socket; stop here instead of reporting their empty reads.
             raise SystemExit(1)
         report["processes_launched"] = processes(app)
+        launch_pids = app_pids(app)
         made = seed(app, work)
         report["seed"] = made
         report["processes_seeded"] = processes(app)
@@ -485,6 +486,12 @@ def main():
                    f"ended before the update: {ended}" if ended else f"{len(tabless)} alive")
         pids = app_pids(app)
         report["processes_at_click"] = processes(app)
+        # The transition under test is the click's. An older build that installs by itself first (Update When
+        # Idle, before the pause shipped) leaves nothing for the click to do, and every later check would read
+        # that automatic install instead: say so here rather than pass on it.
+        record("nothing installed or restarted before the click", bundle_build(app) == opts.from_build
+               and bool(pids) and pids == launch_pids,
+               f"bundle {bundle_build(app)}, app pids {launch_pids} at launch -> {pids} at the click")
         print("at the click:", json.dumps(report["processes_at_click"]), flush=True)
         steps_before = steps(work)
         clicked = time.time()
@@ -494,9 +501,12 @@ def main():
         record("the older app quit for the install", bool(gone), f"pids {pids}")
         replaced = wait(lambda: bundle_build(app) == to_build, 300, 1)
         record("Sparkle replaced the bundle with the newest build", bool(replaced), bundle_build(app))
-        back = wait(lambda: app_pids(app) and find_socket(app) and rpc("updates.status").get("build") == to_build, 180, 1)
-        report["relaunch_s"] = round(time.time() - clicked, 1)
-        record("Sparkle relaunched the updated app by itself", bool(back), f"{report['relaunch_s']} s after the click")
+        # A new app process: the one running at the click answering with the new build is no relaunch.
+        back = wait(lambda: set(app_pids(app)) - set(pids) and find_socket(app)
+                    and rpc("updates.status").get("build") == to_build, 180, 1)
+        report["relaunch_s"] = round(time.time() - clicked, 1) if back else None
+        record("Sparkle relaunched the updated app by itself", bool(back),
+               f"{report['relaunch_s']} s after the click" if back else f"no new app process within 180 s (pids {app_pids(app)})")
         settled = wait(lambda: len(windows_seen(topology())) >= len(before["topology_windows"]) and topology(), 60, 0.5)
         time.sleep(3)
         topo = topology()
