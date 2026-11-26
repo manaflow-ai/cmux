@@ -37,6 +37,8 @@
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `url_input` is the typed address-bar policy: what the omnibox, the New Tab
+//! field and newTab.submit load or search (cmux-url-input, include/cmux_url_input.h).
 
 //! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
 //! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
@@ -91,3 +93,4 @@ pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
 pub use cmux_update_prewarm_core::ffi as update_prewarm;
+pub use cmux_url_input::ffi as url_input;
