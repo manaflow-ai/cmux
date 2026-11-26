@@ -85,7 +85,17 @@ pub(super) struct JobParams {
     pub job: String,
     #[serde(default)]
     pub ok: Option<bool>,
+    /// With `ok: false`: why the copy ended short when its source went away
+    /// (`source_missing`). A hold past its head then keeps what landed and reads ready
+    /// with that note ([`Barrier::complete_partial`]); one short of its head fails as before.
+    /// An older machine ignores it and fails the folder.
+    #[serde(default)]
+    pub partial: Option<String>,
 }
+
+/// The reasons a copy may end a hold partial with: a fixed set, since the note is read back
+/// by tools and people.
+pub(super) const PARTIAL_REASONS: [&str; 1] = ["source_missing"];
 
 /// Whether the hold still runs: a copy's write ([`super::GitSeedService::under_hold`]) reads it
 /// for as long as it writes, and the owner thread sets it false before the barrier goes. So a
@@ -97,7 +107,8 @@ pub(super) enum Op {
     /// Any op on the job: the lease starts again.
     Renew,
     Head(mpsc::Sender<bool>),
-    End(bool, mpsc::Sender<Result<(), Failed>>),
+    /// `ok`, the partial reason ([`JobParams::partial`]), the reply.
+    End(bool, Option<String>, mpsc::Sender<Result<(), Failed>>),
     /// One lease of a hold that waits for ticks instead of the clock ([`Lease::Ticks`], tests):
     /// a tick with no other op since the one before ends the hold as the clock's lease would.
     #[cfg(test)]
@@ -122,7 +133,12 @@ pub(super) enum Lease {
 /// leave it failed.
 pub(super) fn fresh(folder: &Path) -> Result<(), SeedRefusal> {
     use cmux_git::sync_barrier::{Probe, probe};
-    let failed = || matches!(probe(folder), Ok(Probe::Incomplete));
+    // A partial folder (its source went away mid-copy) resumes the same way: the copy sends
+    // what the folder lacks, and the hold's end takes the note away.
+    let failed = || {
+        matches!(probe(folder), Ok(Probe::Incomplete))
+            || cmux_git::sync_barrier::partial(folder).is_some()
+    };
     if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) && !failed() {
         return Err(SeedRefusal {
             code: "seed.folder_not_empty",
@@ -206,9 +222,24 @@ fn own(
                 }
                 let _ = reply.send(marked);
             }
-            Ok(Op::End(ok, reply)) => {
+            Ok(Op::End(ok, partial, reply)) => {
                 stop_writes();
-                let result = if ok {
+                let partial = partial.filter(|_| !ok && job.status_head_ready());
+                let result = if let Some(reason) = partial {
+                    // The chat opened at the head and plays on with what landed; the job
+                    // reads why it is not whole, and the next copy resumes the folder.
+                    match barrier.complete_partial(&reason) {
+                        Ok(()) => Err(Failed {
+                            code: "seed.partial",
+                            error: format!(
+                                "the copy ended short ({reason}); the folder keeps what landed \
+                                 and copying it again resumes it"
+                            ),
+                            install_url: None,
+                        }),
+                        Err(error) => Err(failed(format!("cannot keep the partial copy: {error}"))),
+                    }
+                } else if ok {
                     barrier
                         .complete()
                         .map_err(|error| failed(format!("cannot finish the sync: {error}")))

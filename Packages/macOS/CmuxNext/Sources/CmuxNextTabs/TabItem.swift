@@ -74,6 +74,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
     /// The agent acting in the tab right now (cx-gg84): a dot in its presence color.
+    /// Exact device-chat key from this local terminal's agent hook, when it has readable history.
+    public var terminalHistoryKey: String?
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?

@@ -161,7 +161,8 @@ import Testing
         for id in ["search", "invoice-pdf", "pricing-copy", "og-images", "lighthouse", "old-hero"] {
             #expect(!keys.contains(Self.w(id)), "\(id) is folded (settled or archived)")
         }
-        #expect(keys.contains(.doneFold(.archive)), "archived threads keep the Archive row")
+        #expect(!keys.contains { if case let .doneFold(fold) = $0 { fold.kind == .archived } else { false } },
+                "archived threads leave the sidebar with no fold row (cmux#51635)")
     }
 
     @Test func anOpenSettledRowListsItsThreadsUnderIt() throws {

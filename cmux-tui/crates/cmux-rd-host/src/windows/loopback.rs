@@ -445,7 +445,10 @@ mod tests {
         preview_bgr(&rgb, width, height, &mut preview).unwrap();
         for (x, y) in [(0, 0), (1, 1), (160, 90), (319, 179)] {
             let i = (y * PREVIEW_WIDTH + x) * 3;
-            assert_eq!(&preview[i..i + 3], &[(2 * x ^ 2 * y) as u8, (2 * y) as u8, (2 * x) as u8]);
+            assert_eq!(
+                &preview[i..i + 3],
+                &[((2 * x) ^ (2 * y)) as u8, (2 * y) as u8, (2 * x) as u8]
+            );
         }
         assert!(preview_bgr(&rgb[..3], width, height, &mut preview).is_err());
     }

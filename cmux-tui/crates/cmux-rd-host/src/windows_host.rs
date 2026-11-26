@@ -1,43 +1,47 @@
-//! `cmux-rd windows-host`: this Windows PC on the account's device hub, next to `cmux-rd
-//! linux-host` and sharing its hub client (the cmux-hub-host crate). It registers the PC as a
-//! `windows` device with its own device key, anchors it (it renews its own host session for 30
-//! days with that key, no token) and holds the hub socket, so the PC lists on the account's
-//! Macs as a Windows PC and as online while the host runs. It checks that it can capture this
-//! desktop (GDI, the same capture as `cmux-rd host`) and reports what it captured.
+//! `cmux-rd windows-host`: this Windows PC as a device hub screen host, viewed from cmux on a
+//! Mac exactly like a shared Mac or a `cmux-rd linux-host` desktop, with the same hub client,
+//! consent and session serving (the cmux-hub-host crate, src/screen_host/). It registers the PC as a `windows` device
+//! with its own device key, anchors it (it renews its own host session for 30 days with that
+//! key, no token), turns sharing on, and while `run` runs holds the hub socket and serves each
+//! approved session through a `cmux-rd serve` child (src/windows_serve.rs: GDI capture,
+//! OpenH264, SendInput over the secure link).
 //!
-//!   enable --stack-token-file PATH|- [--hub URL] [--name NAME]
-//!   run                            the host: holds the hub socket (run it in the desktop
-//!                                  user's session, e.g. a logon scheduled task)
+//!   enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
+//!       Signs in once, registers, anchors, turns sharing on and downloads Cisco's OpenH264
+//!       (the encoder; never bundled). Control (input) is off unless `--allow-control`.
+//!   share on --stack-token-file PATH|- | share off
+//!   run [--openh264-lib PATH]      the host: run it in the desktop user's session (a logon
+//!                                  scheduled task), never as a service in session 0
+//!   requests                       viewers asking for access, waiting for the person
+//!   approve SESSION [--always] [--scope view|full]
+//!   deny SESSION
 //!   status
-//!   share off
 //!
-//! What it does not do yet: serve a viewing session. A hub session runs over the secure link
-//! (`cmux-rd serve`, crate cmux-rd-link), whose UDP driver and session loop wait on Unix file
-//! descriptors; until that loop has a Windows port, this host does not turn sharing on, so no
-//! Mac offers to view it, and any session the hub still hands it is ended with the reason.
-//! The plan is in docs/device-hub/windows-host.md.
+//! Consent: a viewer the person already allowed (the hub's `view`/`full` permission, which the
+//! account owner's own Macs get) is served; any other request waits for `approve`. A `view`
+//! session applies no input; `full` needs `--allow-control` at `enable`. What Windows itself
+//! keeps from any user-session host (UAC prompts, the lock screen, elevated windows) is in
+//! docs/device-hub/windows-host.md.
 
 use crate::screen_host::consent::LocalConsent;
+use crate::screen_host::requests;
+use crate::screen_host::serving::Host;
 use crate::Res;
 use cmux_hub_host::hub::{now_ms, Hub, HubError};
 use cmux_hub_host::identity::{self, Account, Device};
-use cmux_hub_host::net::Message;
 use cmux_hub_host::printable;
+use cmux_hub_host::session::ServeCommand;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::path::Path;
-use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
 
 /// The production device hub (the Mac app's default).
 const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
-const PING_EVERY: Duration = Duration::from_secs(30);
 
 const USAGE: &str =
-    "usage: cmux-rd windows-host enable --stack-token-file PATH|- [--hub URL] [--name NAME]
-       cmux-rd windows-host run | status | share off";
-
-/// Why this host serves no session yet; the end reason's text in its log and the next step.
-pub const NOT_SERVED: &str = "viewing a Windows PC is not available yet: cmux-rd serve has no Windows port (docs/device-hub/windows-host.md)";
+    "usage: cmux-rd windows-host enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
+       cmux-rd windows-host share on --stack-token-file PATH|- | share off
+       cmux-rd windows-host run [--openh264-lib PATH]
+       cmux-rd windows-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status";
 
 /// The exit code when the host cannot go on until the person acts (removed from the account,
 /// key mismatch, anchor ended): the scheduled task should not restart it. sysexits EX_CONFIG.
@@ -56,23 +60,28 @@ impl std::fmt::Display for Fatal {
 impl std::error::Error for Fatal {}
 
 impl Fatal {
+    const ENABLE: &'static str = "cmux-rd windows-host enable --stack-token-file PATH|-";
+    const SHARE_ON: &'static str = "cmux-rd windows-host share on --stack-token-file PATH|-";
+
+    fn needs(what: &str, command: &str) -> Self {
+        Self(format!("{what}. The host stopped. To share this PC again, run: {command}"))
+    }
+
     fn from_hub(e: &(dyn std::error::Error + Send + Sync + 'static)) -> Option<Self> {
         let h = e.downcast_ref::<HubError>()?;
-        let what = match h.code.as_str() {
-            "device_removed" => "This PC is no longer on the account",
-            "device_key_mismatch" => "The hub no longer knows this PC's key",
-            "not_anchored" => "This PC's 30-day sign-in ended",
+        let detail = printable(&h.message);
+        let (what, command) = match h.code.as_str() {
+            "device_removed" => ("This PC is no longer on the account", Self::ENABLE),
+            "device_key_mismatch" => ("The hub no longer knows this PC's key", Self::ENABLE),
+            "not_anchored" => ("This PC's 30-day sign-in ended", Self::SHARE_ON),
             _ => return None,
         };
-        Some(Self(format!(
-            "{what} ({}). The host stopped. Run: cmux-rd windows-host enable --stack-token-file PATH|-",
-            printable(&h.message)
-        )))
+        Some(Self::needs(&format!("{what} ({detail})"), command))
     }
 }
 
 /// Flags that take no value.
-const FLAGS: &[&str] = &[];
+const FLAGS: &[&str] = &["always", "allow-control"];
 
 struct Args {
     positional: Vec<String>,
@@ -100,6 +109,10 @@ impl Args {
         self.options.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
     }
 
+    fn flag(&self, key: &str) -> bool {
+        self.get(key) == Some("1")
+    }
+
     fn only(&self, allowed: &[&str]) -> Res<()> {
         match self.options.iter().find(|(k, _)| !allowed.contains(&k.as_str())) {
             Some((k, _)) => Err(format!("--{k} is not an option of this command").into()),
@@ -119,13 +132,16 @@ pub fn run_cli(args: &[String]) -> i32 {
     };
     let words: Vec<&str> = parsed.positional.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
-        ["enable"] => {
-            parsed.only(&["stack-token-file", "hub", "name"]).and_then(|()| enable(&parsed))
-        }
-        ["run"] => parsed.only(&[]).and_then(|()| run()),
-        ["status"] => parsed.only(&[]).and_then(|()| status()),
+        ["enable"] => parsed
+            .only(&["stack-token-file", "hub", "name", "allow-control"])
+            .and_then(|()| enable(&parsed)),
+        ["share", "on"] => parsed.only(&["stack-token-file"]).and_then(|()| share_on(&parsed)),
         ["share", "off"] => parsed.only(&[]).and_then(|()| share_off()),
-        ["share", "on"] => Err(NOT_SERVED.into()),
+        ["run"] => parsed.only(&["openh264-lib"]).and_then(|()| run(&parsed)),
+        ["requests"] => parsed.only(&[]).and_then(|()| requests::list(&identity::runtime_dir()?)),
+        ["approve", id] => parsed.only(&["always", "scope"]).and_then(|()| approve(id, &parsed)),
+        ["deny", id] => parsed.only(&[]).and_then(|()| deny(id)),
+        ["status"] => parsed.only(&[]).and_then(|()| status()),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -165,14 +181,15 @@ fn stack_token(args: &Args) -> Res<String> {
     Ok(token)
 }
 
-fn load() -> Res<(Hub, Account)> {
+/// The enabled host: its config directory, hub and account.
+fn load() -> Res<(PathBuf, Hub, Account)> {
     let dir = identity::config_dir()?;
     let device =
         Device::load(&dir)?.ok_or("not enabled: run `cmux-rd windows-host enable` first")?;
     let account =
         Account::load(&dir)?.ok_or("not enabled: run `cmux-rd windows-host enable` first")?;
     let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?;
-    Ok((hub, account))
+    Ok((dir, hub, account))
 }
 
 fn enable(args: &Args) -> Res<()> {
@@ -214,23 +231,81 @@ fn enable(args: &Args) -> Res<()> {
         other => other?,
     };
     let anchored_until = hub.anchor()?;
+    let consent = LocalConsent { view: true, full: args.flag("allow-control") };
+    consent.save(&dir)?;
+    // The encoder before sharing turns on: a viewer must not reach a host that cannot encode.
+    let encoder = openh264_line();
+    hub.set_shared(true)?;
     Account { hub: hub_url, user_id, anchored_until }.save(&dir)?;
-    // View only, as `linux-host enable` without --allow-control; nothing is served yet anyway.
-    LocalConsent { view: true, full: false }.save(&dir)?;
     let capture = capture_line(&check_capture());
     println!(
-        "This PC is on the account as \"{}\" ({}), a Windows device. {capture}. Its screen is not offered for viewing yet: {NOT_SERVED}. Keep it online: cmux-rd windows-host run (at logon: schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR \"<path>\\cmux-rd.exe windows-host run\")",
+        "This PC is shared as \"{}\" ({}), {}, a Windows device. {capture}. {encoder}. Start the host in this session: cmux-rd windows-host run (at logon: schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR \"<path>\\cmux-rd.exe windows-host run\")",
         printable(&hub.device.name),
         hub.device.id,
+        shares_line(&Ok(consent)),
     );
     Ok(())
 }
 
-fn share_off() -> Res<()> {
-    let (hub, _) = load()?;
-    hub.set_shared(false)?;
-    println!("Sharing is off.");
+/// Cisco's OpenH264 in the per-user data directory (downloaded from Cisco the first time), in
+/// one sentence.
+fn openh264_line() -> String {
+    #[cfg(feature = "openh264")]
+    return match crate::encoder::ensure_openh264_in(cmux_encode::cisco::default_dir()) {
+        Ok(path) => format!("OpenH264 is at {}", path.display()),
+        Err(e) => format!(
+            "OpenH264 is not installed ({}): run cmux-rd openh264-install before a viewer connects",
+            printable(&e.to_string())
+        ),
+    };
+    #[cfg(not(feature = "openh264"))]
+    "This build has no OpenH264 download; pass --openh264-lib PATH to run".to_owned()
+}
+
+fn share_on(args: &Args) -> Res<()> {
+    let (dir, hub, mut account) = load()?;
+    // Turning sharing on needs the account itself (a host session may only turn it off).
+    hub.sign_in_with_stack(&stack_token(args)?)?;
+    account.anchored_until = hub.anchor()?;
+    hub.set_shared(true)?;
+    account.save(&dir)?;
+    println!("Sharing is on.");
     Ok(())
+}
+
+fn share_off() -> Res<()> {
+    let (_, hub, _) = load()?;
+    hub.set_shared(false)?;
+    println!("Sharing is off; the hub ended any session.");
+    Ok(())
+}
+
+fn approve(id: &str, args: &Args) -> Res<()> {
+    let (dir, hub, _) = load()?;
+    // SendInput applies every control session's input: nothing is lowered for the capture.
+    requests::approve(
+        &dir,
+        &identity::runtime_dir()?,
+        &hub,
+        id,
+        args.get("scope"),
+        args.flag("always"),
+        None,
+    )
+}
+
+fn deny(id: &str) -> Res<()> {
+    let (_, hub, _) = load()?;
+    requests::deny(&identity::runtime_dir()?, &hub, id)
+}
+
+/// What this PC shares under `consent`.
+fn shares_line(consent: &Res<LocalConsent>) -> &'static str {
+    match consent {
+        Ok(c) if c.full => "view and control",
+        Ok(_) => "view only",
+        Err(_) => "nothing shared (consent.json missing or unreadable)",
+    }
 }
 
 /// What the host captured of this desktop, recorded by `run` for `status`.
@@ -308,11 +383,11 @@ pub fn capture_line(check: &CaptureCheck) -> String {
 
 fn status() -> Res<()> {
     let dir = identity::config_dir()?;
-    let device = Device::load(&dir)?;
-    match (device, Account::load(&dir)?) {
+    let shares = shares_line(&LocalConsent::load(&dir));
+    match (Device::load(&dir)?, Account::load(&dir)?) {
         (None, _) => println!("Not enabled."),
         (Some(device), Some(a)) => println!(
-            "{} ({}) on {} as windows, anchored until {} (Unix ms)",
+            "{} ({}) on {} as windows, anchored until {} (Unix ms), {shares}",
             printable(&device.name),
             device.id,
             a.hub,
@@ -328,99 +403,42 @@ fn status() -> Res<()> {
         .and_then(|bytes| serde_json::from_slice::<CaptureCheck>(&bytes).ok());
     let check = recorded.unwrap_or_else(check_capture);
     println!("{}", capture_line(&check));
-    println!("Viewing: {NOT_SERVED}");
     Ok(())
 }
 
-fn run() -> Res<()> {
-    let (hub, account) = load()?;
+fn run(args: &Args) -> Res<()> {
+    let (dir, hub, account) = load()?;
     let runtime = identity::runtime_dir()?;
     identity::private_dir(&runtime)?;
+    // Read at start so a bad file fails now; read again for every ticket and every second.
+    let consent = LocalConsent::load(&dir)?;
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
-        return Err(Fatal("This PC's 30-day sign-in ended. Run: cmux-rd windows-host enable --stack-token-file PATH|-".into()).into());
+        return Err(Fatal::needs("This PC's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
     let check = check_capture();
     eprintln!("windows-host: {}", capture_line(&check));
     identity::write_private(&runtime.join("capture.json"), &serde_json::to_vec_pretty(&check)?)?;
-    eprintln!("windows-host: online as \"{}\" ({})", printable(&hub.device.name), hub.device.id);
-    let mut backoff = Duration::from_secs(1);
-    loop {
-        let started = Instant::now();
-        if let Err(e) = hold_socket(&hub) {
-            if let Some(fatal) = Fatal::from_hub(&*e) {
-                return Err(fatal.into());
-            }
-            eprintln!("windows-host: hub link: {e}");
-        }
-        if started.elapsed() > Duration::from_secs(60) {
-            backoff = Duration::from_secs(1);
-        }
-        std::thread::sleep(backoff);
-        backoff = (backoff * 2).min(Duration::from_secs(30));
+    // Each approved session runs this executable's `serve` (src/windows_serve.rs).
+    let mut serve_args = vec!["serve".to_owned()];
+    if let Some(lib) = args.get("openh264-lib") {
+        serve_args.extend(["--openh264-lib".to_owned(), lib.to_owned()]);
     }
-}
-
-/// Holds one User DO socket until it closes: online for the account's devices.
-fn hold_socket(hub: &Hub) -> Res<()> {
-    let mut ws = hub.user_socket()?;
-    let mut last_ping = Instant::now();
-    loop {
-        if last_ping.elapsed() >= PING_EVERY {
-            // Exactly these bytes: the hub's auto-response matches them.
-            ws.send_text(r#"{"type":"ping"}"#)?;
-            last_ping = Instant::now();
-        }
-        match ws.recv(Duration::from_secs(1))? {
-            None => {}
-            Some(Message::Closed(code, reason)) => {
-                return Err(match code {
-                    4001 | 4003 => HubError {
-                        status: 403,
-                        code: "device_removed".into(),
-                        message: "this PC was removed from the account or signed out".into(),
-                    }
-                    .into(),
-                    _ => format!("socket closed ({code} {})", printable(&reason)).into(),
-                });
-            }
-            Some(Message::Text(text)) => {
-                let Ok(push) = serde_json::from_str::<Value>(&text) else { continue };
-                if let Some((id, close)) = unserved(&push) {
-                    eprintln!("windows-host: session {}: {NOT_SERVED}; closed", printable(&id));
-                    let sent = match close {
-                        Close::Deny => hub.decide(&id, "deny", None).map(drop),
-                        Close::End => hub.end(&id, "failed"),
-                    };
-                    if let Err(e) = sent {
-                        eprintln!("windows-host: not sent: {e}");
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// How a session this host cannot serve is closed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Close {
-    /// A viewer's pending request: denied (`/decision` deny), so it does not wait 5 minutes.
-    Deny,
-    /// An approved session's host ticket: ended (`/end` failed).
-    End,
-}
-
-/// A session push this host must close because it serves none: the session id and how.
-/// Sharing stays off, so the hub sends none; one that still comes (sharing turned on from
-/// elsewhere) is closed at once instead of leaving the viewer waiting.
-pub fn unserved(push: &Value) -> Option<(String, Close)> {
-    let (id, close) = match push["type"].as_str()? {
-        "session.request" => (push["session"]["id"].as_str()?, Close::Deny),
-        "session.ticket" if push["role"].as_str() == Some("host") => {
-            (push["sessionId"].as_str()?, Close::End)
-        }
-        _ => return None,
+    let command = ServeCommand {
+        program: std::env::current_exe()?,
+        args: serve_args,
+        disclaim: false,
+        log_prefix: crate::screen_host::TAG.to_owned(),
+        status_prefix: crate::screen_host::COMMAND.to_owned(),
     };
-    (!id.is_empty()).then(|| (id.to_owned(), close))
+    eprintln!(
+        "windows-host: serving \"{}\" ({}), {}",
+        printable(&hub.device.name),
+        hub.device.id,
+        shares_line(&Ok(consent))
+    );
+    // SendInput applies a control session's input: `full` tickets are served with control.
+    let host = Host::new(hub, dir, runtime, command, true);
+    host.run(|e| Fatal::from_hub(e).map(Into::into))
 }
 
 #[cfg(test)]

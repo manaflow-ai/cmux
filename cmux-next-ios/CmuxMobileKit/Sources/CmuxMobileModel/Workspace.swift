@@ -47,8 +47,8 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's workspace group the workspace is in (its personal sidebar
     /// group, `list-personal`), if any.
     public var group: MacWorkspaceGroup?
-    /// The workspace's panes on its Mac, from the Mac's live tree (never saved: a snapshot
-    /// shows no Panes page until the Mac lists the workspace again).
+    /// The workspace's panes on its Mac, from the Mac's live tree. Snapshots keep this layout so
+    /// Panes can draw the last rows while the Mac refreshes it.
     public var layout: WorkspaceLayout?
     /// The workspace's screens on the Mac, in its screen bar's order (`MacScreen`). Empty when
     /// the Mac's tree has not listed them (mock data, an old saved copy).
@@ -82,7 +82,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, screens
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, layout, screens
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -113,6 +113,7 @@ extension Workspace {
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
         group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
+        layout = try c.decodeIfPresent(WorkspaceLayout.self, forKey: .layout)
         screens = try c.decodeIfPresent([MacScreen].self, forKey: .screens) ?? []
     }
 }
@@ -139,10 +140,6 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
-    /// When a `.working` agent's Mac last reported it started working (its report's time: the
-    /// turn's prompt, as the Mac counts it). Nil when not working, or the Mac sent no time
-    /// (older Macs, mock data). Optional so older saved copies still decode.
-    public var workingSince: Date?
     /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
     /// Optional so older saved copies still decode; nil reads as not pinned.
     public var pinned: Bool?

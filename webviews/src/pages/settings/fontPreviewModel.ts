@@ -10,7 +10,7 @@ import {
   isBundledChatFont,
   isChatUiFont,
 } from "../../agent-session/acpmux/chatUiFont";
-import { fontFace } from "./fontPickerModel";
+import { fontFace, uiFontFace } from "./fontPickerModel";
 import { MARKDOWN_FONT_PRESETS, type MarkdownFontPreset } from "../markdown/settings";
 
 const SYSTEM = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif";
@@ -35,6 +35,8 @@ export type FamilyPreview = {
   size: string;
   /** The family when the row is unset: another key's (the editor follows the terminal), else none. */
   fallback: string | null;
+  /** What the sample draws: code (a fixed-pitch family) or interface text (the App Font). */
+  specimen?: "code" | "text";
 };
 
 export type FontPreview = ChoicePreview | FamilyPreview;
@@ -126,6 +128,14 @@ export const FONT_PREVIEWS: Readonly<Record<string, FontPreview>> = {
     }),
   },
   "terminal.fontFamily": { kind: "family", size: "terminal.fontSize", fallback: null },
+  // The App Font (Leo, 2026-11-08: "i wanna just be able to see different fonts just like how i can
+  // see different themes as preview"): a line of interface text in the picked family at the Text Size.
+  "appearance.appFont": {
+    kind: "family",
+    size: "appearance.metrics.chromeFontSize",
+    fallback: null,
+    specimen: "text",
+  },
   "editor.fontFamily": { kind: "family", size: "editor.fontSize", fallback: "terminal.fontFamily" },
 };
 
@@ -134,8 +144,13 @@ export const FONT_PREVIEWS: Readonly<Record<string, FontPreview>> = {
 export const TEXT_SPECIMEN = "Aa Gg Rr 0123";
 export const CODE_SPECIMEN = "0O 1lI {} => != ~ <>";
 
-/** A family row's stack: the picked family (the font picker's own quoting), else the system monospace. */
-export const familyStack = (name: string | null): string => (name ? fontFace(name) : MONO);
+/** Interface text for the App Font's sample: glyphs, then a line of the kind of text cmux shows. */
+export const UI_SPECIMEN = "Aa Gg Rr 0123 · Settings, Chat, Sidebar";
+
+/** A family row's stack: the picked family (the font picker's own quoting), else the system monospace;
+ * for interface text, the family over the system face, else the system face. */
+export const familyStack = (name: string | null, specimen: "code" | "text" = "code"): string =>
+  specimen === "text" ? (name ? uiFontFace(name) : SYSTEM) : name ? fontFace(name) : MONO;
 
 /** A number setting's value, else its range's placeholder, clamped to the range. */
 export function numberOr(

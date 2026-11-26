@@ -6,6 +6,7 @@ import SwiftUI
 import UIKit
 import WebKit
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import CmuxTabsKit
 
 /// One browser tab's `WKWebView` and the state the tab toolbar shows. The
@@ -48,6 +49,12 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored var loopbackIsOpen: (@MainActor (URL) -> Bool)?
     /// The Mac's last refusal of a forwarded port ("Nothing is listening on port 3000 on this Mac.").
     @ObservationIgnored var loopbackRefusal: (@MainActor (URL) -> String?)?
+    /// Reads an HTML file on the tab's Mac (`file:///…/report.html`) over the link (nil:
+    /// such a page is the Mac's only).
+    @ObservationIgnored var readMacHTML: (@MainActor (URL) async throws -> String)?
+    /// The Mac file this page shows (its address bar reads it, not `about:blank`).
+    @ObservationIgnored private(set) var macFile: URL?
+    @ObservationIgnored private var macFileRead: Task<Void, Never>?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
@@ -95,6 +102,13 @@ public final class BrowserTabModel: BrowserTabState {
     /// shows why instead.
     public func load(_ target: URL) {
         let reach = PhoneReach(target)
+        macFileRead?.cancel()
+        macFileRead = nil
+        if guardian != nil, BrowserPagePlacement.isMacHTMLFile(target), let read = readMacHTML {
+            loadMacFile(target, read: read)
+            return
+        }
+        macFile = nil
         if guardian != nil, reach == .macOnly {
             refuse(target)
             return
@@ -111,6 +125,35 @@ public final class BrowserTabModel: BrowserTabState {
         url = target
         urlChanged?(target)
         webView.load(URLRequest(url: target))
+    }
+
+    /// An HTML file on the Mac: its bytes come over the link and load here as a page
+    /// (relative images and scripts beside it stay on the Mac; a self-contained report shows whole).
+    private func loadMacFile(_ target: URL, read: @escaping @MainActor (URL) async throws -> String) {
+        problem = nil
+        macFile = target
+        url = target
+        urlChanged?(target)
+        isLoading = true
+        progress = 0.1
+        // task-owner: this tab's one Mac file read; the next load cancels it
+        macFileRead = Task { [weak self] in
+            do {
+                let html = try await read(target)
+                guard let self, !Task.isCancelled, self.macFile == target else { return }
+                self.webView.loadHTMLString(html, baseURL: nil)
+            } catch is CancellationError {
+            } catch {
+                guard let self, !Task.isCancelled, self.macFile == target else { return }
+                self.isLoading = false
+                self.progress = 1
+                let name = target.lastPathComponent
+                let reason = error is MacHTMLUnavailable ? "" : UserFacingError.message(error, fallback: "")
+                self.refuse(target, detail: reason.isEmpty
+                    ? String(localized: "This iPhone couldn't read \(name) from the Mac. The mirrored page can show it.")
+                    : String(localized: "This iPhone couldn't read \(name) from the Mac: \(reason) The mirrored page can show it."))
+            }
+        }
     }
 
     func refuse(_ target: URL, detail: String? = nil) {
@@ -149,6 +192,11 @@ public final class BrowserTabModel: BrowserTabState {
             // A card keeps the address that failed in the bar (as Safari does); WebKit
             // puts its own back on the last page that loaded.
             guard let value, model.problem == nil else { return }
+            // A Mac file's page loads as a string (`about:blank`): the bar keeps the file.
+            if value.absoluteString == "about:blank", let file = model.macFile {
+                model.url = file
+                return
+            }
             model.url = value
             model.urlChanged?(value)
         }
@@ -180,10 +228,19 @@ public final class BrowserTabModel: BrowserTabState {
     }
     public func reloadOrStop() {
         if isLoading {
+            if let read = macFileRead {
+                read.cancel()
+                macFileRead = nil
+                isLoading = false
+                progress = 1
+            }
             webView.stopLoading()
         } else if let problem {
             // Try Again: the failed address, not the last page that loaded.
             load(problem.url)
+        } else if let file = macFile, webView.url?.absoluteString == "about:blank" {
+            // Reload a Mac file: read it again (the agent may have rewritten it).
+            load(file)
         } else {
             _ = webView.reload()
         }
@@ -283,6 +340,13 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             }
             return
         }
+        // A link to another HTML file on the Mac: read over the link like the first one.
+        if reach == .macOnly, BrowserPagePlacement.isMacHTMLFile(target), let model, model.readMacHTML != nil {
+            decisionHandler(.cancel)
+            model.personNavigated?()
+            model.load(target)
+            return
+        }
         if reach == .macOnly || reach == .macLoopback {
             model?.refuse(target)
             decisionHandler(.cancel)
@@ -296,6 +360,31 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             return
         }
         decisionHandler(.allow)
+    }
+
+    /// A Mac dev server on `https://localhost:<port>` with its own certificate (self-signed,
+    /// mkcert, `vite --https`): this iPhone's listener on the port is the forward to the
+    /// Mac's loopback (RFD 0089), so the page trusts that certificate as the Mac's browser
+    /// does for its own `localhost`. Every other host keeps iOS's usual check.
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
+              let model, Self.trustsDevCertificate(host: space.host, port: space.port,
+                                                   isForwarded: { model.loopbackIsOpen?($0) ?? false })
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+
+    /// Whether a TLS server at `host:port` is a Mac loopback dev server this iPhone forwards.
+    static func trustsDevCertificate(host: String, port: Int, isForwarded: (URL) -> Bool) -> Bool {
+        let name = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        guard (1...65535).contains(port), let url = URL(string: "https://\(name):\(port)/"),
+              PhoneReach(url) == .macLoopback else { return false }
+        return isForwarded(url)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -368,7 +457,7 @@ struct BrowserPage: UIViewRepresentable {
     }
 }
 
-/// A browser tab's grid card: its last snapshot, else a blank page.
+/// A browser tab's grid card: its last snapshot, else its last-known picture, else the page's background.
 struct BrowserCard: View {
     let model: BrowserTabModel?
     var insets: EdgeInsets
@@ -376,6 +465,9 @@ struct BrowserCard: View {
     var lastKnown: UIImage?
     /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
     var tabID: String?
+    /// The page's host, for the site monogram (`SiteMonogram`, off by default).
+    var host: String?
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -385,17 +477,15 @@ struct BrowserCard: View {
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                 }
-            } else {
-                Image(systemName: "globe")
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .placeholderBound("tabgrid.browser.globe", .milliseconds(1000))
+            } else if monograms, SiteMonogram.letter(host) != nil {
+                SiteMonogramFace(host: host)
             }
+            // No picture yet: the page's background, never a stand-in glyph (Leo, 2026-11-24, on
+            // a grid of globes: "wer need to chase all these placeholders doen and prevent them").
         }
         .modifier(TabCardFaceRecord(tabID: tabID,
-                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown"
+                                        : monograms && SiteMonogram.letter(host) != nil ? "monogram" : "nothing"))
     }
 }
 #endif

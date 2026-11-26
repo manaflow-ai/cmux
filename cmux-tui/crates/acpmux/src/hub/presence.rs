@@ -30,6 +30,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use cmux_presence::{Doing, Kind, Presence as Record, PresenceId};
+use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tokio::task::AbortHandle;
@@ -41,10 +43,12 @@ use crate::rpc::RpcError;
 use crate::author::Author;
 
 /// How long a typing `on` holds without another.
-pub const TYPING_EXPIRY: Duration = Duration::from_secs(8);
+pub const TYPING_EXPIRY: Duration = Duration::from_millis(cmux_presence::TYPING_LEASE_MS as u64);
 /// `_acpmux/typing` calls one connection may make in any one second.
 pub const TYPING_PER_SECOND: usize = 2;
 /// People besides the owner in one chat's presence.
+/// Measured: every change sends the whole list (about 100 bytes a person, in one 4 KiB
+/// replacement) to every attached connection: 32 people is about 100 KB per change.
 pub const MAX_PEOPLE: usize = 32;
 /// The id of a caller that names no author.
 pub const OWNER_ID: &str = "owner";
@@ -136,6 +140,9 @@ struct State {
     typing_calls: HashMap<String, VecDeque<Instant>>,
     next_on: u64,
     next_cutover: u64,
+    // A room snapshot uses one owner revision. Removing the final participant releases the room.
+    next_revision: u64,
+    revisions: HashMap<String, u64>,
 }
 
 struct Inner {
@@ -169,6 +176,14 @@ impl Presence {
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
         note(chat, state.chats.get(chat))
+    }
+
+    /// Local projection for a subscriber to this chat. The owner id is daemon-local.
+    /// Multiple connections for one author produce one record, as in the attach response.
+    pub fn records(&self, chat: &str) -> Vec<Record> {
+        let state = self.inner.state.lock_or_recover();
+        let Some(&epoch) = state.revisions.get(chat) else { return Vec::new() };
+        participants(state.chats.get(chat)).into_iter().map(|p| p.record(chat, epoch)).collect()
     }
 
     /// `_acpmux/view` (and a visible attach): `who` on `conn` shows the chat or stops.
@@ -313,6 +328,13 @@ impl Inner {
         }
         let after = participants(state.chats.get(chat));
         if before != after {
+            state.next_revision += 1;
+            let revision = state.next_revision;
+            if after.is_empty() {
+                state.revisions.remove(chat);
+            } else {
+                state.revisions.insert(chat.to_owned(), revision);
+            }
             // Under the lock, so every connection hears the changes in the order they happened.
             let _ = self.changes.send(Arc::new(json!({"sessionId": chat, "participants": after})));
         }
@@ -359,8 +381,29 @@ fn admit(entries: &BTreeMap<Key, Entry>, key: &Key) -> Result<(), RpcError> {
     Ok(())
 }
 
+#[derive(Serialize, PartialEq, Eq)]
+struct Participant {
+    id: String,
+    name: String,
+    devices: u64,
+    viewing: bool,
+    typing: bool,
+}
+
+impl Participant {
+    fn record(self, chat: &str, epoch: u64) -> Record {
+        let mut record = Record::new(PresenceId(self.id.into()), Kind::Person, self.name, epoch);
+        record.location.chat = Some(chat.into());
+        if self.typing {
+            record.doing = Doing::Typing;
+            record.lease_ms = cmux_presence::TYPING_LEASE_MS;
+        }
+        record
+    }
+}
+
 /// One participant per person, by id.
-fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Value> {
+fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Participant> {
     let mut people: BTreeMap<&str, (&str, u64, bool, bool)> = BTreeMap::new();
     for ((_, id), entry) in entries.into_iter().flatten() {
         let person = people.entry(id).or_insert((&entry.name, 0, false, false));
@@ -370,8 +413,12 @@ fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Value> {
     }
     people
         .into_iter()
-        .map(|(id, (name, devices, viewing, typing))| {
-            json!({"id": id, "name": name, "devices": devices, "viewing": viewing, "typing": typing})
+        .map(|(id, (name, devices, viewing, typing))| Participant {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            devices,
+            viewing,
+            typing,
         })
         .collect()
 }
@@ -412,6 +459,36 @@ mod tests {
         presence.typing("c", "other", &ana(), true).unwrap();
         presence.close("other");
         assert_eq!(presence.snapshot("c")["participants"], json!([]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn records_follow_the_aggregated_chat_and_its_owner_revision() {
+        let hub = Presence::default();
+        let who = ana();
+        hub.view("chat", "a", &who, true).unwrap();
+        let first = hub.records("chat").pop().unwrap();
+        assert_eq!(first.id.0.as_ref(), who.id);
+        assert_eq!(first.location.chat.as_deref(), Some("chat"));
+        hub.typing("chat", "b", &who, true).unwrap();
+        let typing = hub.records("chat");
+        assert_eq!(typing.len(), 1);
+        assert!(typing[0].epoch > first.epoch);
+        assert_eq!(typing[0].doing, Doing::Typing);
+        assert_eq!(typing[0].lease_ms, cmux_presence::TYPING_LEASE_MS);
+        assert_eq!(
+            hub.snapshot("chat")["participants"],
+            json!([
+                {"id":who.id, "name":who.name, "devices":2, "viewing":true, "typing":true}
+            ])
+        );
+        hub.close("b");
+        let idle = hub.records("chat").pop().unwrap();
+        assert_eq!(idle.doing, Doing::Idle);
+        assert!(idle.epoch > typing[0].epoch);
+        hub.close("a");
+        assert!(hub.records("chat").is_empty());
+        hub.view("chat", "a", &who, true).unwrap();
+        assert!(hub.records("chat")[0].epoch > idle.epoch);
     }
 
     #[test]

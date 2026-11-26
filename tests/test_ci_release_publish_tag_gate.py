@@ -2,9 +2,9 @@
 """Every step of a release workflow that publishes, attests, uploads release assets or signs with a release secret
 runs only on the release ref, and a manual dispatch cannot reach it.
 
-The release workflows (coderouter-release.yml, app-ffi-release.yml) also run on `workflow_dispatch`, which anyone
-with write access can start from any ref. Nothing there may publish unless the run is on the release ref: a tag
-`coderouter-v*` pushed (not dispatched: a dispatch can be started on a tag ref too) for coderouter, the branch
+The release workflows (app-ffi-release.yml) also run on `workflow_dispatch`, which anyone with write access can
+start from any ref. Nothing there may publish unless the run is on the release ref: a tag pushed (not dispatched: a
+dispatch can be started on a tag ref too) for a tag-released workflow (the fixtures' `example-v*`), the branch
 `feat-cmux-next` for the app FFI (which a dispatch from that branch may publish by design). This is a static
 detector, so the gate is proven without running a release.
 
@@ -48,10 +48,12 @@ class Policy(NamedTuple):
     events: frozenset = frozenset()  # allowed github.event_name values, when the policy requires an event term
 
 
+# A tag-released workflow's policy, for the fixtures (CodeRouter's release, the one real user, left with
+# CodeRouter on 2026-11-25).
+TAG_POLICY = Policy(re.compile(
+    r"startsWith\(\s*github\.ref\s*,\s*'refs/tags/example-v[^']*'\s*\)"
+    r"|github\.ref\s*==\s*'refs/tags/example-v[^']*'"), push_only=True)
 POLICIES = {
-    "coderouter-release.yml": Policy(re.compile(
-        r"startsWith\(\s*github\.ref\s*,\s*'refs/tags/coderouter-v[^']*'\s*\)"
-        r"|github\.ref\s*==\s*'refs/tags/coderouter-v[^']*'"), push_only=True),
     "app-ffi-release.yml": Policy(re.compile(r"github\.ref\s*==\s*'refs/heads/feat-cmux-next'"), push_only=False,
                                   events=frozenset({"push", "workflow_dispatch"})),
 }
@@ -303,13 +305,13 @@ def check_real() -> list[str]:
     return [why for name, policy in POLICIES.items() for why in problems(name, documents[name], policy, documents)]
 
 
-POLICY = POLICIES["coderouter-release.yml"]
-TAG = "startsWith(github.ref, 'refs/tags/coderouter-v')"
+POLICY = TAG_POLICY
+TAG = "startsWith(github.ref, 'refs/tags/example-v')"
 PUSH_TAG = f"github.event_name == 'push' && {TAG}"
 
 
 def fixture(jobs: str, extra: str = "") -> dict:
-    return workflow_jobs.document(f"on:\n  push:\n    tags: ['coderouter-v*']\n  workflow_dispatch:\n{extra}\njobs:\n{jobs}")
+    return workflow_jobs.document(f"on:\n  push:\n    tags: ['example-v*']\n  workflow_dispatch:\n{extra}\njobs:\n{jobs}")
 
 
 def job(name: str, steps: str, header: str = "") -> str:
@@ -505,31 +507,15 @@ class TagGate(unittest.TestCase):
         self.assertEqual(len(problems("w.yml", fixture(job("p", step(UPLOAD), f"    if: {branch} || github.event_name == 'workflow_dispatch'\n")), policy)), 1)
 
     def test_the_real_workflows_lose_a_gate_to_this_detector(self) -> None:
-        # Mutate the real documents: remove the tag gate from one publishing job, then from one step.
+        # Mutate the real document: drop the branch gate from the publish job.
         documents = load_real()
-        document = documents["coderouter-release.yml"]
-        names = ("prepare_release", "release")
-        originals = {name: document["jobs"][name]["if"] for name in names}
-        for name in names:
-            self.addCleanup(document["jobs"][name].__setitem__, "if", originals[name])
-        # `release` needs the gated `prepare_release`, so opening only `release` stays safe; opening both is not.
-        loosen = lambda name: document["jobs"][name].__setitem__(
-            "if", f"{originals[name]} || github.event_name == 'workflow_dispatch'")
-        loosen("prepare_release")
-        self.assertTrue(problems("coderouter-release.yml", document, POLICY, documents))
-        loosen("release")
-        self.assertTrue(problems("coderouter-release.yml", document, POLICY, documents))
-        for name in names:
-            document["jobs"][name]["if"] = originals[name]
-        self.assertEqual(problems("coderouter-release.yml", document, POLICY, documents), [])
-        build = document["jobs"]["build"]
-        gated_steps = [item for item in build["steps"] if gated(item.get("if"), POLICY) and publishes(item)]
-        self.assertTrue(gated_steps, "build has no gated publishing step to mutate")
-        removed = gated_steps[0]["if"]
-        self.addCleanup(gated_steps[0].__setitem__, "if", removed)
-        del gated_steps[0]["if"]
-        self.assertTrue(problems("coderouter-release.yml", document, POLICY, documents))
-
+        name, policy = "app-ffi-release.yml", POLICIES["app-ffi-release.yml"]
+        document = documents[name]
+        original = document["jobs"]["publish"]["if"]
+        self.addCleanup(document["jobs"]["publish"].__setitem__, "if", original)
+        self.assertEqual(problems(name, document, policy, documents), [])
+        document["jobs"]["publish"]["if"] = "${{ !cancelled() && needs.build.result == 'success' }}"
+        self.assertTrue(problems(name, document, policy, documents))
 
 if __name__ == "__main__":
     unittest.main()

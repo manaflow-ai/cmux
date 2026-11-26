@@ -4,7 +4,7 @@
 //! such session, 5 every permission in the turn was denied or the host
 //! refused a new session (`admission_refused`), 6 `session stop --if-idle`
 //! refused: the session is not idle (`busy`) or its revision moved
-//! (`revision_moved`, `hub/stop_if_idle.rs`), 130 interrupted. `code`
+//! (`revision_moved`, `hub/stop_if_idle.rs`), 75 busy (temporary resource exhaustion), 130 interrupted. `code`
 //! is the small stable set orchestrators branch on; `detail` is free text
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
@@ -24,6 +24,8 @@ pub enum Code {
     /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
     /// paused or full agent pair. Nothing was delivered.
     Refused = 7,
+    /// Temporary resource exhaustion (EX_TEMPFAIL).
+    Busy = 75,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -39,6 +41,7 @@ impl Code {
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
             Code::Refused => "refused",
+            Code::Busy => "busy",
             Code::Interrupted => "interrupted",
         }
     }
@@ -220,6 +223,8 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         // when no host qualifies (`hub/admission.rs`).
         let code = if reason == crate::hub::admission::REASON {
             Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == crate::rpc::BUSY_CODE) {
+            Code::Busy
         } else if daemon.is_some_and(|d| d.0.code == crate::hub::stop_if_idle::NOT_IDLE_CODE) {
             Code::NotIdle
         } else if daemon.is_some_and(|d| d.0.code == -32602) {

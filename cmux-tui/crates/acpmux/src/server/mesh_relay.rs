@@ -207,8 +207,18 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
     let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    // A joined relay's `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its
+    // owner) runs as the one a join writes now (`MeshControlFrom::same_user`, approve-all), as
+    // `host join --status` would rewrite it. Before, only that command upgraded it, and only
+    // the next daemon start read it: every fleet lane VM joined before `maxPolicy` kept the `ask`
+    // cap, so `acpmux new --machine LANE-VM --policy approve-all` from the coordinator's Mac was
+    // refused ("an approve-all start relayed through the mesh hub", 2026-11-25).
+    let mut control_from = config.control_from;
+    if joined {
+        crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
+    }
     let control = Arc::new(
-        MeshControlHook::new(config.control_from, ledger)
+        MeshControlHook::new(control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
     // A joined relay's reconnect: a machine joined before the hub recorded capabilities states
@@ -518,6 +528,7 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
+                    hub.outbox.note_relay_lease(message.attempt);
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
@@ -848,8 +859,13 @@ async fn run_control(
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a `move` whose manifest the target pulls over the circuit
+    // (`hub/transfer_pull.rs` `MANIFEST_PULL_WIRE_VERSION`); every other op stays at 1.
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let pulled_move = op == crate::mesh_relay_config::MOVE_OP
+        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_WIRE_VERSION);
+    if version != Some(1) && !pulled_move {
+        return Some(Ack::refused(crate::hub::transfer_pull::OLD_VERSION_REFUSAL));
     }
     // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
     // is the daemon the hub stamped, never one the body names. The hook admitted only this
@@ -1219,13 +1235,18 @@ pub async fn deliver(
     if team && !hub.register_team_work(&session, prompt_id) {
         return None;
     }
+    // The class the sending daemon inlined as the text's first line (`mesh_send.rs` `carried`):
+    // the hub carries text only, so without it a block or question files as fyi and an idle
+    // receiver never starts a turn.
+    let (class, text) =
+        if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
             from_name, message.body
         )
     } else {
-        message.body.clone()
+        text.to_owned()
     };
     let mut request = json!({
         "sessionId": session.id,
@@ -1239,6 +1260,12 @@ pub async fn deliver(
             "startWork": message.start_work,
         }},
     });
+    if let Some(class) = class
+        && let Some(mux) =
+            request.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.insert("class".into(), class.as_str().into());
+    }
     // The sending session's id, which its daemon set from the caller it proved
     // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The sender's harness
     // claim comes separately below, never as a bound harness.
@@ -1310,10 +1337,53 @@ fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
 
+/// The class a relayed text's first line names (`[block]`, `[question]`, `[result]`, `[fyi]`, as
+/// `mesh_send.rs` `class_line` writes it) and the text after that line; no class and the whole
+/// text otherwise.
+fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) {
+    let (first, rest) = body.split_once('\n').unwrap_or((body, ""));
+    let class = first
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .and_then(crate::prompt_class::PromptClass::parse);
+    match class {
+        Some(class) if !rest.trim().is_empty() => (Some(class), rest.trim_start_matches('\n')),
+        _ => (None, body),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+
+    /// A block or question sent over the mesh files as that class on the receiver, so an idle
+    /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
+    #[test]
+    fn inline_class_round_trips_the_senders_line() {
+        use crate::prompt_class::PromptClass;
+        for class in PromptClass::ALL {
+            let body =
+                format!("{}\n\nYou stopped on a 529.", super::super::mesh_send::class_line(class));
+            assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
+        }
+        assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    #[test]
+    fn inline_class_leaves_other_texts_whole() {
+        for body in [
+            "plain text",
+            "[block]",
+            "[block]\n\n  ",
+            "[nope]\nx",
+            "see [block]\nx",
+            "[block] x\ny",
+        ] {
+            assert_eq!(inline_class(body), (None, body), "{body:?}");
+        }
+    }
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {

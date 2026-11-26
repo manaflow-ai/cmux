@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "notice.forkedFromSubagent" : {
+      "comment" : "Agent pane: one line in a fork of a subagent where the subagent's history ends and the fork's own begins; {subagent} is the subagent, {chat} the chat it ran in",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forked from {subagent} of {chat}. Everything above is from that subagent."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "متفرّع من {subagent} في {chat}. ما فوق هذا من ذلك الوكيل الفرعي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Granano iz {subagent} u {chat}. Iznad je iz tog podagenta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forgrenet fra {subagent} i {chat}. Det ovenfor er fra den underagent."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abgezweigt von {subagent} in {chat}. Alles darüber stammt von diesem Subagenten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bifurcado de {subagent} de {chat}. Todo lo de arriba es de ese subagente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dérivé de {subagent} de {chat}. Tout ce qui précède vient de ce sous-agent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Derivato da {subagent} di {chat}. Tutto ciò che è sopra viene da quel subagente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{chat} の {subagent} から分岐。ここより上はそのサブエージェントの内容です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បំបែកពី {subagent} នៃ {chat}។ អ្វីៗខាងលើមកពីភ្នាក់ងាររងនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{chat}의 {subagent}에서 분기됨. 위의 내용은 그 하위 에이전트입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forgrenet fra {subagent} i {chat}. Alt over er fra den underagenten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozgałęziono z {subagent} w {chat}. Wszystko powyżej pochodzi od tego podagenta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bifurcado de {subagent} de {chat}. Tudo acima é desse subagente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ответвлено от {subagent} в {chat}. Всё выше — от того субагента."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แยกมาจาก {subagent} ของ {chat} ด้านบนทั้งหมดมาจากซับเอเจนต์นั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{chat} sohbetindeki {subagent} alt ajanından çatallandı. Yukarıdakilerin hepsi o alt ajandan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відгалужено від {subagent} у {chat}. Усе вище — від того субагента."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tách từ {subagent} của {chat}. Mọi thứ phía trên là từ tác tử phụ đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从 {chat} 的 {subagent} 分叉。以上内容均来自该子代理。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從 {chat} 的 {subagent} 分叉。以上內容皆來自該子代理。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

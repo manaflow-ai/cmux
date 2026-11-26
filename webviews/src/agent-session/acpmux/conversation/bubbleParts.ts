@@ -84,3 +84,15 @@ export function bubbleLayout(
     ),
   };
 }
+
+/// The attachments an attachment-only prompt draws in its strip (UserBubble.tsx `stripMedia`), in
+/// their order: its recorded parts less its videos' frames and its images' retained originals. The
+/// row's estimate (model.ts) measures each at its own sent size.
+export function stripAttachments(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
+): Exclude<PromptContentPart, { kind: "text" }>[] {
+  const originals = imageOriginals(row);
+  return (withoutVideoFrames(row).inlineParts ?? [])
+    .filter((part) => !isImageOriginal(part, originals))
+    .filter(isStripMedia);
+}

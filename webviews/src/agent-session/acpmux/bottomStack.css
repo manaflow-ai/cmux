@@ -43,6 +43,14 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
+/* An open chat's stack in flow (`data-dock="flow"`: the inspector, a handoff review) keeps the same
+   floor over it, so a tall draft's composer keeps its height as the stage over it switches (Leo,
+   2026-11-24: "we need to have more things decoupled from posisble shifts";
+   test/agent-pane-composer-anchored-above.test.ts). The stage carries the dock's `data-foot`. */
+.acpmux-main[data-dock="flow"] > .acpmux-stage[data-foot] {
+  --acpmux-stage-floor-foot: calc(44px + max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+  min-height: var(--acpmux-stage-floor-foot);
+}
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
    the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
    band takes the pointer, since the transcript's rows under the stack are only

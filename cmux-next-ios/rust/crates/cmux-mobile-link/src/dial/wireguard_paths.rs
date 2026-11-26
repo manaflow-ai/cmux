@@ -16,6 +16,12 @@
 //! it is suspect: the underlay sends on every route until it answers or
 //! dies, instead of waiting out the route rules' 14 s silence.
 //!
+//! A direct path the session left for a relay (it went suspect while the
+//! relay answered, or died) takes the session back only after
+//! [`REGAIN_ANSWERS`] answers in a row, doubling per drop back (the
+//! selector's regain rule): on weak LTE a path that answers one probe in
+//! two no longer flips the session between Direct and TURN every second.
+//!
 //! Until a path is alive (the dial, right after a roam, or a peer whose
 //! tunnel never answers probes) the selector chooses nothing and the
 //! underlay's own route rules decide, as before.
@@ -38,6 +44,13 @@ use super::{Carrier, Route};
 /// opened) carries the session within about this long plus a round trip.
 /// Both sides do it, so their probes open each other's NAT filters.
 pub(super) const UPGRADE_PROBE_EVERY: Duration = Duration::from_millis(750);
+/// Answers in a row a direct path the session left for a relay needs to
+/// take it back, doubling per further drop back up to 8 times. Probed every
+/// [`UPGRADE_PROBE_EVERY`] while the session carries data, that is about
+/// 4.5 s after the first drop and at most about 36 s (Leo's phone on weak
+/// LTE, 2026-11-25, flipped Direct/TURN a dozen times in two minutes).
+pub(super) const REGAIN_ANSWERS: u8 = 6;
+
 /// How long after the last data datagram the session counts as carrying
 /// data. An idle relayed link (keepalives only) keeps the 30 s turn, so a
 /// phone on cellular does not wake its radio every second for nothing.
@@ -67,6 +80,8 @@ static APP_BACKGROUNDED: AtomicBool = AtomicBool::new(false);
 /// backgrounded).
 pub fn set_app_backgrounded(backgrounded: bool) {
     APP_BACKGROUNDED.store(backgrounded, Ordering::Relaxed);
+    // No second socket on cell while backgrounded.
+    super::apply_multipath_to_live_sessions();
 }
 
 /// The last value [`set_app_backgrounded`] stored.
@@ -106,12 +121,21 @@ pub(super) struct Paths {
     /// Where the app's background state is read ([`APP_BACKGROUNDED`]; a
     /// test's own flag in unit tests, which run side by side).
     backgrounded: &'static AtomicBool,
+    /// A TURN route that went quiet or lost a probe since the last
+    /// [`Self::take_turn_quiet`], and its smoothed RTT then.
+    turn_quiet: Option<Option<u64>>,
+    /// The chosen route went quiet or lost its standing since the last
+    /// [`Self::take_chosen_quiet`].
+    chosen_quiet: Option<Route>,
 }
 
 impl Paths {
     pub fn new() -> Self {
         Self {
-            selector: Selector::new(SelectorConfig::default()),
+            selector: Selector::new(SelectorConfig {
+                regain_streak: REGAIN_ANSWERS,
+                ..SelectorConfig::default()
+            }),
             entries: Vec::new(),
             next_id: FIRST_ID,
             networks: local_networks(),
@@ -119,6 +143,8 @@ impl Paths {
             last_probe_id: 0,
             busy_until: None,
             backgrounded: &APP_BACKGROUNDED,
+            turn_quiet: None,
+            chosen_quiet: None,
         }
     }
 
@@ -278,8 +304,9 @@ impl Paths {
             .is_some_and(|view| !view.kind.class().is_direct())
     }
 
-    /// While relayed and busy: each dead direct path whose upgrade probe is
-    /// due gets one now. Returns when the next is due.
+    /// While relayed and busy: each dead direct path, and each the selector
+    /// still holds back from its regain streak, whose upgrade probe is due
+    /// gets one now. Returns when the next is due.
     fn upgrade_probes(&mut self, now: Instant) -> Option<Instant> {
         // Stops when the session goes direct, when no data went out for
         // UPGRADE_BUSY, or while the phone app is in the background.
@@ -295,7 +322,8 @@ impl Paths {
         let mut next: Option<Instant> = None;
         for entry in &mut self.entries {
             let Some(view) = self.selector.path(entry.id) else { continue };
-            if !view.kind.class().is_direct() || view.state != PathState::Dead {
+            let waiting = view.state == PathState::Dead || self.selector.held_back(entry.id);
+            if !view.kind.class().is_direct() || !waiting {
                 entry.upgrade_probe_at = None;
                 continue;
             }
@@ -336,13 +364,32 @@ impl Paths {
         let config = self.probes;
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else { return };
         if let Some(rtt_us) = entry.watch.answer(&config, probe, now) {
-            // An answer also says the path is not silent.
-            entry.watch.heard();
+            // `answer` also says the path is not silent.
             let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
         }
     }
 
+    /// A route through our TURN allocation went quiet (a probe left
+    /// unanswered past its silence window, or lost): the largest smoothed
+    /// RTT of such routes, once per report.
+    pub fn take_turn_quiet(&mut self) -> Option<Option<u64>> {
+        self.turn_quiet.take()
+    }
+
+    /// The route the selector held went quiet (silent past its window, or
+    /// it lost its standing by a lost probe), once per report.
+    pub fn take_chosen_quiet(&mut self) -> Option<Route> {
+        self.chosen_quiet.take()
+    }
+
     /// The probes due at `now`, after applying lost probes and silences.
+    /// Hold every path's routine pings until `floor` (`PathWatch::hold_routine`).
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        for entry in &mut self.entries {
+            entry.watch.hold_routine(floor);
+        }
+    }
+
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
         let current = self.selector.current();
@@ -382,6 +429,12 @@ impl Paths {
                 (a, b) => a.or(b),
             };
         }
+        for &id in lost.iter().chain(&silent) {
+            if self.route_of(id).is_some_and(|route| route.carrier == Carrier::Turn) {
+                let rtt = self.selector.path(id).and_then(|view| view.rtt_us);
+                self.turn_quiet = Some(self.turn_quiet.flatten().max(rtt));
+            }
+        }
         for id in lost {
             let _ = self.selector.on_probe(id, ProbeOutcome::Lost);
         }
@@ -397,6 +450,7 @@ impl Paths {
         // suspect, and the fallback needs the same fresh answers.
         let left_current = current.is_some() && self.selector.current() != current;
         if chosen_quiet || left_current {
+            self.chosen_quiet = self.route_of_id(chosen.or(current));
             // The other paths were last heard up to a 30 s probe ago, and the
             // cut that silenced the chosen one may have taken them too (one
             // Wi-Fi carries the LAN and the routed address): probe them all
@@ -616,8 +670,39 @@ mod tests {
         assert!(paths.drives());
     }
 
+    /// The side that reaches the peer through the peer's TURN server sees
+    /// that route go quiet first (it has data to send); the underlay hears
+    /// of it once, within the route's silence window, to nudge the peer
+    /// (an idle peer would otherwise find out at its next 5 s probe).
     #[test]
-    fn a_quiet_route_sprays_then_falls_back_to_the_relay() {
+    fn a_quiet_chosen_route_is_reported_once_within_its_window() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let relayed = udp("203.0.113.9:4100");
+        paths.sync(&[Wanted { route: relayed, relayed: true }]);
+        let cut = answer_all(&mut paths, Instant::now(), ms(2));
+        assert_eq!(paths.current(), Some(relayed));
+        assert_eq!(paths.take_chosen_quiet(), None);
+        paths.sent(relayed, cut);
+        let mut now = cut;
+        let mut reported = Vec::new();
+        while now < cut + ms(1000) {
+            now += ms(10);
+            let _ = paths.poll(now);
+            if let Some(route) = paths.take_chosen_quiet() {
+                reported.push((route, now - cut));
+            }
+        }
+        let (route, at) = *reported.first().expect("the quiet route is reported");
+        assert_eq!(route, relayed);
+        // Silence window (100 ms floor at this RTT) for the unanswered send,
+        // then the probe it triggers gets the same window.
+        assert!(at <= ms(250), "reported at {at:?}");
+        assert_eq!(reported.len(), 1, "once per quiet spell: {reported:?}");
+    }
+
+    #[test]
+    fn a_quiet_route_hands_the_session_to_the_relay_that_answers() {
         let ms = std::time::Duration::from_millis;
         let mut paths = paths_on(lan_table());
         let lan = udp("192.168.1.30:4100");
@@ -638,7 +723,9 @@ mod tests {
                     paths.on_pong(id, probe, now);
                 }
             }
-            if sprayed_at.is_none() && paths.suspect() {
+            // Regain: suspect with a relay that answers is a move to the relay
+            // at once (no spray while it waits to die).
+            if sprayed_at.is_none() && paths.current() != Some(lan) {
                 sprayed_at = Some(now);
             }
             if paths.current() == Some(relay) {
@@ -646,10 +733,10 @@ mod tests {
                 break;
             }
         }
-        let sprayed = sprayed_at.expect("the quiet route turns suspect").duration_since(cut);
-        assert!(sprayed <= ms(250), "sprays {sprayed:?} after the cut, not at the 14 s silence");
-        let relay = relay_at.expect("the relay takes over once the LAN path dies").duration_since(cut);
-        assert!(relay <= std::time::Duration::from_secs(5), "relay after {relay:?}");
+        let left = sprayed_at.expect("the quiet route is left").duration_since(cut);
+        assert!(left <= ms(250), "left {left:?} after the cut, not at the 14 s silence");
+        let relay = relay_at.expect("the relay takes over").duration_since(cut);
+        assert!(relay <= ms(250), "relay after {relay:?}");
     }
 
     #[test]
@@ -714,7 +801,7 @@ mod tests {
         for _ in 0..1000 {
             now += ms(10);
             let due = paths.poll(now);
-            if suspect_at.is_none() && paths.suspect() {
+            if suspect_at.is_none() && paths.current() != Some(lan) {
                 suspect_at = Some(now);
             }
             let others: Vec<_> = due
@@ -740,6 +827,64 @@ mod tests {
             refreshed <= ms(20),
             "others probed {refreshed:?} after suspicion at {at:?}, not at their 30 s turn"
         );
+    }
+
+    /// One step of a session that sends data every 10 ms: the relay answers
+    /// every probe, the LAN path only while `lan_up`. Returns the route.
+    fn step_busy(paths: &mut Paths, lan: Route, now: Instant, lan_up: bool) -> Option<Route> {
+        let ms = std::time::Duration::from_millis;
+        paths.sent_data(now);
+        match paths.current() {
+            Some(route) => paths.sent(route, now),
+            None => paths.sent_everywhere(now),
+        }
+        for (id, probe) in paths.poll(now).pings {
+            if paths.route_of(id) != Some(lan) || lan_up {
+                paths.on_pong(id, probe, now + ms(20));
+            }
+        }
+        paths.current()
+    }
+
+    /// Leo's phone on weak LTE (2026-11-25, "I still can't connect to my
+    /// Mac via iOS app right now"): a direct path that answered for a
+    /// second, then went quiet for a second, flipped the session between
+    /// Direct and TURN a dozen times in two minutes. Now the first drop
+    /// hands the session to the relay, which carries it from then on, and
+    /// the flapping path never earns it back while it flaps.
+    #[test]
+    fn an_alternating_direct_path_switches_a_few_times_a_minute_and_the_relay_carries() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+        let start = answer_all(&mut paths, Instant::now(), ms(20));
+        assert_eq!(paths.current(), Some(lan));
+        let mut now = start;
+        let mut last = paths.current();
+        let (mut switches, mut uncarried, mut steps) = (0, 0, 0);
+        while now < start + std::time::Duration::from_secs(60) {
+            let lan_up = (now - start).as_secs().is_multiple_of(2);
+            let route = step_busy(&mut paths, lan, now, lan_up);
+            if route != last {
+                switches += 1;
+                last = route;
+            }
+            uncarried += usize::from(route.is_none());
+            steps += 1;
+            now += ms(10);
+        }
+        assert!(switches <= 4, "{switches} switches in a minute");
+        assert!(uncarried * 50 <= steps, "no route chosen for {uncarried} of {steps} steps");
+        // The direct path steadies: it takes the session back within the regain bound.
+        let steady = now;
+        while paths.current() != Some(lan) {
+            assert!(now - steady <= std::time::Duration::from_secs(40), "never regained");
+            step_busy(&mut paths, lan, now, true);
+            now += ms(10);
+        }
+        assert!(now - steady >= ms(3000), "regained after {:?}: not on its first answers", now - steady);
     }
 
     #[test]

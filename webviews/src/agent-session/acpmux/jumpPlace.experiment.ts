@@ -17,7 +17,9 @@ import { defineExperiment } from "../../experiments/experiment";
 /// part of the composer hat redesign? look. if it was between the jump to bottom and the composer hat
 /// thing, the composer hat hidden bit was the one to move to the right. or left." So the centered arm
 /// ships again, and the hat's pill moves aside instead (hatPillPlace.experiment.ts, jumpPlace.ts
-/// `hatSide`).
+/// `hatSide`). Leo, 2026-11-24, of the pill aside: "you guys need to move it back to the middle": the
+/// pill is back on the center line under the disc, the stack lifted clear of it (hat-pill-place
+/// `middle`).
 export const jumpLatestPlace = defineExperiment({
   id: "jump-latest-place",
   title: "Jump to latest: where it stands over the composer",
@@ -42,7 +44,7 @@ export const jumpLatestPlace = defineExperiment({
     center: {
       label: "Centered",
       description:
-        "Ships: on the composer's center line (Leo, 2026-11-07: \"the jump to bottom button is still not centered with the composer yet\"), the hat's pill moved aside (hat-pill-place).",
+        "Ships: on the composer's center line (Leo, 2026-11-07: \"the jump to bottom button is still not centered with the composer yet\"), over the hat's pill (hat-pill-place).",
     },
   },
   defaultArm: "center",

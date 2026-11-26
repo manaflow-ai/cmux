@@ -38,6 +38,9 @@ extension PageWebView {
     /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
         guard let session = chromiumSession else { return }
+        // Health times only a page whose document can beat: it hears each change of what Chromium was told.
+        let wasHidden = session.toldHidden
+        defer { if session.toldHidden != wasHidden { healthFeed?.pageVisibilityChanged(self) } }
         guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
         let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
         let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
@@ -48,7 +51,8 @@ extension PageWebView {
         // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
         let away = shown && (inOffscreenParking || (outside && clear))
         session.setVisible(away ? drawsAway : shown)
-        if away, drawsAway { drawAwayIfNeeded() }
+        if away, drawsAway { drawAwayIfNeeded(); boundUnpaintedAwayDrawing() }
+        if !away, shown { awayDrawing.resetUnpaintedBound() }
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 

@@ -1,5 +1,5 @@
 {
-  "caption": "Turn on Update When Idle in Settings > Updates: cmux installs an update and restarts while you are away from your Mac. Agents keep working through it.",
+  "caption": "Turn on Update When Idle and cmux installs updates and restarts while you are away, agents still working.",
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2},

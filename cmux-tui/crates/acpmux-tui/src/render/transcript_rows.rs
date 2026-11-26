@@ -46,6 +46,8 @@ pub(super) fn transcript_rows_range(
     let w = width;
     let running = t.status == "running";
     let last = t.items.len().saturating_sub(1);
+    // The turn acpmux holds for capacity and continues itself: drawn calm, never red (GUI parity).
+    let held = crate::capacity_wait::held_error(t);
     let is_open = |tg: Toggle, default_open: bool| default_open ^ toggled.contains(&tg);
     let group = |it: &Item| matches!(it, Item::Tool { .. } | Item::Permission { .. });
     // Visible items: lifecycle noise and silent turn ends never draw.
@@ -64,6 +66,10 @@ pub(super) fn transcript_rows_range(
                 && !matches!(it, Item::TurnEnd { stop } if stop == "end_turn")
         })
         .collect();
+    // An ended turn the person steered right before its end reads its work, the steer, then the
+    // reply (Leo, 2026-11-25: "worked for above my message and then yours and then boom that's
+    // it"); a running turn draws as it came.
+    let (vis, late) = late_steers_last(t, vis, running);
     // Codex spacing: one plain blank row before every block. The user block
     // also carries a tinted blank row inside its band above and below.
     let after_user_block = false;
@@ -184,13 +190,6 @@ pub(super) fn transcript_rows_range(
         }
     };
 
-    // Queued messages wait at the bottom, under the running turn, until
-    // their own turn starts (Codex app).
-    let queued: Vec<usize> = vis
-        .iter()
-        .copied()
-        .filter(|&i| matches!(t.items[i], Item::User { queued: true, .. }))
-        .collect();
     let mut k = 0usize;
     let mut turn_open = true;
     // When a turn's work is collapsed, rendering resumes at this item (the
@@ -203,10 +202,6 @@ pub(super) fn transcript_rows_range(
             reopen_at = None;
         }
         let item = &t.items[i];
-        if matches!(item, Item::User { queued: true, .. }) {
-            k += 1;
-            continue;
-        }
         match item {
             Item::User { text, steer, queued } => {
                 k += 1;
@@ -284,16 +279,22 @@ pub(super) fn transcript_rows_range(
                     .map(|p| i + 1 + p)
                     .unwrap_or(t.items.len());
                 let turn_live = running && next_user == t.items.len();
+                // Positions in drawing order (`vis`), which `late_steers_last` may have reordered.
+                let next_pos = (k..vis.len())
+                    .find(|&p| matches!(t.items[vis[p]], Item::User { queued: false, .. }))
+                    .unwrap_or(vis.len());
                 // While the turn runs there is no final reply yet: every block
-                // is work and the handle reads "Working for …".
-                let final_reply = if turn_live {
+                // is work and the handle reads "Working for …". Above a late steer
+                // the reply comes after the steer: everything here is work.
+                let final_reply = if turn_live
+                    || vis.get(next_pos).is_some_and(|j| late.contains(j))
+                {
                     None
                 } else {
-                    (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. }))
+                    (k..next_pos).rev().find(|&p| matches!(t.items[vis[p]], Item::Assistant { .. }))
                 };
-                let work_end = final_reply.unwrap_or(next_user);
-                let work: Vec<usize> =
-                    vis[k..].iter().copied().take_while(|&j| j < work_end).collect();
+                let work_end = final_reply.unwrap_or(next_pos);
+                let work: Vec<usize> = vis[k..work_end].to_vec();
                 let mut blocks = 0usize;
                 let mut tools = 0usize;
                 let mut commands = 0usize;
@@ -343,7 +344,8 @@ pub(super) fn transcript_rows_range(
                         }
                     }
                 }
-                if blocks >= 1 {
+                // A late steer's rows are the reply: nothing under it folds.
+                if blocks >= 1 && !late.contains(&i) {
                     // Finished work starts folded; a live turn stays open so
                     // its activity is visible while the agent is working.
                     let open = is_open(Toggle::Turn(i), turn_live);
@@ -476,7 +478,7 @@ pub(super) fn transcript_rows_range(
                     }
                     if !open {
                         turn_open = false;
-                        reopen_at = Some(work_end);
+                        reopen_at = vis.get(work_end).copied();
                     }
                 }
                 continue;
@@ -646,24 +648,6 @@ pub(super) fn transcript_rows_range(
                             });
                         }
                     }
-                    Item::Plan { entries } => {
-                        plain("plan", Style::default().fg(c.attention_fg), i, &mut rows);
-                        for (s, content) in entries {
-                            let glyph = match s.as_str() {
-                                "completed" => "✓",
-                                "in_progress" => "▶",
-                                _ => "○",
-                            };
-                            wrap(
-                                content,
-                                w.saturating_sub(2),
-                                Style::default().fg(c.attention_fg),
-                                &format!("{glyph} "),
-                                i,
-                                &mut rows,
-                            );
-                        }
-                    }
                     Item::Status { text } => plain(&format!("-- {text}"), c.dim(), i, &mut rows),
                     Item::TurnEnd { stop } => plain(&format!("-- {stop}"), c.dim(), i, &mut rows),
                     Item::Error { text } => {
@@ -672,7 +656,17 @@ pub(super) fn transcript_rows_range(
                         let cw = width.max(12);
                         let inner = cw.saturating_sub(6);
                         let mut body: Vec<Row> = Vec::new();
-                        wrap(text, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                        let calm = held == Some(i);
+                        let mut first = 1;
+                        if calm {
+                            let note =
+                                format!("Waiting for capacity · {}", crate::capacity_wait::GOES_ON);
+                            wrap(&note, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                            first = body.len();
+                            wrap(text, inner, c.dim(), "", i, &mut body);
+                        } else {
+                            wrap(text, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                        }
                         rows.push(Row {
                             line: Line::from(Span::styled(
                                 format!("╭{}╮", "─".repeat(cw - 2)),
@@ -684,18 +678,26 @@ pub(super) fn transcript_rows_range(
                         });
                         for (n, r) in body.into_iter().enumerate() {
                             let content = r.text.clone();
-                            let icon = if n == 0 { "✗ " } else { "  " };
+                            let icon = match (n, calm) {
+                                (0, true) => "◷ ",
+                                (0, false) => "✗ ",
+                                _ => "  ",
+                            };
+                            let icon_fg = if calm { c.attention_fg } else { c.error_fg };
+                            let text_style = if n >= first && calm {
+                                c.dim()
+                            } else {
+                                Style::default().fg(c.status_fg)
+                            };
                             let pad = inner.saturating_sub(content.width());
                             rows.push(Row {
                                 line: Line::from(vec![
                                     Span::styled("│ ".to_owned(), border),
                                     Span::styled(
                                         icon.to_owned(),
-                                        Style::default()
-                                            .fg(c.error_fg)
-                                            .add_modifier(Modifier::BOLD),
+                                        Style::default().fg(icon_fg).add_modifier(Modifier::BOLD),
                                     ),
-                                    Span::styled(content.clone(), Style::default().fg(c.status_fg)),
+                                    Span::styled(content.clone(), text_style),
                                     Span::raw(" ".repeat(pad)),
                                     Span::styled(" │".to_owned(), border),
                                 ]),
@@ -725,8 +727,14 @@ pub(super) fn transcript_rows_range(
             }
         }
     }
-    for &i in &queued {
-        if let Item::User { text, .. } = &t.items[i] {
+    // Queued prompts dock at the bottom, under the running turn, until each is delivered and
+    // joins the transcript where it arrived (`Transcript::queue`). They are no item: their rows
+    // name the index past the last one, which no fold or copy resolves.
+    let docked: &[acpmux::transcript::QueuedPrompt] = if footer { &t.queue } else { &[] };
+    for q in docked {
+        let i = t.items.len();
+        {
+            let text = &q.text;
             spacer(&mut rows, i, false);
             let bg = Style::default().bg(c.user_bg);
             let style = c.dim().bg(c.user_bg);
@@ -769,8 +777,87 @@ pub(super) fn transcript_rows_range(
     if running && footer {
         plain("", Style::default(), usize::MAX, &mut rows);
         rows.push(working_row(t, c));
+    } else if footer && let Some(wait) = t.capacity_wait.as_ref() {
+        plain("", Style::default(), usize::MAX, &mut rows);
+        rows.push(capacity_row(wait, c));
     }
     rows
+}
+
+/// The drawing order of `vis` with each ended turn's late steers moved under its work and over
+/// its reply (port of webviews `turns.ts` `lateSteersLast`). From a turn's end back, a steer with
+/// no tool call started after it is late; from the first one, the agent's text right above it
+/// joins the region, which reads its other rows, then the steers, then the agent's text. Only when
+/// the turn's final reply is in that region. Returns the order and the late steers' items.
+pub(super) fn late_steers_last(
+    t: &Transcript,
+    mut vis: Vec<usize>,
+    running: bool,
+) -> (Vec<usize>, std::collections::HashSet<usize>) {
+    let mut late = std::collections::HashSet::new();
+    let prompt = |i: usize| matches!(t.items[i], Item::User { queued: false, steer: false, .. });
+    let steer = |i: usize| matches!(t.items[i], Item::User { queued: false, steer: true, .. });
+    let text = |i: usize| matches!(t.items[i], Item::Assistant { .. });
+    let mut start = 0usize;
+    while start < vis.len() {
+        let stop = (start + 1..vis.len()).find(|&p| prompt(vis[p])).unwrap_or(vis.len());
+        let turn = start;
+        start = stop;
+        if !prompt(vis[turn]) {
+            continue;
+        }
+        let live = running
+            && !t.items[vis[turn] + 1..]
+                .iter()
+                .any(|x| matches!(x, Item::User { queued: false, steer: false, .. }));
+        if live {
+            continue;
+        }
+        // The turn's end: its footer (a stop the turn shows) or a queued message waiting under it.
+        let end = (turn + 1..stop)
+            .find(|&p| {
+                matches!(t.items[vis[p]], Item::TurnEnd { .. } | Item::User { queued: true, .. })
+            })
+            .unwrap_or(stop);
+        let mut first = None;
+        for p in (turn + 1..end).rev() {
+            match &t.items[vis[p]] {
+                Item::Tool { .. } => break,
+                _ if steer(vis[p]) => first = Some(p),
+                _ => {}
+            }
+        }
+        let Some(first) = first else { continue };
+        let mut from = first;
+        while from > turn + 1 && text(vis[from - 1]) {
+            from -= 1;
+        }
+        let Some(answer) = (turn + 1..end).rev().find(|&p| text(vis[p])) else { continue };
+        if answer < from {
+            continue;
+        }
+        let region = &vis[from..end];
+        let steers: Vec<usize> = region.iter().copied().filter(|&i| steer(i)).collect();
+        let mut reordered: Vec<usize> =
+            region.iter().copied().filter(|&i| !steer(i) && !text(i)).collect();
+        reordered.extend(&steers);
+        reordered.extend(region.iter().copied().filter(|&i| text(i)));
+        if reordered != region {
+            late.extend(steers);
+            vis.splice(from..end, reordered);
+        }
+    }
+    (vis, late)
+}
+
+/// The footer while acpmux waits out a capacity cut: the GUI's calm line, counting down.
+pub(super) fn capacity_row(wait: &serde_json::Value, c: &Chrome) -> Row {
+    let label = crate::capacity_wait::line(wait, now_ms());
+    let line = Line::from(vec![
+        Span::styled("◷ ".to_owned(), Style::default().fg(c.attention_fg)),
+        Span::styled(label.clone(), c.muted()),
+    ]);
+    Row { line, text: format!("◷ {label}"), item: usize::MAX, toggle: None }
 }
 
 pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
@@ -800,8 +887,7 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
             if t.active_tools == 1 { "" } else { "s" }
         ));
     }
-    let queued =
-        t.items.iter().filter(|item| matches!(item, Item::User { queued: true, .. })).count();
+    let queued = t.queue.len();
     if queued > 0 {
         label.push_str(&format!(" · {} queued", queued));
     }
@@ -812,4 +898,80 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
         spans.push(Span::styled(note.clone(), c.dim()));
     }
     Row { line: Line::from(spans), text: format!("{label}{note}"), item: usize::MAX, toggle: None }
+}
+
+#[cfg(test)]
+mod late_steer_tests {
+    use super::*;
+
+    fn user(text: &str, steer: bool) -> Item {
+        Item::User { text: text.into(), steer, queued: false }
+    }
+    fn said(text: &str) -> Item {
+        Item::Assistant { text: text.into() }
+    }
+    fn tool(id: &str) -> Item {
+        Item::Tool {
+            id: id.into(),
+            title: format!("Read {id}"),
+            kind: "read".into(),
+            status: "completed".into(),
+            detail: String::new(),
+        }
+    }
+    fn transcript(items: Vec<Item>, status: &str) -> Transcript {
+        let mut t = Transcript::default();
+        t.items = items;
+        t.status = status.into();
+        t
+    }
+    fn order(t: &Transcript) -> Vec<usize> {
+        late_steers_last(t, (0..t.items.len()).collect(), t.status == "running").0
+    }
+    /// The first row, in drawing order, whose text contains each needle.
+    fn drawn_at(t: &Transcript, needles: &[&str]) -> Vec<usize> {
+        let rows = transcript_rows(t, 80, false, false, &Default::default(), &Chrome::dark());
+        needles.iter().map(|n| rows.iter().position(|r| r.text.contains(n)).expect(n)).collect()
+    }
+
+    #[test]
+    fn late_steer_after_the_reply_draws_over_it_once_the_turn_ended() {
+        let items = vec![
+            user("fix it", false),
+            tool("a.rs"),
+            said("Fixed it"),
+            user("also b", true),
+            said("and b too"),
+        ];
+        let live = transcript(items.clone(), "running");
+        assert_eq!(order(&live), vec![0, 1, 2, 3, 4], "a running turn draws as it came");
+        let ended = transcript(items, "ready");
+        assert_eq!(order(&ended), vec![0, 1, 3, 2, 4]);
+        let at = drawn_at(&ended, &["fix it", "Worked", "also b", "Fixed it", "and b too"]);
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "prompt, work, steer, reply: {at:?}");
+    }
+
+    #[test]
+    fn steer_with_a_tool_after_it_keeps_its_order() {
+        let t = transcript(
+            vec![
+                user("fix it", false),
+                tool("a.rs"),
+                said("Fixed it"),
+                user("also b", true),
+                tool("b.rs"),
+                said("and b too"),
+            ],
+            "ready",
+        );
+        assert_eq!(order(&t), (0..6).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn turn_without_a_steer_keeps_its_order() {
+        let t = transcript(vec![user("fix it", false), tool("a.rs"), said("Fixed it")], "ready");
+        assert_eq!(order(&t), vec![0, 1, 2]);
+        let at = drawn_at(&t, &["fix it", "Worked", "Fixed it"]);
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{at:?}");
+    }
 }

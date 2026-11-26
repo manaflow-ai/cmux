@@ -7,8 +7,15 @@ import SwiftUI
 public struct TerminalTabContext {
     /// Status bar (top) and tab toolbar (bottom) over the page.
     public var safeAreaInsets: EdgeInsets
+    /// Where the chrome's cover ends this frame (`TabsKitContentContext.chromeInsets.top`):
+    /// above `safeAreaInsets.top` while a top bar is collapsed. The status scrim follows it;
+    /// the grid keeps `safeAreaInsets` so its rows never change with the bar. Nil: the same.
+    public var chromeTop: CGFloat?
     /// The page is settled full screen and takes input.
     public var isInteractive: Bool
+    /// The page is full screen (not zoomed out to the tab grid), even while a menu, a swipe or the
+    /// address bar briefly takes input from it: what the page's orientation follows.
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: suspend the terminal's own pinch.
     public var isZoomGestureActive: Bool
     /// Finger travel on the page (positive = finger down); collapses and
@@ -19,10 +26,13 @@ public struct TerminalTabContext {
     /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
     public var openLink: (@MainActor (URL) -> Void)?
 
-    public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
+    public init(safeAreaInsets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool, isZoomGestureActive: Bool,
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil,
+                isOnPage: Bool? = nil) {
         self.safeAreaInsets = safeAreaInsets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage ?? isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
         self.openLink = openLink

@@ -52,6 +52,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    var terminalHistoryButton: TerminalHistoryButton?
     /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
     var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?
@@ -356,7 +357,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         var leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
-        if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
+        contentHost.easesGround(TabSwitchMorph.isOn) { if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) } } // TabSwitchMorph
         if holds || (kept == nil && !isBandActive && PanePaintHold.holds(view, replacing: hosted)), let shown, let view { leaving = nil; beginPaintHold(outgoing: shown, incoming: view) } // asked again once in: a chat back from drawn parking learns its move here (`AgentPaneView.movedPageWaits`)
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()

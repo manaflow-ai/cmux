@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::*;
-use crate::git::{Book, Layout, Projection, Worktree, index_bytes_sparse, link_texts, ls_tree};
+use crate::git::{
+    Book, Layout, ObjectFormat, Projection, Worktree, index_bytes_sparse, link_texts, ls_tree,
+};
 
 fn git(dir: &Path, args: &[&str], stdin: Option<&str>) -> String {
     let mut child = Command::new("git")
@@ -154,7 +156,8 @@ fn the_index_has_skip_worktree_on_exactly_the_left_out_paths_and_status_is_clean
         std::os::unix::fs::symlink(real_root.join(real), at.join(real)).unwrap();
     }
     assert!(!Worktree::sparse_matches(&admin, Some(&sparse)));
-    let index = index_bytes_sparse(&projection.index, &skipped, 1000, 1000).unwrap();
+    let index =
+        index_bytes_sparse(&projection.index, &skipped, ObjectFormat::Sha1, 1000, 1000).unwrap();
     assert_eq!(index.get(4..8), Some(&3u32.to_be_bytes()[..]), "extended flags need version 3");
     Worktree::write(&git_dir, "projected", &at, &commit, &index, &projection.real_dirs)
         .unwrap()
@@ -196,6 +199,7 @@ fn an_index_with_nothing_left_out_stays_version_2() {
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
     assert!(skipped.is_empty());
-    let index = index_bytes_sparse(&projection.index, &skipped, 1000, 1000).unwrap();
+    let index =
+        index_bytes_sparse(&projection.index, &skipped, ObjectFormat::Sha1, 1000, 1000).unwrap();
     assert_eq!(index.get(4..8), Some(&2u32.to_be_bytes()[..]));
 }

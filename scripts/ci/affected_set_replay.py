@@ -56,7 +56,7 @@ EVERYTHING = (r"^.",)
 # check name (regex, re.search, case-insensitive, first match wins) -> inputs (regexes on repo paths).
 # None means the verdict depends on the PR itself, not its files: always affected.
 INPUTS: list[tuple[str, tuple[str, ...] | None]] = [
-    (r"size budget|size cap|defaults guard|freeze|risk|language boundaries|intent|^close$|pr-red-checks|^batch$"
+    (r"size budget|size cap|freeze|risk|language boundaries|intent|^close$|pr-red-checks|^batch$"
      r"|autofix|repairs|CI timing|ci-status|fallback|pr-checks|local test receipt|pr-capture-check|design spec"
      r"|fast check route|^changes$|resolve head and base|plan the look|path routing|^pr router$|action export areas"
      r"|^check$|web-subarea-scope|placement", None),

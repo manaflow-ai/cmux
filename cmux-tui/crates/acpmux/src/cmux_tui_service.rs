@@ -8,7 +8,8 @@
 //!   dials M's carrier circuit naming the [`CircuitService::CmuxTui`] service
 //!   (`HubCarrier::dial_service`), answers one JSON-RPC line, and from then on the socket
 //!   carries the circuit's bytes both ways. The CLI speaks the remote protocol over it
-//!   (WebSocket upgrade, Noise, device enrollment), as over TCP.
+//!   (WebSocket upgrade, Noise, device enrollment), as over TCP. `{machine, service:
+//!   "lane-gh-broker"}` reaches M's lane-gh broker instead (`hub_carrier_broker.rs`).
 //! - Serving side: [`ConfiguredGate`] lets a circuit through only to the loopback address the
 //!   owner named (`remoteDaemon`, `acpmux config --set remote_daemon=127.0.0.1:PORT`), only for
 //!   that port, and on a joined machine only while its "control" consent is granted
@@ -102,16 +103,22 @@ pub fn admit(
 /// was given, a key itself, or the name the hub lists the machine by (`acpmux machine ls`, the
 /// address book's host). This machine's own key is refused: the hub carries only between two of
 /// the person's machines, and its daemon is on loopback here.
+/// A pipe to the far machine's lane-gh broker (`service: "lane-gh-broker"`) names no port: its
+/// port is 0 here.
 async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcError> {
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-    let port = params
-        .get("port")
-        .and_then(Value::as_u64)
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p != 0)
-        .ok_or_else(|| {
-            RpcError::invalid_params("port is required (the remote daemon's loopback port)")
-        })?;
+    let port = if is_broker_pipe(params) {
+        0
+    } else {
+        params
+            .get("port")
+            .and_then(Value::as_u64)
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p != 0)
+            .ok_or_else(|| {
+                RpcError::invalid_params("port is required (the remote daemon's loopback port)")
+            })?
+    };
     let carrier = hub.hub_carrier.get();
     let daemon = match (text("daemonId"), text("machine")) {
         (Some(key), _) => Some(key.to_owned()),
@@ -153,6 +160,13 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
     Ok((daemon, port))
 }
 
+/// Whether a `remote.pipe` asks for the far machine's lane-gh broker (RFD 0127 cut 2,
+/// `hub_carrier_broker.rs`) rather than its cmux-tui remote daemon.
+fn is_broker_pipe(params: &Value) -> bool {
+    params.get("service").and_then(Value::as_str)
+        == Some(crate::hub_carrier::LANE_GH_BROKER_SERVICE)
+}
+
 /// The `daemonId` of the one machine the hub's address book lists as `name` (its host, any
 /// case), among `machines` (`(daemonId, host)`). None when no machine or more than one has it.
 fn book_key(machines: &[(String, String)], name: &str) -> Option<String> {
@@ -180,17 +194,25 @@ fn is_key(text: &str) -> bool {
 
 /// Serve a `_acpmux/remote.pipe` connection: dial, answer request `id` with one line, then carry
 /// bytes between `reader`/`writer` (the unix socket) and the circuit until either side ends.
+///
+/// `early: N` in the params: the N bytes after the request line are the stream's first bytes
+/// (a client that speaks first, as `lane-gh` does to its broker). They are read before the dial
+/// and go right behind the stream's OPEN (`HubCarrier::dial_service_early`), so the far
+/// service's reply comes one relay round trip after the dial instead of two. An acpmux from
+/// before `early` ignores the field and carries those bytes after its reply, as any others, so
+/// a client may send it to any daemon.
 pub(crate) async fn serve_pipe<R, W>(
     hub: Arc<Hub>,
     id: Value,
     params: Value,
-    reader: R,
+    mut reader: R,
     mut writer: W,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     let dialed = async {
+        let early = read_early(&mut reader, &params).await?;
         let (daemon, port) = pipe_target(&hub, &params).await?;
         let carrier = hub.hub_carrier.get().ok_or_else(|| {
             RpcError::new(
@@ -202,14 +224,17 @@ pub(crate) async fn serve_pipe<R, W>(
         })?;
         // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
         // ends on one no redial cures and redials the rest (`machine.unreachable`).
+        // `service: "lane-gh-broker"`: the far machine's lane-gh broker (RFD 0127 cut 2).
         // `resume`: the far acpmux holds the pipe across this one's end (RFD 0127 cut 4,
         // `hub_carrier_resume.rs`); the client resumes it on its next pipe.
-        let service = if params.get("resume").and_then(Value::as_bool) == Some(true) {
+        let service = if is_broker_pipe(&params) {
+            CircuitService::LaneGhBroker
+        } else if params.get("resume").and_then(Value::as_bool) == Some(true) {
             CircuitService::CmuxTuiResume { port }
         } else {
             CircuitService::CmuxTui { port }
         };
-        carrier.dial_service_reported(&daemon, service).await.map_err(|e| {
+        carrier.dial_service_early(&daemon, service, &early).await.map_err(|e| {
             let refusal = crate::machine_routes::refusal_of(&e);
             let message =
                 refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
@@ -236,9 +261,51 @@ pub(crate) async fn serve_pipe<R, W>(
     let _ = tokio::io::copy_bidirectional(&mut local, &mut circuit).await;
 }
 
+/// How long a pipe's declared early bytes may take to arrive after its request line.
+const EARLY_READ_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The `early` bytes a `remote.pipe` request declares (`early: N`), read from `reader`. At most
+/// [`crate::hub_carrier::HubCarrier::EARLY_BYTES`] are taken; past that the client's bytes stay
+/// in the stream and are carried after the reply.
+async fn read_early<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    params: &Value,
+) -> Result<Vec<u8>, RpcError> {
+    use tokio::io::AsyncReadExt;
+    let declared = params.get("early").and_then(Value::as_u64).unwrap_or(0);
+    let take = usize::try_from(declared)
+        .unwrap_or(usize::MAX)
+        .min(crate::hub_carrier::HubCarrier::EARLY_BYTES);
+    let mut early = vec![0u8; take];
+    if take > 0 {
+        tokio::time::timeout(EARLY_READ_BOUND, reader.read_exact(&mut early))
+            .await
+            .map_err(|_| "the early bytes did not arrive in time".to_owned())
+            .and_then(|read| read.map_err(|e| format!("the early bytes: {e}")))
+            .map_err(|why| {
+                RpcError::invalid_params(why).with_data(json!({"reason": "pipe.early"}))
+            })?;
+    }
+    Ok(early)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_pipe_takes_exactly_its_declared_early_bytes() {
+        let mut reader: &[u8] = b"hello-world";
+        let early = read_early(&mut reader, &json!({"early": 5})).await.unwrap();
+        assert_eq!(early, b"hello");
+        assert_eq!(reader, b"-world", "the rest is carried after the reply");
+        let mut reader: &[u8] = b"untouched";
+        assert!(read_early(&mut reader, &json!({})).await.unwrap().is_empty());
+        assert_eq!(reader, b"untouched");
+        let mut short: &[u8] = b"abc";
+        let refused = read_early(&mut short, &json!({"early": 9})).await.unwrap_err();
+        assert_eq!(refused.data.as_ref().and_then(|d| d.get("reason")), Some(&json!("pipe.early")));
+    }
 
     fn consent(required: bool, control: &str) -> Value {
         json!({"consentRequired": required, "consent": {"screen": "none", "control": control}})

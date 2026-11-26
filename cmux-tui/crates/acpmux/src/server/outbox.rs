@@ -7,9 +7,10 @@
 //! as the sender's own session when the sender proved one (its caller token, minted again), and
 //! sends the prompt there, so every rule of a direct send applies, and a peer's session is
 //! forwarded as usual (`peer_forward.rs`). An attempt ends on the target's acceptance (or its
-//! answer), on a refusal, or after [`ATTEMPT_WAIT`]. A connection error, a peer that is down
-//! and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same prompt id and
-//! `resend`, so a target that took the first attempt answers with it and never runs it twice. A
+//! answer), on a refusal, or after [`ATTEMPT_WAIT`] with nothing heard. A connection error, a
+//! peer that is down and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same
+//! prompt id and `resend`, so a target that took the first attempt answers with it and never runs
+//! it twice. A
 //! refusal (no such session, the folder's trust, a bad prompt, a full agent pair) fails the
 //! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
 //! person's resume runs it, so it is never sent again from here.
@@ -85,7 +86,10 @@ const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
 /// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
 const MAX_MOVES_FOLLOWED: u32 = 16;
 
-/// How long one attempt waits for the target's acceptance.
+/// How long one attempt waits for the target's acceptance with nothing heard from it: each line
+/// the connection answers (a forward's progress, an update) starts it again, so an attempt that is
+/// moving is never cut off. Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed
+/// to keep going?"
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
 /// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
 /// outbox change woke it.
@@ -115,6 +119,10 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
+    // A name nothing live here answers to goes to the session that took it over or claimed it,
+    // and a session on a peer that is down is looked up on the mesh hub first (`send_check.rs`).
+    let asked = target.clone();
+    let (target, unchecked) = super::send_check::route(hub, &mut request, target).await?;
     // Team-scoped addresses are always hub-routed and are never resolved as
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
@@ -168,6 +176,8 @@ pub(super) async fn handle(
             );
         }
     }
+    // The hub did not answer the post, or the book could not tell: the name was not checked.
+    let unchecked = unchecked.or_else(|| hub_post.as_ref().map(|(_, why)| why.clone()));
     // A peer that is down now: queued and tried again, and the answer says so.
     let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
@@ -207,7 +217,7 @@ pub(super) async fn handle(
         tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+            .map_err(|e| crate::recovery::write_error("cannot keep the attachments", e, None))?;
     }
     // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
@@ -226,8 +236,11 @@ pub(super) async fn handle(
             if let Some(path) = kept {
                 forget_attachments(path).await;
             }
-            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
-                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+            return Err(crate::recovery::write_error(
+                "cannot keep the message",
+                e,
+                Some("outbox.not_saved"),
+            ));
         }
     };
     // The same prompt id again: the first delivery, already on its way.
@@ -260,6 +273,7 @@ pub(super) async fn handle(
     if host_unreachable {
         status.set("hostUnreachable", json!(true));
     }
+    super::send_check::note(&mut status, &asked, &delivery.target, unchecked);
     Ok(status)
 }
 
@@ -333,7 +347,7 @@ pub(super) async fn remember_forward(
     hub.outbox
         .remember_forward(intent)
         .map(|delivery| delivery.id)
-        .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
+        .map_err(|e| crate::recovery::write_error("cannot persist peer message intent", e, None))
 }
 
 /// Find a receiver projection across every page, including messages still queued
@@ -511,6 +525,11 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
 const LIST_LIMIT: usize = 200;
 
 async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    // `{stats: true}`: this daemon's send counters and gauges (`hub/outbox_stats.rs`), the
+    // `/proc/net/snmp` of agent sends. Counts only, no targets: any connection may read them.
+    if params.get("stats").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({"stats": hub.outbox.stats()}));
+    }
     // `{list: true, caller?, limit?}`: this daemon's messages to deliver, newest first, each as
     // its status (`acpmux send --status` with no id, `acpmux session inbox`). Only the unix
     // socket reads the list: it names other sessions' targets.
@@ -525,7 +544,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             .map_or(LIST_LIMIT, |n| usize::try_from(n).unwrap_or(LIST_LIMIT).min(LIST_LIMIT));
         let (deliveries, pending) = hub.outbox.list(caller, limit);
         let deliveries: Vec<Value> = deliveries.iter().map(Delivery::status).collect();
-        return Ok(json!({"deliveries": deliveries, "pending": pending}));
+        return Ok(
+            json!({"deliveries": deliveries, "pending": pending, "stats": hub.outbox.stats()}),
+        );
     }
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
@@ -787,6 +808,16 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         None => Err((error, Next::Unsent)),
                     }
                 }
+                // `HOST/ID` on a machine only the hub reaches, as a followed hub move names it
+                // (`follow_move`): this daemon's lookup reaches nothing there, so the hub carries
+                // it, never a "no session HOST/ID on" this machine.
+                Err((error, Next::NoSession)) if hub.mesh_only_host(&delivery.target) => {
+                    relayed = true;
+                    match relay_attempt(hub, &delivery).await {
+                        Some(outcome) => outcome,
+                        None => Err((error, Next::NoSession)),
+                    }
+                }
                 outcome => outcome,
             }
         };
@@ -952,7 +983,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 let sleep = tokio::time::sleep(wait);
                 tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
-                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
+                // A name the hub does not list yet waits its own back-off: the hub taking some
+                // other post says nothing about this name, and waking on it would spend the
+                // bounded attempts ([`UNKNOWN_RECIPIENT_ATTEMPTS`]) in a burst.
+                let unlisted = hub
+                    .outbox
+                    .get(id)
+                    .is_some_and(|d| d.error.as_deref().is_some_and(|e| e.contains(UNLISTED)));
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate) && !unlisted;
                 loop {
                     tokio::select! {
                         () = &mut sleep => break,
@@ -1005,8 +1043,8 @@ fn own_ready_since(outbox: &crate::hub::outbox::Outbox, seen: Option<&(String, u
 /// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
 /// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
 /// while it is up; the next link goes on after the last one reached, so none waits behind the
-/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`]. `since`: where
-/// each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
+/// others for good. One task per call; each resend waits [`ATTEMPT_WAIT`] of silence at most.
+/// `since`: where each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
 /// a proven delivery whose copy is not kept is sent again (`od::unproven`).
 pub(crate) fn redeliver_open(
     hub: &Arc<Hub>,
@@ -1253,6 +1291,10 @@ async fn relay_attempt(
                 (why.unwrap_or_else(|| super::mesh_send::waiting_reason(&e)), Next::Retry)
             } else if passes || held {
                 (super::mesh_send::waiting_reason(&e), Next::Retry)
+            } else if unknown_recipient_waits(&e, delivery.attempts + 1) {
+                // Not listed is not gone: the hub's address book is fed by heartbeats, so a
+                // paused or restarting machine reads as unknown for a while (EAGAIN, not ENOENT).
+                (format!("{UNLISTED}: {e}"), Next::Retry)
             } else {
                 (format!("the mesh hub refused it: {e}"), Next::Fail)
             };
@@ -1265,6 +1307,26 @@ async fn relay_attempt(
         };
         (format!("the mesh relay did not take it: {e}"), next)
     }))
+}
+
+/// The reason a kept delivery waits while the hub lists no session by its name.
+const UNLISTED: &str = "the hub lists no session by that name yet (its machine may be paused, \
+     restarting or between heartbeats); tried again before it fails";
+
+/// How many attempts a kept delivery makes while the hub answers `mesh.unknown_recipient`: on the
+/// outbox's back-off ([`RETRY_DELAYS_SECS`]: 2, 5, 10, 30, 60, 120, 300 s) eight attempts span
+/// about nine minutes, about three of the hub's 90 s heartbeat leases. The hub lists a session
+/// only once its daemon heartbeats it, so a paused, waking or restarting machine reads as unknown
+/// for a while: a not-yet-listed name is EAGAIN, not ENOENT. On one lane VM (2026-11-23 to
+/// 11-25) all 3 of 69 failed deliveries were this answer, on their second attempt. A send the
+/// hub refuses this way at once is still `no session` to its sender (`mesh_send.rs`): only a
+/// delivery the outbox already keeps waits, so a typo is never kept.
+const UNKNOWN_RECIPIENT_ATTEMPTS: u32 = 8;
+
+/// Whether the hub's answer `e` to attempt `attempt` is a name it does not list yet, with
+/// attempts left in [`UNKNOWN_RECIPIENT_ATTEMPTS`].
+fn unknown_recipient_waits(e: &crate::mesh::HubError, attempt: u32) -> bool {
+    e.code.as_deref() == Some("mesh.unknown_recipient") && attempt < UNKNOWN_RECIPIENT_ATTEMPTS
 }
 
 /// Whether only the hub routes `target`: no session here, none a peer lists, no peer of it down.
@@ -1310,6 +1372,14 @@ impl<'a> Caller<'a> {
             .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
             .or_else(|| delivery.not_terminal.then_some(Caller::NotTerminal))
     }
+}
+
+/// Whether acceptance `p`, a duplicate with no turn, is a receipt: the chat's inbox, its surge or
+/// a hold took the message, which no turn of its own ever runs (`hub/turns.rs` `first_acceptance`).
+pub(crate) fn taken_without_turn(p: &Value) -> bool {
+    ["inbox", "surgeHeld", "sessionHeld", "held"]
+        .iter()
+        .any(|k| p.get(*k) == Some(&Value::Bool(true)))
 }
 
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
@@ -1376,29 +1446,32 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
-    let deadline = tokio::time::sleep(ATTEMPT_WAIT);
-    tokio::pin!(deadline);
+    let mut quiet = cmux_deadline::IdleDeadline::<tokio::time::Instant>::new(ATTEMPT_WAIT, None);
     loop {
         let line = tokio::select! {
             line = out_rx.recv() => line,
-            () = &mut deadline => {
+            () = tokio::time::sleep_until(quiet.end()) => {
                 return Err((
-                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
+                    format!("nothing heard for {} s", ATTEMPT_WAIT.as_secs()),
                     Next::Retry,
                 ));
             }
         };
+        quiet.progressed();
         let Some(line) = line else {
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };
         match Message::parse(&line) {
-            // A duplicate with no turn is a run of this id still in flight, which may yet be
-            // held or refused: its answer says.
+            // A duplicate with no turn and no receipt is a run of this id still in flight, which
+            // may yet be held or refused: its answer says. One the chat's inbox (or a hold)
+            // took has no turn of its own and is taken: before, each redelivery of it waited
+            // for the message's answer and timed out, every 120 s, forever (2026-11-25).
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
                     && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
                     && !(p.get("duplicate") == Some(&Value::Bool(true))
-                        && p.get("turnId").is_none_or(Value::is_null)) =>
+                        && p.get("turnId").is_none_or(Value::is_null)
+                        && !taken_without_turn(&p)) =>
             {
                 return Ok(p);
             }
@@ -1522,582 +1595,24 @@ fn handed_away(d: &Delivery) -> bool {
 }
 
 #[cfg(test)]
-mod moved_next_tests {
-    use super::*;
-
-    /// What `transfer_out.rs` `moved_error` answers.
-    fn moved_error(to: &Value) -> RpcError {
-        RpcError::new(-32000, "transfer.moved: this chat moved; it runs there, never here")
-            .with_data(json!({"movedTo": to}))
-    }
-
-    /// A moved chat's refusal names where it went, and the delivery goes there; a chat in the
-    /// middle of a move is tried again soon, and neither is a refusal that fails the delivery.
-    #[test]
-    fn a_moved_chat_is_followed_and_a_moving_one_is_waited_for() {
-        let to = json!({"host": "gcp-1", "sessionId": "m1", "cwd": "/w"});
-        let moved = moved_error(&to);
-        assert_eq!(next(&moved), Next::Moved("gcp-1/m1".into()));
-        let here = moved_error(&json!({"sessionId": "m2"}));
-        assert_eq!(next(&here), Next::Moved("m2".into()));
-        let sibling = moved_error(&json!({"socket": "/tmp/dev.sock", "sessionId": "m3"}));
-        let handed = Next::MovedToSocket { socket: "/tmp/dev.sock".into(), session: "m3".into() };
-        assert_eq!(next(&sibling), handed);
-        let nowhere = moved_error(&json!({"host": "gcp-1"}));
-        assert_eq!(next(&nowhere), Next::Retry);
-        let moving =
-            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon");
-        assert_eq!(next(&moving), Next::Moving);
-    }
-}
+#[path = "outbox_moved_next_tests.rs"]
+mod moved_next_tests;
 
 #[cfg(test)]
-mod no_session_next_tests {
-    use super::*;
-
-    /// "No such session" from the target's machine is final; a peer that is down is not.
-    #[test]
-    fn a_no_session_answer_is_final_and_an_unreachable_peer_is_not() {
-        let e = RpcError::not_found("no session matches \"host/proc-title\"");
-        assert_eq!(next(&e), Next::NoSession);
-        let flagged =
-            RpcError::invalid_params("no session: x").with_data(json!({"reason": "no_session"}));
-        assert_eq!(next(&flagged), Next::NoSession);
-        let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
-        assert_eq!(next(&down), Next::Unsent);
-        assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
-    }
-
-    /// A session whose folder is gone keeps the delivery: the folder may come back, so it is
-    /// tried again, and the refusal names the folder.
-    #[test]
-    fn a_missing_folder_is_tried_again_and_named() {
-        use crate::hub::worktree_care::folder_missing;
-        let gone = folder_missing("probe", std::path::Path::new("/tmp/probe-gone"), "is gone");
-        assert_eq!(next(&gone), Next::Retry);
-        assert!(gone.message.starts_with("session.folder_missing"), "{}", gone.message);
-        assert!(gone.message.contains("/tmp/probe-gone"), "{}", gone.message);
-    }
-
-    /// How many attempts one message to a session whose folder stays gone makes in two hours on
-    /// the outbox's own schedule, with no peer's reconnect ending a wait (`deliver`'s
-    /// `wake_on_ready`): the schedule, then a doubling tail.
-    #[test]
-    fn a_missing_folder_is_tried_eleven_times_in_two_hours() {
-        use crate::hub::worktree_care::folder_missing;
-        let d = super::retry_delay_tests::delivery(0, false);
-        let refusal = folder_missing("probe", std::path::Path::new("/tmp/x"), "is gone");
-        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
-        let two_hours = 2 * 60 * 60 * 1000;
-        while now <= two_hours && !expired(&d, now) {
-            attempts += 1;
-            assert_eq!(next(&refusal), Next::Retry);
-            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
-            now += retry_sleep(&d, secs, now).as_millis() as u64;
-        }
-        assert_eq!(attempts, 11);
-    }
-}
+#[path = "outbox_no_session_next_tests.rs"]
+mod no_session_next_tests;
 
 #[cfg(test)]
-mod retry_delay_tests {
-    use super::*;
-
-    pub(super) fn delivery(created_at: u64, projection: bool) -> Delivery {
-        let mut request = json!({"sessionId": "gone/lane", "_meta": {"acpmux": {"promptId": "p"}}});
-        if projection {
-            request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "x"});
-        }
-        Delivery {
-            id: "d".into(),
-            target: "gone/lane".into(),
-            request,
-            caller: None,
-            unproven_caller: None,
-            not_terminal: false,
-            state: State::Queued,
-            attempts: 0,
-            never_sent: true,
-            resends: 0,
-            resent_at: 0,
-            relay_post: None,
-            open_on_peer: false,
-            pin: None,
-            proof: None,
-            error: None,
-            accepted: None,
-            created_at,
-            updated_at: created_at,
-        }
-    }
-
-    /// A message to a machine that stays down keeps being tried after the schedule runs out,
-    /// for a day, each wait twice the one before; a projection intent keeps the bounded
-    /// schedule.
-    #[test]
-    fn a_message_keeps_trying_for_a_day_after_the_schedule_runs_out() {
-        let d = delivery(1_000, false);
-        let (mut delays, mut tail) = (RETRY_DELAYS_SECS.iter(), 0);
-        for want in RETRY_DELAYS_SECS {
-            assert_eq!(retry_delay(&mut delays, &mut tail, &d, 2_000), Some(*want));
-        }
-        let last = RETRY_DELAYS_SECS.last().copied().unwrap();
-        assert_eq!(retry_delay(&mut delays, &mut tail, &d, 2_000), Some(2 * last), "doubled");
-        assert_eq!(
-            retry_delay(&mut delays, &mut tail, &d, 1_000 + RETRY_FOR_MS - 1),
-            Some(4 * last)
-        );
-        assert_eq!(
-            retry_delay(&mut delays, &mut tail, &d, 1_000 + RETRY_FOR_MS),
-            None,
-            "a day later it fails"
-        );
-        let intent = delivery(1_000, true);
-        let (mut delays, mut tail) = (RETRY_DELAYS_SECS.iter(), 0);
-        for _ in RETRY_DELAYS_SECS {
-            assert!(retry_delay(&mut delays, &mut tail, &intent, 2_000).is_some());
-        }
-        assert_eq!(retry_delay(&mut delays, &mut tail, &intent, 2_000), None);
-    }
-
-    /// A message whose target never answers, tried for its whole day on the schedule (each wait
-    /// slept in full, `retry_sleep` cutting the last at the day's end), costs about log2 of its
-    /// day in attempts: 9 on the schedule and 7 doubled after it, not one every 15 minutes
-    /// (about 100) as before.
-    #[test]
-    fn a_never_answered_message_costs_a_logarithmic_number_of_attempts_in_its_day() {
-        let d = delivery(0, false);
-        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
-        while !expired(&d, now) {
-            attempts += 1;
-            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
-            now += retry_sleep(&d, secs, now).as_millis() as u64;
-        }
-        assert!(attempts <= 17, "{attempts} attempts in a day");
-        assert!(attempts >= RETRY_DELAYS_SECS.len(), "the schedule still runs: {attempts}");
-    }
-
-    /// A message's wait stops at the end of its day; a projection intent's wait is never cut,
-    /// even when the intent is older than a day (a restart resumed it).
-    #[test]
-    fn only_a_messages_wait_is_cut_at_the_end_of_its_day() {
-        let day_end = 1_000 + RETRY_FOR_MS;
-        assert_eq!(retry_sleep(&delivery(1_000, false), 900, 2_000), Duration::from_secs(900));
-        assert_eq!(
-            retry_sleep(&delivery(1_000, false), 900, day_end - 5_000),
-            Duration::from_secs(5)
-        );
-        assert_eq!(retry_sleep(&delivery(1_000, false), 900, day_end + 1), Duration::ZERO);
-        assert_eq!(retry_sleep(&delivery(1_000, true), 900, day_end + 1), Duration::from_secs(900));
-    }
-
-    /// A message a day old is not sent (after a restart too); a projection intent is not timed.
-    #[test]
-    fn a_message_past_its_day_is_expired() {
-        let d = delivery(1_000, false);
-        assert!(!expired(&d, 1_000 + RETRY_FOR_MS - 1));
-        assert!(expired(&d, 1_000 + RETRY_FOR_MS));
-        assert!(!expired(&delivery(1_000, true), 1_000 + 10 * RETRY_FOR_MS));
-    }
-}
+#[path = "outbox_retry_delay_tests.rs"]
+mod retry_delay_tests;
 
 #[cfg(test)]
-mod redeliver_tests {
-    use super::*;
-    use std::cell::{Cell, RefCell};
-
-    fn open(n: usize) -> Vec<Delivery> {
-        (0..n)
-            .map(|i| {
-                let mut d = retry_delay_tests::delivery(1_000 + i as u64, false);
-                d.id = format!("d{i:04}");
-                d.open_on_peer = true;
-                d
-            })
-            .collect()
-    }
-
-    /// A delivery its peer took and no copy ever proved (the prompt id a loaded host sent 38
-    /// times, 2026-11-23) meets links that come back every 3 minutes for its whole 30 days open:
-    /// each link's redelivery reaches it (`redeliver_all`) and claims a resend as `redeliver_one`
-    /// does. It is sent at most `MAX_RESENDS` times in all, the first at once, and 8 times in its
-    /// first 3 hours, where every link sent it before (60).
-    #[tokio::test]
-    async fn a_never_proven_delivery_is_resent_a_logarithmic_number_of_times() {
-        use crate::hub::open_delivery::{self as od, MAX_RESENDS};
-        let live = RefCell::new(open(1).remove(0));
-        let (sends, links) = (Cell::new(0_u32), Cell::new(0_u32));
-        let (link_every, three_hours) = (3 * 60_000, 3 * 60 * 60_000);
-        let (mut now, mut in_three_hours) = (0, 0);
-        while now < crate::hub::outbox::OPEN_ON_PEER_FOR_MS {
-            let one = |_: Delivery| {
-                links.set(links.get() + 1);
-                if od::claim_resend(&mut live.borrow_mut(), now) {
-                    sends.set(sends.get() + 1);
-                }
-                async {}
-            };
-            let snapshot = live.borrow().clone();
-            redeliver_all(vec![snapshot], None, || true, one).await;
-            if now < three_hours {
-                in_three_hours = sends.get();
-            }
-            now += link_every;
-        }
-        assert_eq!(links.get(), 14_400, "a link every 3 minutes for 30 days");
-        assert_eq!(sends.get(), MAX_RESENDS, "sent again over its days open, and capped");
-        assert_eq!(in_three_hours, 8, "resends in its first 3 hours");
-        assert_eq!(live.borrow().resends, MAX_RESENDS);
-
-        // A delivery its proof or a refusal closed is never claimed.
-        let mut closed = open(1).remove(0);
-        closed.open_on_peer = false;
-        assert!(!od::claim_resend(&mut closed, 0));
-    }
-
-    /// Two open deliveries of one prompt id to one session go once on a link: the machine answers
-    /// every copy of that id with its first outcome. Another session's copy still goes.
-    #[test]
-    fn a_link_sends_one_delivery_per_prompt_id_and_session() {
-        let pin = |session: &str| crate::hub::outbox::Pin {
-            peer: "p".into(),
-            session: session.into(),
-            generation: 1,
-            link: (1, 1),
-        };
-        let mut all = open(3);
-        for d in &mut all {
-            d.request = serde_json::json!({"_meta": {"acpmux": {"promptId": "same"}}});
-        }
-        all[0].pin = Some(pin("a"));
-        all[1].pin = Some(pin("a"));
-        all[2].pin = Some(pin("b"));
-        let kept: Vec<String> = one_per_prompt(all).into_iter().map(|d| d.id).collect();
-        assert_eq!(kept, ["d0000", "d0002"]);
-    }
-
-    /// A resend a machine answers with no such session (the chat was closed there) fails the
-    /// delivery at once: it is settled and no later link sends it again.
-    #[test]
-    fn a_resend_to_a_closed_session_fails_once_and_is_not_sent_again() {
-        use crate::hub::open_delivery::{self as od, Again};
-        let e = RpcError::invalid_params("no session: x")
-            .with_data(serde_json::json!({"reason": "no_session"}));
-        assert_eq!(next(&e), Next::NoSession);
-        let mut d = open(1).remove(0);
-        assert!(od::after_again(&mut d, Again::Refused(e.message.clone())), "settled at once");
-        assert!(!d.open_on_peer, "no link's redelivery picks it up again");
-        assert_eq!(d.state, State::Failed);
-    }
-
-    /// Review of #37284 at 0c98c292, F3: more open deliveries than one batch, none of them
-    /// captured by a copy, all go on one link, oldest first, each once; a link that drops midway
-    /// leaves the rest to the next one, which starts where it stopped and comes round.
-    #[tokio::test]
-    async fn every_open_delivery_goes_on_one_link_in_batches_and_the_next_link_goes_on() {
-        let n = 3 * REDELIVER_BATCH + 7;
-        let sent = RefCell::new(Vec::new());
-        let one = |d: Delivery| {
-            sent.borrow_mut().push(d.id);
-            async {}
-        };
-        assert_eq!(redeliver_all(open(n), None, || true, one).await, n);
-        let ids: Vec<String> = open(n).into_iter().map(|d| d.id).collect();
-        assert_eq!(*sent.borrow(), ids, "each once, oldest first");
-
-        // A link that drops after 300 of them; the next starts after the last one reached.
-        sent.borrow_mut().clear();
-        let left = Cell::new(300_usize);
-        let up = || {
-            let up = left.get() > 0;
-            left.set(left.get().saturating_sub(1));
-            up
-        };
-        let one = |d: Delivery| {
-            sent.borrow_mut().push(d.id);
-            async {}
-        };
-        assert_eq!(redeliver_all(open(n), None, up, one).await, 300);
-        let reached = open(n).into_iter().nth(299).map(|d| (d.created_at, d.id)).unwrap();
-        sent.borrow_mut().clear();
-        let one = |d: Delivery| {
-            sent.borrow_mut().push(d.id);
-            async {}
-        };
-        assert_eq!(redeliver_all(open(n), Some(reached), || true, one).await, n);
-        let mut expected = ids.clone();
-        expected.rotate_left(300);
-        assert_eq!(*sent.borrow(), expected, "the next link starts after the one reached");
-    }
-}
+#[path = "outbox_redeliver_tests.rs"]
+mod redeliver_tests;
 
 #[cfg(test)]
-mod forward_projection_tests {
-    use super::*;
-    use crate::config::{Config, StoreMode};
-    use crate::hub::{EventFilter, NewRequest};
-
-    fn config(mode: StoreMode) -> Config {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config: Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake", "permissionPolicy": "approve-all"
-        }))
-        .unwrap();
-        config.store.mode = mode;
-        config
-    }
-
-    #[tokio::test]
-    async fn forward_intent_requires_successful_persistence_even_on_retry() {
-        let dir = std::env::temp_dir().join(format!("forward-write-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        // A regular file in the parent path injects a deterministic write failure,
-        // including when the tests run as a user that can bypass file permissions.
-        let blocked_parent = dir.join("blocked");
-        std::fs::write(&blocked_parent, b"block").unwrap();
-        let path = blocked_parent.join("outbox.json");
-        let config = config(StoreMode::Memory);
-        let hub = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
-        hub.outbox.open(&path);
-        let request = json!({"sessionId": "receiver", "text": "hello", "_meta": {"acpmux": {
-            "promptId": "write-failure", "messageId": "message-write-failure",
-            "messageSender": {"name": "sender", "sessionId": "sender"}
-        }}});
-        let error = remember_forward(&hub, "remote", "receiver", "sender", &request)
-            .await
-            .expect_err("a peer request must not proceed without its durable intent");
-        assert!(error.message.contains("cannot persist peer message intent"));
-        assert!(
-            remember_forward(&hub, "remote", "receiver", "sender", &request).await.is_err(),
-            "an existing in-memory intent must not bypass the failed write"
-        );
-        std::fs::remove_file(&blocked_parent).unwrap();
-        std::fs::create_dir(&blocked_parent).unwrap();
-        let id = remember_forward(&hub, "remote", "receiver", "sender", &request)
-            .await
-            .expect("retry succeeds once the intent can be persisted");
-        let reopened = crate::hub::outbox::Outbox::default();
-        let pending = reopened.open(&path);
-        assert_eq!(pending.len(), 1, "retries preserve one durable intent");
-        assert_eq!(pending[0].id, id);
-        assert_eq!(pending[0].prompt_id(), "write-failure");
-        assert!(pending[0].projection_only());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// A refusal that came back before its acceptance notice: the receiver's journal says
-    /// whether the message was taken, also when its copy lands only later (a repair after a
-    /// failed append). Until then the intent stays open, reading on the retry schedule.
-    #[tokio::test]
-    async fn a_refused_forward_reads_the_receiver_journal_once() {
-        let dir = std::env::temp_dir().join(format!("forward-refused-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = config(StoreMode::Memory);
-        let local = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
-        let remote = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
-        let new = |name: &str| NewRequest {
-            name: Some(name.into()),
-            cwd: Some(std::env::temp_dir()),
-            ..NewRequest::default()
-        };
-        let sender = local.new_session(new("sender")).await.unwrap();
-        let receiver = remote.new_session(new("receiver")).await.unwrap();
-        let auth_dir = dir.join("peer-auth");
-        let auth = crate::server::peer_auth::PeerAuth::create(&auth_dir).unwrap();
-        let token =
-            std::fs::read_to_string(crate::server::peer_auth::token_path(&auth_dir)).unwrap();
-        let listener = bind_ws("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(serve_ws_with(
-            remote.clone(),
-            listener,
-            "test".into(),
-            WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
-        ));
-        local
-            .add_peer(
-                "remote",
-                &format!("ws://127.0.0.1:{port}"),
-                Some("test".into()),
-                Some(token),
-                true,
-            )
-            .await
-            .unwrap();
-        let sender_meta = json!({"name": "sender", "sessionId": sender.id, "host": "local"});
-        let intent = async |prompt_id: &str| {
-            let request = json!({"sessionId": receiver.id,
-                "prompt": [{"type": "text", "text": "steer only"}], "_meta": {"acpmux": {
-                "promptId": prompt_id, "messageSender": sender_meta
-            }}});
-            remember_forward(&local, "remote", &receiver.id, &sender.id, &request).await.unwrap()
-        };
-        let refusal = RpcError::invalid_params("no turn to steer");
-        assert_eq!(next(&refusal), Next::Fail);
-
-        let taken = intent("p-taken").await;
-        assert!(remote.append_message_event(
-            &receiver,
-            sender_meta.clone(),
-            "steer only".into(),
-            "p-taken".into(),
-            1234
-        ));
-        forward_refused(&local, &taken, &refusal);
-        let done = outbox_status(&local, &taken, &json!({"waitMs": 10_000})).await.unwrap();
-        assert_eq!(done["status"], "delivered", "{done}");
-
-        // The receiver's copy is not there at the first read: the intent stays open, and the
-        // copy a repair appends later still gains the sender's.
-        let repaired = intent("p-repaired").await;
-        forward_refused(&local, &repaired, &refusal);
-        let open = outbox_status(&local, &repaired, &json!({"waitMs": 1_000})).await.unwrap();
-        assert_eq!(open["status"], "held", "{open}");
-        assert!(remote.append_message_event(
-            &receiver,
-            sender_meta.clone(),
-            "steer only".into(),
-            "p-repaired".into(),
-            1234
-        ));
-        let done = outbox_status(&local, &repaired, &json!({"waitMs": 10_000})).await.unwrap();
-        assert_eq!(done["status"], "delivered", "{done}");
-
-        let page = local
-            .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
-            .unwrap();
-        let ids: Vec<_> = page
-            .events
-            .iter()
-            .filter(|r| r.kind == "_acpmux/message")
-            .map(|r| r.msg["messageId"].clone())
-            .collect();
-        assert_eq!(ids, vec![json!("p-taken"), json!("p-repaired")]);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[tokio::test]
-    async fn restarted_forward_recovers_sender_projection_without_resending_prompt() {
-        let dir = std::env::temp_dir().join(format!("forward-projection-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = config(StoreMode::Local);
-        let make_hub = || {
-            let store = crate::store::open(&config.store, &dir).unwrap();
-            Hub::new(config.clone(), store)
-        };
-        let original = make_hub();
-        let outbox_path = dir.join("outbox.json");
-        original.outbox.open(&outbox_path);
-        let sender = original
-            .new_session(NewRequest {
-                name: Some("sender".into()),
-                cwd: Some(std::env::temp_dir()),
-                ..NewRequest::default()
-            })
-            .await
-            .unwrap();
-        let remote_config = self::config(StoreMode::Memory);
-        let remote = Hub::new(
-            remote_config.clone(),
-            crate::store::open(&remote_config.store, &dir).unwrap(),
-        );
-        let receiver = remote
-            .new_session(NewRequest {
-                name: Some("receiver".into()),
-                cwd: Some(std::env::temp_dir()),
-                ..NewRequest::default()
-            })
-            .await
-            .unwrap();
-        let sender_meta = json!({"name": "sender", "sessionId": sender.id, "host": "local"});
-        let request = json!({"sessionId": receiver.id,
-            "prompt": [{"type": "text", "text": "already accepted"}], "_meta": {"acpmux": {
-            "promptId": "p-restart", "messageId": "d-restart", "messageSender": sender_meta
-        }}});
-        let intent_id = remember_forward(&original, "remote", &receiver.id, &sender.id, &request)
-            .await
-            .unwrap();
-        // The receiver accepted before the source recorded its outgoing projection.
-        // Fill a first page to ensure recovery advances beyond the first 256 records.
-        for n in 0..257 {
-            assert!(remote.append_message_event(
-                &receiver,
-                json!({"name": "other", "sessionId": "other"}),
-                "earlier".into(),
-                format!("prior-{n}"),
-                1
-            ));
-        }
-        assert!(remote.append_message_event(
-            &receiver,
-            sender_meta.clone(),
-            "already accepted".into(),
-            "d-restart".into(),
-            1234
-        ));
-        let before = receiver.meta().event_count;
-        original.detach_child(&sender).await;
-        original.store.flush().unwrap();
-        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
-        original.seal();
-        // Reopen the source state as daemon startup does: the outbox resumes before the saved
-        // sessions load (`daemon.rs`). No original callback survives.
-        let restarted = Hub::new_loading(
-            config.clone(),
-            crate::store::open(&config.store, &dir).unwrap(),
-            crate::mailbox::Mailbox::open(dir.join("mailbox")).unwrap(),
-        );
-        let pending = restarted.outbox.open(&outbox_path);
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].state, State::Held, "older daemons must never execute the lookup");
-        assert!(pending[0].request.get("prompt").is_none(), "lookup keeps no executable prompt");
-        let auth_dir = dir.join("peer-auth");
-        let auth = crate::server::peer_auth::PeerAuth::create(&auth_dir).unwrap();
-        let token =
-            std::fs::read_to_string(crate::server::peer_auth::token_path(&auth_dir)).unwrap();
-        let listener = bind_ws("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(serve_ws_with(
-            remote.clone(),
-            listener,
-            "test".into(),
-            WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
-        ));
-        restarted
-            .add_peer(
-                "remote",
-                &format!("ws://127.0.0.1:{port}"),
-                Some("test".into()),
-                Some(token),
-                true,
-            )
-            .await
-            .unwrap();
-        resume(&restarted, pending);
-        let loading = restarted.clone();
-        tokio::spawn(async move { loading.load_store_async().await });
-        let done = outbox_status(&restarted, &intent_id, &json!({"waitMs": 10_000})).await.unwrap();
-        assert_eq!(done["status"], "delivered", "{done}");
-        let page = restarted
-            .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
-            .unwrap();
-        let messages: Vec<_> = page.events.iter().filter(|r| r.kind == "_acpmux/message").collect();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(
-            messages[0].msg,
-            json!({"sessionId": sender.id, "sender": sender_meta,
-            "text": "already accepted", "messageId": "d-restart", "at": 1234,
-            "_acpmuxTarget": receiver.id, "_acpmuxTargetPeer": "remote"})
-        );
-        assert_eq!(
-            receiver.meta().event_count,
-            before,
-            "recovery must never send the prompt again"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
+#[path = "outbox_forward_projection_tests.rs"]
+mod forward_projection_tests;
 
 #[cfg(test)]
 #[path = "outbox_relay_tests.rs"]
@@ -2106,3 +1621,6 @@ mod relay_tests;
 #[cfg(test)]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
+#[cfg(test)]
+#[path = "lost_message_tests.rs"]
+mod lost_message_tests;

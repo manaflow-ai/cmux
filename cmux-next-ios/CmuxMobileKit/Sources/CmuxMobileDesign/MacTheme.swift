@@ -3,6 +3,8 @@ public import Foundation
 import Observation
 #if os(iOS)
 public import UIKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 #endif
 
 /// The Mac's theme and wallpaper as its host serves them on the `appearance` service
@@ -20,10 +22,14 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
         public var accent: String
         public var accentColor: String?
         public var backgroundOpacity: Double
+        /// The Mac window's blur (`background_blur`, Ghostty's encoding): 0 or nil none, a radius in
+        /// points, -1 regular and -2 clear Liquid Glass. The phone blurs the wallpaper by it
+        /// (``CmuxMobileMacTheme/blurRadius(_:)``), as the Mac frosts what shows through its window.
+        public var backgroundBlur: Int?
 
         public init(background: String, foreground: String, palette: [String], selectionBackground: String? = nil,
                     selectionForeground: String? = nil, cursor: String? = nil, accent: String = "neutral",
-                    accentColor: String? = nil, backgroundOpacity: Double = 1) {
+                    accentColor: String? = nil, backgroundOpacity: Double = 1, backgroundBlur: Int? = nil) {
             self.background = background
             self.foreground = foreground
             self.palette = palette
@@ -33,6 +39,7 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
             self.accent = accent
             self.accentColor = accentColor
             self.backgroundOpacity = backgroundOpacity
+            self.backgroundBlur = backgroundBlur
         }
     }
 
@@ -346,6 +353,8 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     @ObservationIgnored private var pictureLoad: Task<Void, Never>?
     /// The picture id the newest load is for.
     @ObservationIgnored private var loadingPictureID: String?
+    /// The blur radius (pixels of the picture) the newest load is for.
+    @ObservationIgnored private var loadingBlur: Double = 0
     /// The picture whose fetched bytes are queued for the disk: held, not to be fetched again.
     @ObservationIgnored private var heldPictureID: String?
 
@@ -358,7 +367,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         if let cached = cache.load() {
             appearance = cached
             macPalette = CmuxMobileMacPalette(cached)
-            if let id = cached.wallpaper?.id { loadPicture(id, bytes: nil) }
+            if let id = cached.wallpaper?.id { loadPicture(id, bytes: nil, blur: Self.blurRadius(cached.theme.backgroundBlur)) }
         }
     }
 
@@ -387,14 +396,16 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
 
     /// Keeps `bytes` as picture `id` when given, then decodes picture `id` off the main actor and
     /// shows it if the appearance still names it.
-    private func loadPicture(_ id: String?, bytes: Data?) {
+    private func loadPicture(_ id: String?, bytes: Data?, blur: Double) {
         loadingPictureID = id
+        loadingBlur = blur
         if bytes != nil { heldPictureID = id }
         let cache = cache
         let decoded = enqueue { () -> UIImage? in
             if let id, let bytes { cache.saveChatWallpaper(bytes, id: id) }
             guard let id, let data = cache.chatWallpaper(id: id), let image = UIImage(data: data) else { return nil }
-            return image.preparingForDisplay() ?? image
+            let shown = Self.blurred(image, radius: blur) ?? image
+            return shown.preparingForDisplay() ?? shown
         }
         let previous = pictureLoad
         // task-owner: pictureLoad; one decode per picture change, each after the one before.
@@ -428,9 +439,38 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         enqueue { cache.save(appearance) }
         let newID = appearance.wallpaper?.id
         // Load only when the picture changed, just arrived, or is still missing: a color change keeps it.
-        if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) {
-            loadPicture(newID, bytes: chatWallpaper)
+        let blur = Self.blurRadius(appearance.theme.backgroundBlur)
+        if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) || blur != loadingBlur {
+            loadPicture(newID, bytes: chatWallpaper, blur: blur)
         }
+    }
+
+    /// The blur, in the picture's pixels, for the Mac's `background_blur`: its radius in points (the
+    /// phone's copy is about a point per pixel of the Mac's screen), Liquid Glass as the Mac's
+    /// fallback frost for it (regular 20, clear 8), none for 0 or nil.
+    nonisolated public static func blurRadius(_ blur: Int?) -> Double {
+        switch blur ?? 0 {
+        case -1: 20
+        case -2: 8
+        case let radius where radius > 0: Double(radius)
+        default: 0
+        }
+    }
+
+    /// One Core Image context for every wallpaper blur (a context is costly to make; it is thread-safe).
+    private nonisolated(unsafe) static let blurContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// `image` under a Gaussian blur of `radius` pixels, edges clamped (no dark rim); nil at 0 or
+    /// when Core Image fails (the sharp picture shows).
+    nonisolated static func blurred(_ image: UIImage, radius: Double) -> UIImage? {
+        guard radius > 0, let input = CIImage(image: image) else { return nil }
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = input.clampedToExtent()
+        filter.radius = Float(radius)
+        guard let output = filter.outputImage?.cropped(to: input.extent),
+              let cg = blurContext.createCGImage(output, from: input.extent)
+        else { return nil }
+        return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
     }
 
     /// Waits for the queued writes and picture loads (tests, and anything that reads the cache next).

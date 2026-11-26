@@ -5,17 +5,19 @@
 //!   `direct-only` | `on`: the daemon-side form of the setting `transport.tailnetCarrier`.
 //!   `off` makes no tailscale call at all, in either direction.
 //! - **Learning the address.** Locally and read-only: the peer record's host (the ssh
-//!   destination's host or the URL's host) is matched against this machine's `tailscale
-//!   status --json` (an address, the MagicDNS name, its short name or the OS host name; one
-//!   node only, online, never this machine). Nothing is advertised on the wire, so old and new
-//!   daemons need no negotiation: see "Lockstep" below.
+//!   destination's host or the URL's host) is matched against this machine's tailscaled status
+//!   (an address, the MagicDNS name, its short name or the OS host name; one node only, online,
+//!   never this machine). The status is read from tailscaled's LocalAPI
+//!   (`cmux_tailnet_local::TailnetLocal`, about 2 ms, no process) and from `tailscale status
+//!   --json` only when the LocalAPI is unavailable ([`PathSource`]). Nothing is advertised on
+//!   the wire, so old and new daemons need no negotiation: see "Lockstep" below.
 //! - **Which hint is offered.** The status says how this machine reaches the node: `CurAddr`
 //!   set is direct, a peer relay or a DERP region is not. `direct-only` offers only direct;
 //!   `on` offers every path, the non-direct ones in the relayed class (they never beat a direct
 //!   path, and compete with the hub relay by round trip).
-//! - **No wait on tailscaled.** The status is a snapshot ([`Snapshots`]) read from memory;
-//!   one background CLI call refreshes it at most every [`FRESH`], a failed one every
-//!   [`FAILED_FRESH`].
+//! - **No wait on tailscaled.** The status is a snapshot read from memory: the LocalAPI's
+//!   refreshes itself on its own thread; the CLI fallback ([`Snapshots`]) makes one background
+//!   call at most every [`FRESH`], a failed one every [`FAILED_FRESH`].
 //! - **Receiving side.** With the setting on, the daemon also listens on its own tailnet
 //!   address at the port of its loopback listener ([`serve_peers`]). A connection is admitted
 //!   only when `whois` of its source names a node of the same person (the pattern of
@@ -31,6 +33,7 @@
 //! passed in, so the rules are tested without tailscale.
 
 use crate::tailnet::{Identity, Node, PeerPath, Status, Tailnet, is_tailnet_ip};
+use cmux_tailnet_local::{TailnetLocal, TailnetView};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -188,6 +191,7 @@ impl Snapshots {
 
     /// The installed `tailscale` CLI's status: the process-wide one.
     pub fn global() -> Arc<Self> {
+        // test-hook-allow: not a test hook; the installed CLI's loader, set once and never by a test
         static GLOBAL: OnceLock<Arc<Snapshots>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::new(Arc::new(load_cli))).clone()
     }
@@ -252,6 +256,126 @@ fn load_cli() -> anyhow::Result<Status> {
     let status = cli.status();
     let _ = CLI.set(cli);
     status
+}
+
+// ------------------------------------------------------------- LocalAPI first
+
+/// What tailscaled's LocalAPI snapshot holds right now.
+#[derive(Debug, Clone)]
+pub enum LocalRead {
+    /// A view, as the CLI's status shape.
+    View(Status),
+    /// The first read is still on its way.
+    Pending,
+    /// No LocalAPI answered (not installed, not running, refused): use the CLI.
+    Unavailable,
+}
+
+/// Reads the LocalAPI snapshot without waiting.
+pub type LocalReader = dyn Fn() -> LocalRead + Send + Sync;
+
+/// How often a cold first read is looked at while it is awaited.
+const LOCAL_POLL: Duration = Duration::from_millis(10);
+
+/// Where the peer path reads tailscale: the LocalAPI snapshot first, the CLI's [`Snapshots`]
+/// only when the LocalAPI is unavailable. The receiving side's [`Gate`] keeps the CLI's status:
+/// it needs the owner's login, which the LocalAPI view does not carry.
+pub struct PathSource {
+    local: Arc<LocalReader>,
+    cli: Arc<Snapshots>,
+}
+
+impl PathSource {
+    pub fn new(local: Arc<LocalReader>, cli: Arc<Snapshots>) -> Arc<Self> {
+        Arc::new(Self { local, cli })
+    }
+
+    /// The system tailscaled: `TailnetLocal::global()`, else the installed CLI.
+    pub fn global() -> Arc<Self> {
+        // test-hook-allow: not a test hook; the system tailscaled's readers, set once and never by a test
+        static GLOBAL: OnceLock<Arc<PathSource>> = OnceLock::new();
+        GLOBAL.get_or_init(|| Self::new(Arc::new(read_local), Snapshots::global())).clone()
+    }
+
+    /// The CLI's status only (no LocalAPI).
+    pub fn cli_only(cli: Arc<Snapshots>) -> Arc<Self> {
+        Self::new(Arc::new(|| LocalRead::Unavailable), cli)
+    }
+
+    /// Whether a status (or a failure) was read, so a cold connect need not wait.
+    pub fn loaded(&self) -> bool {
+        match (self.local)() {
+            LocalRead::View(_) => true,
+            LocalRead::Pending => false,
+            LocalRead::Unavailable => self.cli.loaded(),
+        }
+    }
+
+    /// The status now, awaiting a first read up to `wait` (zero: never awaited).
+    pub async fn get(&self, wait: Duration) -> Option<Arc<Status>> {
+        let start = Instant::now();
+        loop {
+            let left = wait.saturating_sub(start.elapsed());
+            match (self.local)() {
+                LocalRead::View(status) => return Some(Arc::new(status)),
+                LocalRead::Unavailable => return self.cli.get(left).await,
+                LocalRead::Pending if left.is_zero() => return None,
+                LocalRead::Pending => tokio::time::sleep(left.min(LOCAL_POLL)).await,
+            }
+        }
+    }
+}
+
+fn read_local() -> LocalRead {
+    let local = TailnetLocal::global();
+    match local.snapshot() {
+        Some(view) => LocalRead::View(status_from_view(&view)),
+        None if local.last_error().is_some() => LocalRead::Unavailable,
+        None => LocalRead::Pending,
+    }
+}
+
+fn path_from_local(path: &cmux_tailnet_local::PeerPath) -> PeerPath {
+    use cmux_tailnet_local::PeerPath as Local;
+    match path {
+        Local::Direct { .. } => PeerPath::Direct,
+        Local::PeerRelay { .. } => PeerPath::PeerRelay,
+        Local::Derp { .. } => PeerPath::Derp,
+        // No path chosen yet, offline or unclassified: never offered.
+        Local::Idle { .. } | Local::Offline | Local::Unknown => PeerPath::Unknown,
+    }
+}
+
+/// A LocalAPI view in the CLI status shape [`route_for`] reads. Logins are not in the view
+/// (`login` stays None): this status is for routes, never for [`admits_identity`].
+pub fn status_from_view(view: &TailnetView) -> Status {
+    let this = Node {
+        path: PeerPath::Unknown,
+        host_name: view.this.host_name.clone(),
+        dns_name: view.this.dns_name.clone(),
+        os: String::new(),
+        login: None,
+        tags: view.this.tags.clone(),
+        ips: view.this.ips.clone(),
+        online: true,
+        shared: false,
+    };
+    let peers = view
+        .peers
+        .iter()
+        .map(|peer| Node {
+            path: path_from_local(&peer.path),
+            host_name: peer.host_name.clone(),
+            dns_name: peer.dns_name.clone(),
+            os: peer.os.clone(),
+            login: None,
+            tags: peer.tags.clone(),
+            ips: peer.ips.clone(),
+            online: peer.online,
+            shared: peer.sharee_node,
+        })
+        .collect();
+    Status { backend_state: view.backend_state.clone(), this, peers }
 }
 
 // ----------------------------------------------------------- receiving side
