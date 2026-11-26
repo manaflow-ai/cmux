@@ -928,11 +928,12 @@ impl Link {
         delay
     }
 
-    /// Down a day or more without a successful handshake: automatic retries are hourly
-    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    /// Down a day or more without a successful handshake, and not trying one now: automatic
+    /// retries are hourly (`parked` on the wire), and a list shows it as gone quiet rather than
+    /// failing. A link whose WebSocket is open is retrying this moment, so it is not parked
+    /// while that handshake runs.
     pub fn parked(&self, now: u64) -> bool {
-        !self.is_ready()
-            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+        !self.open && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
     }
 
     /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
@@ -1246,6 +1247,18 @@ mod tests {
         restarted.ready(now + 2);
         assert!(!restarted.parked(now + 3), "a handshake ends the parking");
         assert_eq!(Link::default().park_at_start(now), None, "never down: nothing parked");
+    }
+
+    #[test]
+    fn a_parked_peer_retrying_now_is_not_parked_while_its_handshake_runs() {
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        assert!(link.parked(day + 1));
+        link.opened(day + 2);
+        assert!(!link.parked(day + 3), "the hourly retry's handshake is running");
+        link.down(day + 4, Duration::from_secs(60));
+        assert!(link.parked(day + 5), "the retry failed: parked again");
     }
 
     #[test]

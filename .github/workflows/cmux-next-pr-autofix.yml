@@ -1,4 +1,8 @@
-name: cmux-next PR autofix
+name: cmux-next PR autofix (advisory)
+# Named "(advisory)": autoland (next_autoland.counts_red) and NOW's pr_verdict read every job of a
+# workflow whose name ends so as advisory, so a repair run that ends after the waited checks or gives up never
+# holds a pull request's verdict (it ran up to 298.8 min, 2026-11-26 08:57Z pass). The base autofix stays the
+# backstop for a repair that did not land.
 
 # Runs the base autofix's mechanical repairs (scripts/cmux-next/base-autofix.sh)
 # on the immutable merge tree for a feat-cmux-next pull request, so a pull request lands with its
@@ -240,6 +244,9 @@ jobs:
             scripts/ci/defaults_guard.py
             scripts/ci/job_inputs.py
             scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
             scripts/ci/same_tree_reuse.py
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
@@ -345,6 +352,9 @@ jobs:
             scripts/ci/defaults_guard.py
             scripts/ci/job_inputs.py
             scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
             scripts/ci/same_tree_reuse.py
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
@@ -809,18 +819,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           submodules: false
 
@@ -1087,18 +1085,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
 
       # The merge base for Changed paths and the stale-inputs guard, and the base commit the autofix
@@ -1162,6 +1148,9 @@ jobs:
               scripts/ci/defaults_guard.py
               scripts/ci/job_inputs.py
               scripts/ci/fast_check_route.py
+              scripts/ci/detect_linux_guard_changes.py
+              scripts/ci/workflow_guard_groups.py
+              scripts/ci/workload_entrypoints.py
               scripts/ci/same_tree_reuse.py
               scripts/ci/fast-check-inputs.json
               scripts/ci/generated-files.json
