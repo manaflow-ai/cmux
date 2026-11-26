@@ -297,6 +297,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guard_base_verdicts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
@@ -923,6 +927,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_team_signed_on_branch_check.py"
 lane = "linux-guard"
 
 [[test]]
