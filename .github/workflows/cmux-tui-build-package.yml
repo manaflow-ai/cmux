@@ -357,6 +357,25 @@ jobs:
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1251,6 +1270,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1444,6 +1482,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1512,6 +1569,25 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
