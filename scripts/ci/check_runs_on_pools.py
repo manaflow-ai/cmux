@@ -43,31 +43,13 @@ FORK_ONLY = re.compile(
     r"|(?<!!)github\.event\.pull_request\.head\.repo\.fork(?!\s*(?:==\s*false|!=\s*true))"
 )
 
-# (workflow file name, job id) -> why the job keeps a literal Linux label. Keep it small. Every pool but
-# `provenance` is Blacksmith, so a job that must stay GitHub-hosted for a reason other than provenance keeps
-# its hosted literal here.
-_NIGHTLY_HOSTED = ("nightly job: never Blacksmith (CLAUDE.md, tests/test_ci_nightly_off_blacksmith.py); stays on "
-                   "GitHub-hosted ubuntu-24.04, and RUNNER_POOLS has no hosted Linux pool but provenance")
+# (workflow file name, job id) -> why the job keeps a literal Linux label. Keep it small. GitHub-hosted labels
+# are never an exception: they start nothing in manaflow-ai (check_no_hosted_runs_on.py; Leo, 2026-11-21: "the ci
+# must flow"), so the nightly's secret-holding Linux jobs take the one-job cmux-gcp-nightly-jit-x64 label.
 EXCEPTIONS: dict[tuple[str, str], str] = {
-    **{("nightly.yml", job): _NIGHTLY_HOSTED for job in (
-        "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms", "sentry-dsyms-nightly",
-        "republish-nightly-deltas", "sign-release-notes", "publish-release-notes", "publish-nightly-reel")},
-    ("nightly-tag-permission-probe.yml", "probe"): _NIGHTLY_HOSTED,
-    # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it
-    # (the boundaries are his call), so its fallback label moves only in a PR he approves.
+    # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it (the boundaries
+    # are his call), so its fallback label moves only in a PR he approves.
     ("language-boundaries.yml", "language-boundaries"): "language-boundaries.yml is Leo's to change",
-    # The Linux nightly jobs that hold signing secrets (2e164b5e610c): rule 7 of
-    # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral runner, and the hosted
-    # route is pinned by tests/test_ci_self_hosted_guard.sh's signer-route exceptions.
-    **{key: _NIGHTLY_HOSTED + "; holds signing secrets (rule 7: ephemeral runner)" for key in (
-        ("auto-resume-nightly-notarization.yml", "poll"), ("auto-resume-nightly-notarization.yml", "poll-outer"),
-        ("auto-resume-nightly-notarization.yml", "poll-stapled"), ("auto-resume-nightly-notarization.yml", "publish"),
-        ("ios-internal-nightly.yml", "previous-build"), ("nightly-next-train.yml", "drive"))},
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it must not read one: "
-                                                          "rule 7 of tests/test_ci_signing_keychain_is_deleted_"
-                                                          "before_bundle_code.py pins its literal Blacksmith label",
-    ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
-                                              "to switch overflow on",
 }
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")

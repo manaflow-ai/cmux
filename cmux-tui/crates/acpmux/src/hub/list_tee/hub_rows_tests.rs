@@ -54,6 +54,7 @@ pub(super) fn session(host: &str, id: &str, state: &str) -> BookSession {
         state: state.into(),
         stuck_reason: None,
         last_seen_at: 5,
+        ..Default::default()
     }
 }
 

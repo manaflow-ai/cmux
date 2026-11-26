@@ -417,6 +417,38 @@ struct HomeAgentMessagesTests {
         #expect(row.peerEnded == [nil])
     }
 
+    /// A pill counts from the agent's session start, not the Chief's tell (user 2026-11-20): an agent that waited in
+    /// the queue or took a while to spawn starts later than its tell. A session older than the task (a tell to an
+    /// agent whose session runs on from an earlier task) counts from the tell.
+    @Test func aPillCountsFromItsAgentsSessionStart() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 10_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: Queued one", date: at(0)),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "Title: Running on", date: at(1)),
+            .init(id: "tell3", sequence: 3, revision: 1, peer: "a3", outgoing: true, text: "Title: Quick", date: at(2)),
+            .init(id: "report", sequence: 4, revision: 1, peer: "a3", outgoing: false, text: "Done.", date: at(30)),
+        ]))
+        let starts = ["a1": at(10), "a2": at(-60), "a3": at(3)]
+        let row = try #require(book.inserting(into: [question()], summary: nil, sessionStarts: starts).last?.agentMessage)
+        #expect(row.peerStarted == [at(10), at(1), at(3)])
+        #expect(row.peerEnded == [nil, nil, at(30)])
+    }
+
+    /// An agent whose row holds only its report (the Chief told it in an earlier turn) counts its total from its
+    /// session start; with no session start known it shows none, as before.
+    @Test func aReportOnlyPillCountsFromItsAgentsSessionStart() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 10_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "report", sequence: 1, revision: 1, peer: "a1", outgoing: false, text: "Done.", date: at(40)),
+            .init(id: "report2", sequence: 2, revision: 1, peer: "a2", outgoing: false, text: "Done too.", date: at(41)),
+        ]))
+        let row = try #require(book.inserting(into: [question()], summary: nil, sessionStarts: ["a1": at(2)]).last?.agentMessage)
+        #expect(row.peerStarted == [at(2), nil])
+        #expect(row.peerEnded == [at(40), at(41)])
+    }
+
     /// A lone task is a pill too (it was a bubble): the agent is working on it.
     @Test func aLoneTaskIsAPill() throws {
         var book = HomeAgentMessages()

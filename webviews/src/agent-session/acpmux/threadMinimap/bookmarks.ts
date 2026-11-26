@@ -47,6 +47,10 @@ function settle(sessionId: string, list: number[]): void {
     if (on) next.add(seq);
     else next.delete(seq);
   }
+  // The same marks as shown (a chat's first read finding none, most often): the set stays, so no
+  // rail or pin renders again for it, a chat switch's frame included.
+  const was = marks.get(sessionId) ?? NONE;
+  if (was.size === next.size && [...next].every((seq) => was.has(seq))) return;
   marks = new Map(marks).set(sessionId, next);
   emit();
 }

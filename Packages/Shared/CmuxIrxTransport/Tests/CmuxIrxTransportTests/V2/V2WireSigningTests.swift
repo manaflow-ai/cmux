@@ -1,6 +1,10 @@
 import Foundation
 import Testing
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 @testable import CmuxIrxTransport
 
 struct V2WireSigningTests {

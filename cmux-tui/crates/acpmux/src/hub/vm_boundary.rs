@@ -108,6 +108,9 @@ pub fn forwards(auth: crate::server::ConnAuth, control: Control) -> bool {
         | ConnAuth::Device
         | ConnAuth::ReadOnlyDevice
         | ConnAuth::CarrierTeam
+        | ConnAuth::BrowserApp
+        | ConnAuth::WebDevice
+        | ConnAuth::MeshControl
         | ConnAuth::None => false,
     }
 }

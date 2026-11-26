@@ -1,0 +1,5780 @@
+{
+  "clock.small": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "✓ Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "weight": "semibold",
+        "color": "accent",
+        "text": "MONDAY"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "HStack",
+      "props": {
+        "spacing": 4
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "font": "largeTitle",
+        "weight": "semibold",
+        "monospaced": true,
+        "text": "14:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "November 16"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n5", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n7"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "clock.medium": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "✓ Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "HStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "weight": "semibold",
+        "color": "accent",
+        "text": "MONDAY"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "HStack",
+      "props": {
+        "spacing": 4
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Text",
+      "props": {
+        "font": "largeTitle",
+        "weight": "semibold",
+        "monospaced": true,
+        "text": "14:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "November 16"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "VStack",
+      "props": {
+        "spacing": 6,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "New York"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "monospaced": true,
+        "text": "09:05",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "London"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "monospaced": true,
+        "text": "14:05",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Tokyo"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "monospaced": true,
+        "text": "23:05",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n10", "n11"]
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5", "n6", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n11",
+      "children": ["n12"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n16", "n19"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n21"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "clock.large": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "✓ Large"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "VStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "weight": "semibold",
+        "color": "accent",
+        "text": "MONDAY"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "HStack",
+      "props": {
+        "spacing": 4
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Text",
+      "props": {
+        "font": "largeTitle",
+        "weight": "semibold",
+        "monospaced": true,
+        "text": "14:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "November 16"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "New York"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Today, −5h",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "09:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "London"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Today, Same time",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "14:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "Tokyo"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Today, +9h",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "23:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "Kolkata"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Today, +5:30h",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "19:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "Sydney"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Tomorrow, +11h",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "01:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "lineLimit": 1,
+        "text": "Los Angeles"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "text": "Today, −8h",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n46",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n47",
+      "type": "Text",
+      "props": {
+        "font": "title3",
+        "weight": "medium",
+        "monospaced": true,
+        "text": "06:05"
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n4", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n4",
+      "children": ["n5", "n6", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11"]
+    },
+    {
+      "op": "children",
+      "id": "n11",
+      "children": ["n12", "n18", "n24", "n30", "n36", "n42"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n16", "n17"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n18",
+      "children": ["n19", "n22", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n21"]
+    },
+    {
+      "op": "children",
+      "id": "n24",
+      "children": ["n25", "n28", "n29"]
+    },
+    {
+      "op": "children",
+      "id": "n25",
+      "children": ["n26", "n27"]
+    },
+    {
+      "op": "children",
+      "id": "n30",
+      "children": ["n31", "n34", "n35"]
+    },
+    {
+      "op": "children",
+      "id": "n31",
+      "children": ["n32", "n33"]
+    },
+    {
+      "op": "children",
+      "id": "n36",
+      "children": ["n37", "n40", "n41"]
+    },
+    {
+      "op": "children",
+      "id": "n37",
+      "children": ["n38", "n39"]
+    },
+    {
+      "op": "children",
+      "id": "n42",
+      "children": ["n43", "n46", "n47"]
+    },
+    {
+      "op": "children",
+      "id": "n43",
+      "children": ["n44", "n45"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "weather.small": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "✓ Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          },
+          {
+            "title": "Change place"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Text",
+      "props": {
+        "text": "Lisbon",
+        "font": "headline",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "largeTitle",
+        "weight": "light"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "title2"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Text",
+      "props": {
+        "text": "Partly Cloudy",
+        "font": "caption",
+        "weight": "medium",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Text",
+      "props": {
+        "text": "H:20°  L:12°",
+        "font": "caption",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n6"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n12", "n13"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "weather.medium": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "✓ Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          },
+          {
+            "title": "Change place"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {
+        "spacing": 10
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Text",
+      "props": {
+        "text": "Lisbon",
+        "font": "headline",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "largeTitle",
+        "weight": "light"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "title2"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "text": "Partly Cloudy",
+        "font": "caption",
+        "weight": "medium",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "text": "H:20°  L:12°",
+        "font": "caption",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Text",
+      "props": {
+        "text": "Now",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Text",
+      "props": {
+        "text": "17°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Text",
+      "props": {
+        "text": "3PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Text",
+      "props": {
+        "text": "4PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Text",
+      "props": {
+        "text": "5PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Text",
+      "props": {
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "Text",
+      "props": {
+        "text": "6PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "Text",
+      "props": {
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "Text",
+      "props": {
+        "text": "7PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Text",
+      "props": {
+        "text": "20°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n6"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n16"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8", "n11", "n12"]
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17", "n21", "n22", "n26", "n27", "n31", "n32", "n36", "n37", "n41", "n42"]
+    },
+    {
+      "op": "children",
+      "id": "n17",
+      "children": ["n18", "n19", "n20"]
+    },
+    {
+      "op": "children",
+      "id": "n22",
+      "children": ["n23", "n24", "n25"]
+    },
+    {
+      "op": "children",
+      "id": "n27",
+      "children": ["n28", "n29", "n30"]
+    },
+    {
+      "op": "children",
+      "id": "n32",
+      "children": ["n33", "n34", "n35"]
+    },
+    {
+      "op": "children",
+      "id": "n37",
+      "children": ["n38", "n39", "n40"]
+    },
+    {
+      "op": "children",
+      "id": "n42",
+      "children": ["n43", "n44", "n45"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "weather.large": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "✓ Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          },
+          {
+            "title": "Change place"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {
+        "spacing": 10
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Text",
+      "props": {
+        "text": "Lisbon",
+        "font": "headline",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "largeTitle",
+        "weight": "light"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "trailing"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "title2"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "text": "Partly Cloudy",
+        "font": "caption",
+        "weight": "medium",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "text": "H:20°  L:12°",
+        "font": "caption",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Text",
+      "props": {
+        "text": "Now",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Text",
+      "props": {
+        "text": "17°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Text",
+      "props": {
+        "text": "3PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Text",
+      "props": {
+        "text": "4PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "Text",
+      "props": {
+        "text": "⛅️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Text",
+      "props": {
+        "text": "18°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Text",
+      "props": {
+        "text": "5PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Text",
+      "props": {
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "Text",
+      "props": {
+        "text": "6PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "Text",
+      "props": {
+        "text": "19°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "center"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "Text",
+      "props": {
+        "text": "7PM",
+        "font": "caption2",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Text",
+      "props": {
+        "text": "🌧️",
+        "font": "body"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Text",
+      "props": {
+        "text": "20°",
+        "font": "caption",
+        "weight": "medium"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n46",
+      "type": "VStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n47",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n48",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n49",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Today"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n50",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "⛅️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n51",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n52",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "12°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n53",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "20°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n54",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n55",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Tue"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n56",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "🌧️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n57",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n58",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "10°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n59",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "18°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n60",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n61",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Wed"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n62",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "☁️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n63",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n64",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "9°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n65",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "16°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n66",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n67",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Thu"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n68",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "☀️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n69",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n70",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "9°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n71",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "19°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n72",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n73",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Fri"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n74",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "☀️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n75",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n76",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "10°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n77",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "21°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n78",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n79",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "frame": {
+          "width": 48
+        },
+        "text": "Sat"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n80",
+      "type": "Text",
+      "props": {
+        "font": "body",
+        "text": "🌧️"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n81",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n82",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "color": "secondary",
+        "text": "12°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n83",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "medium",
+        "text": "18°"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n3", "n5"]
+    },
+    {
+      "op": "children",
+      "id": "n3",
+      "children": ["n6"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n16", "n46"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n8", "n11", "n12"]
+    },
+    {
+      "op": "children",
+      "id": "n8",
+      "children": ["n9", "n10"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17", "n21", "n22", "n26", "n27", "n31", "n32", "n36", "n37", "n41", "n42"]
+    },
+    {
+      "op": "children",
+      "id": "n17",
+      "children": ["n18", "n19", "n20"]
+    },
+    {
+      "op": "children",
+      "id": "n22",
+      "children": ["n23", "n24", "n25"]
+    },
+    {
+      "op": "children",
+      "id": "n27",
+      "children": ["n28", "n29", "n30"]
+    },
+    {
+      "op": "children",
+      "id": "n32",
+      "children": ["n33", "n34", "n35"]
+    },
+    {
+      "op": "children",
+      "id": "n37",
+      "children": ["n38", "n39", "n40"]
+    },
+    {
+      "op": "children",
+      "id": "n42",
+      "children": ["n43", "n44", "n45"]
+    },
+    {
+      "op": "children",
+      "id": "n46",
+      "children": ["n47"]
+    },
+    {
+      "op": "children",
+      "id": "n47",
+      "children": ["n48", "n54", "n60", "n66", "n72", "n78"]
+    },
+    {
+      "op": "children",
+      "id": "n48",
+      "children": ["n49", "n50", "n51", "n52", "n53"]
+    },
+    {
+      "op": "children",
+      "id": "n54",
+      "children": ["n55", "n56", "n57", "n58", "n59"]
+    },
+    {
+      "op": "children",
+      "id": "n60",
+      "children": ["n61", "n62", "n63", "n64", "n65"]
+    },
+    {
+      "op": "children",
+      "id": "n66",
+      "children": ["n67", "n68", "n69", "n70", "n71"]
+    },
+    {
+      "op": "children",
+      "id": "n72",
+      "children": ["n73", "n74", "n75", "n76", "n77"]
+    },
+    {
+      "op": "children",
+      "id": "n78",
+      "children": ["n79", "n80", "n81", "n82", "n83"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "calendar.small": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "✓ Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "VStack",
+      "props": {
+        "spacing": 6,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "weight": "semibold",
+        "color": "accent",
+        "text": "MONDAY"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "font": "largeTitle",
+        "weight": "regular",
+        "text": "16"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "VStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Design review"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Now, until 14:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n11"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n12"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n16"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n17",
+      "children": ["n20"]
+    },
+    {
+      "op": "children",
+      "id": "n20",
+      "children": ["n21", "n22", "n25"]
+    },
+    {
+      "op": "children",
+      "id": "n22",
+      "children": ["n23", "n24"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "calendar.medium": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "✓ Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "HStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "weight": "semibold",
+        "color": "accent",
+        "text": "MONDAY"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "font": "largeTitle",
+        "weight": "regular",
+        "text": "16"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "VStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Design review"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Now, until 14:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work · Cafe"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Lunch with Sam"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "15:05 to 16:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "One on one"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "17:05 to 17:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n11"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n12"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n13", "n16"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n17",
+      "children": ["n20", "n26", "n32"]
+    },
+    {
+      "op": "children",
+      "id": "n20",
+      "children": ["n21", "n22", "n25"]
+    },
+    {
+      "op": "children",
+      "id": "n22",
+      "children": ["n23", "n24"]
+    },
+    {
+      "op": "children",
+      "id": "n26",
+      "children": ["n27", "n28", "n31"]
+    },
+    {
+      "op": "children",
+      "id": "n28",
+      "children": ["n29", "n30"]
+    },
+    {
+      "op": "children",
+      "id": "n32",
+      "children": ["n33", "n34", "n37"]
+    },
+    {
+      "op": "children",
+      "id": "n34",
+      "children": ["n35", "n36"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "calendar.large": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 10,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "✓ Large"
+              }
+            ]
+          },
+          {
+            "title": "Refresh"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n100",
+      "type": "VStack",
+      "props": {
+        "spacing": 10,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n101",
+      "type": "HStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n102",
+      "type": "Text",
+      "props": {
+        "font": "headline",
+        "color": "accent",
+        "text": "November"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n103",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n104",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "Monday"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n105",
+      "type": "VStack",
+      "props": {
+        "spacing": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n106",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n107",
+      "type": "Text",
+      "props": {
+        "text": "S",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n108",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n109",
+      "type": "Text",
+      "props": {
+        "text": "M",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n110",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n111",
+      "type": "Text",
+      "props": {
+        "text": "T",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n112",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n113",
+      "type": "Text",
+      "props": {
+        "text": "W",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n114",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n115",
+      "type": "Text",
+      "props": {
+        "text": "T",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n116",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n117",
+      "type": "Text",
+      "props": {
+        "text": "F",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n118",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n119",
+      "type": "Text",
+      "props": {
+        "text": "S",
+        "font": "caption2",
+        "weight": "bold",
+        "color": "secondary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n120",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n121",
+      "type": "VStack",
+      "props": {
+        "spacing": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n122",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n123",
+      "type": "Text",
+      "props": {
+        "text": "1",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n124",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n125",
+      "type": "Text",
+      "props": {
+        "text": "2",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n126",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n127",
+      "type": "Text",
+      "props": {
+        "text": "3",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n128",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n129",
+      "type": "Text",
+      "props": {
+        "text": "4",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n130",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n131",
+      "type": "Text",
+      "props": {
+        "text": "5",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n132",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n133",
+      "type": "Text",
+      "props": {
+        "text": "6",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n134",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n135",
+      "type": "Text",
+      "props": {
+        "text": "7",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n136",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n137",
+      "type": "Text",
+      "props": {
+        "text": "8",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n138",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n139",
+      "type": "Text",
+      "props": {
+        "text": "9",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n140",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n141",
+      "type": "Text",
+      "props": {
+        "text": "10",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n142",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n143",
+      "type": "Text",
+      "props": {
+        "text": "11",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n144",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n145",
+      "type": "Text",
+      "props": {
+        "text": "12",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n146",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n147",
+      "type": "Text",
+      "props": {
+        "text": "13",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n148",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n149",
+      "type": "Text",
+      "props": {
+        "text": "14",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n150",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n151",
+      "type": "Text",
+      "props": {
+        "text": "15",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n152",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n153",
+      "type": "Text",
+      "props": {
+        "text": "16",
+        "font": "caption",
+        "weight": "bold",
+        "color": "accent",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n154",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n155",
+      "type": "Text",
+      "props": {
+        "text": "17",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n156",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n157",
+      "type": "Text",
+      "props": {
+        "text": "18",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n158",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n159",
+      "type": "Text",
+      "props": {
+        "text": "19",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n160",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n161",
+      "type": "Text",
+      "props": {
+        "text": "20",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n162",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n163",
+      "type": "Text",
+      "props": {
+        "text": "21",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n164",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n165",
+      "type": "Text",
+      "props": {
+        "text": "22",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n166",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n167",
+      "type": "Text",
+      "props": {
+        "text": "23",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n168",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n169",
+      "type": "Text",
+      "props": {
+        "text": "24",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n170",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n171",
+      "type": "Text",
+      "props": {
+        "text": "25",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n172",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n173",
+      "type": "Text",
+      "props": {
+        "text": "26",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n174",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n175",
+      "type": "Text",
+      "props": {
+        "text": "27",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n176",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n177",
+      "type": "Text",
+      "props": {
+        "text": "28",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n178",
+      "type": "HStack",
+      "props": {
+        "spacing": 0
+      }
+    },
+    {
+      "op": "create",
+      "id": "n179",
+      "type": "Text",
+      "props": {
+        "text": "29",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n180",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n181",
+      "type": "Text",
+      "props": {
+        "text": "30",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n182",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n183",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n184",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n185",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n186",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n187",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n188",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n189",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n190",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n191",
+      "type": "Text",
+      "props": {
+        "text": "",
+        "font": "caption",
+        "weight": "regular",
+        "color": "primary",
+        "frame": {
+          "width": 20
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n192",
+      "type": "VStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n193",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n196",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n197",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n198",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n199",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Design review"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n200",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Now, until 14:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n201",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n202",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work · Cafe"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n203",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n204",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n205",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Lunch with Sam"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n206",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "15:05 to 16:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n207",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n208",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n209",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n210",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n211",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "One on one"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n212",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "17:05 to 17:35"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n213",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n214",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n215",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n216",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n217",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Team offsite"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n218",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Tomorrow, All day"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n219",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n220",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "help": "Work"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n221",
+      "type": "Circle",
+      "props": {
+        "fill": "accent",
+        "size": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n222",
+      "type": "VStack",
+      "props": {
+        "spacing": 0,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n223",
+      "type": "Text",
+      "props": {
+        "font": "subheadline",
+        "weight": "semibold",
+        "lineLimit": 1,
+        "text": "Demo day"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n224",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "lineLimit": 1,
+        "text": "Wednesday, November 18, 18:05 to 19:05"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n225",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n194",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n99",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n99"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n100"]
+    },
+    {
+      "op": "children",
+      "id": "n100",
+      "children": ["n101", "n105", "n192"]
+    },
+    {
+      "op": "children",
+      "id": "n101",
+      "children": ["n102", "n103", "n104"]
+    },
+    {
+      "op": "children",
+      "id": "n105",
+      "children": ["n106", "n120"]
+    },
+    {
+      "op": "children",
+      "id": "n106",
+      "children": [
+        "n107",
+        "n108",
+        "n109",
+        "n110",
+        "n111",
+        "n112",
+        "n113",
+        "n114",
+        "n115",
+        "n116",
+        "n117",
+        "n118",
+        "n119"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n120",
+      "children": ["n121"]
+    },
+    {
+      "op": "children",
+      "id": "n121",
+      "children": ["n122", "n136", "n150", "n164", "n178"]
+    },
+    {
+      "op": "children",
+      "id": "n122",
+      "children": [
+        "n123",
+        "n124",
+        "n125",
+        "n126",
+        "n127",
+        "n128",
+        "n129",
+        "n130",
+        "n131",
+        "n132",
+        "n133",
+        "n134",
+        "n135"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n136",
+      "children": [
+        "n137",
+        "n138",
+        "n139",
+        "n140",
+        "n141",
+        "n142",
+        "n143",
+        "n144",
+        "n145",
+        "n146",
+        "n147",
+        "n148",
+        "n149"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n150",
+      "children": [
+        "n151",
+        "n152",
+        "n153",
+        "n154",
+        "n155",
+        "n156",
+        "n157",
+        "n158",
+        "n159",
+        "n160",
+        "n161",
+        "n162",
+        "n163"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n164",
+      "children": [
+        "n165",
+        "n166",
+        "n167",
+        "n168",
+        "n169",
+        "n170",
+        "n171",
+        "n172",
+        "n173",
+        "n174",
+        "n175",
+        "n176",
+        "n177"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n178",
+      "children": [
+        "n179",
+        "n180",
+        "n181",
+        "n182",
+        "n183",
+        "n184",
+        "n185",
+        "n186",
+        "n187",
+        "n188",
+        "n189",
+        "n190",
+        "n191"
+      ]
+    },
+    {
+      "op": "children",
+      "id": "n192",
+      "children": ["n193", "n194"]
+    },
+    {
+      "op": "children",
+      "id": "n193",
+      "children": ["n196", "n202", "n208", "n214", "n220"]
+    },
+    {
+      "op": "children",
+      "id": "n196",
+      "children": ["n197", "n198", "n201"]
+    },
+    {
+      "op": "children",
+      "id": "n198",
+      "children": ["n199", "n200"]
+    },
+    {
+      "op": "children",
+      "id": "n202",
+      "children": ["n203", "n204", "n207"]
+    },
+    {
+      "op": "children",
+      "id": "n204",
+      "children": ["n205", "n206"]
+    },
+    {
+      "op": "children",
+      "id": "n208",
+      "children": ["n209", "n210", "n213"]
+    },
+    {
+      "op": "children",
+      "id": "n210",
+      "children": ["n211", "n212"]
+    },
+    {
+      "op": "children",
+      "id": "n214",
+      "children": ["n215", "n216", "n219"]
+    },
+    {
+      "op": "children",
+      "id": "n216",
+      "children": ["n217", "n218"]
+    },
+    {
+      "op": "children",
+      "id": "n220",
+      "children": ["n221", "n222", "n225"]
+    },
+    {
+      "op": "children",
+      "id": "n222",
+      "children": ["n223", "n224"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "todo.small": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 8,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "✓ Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Clear ticked"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Icon",
+      "props": {
+        "symbol": "checklist",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "To-do",
+        "font": "headline",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "weight": "semibold",
+        "text": "5",
+        "font": "title"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "caption",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Reply to the design thread",
+        "font": "caption",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "caption",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Book flights",
+        "font": "caption",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "caption",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Water the plants",
+        "font": "caption",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "2 more"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n7", "n8", "n9", "n10", "n11", "n12"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5", "n6"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n13", "n18", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n13",
+      "children": ["n14", "n15", "n17"]
+    },
+    {
+      "op": "children",
+      "id": "n15",
+      "children": ["n16"]
+    },
+    {
+      "op": "children",
+      "id": "n18",
+      "children": ["n19", "n20", "n22"]
+    },
+    {
+      "op": "children",
+      "id": "n20",
+      "children": ["n21"]
+    },
+    {
+      "op": "children",
+      "id": "n23",
+      "children": ["n24", "n25", "n27"]
+    },
+    {
+      "op": "children",
+      "id": "n25",
+      "children": ["n26"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n28"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "todo.medium": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 8,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "✓ Medium"
+              },
+              {
+                "title": "Large"
+              }
+            ]
+          },
+          {
+            "title": "Clear ticked"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Icon",
+      "props": {
+        "symbol": "checklist",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "To-do",
+        "font": "headline",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "weight": "semibold",
+        "text": "5",
+        "font": "title3"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Reply to the design thread",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Book flights",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Water the plants",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Renew passport",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Text",
+      "props": {
+        "font": "caption",
+        "color": "secondary",
+        "text": "1 more"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "TextField",
+      "props": {
+        "placeholder": "New to-do",
+        "autofocus": false,
+        "onSubmit": true,
+        "onEdit": true,
+        "text": ""
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n7", "n8", "n9", "n10", "n12", "n13"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5", "n6"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n14", "n19", "n24", "n29"]
+    },
+    {
+      "op": "children",
+      "id": "n14",
+      "children": ["n15", "n16", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n21", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n21",
+      "children": ["n22"]
+    },
+    {
+      "op": "children",
+      "id": "n24",
+      "children": ["n25", "n26", "n28"]
+    },
+    {
+      "op": "children",
+      "id": "n26",
+      "children": ["n27"]
+    },
+    {
+      "op": "children",
+      "id": "n29",
+      "children": ["n30", "n31", "n33"]
+    },
+    {
+      "op": "children",
+      "id": "n31",
+      "children": ["n32"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n34"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "todo.large": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "Panel",
+      "props": {
+        "style": "card",
+        "spacing": 8,
+        "menu": [
+          {
+            "title": "Size",
+            "children": [
+              {
+                "title": "Small"
+              },
+              {
+                "title": "Medium"
+              },
+              {
+                "title": "✓ Large"
+              }
+            ]
+          },
+          {
+            "title": "Clear ticked"
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "HStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Icon",
+      "props": {
+        "symbol": "checklist",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "To-do",
+        "font": "headline",
+        "color": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "Text",
+      "props": {
+        "weight": "semibold",
+        "text": "5",
+        "font": "title3"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Reply to the design thread",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Book flights",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Water the plants",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Renew passport",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 1,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "circle",
+        "font": "body",
+        "color": "tertiary",
+        "help": "Tick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Call the bank",
+        "font": "subheadline",
+        "color": "primary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "TextField",
+      "props": {
+        "placeholder": "New to-do",
+        "autofocus": false,
+        "onSubmit": true,
+        "onEdit": true,
+        "text": ""
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "VStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "HStack",
+      "props": {
+        "spacing": 6
+      }
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Text",
+      "props": {
+        "text": "Done",
+        "font": "caption",
+        "weight": "semibold",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "Button",
+      "props": {
+        "title": "Clear",
+        "onTap": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "ForEach",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "HStack",
+      "props": {
+        "spacing": 8,
+        "opacity": 0.6,
+        "menu": [
+          {
+            "title": "Edit"
+          },
+          {
+            "title": "Move to top"
+          },
+          {
+            "title": "Remove",
+            "destructive": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "id": "n46",
+      "type": "Icon",
+      "props": {
+        "onTap": true,
+        "symbol": "checkmark.circle.fill",
+        "font": "body",
+        "color": "accent",
+        "help": "Untick"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n47",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n48",
+      "type": "Text",
+      "props": {
+        "lineLimit": 1,
+        "text": "Review the widget PR",
+        "font": "subheadline",
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n49",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Group",
+      "props": {}
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n7", "n8", "n9", "n10", "n12", "n13"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4", "n5", "n6"]
+    },
+    {
+      "op": "children",
+      "id": "n7",
+      "children": ["n14", "n19", "n24", "n29", "n34"]
+    },
+    {
+      "op": "children",
+      "id": "n14",
+      "children": ["n15", "n16", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n16",
+      "children": ["n17"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n21", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n21",
+      "children": ["n22"]
+    },
+    {
+      "op": "children",
+      "id": "n24",
+      "children": ["n25", "n26", "n28"]
+    },
+    {
+      "op": "children",
+      "id": "n26",
+      "children": ["n27"]
+    },
+    {
+      "op": "children",
+      "id": "n29",
+      "children": ["n30", "n31", "n33"]
+    },
+    {
+      "op": "children",
+      "id": "n31",
+      "children": ["n32"]
+    },
+    {
+      "op": "children",
+      "id": "n34",
+      "children": ["n35", "n36", "n38"]
+    },
+    {
+      "op": "children",
+      "id": "n36",
+      "children": ["n37"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11"]
+    },
+    {
+      "op": "children",
+      "id": "n12",
+      "children": ["n39"]
+    },
+    {
+      "op": "children",
+      "id": "n39",
+      "children": ["n40", "n44"]
+    },
+    {
+      "op": "children",
+      "id": "n40",
+      "children": ["n41", "n42", "n43"]
+    },
+    {
+      "op": "children",
+      "id": "n44",
+      "children": ["n45"]
+    },
+    {
+      "op": "children",
+      "id": "n45",
+      "children": ["n46", "n47", "n49"]
+    },
+    {
+      "op": "children",
+      "id": "n47",
+      "children": ["n48"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ]
+}

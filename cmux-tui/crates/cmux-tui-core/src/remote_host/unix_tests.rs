@@ -72,6 +72,18 @@ fn app_permissions_show_in_status_and_never_reach_config_or_the_switches() {
 }
 
 #[test]
+fn nothing_turned_on_says_computer_use_is_off_never_cmux_remote() {
+    // A Mac without cmux Remote (NIGHTLY) showed "cmux Remote is off: turn on Computer Use
+    // (Upstream driver) ...": a product it does not carry, and a driver setting that is gone.
+    let supervisor = super::RemoteHostSupervisor::default();
+    let reason = supervisor.call("computer_use.endpoint", json!({})).unwrap_err();
+    assert_eq!(reason, "Computer Use is off. Turn it on in Settings > Computer Use.");
+    // computer_use_command.rs reads "is off" as the off state.
+    assert!(reason.contains("is off"));
+    assert!(!reason.contains("cmux Remote") && !reason.contains("Upstream"));
+}
+
+#[test]
 fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
     for status in [
         json!({}),
@@ -344,4 +356,22 @@ fn fault_a_restart_while_the_quit_host_drains_starts_it_again() {
     assert!(started(&inner), "a restart during the quit's drain never started a new host");
     assert!(!paths.state.join("stop-intent.json").exists(), "the restart clears the stop intent");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn saved_switches_read_back_and_a_bad_file_reads_as_the_defaults() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let root =
+        std::env::temp_dir().join(format!("cmux-rh-read-config-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("config.json");
+    assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "no file");
+    std::fs::write(&path, br#"{"computer_use": true}"#).unwrap();
+    let on = super::read_config(&path);
+    assert!(on.computer_use && !on.screen_sharing && on.headless, "{on:?}");
+    std::fs::write(&path, b"{not json").unwrap();
+    assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "corrupt");
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -20,3 +20,22 @@ fn a_build_grace_and_a_removed_record_directory_only_shorten_it() {
     assert_eq!(orphan_grace_in_force(None, true), RECORD_ROOT_REMOVED_ORPHAN_GRACE);
     assert_eq!(orphan_grace_in_force(Some(Duration::from_secs(1)), true), Duration::from_secs(1));
 }
+
+/// A Mac's awake clock stops while it sleeps: a host orphaned for a week of
+/// wall time, most of it asleep, still counts the week (cmuxterm-hq#8377).
+#[test]
+fn an_orphan_wait_counts_the_time_the_mac_slept() {
+    let since = OrphanSince::now();
+    let awake_hour = since.awake + Duration::from_secs(60 * 60);
+    let wall_week = since.wall + ABANDONED_HOST_GRACE;
+    assert!(since.elapsed_at(awake_hour, wall_week) >= ABANDONED_HOST_GRACE);
+}
+
+/// A wall clock set back counts nothing; the awake time still counts.
+#[test]
+fn a_wall_clock_set_back_keeps_the_awake_time() {
+    let since = OrphanSince::now();
+    let awake_day = since.awake + Duration::from_secs(24 * 60 * 60);
+    let wall_back = since.wall - Duration::from_secs(30 * 24 * 60 * 60);
+    assert_eq!(since.elapsed_at(awake_day, wall_back), Duration::from_secs(24 * 60 * 60));
+}

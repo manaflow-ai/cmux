@@ -327,7 +327,7 @@ struct ClassicImportTests {
         let preview = try #require(CmuxDialogCenter.shared.records.last {
             $0.spec.identifier == "cmux.dialog.classicImport"
         }, "classic import showed no preview")
-        #expect(preview.spec.title == ClassicImportPreviewStrings.title)
+        #expect(preview.spec.title == ClassicImportPreviewStrings.consentTitle)
         #expect(preview.spec.lines.count >= 2 && preview.spec.lines.allSatisfy { !$0.isEmpty }, "\(preview.spec.lines)")
         #expect(preview.spec.defaultButton?.id == ClassicImportConfirmation.importButton)
         #expect(preview.spec.cancelButton?.id == "cancel")
