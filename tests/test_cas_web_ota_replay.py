@@ -44,6 +44,49 @@ def archive(path, files):
             t.addfile(info, io.BytesIO(body))
 
 
+def test_token_stays_on_github():
+    """An artifact download 302s to blob storage, which rejects a Bearer header with 401: the
+    token reaches the first host only."""
+    import http.server
+    import importlib.util
+    import threading
+    seen = {}
+
+    class Blob(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen["blob"] = self.headers.get("Authorization")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"zip")
+
+        def log_message(self, *a):
+            pass
+
+    blob = http.server.HTTPServer(("127.0.0.1", 0), Blob)
+
+    class Api(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen["api"] = self.headers.get("Authorization")
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{blob.server_port}/blob")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    gh = http.server.HTTPServer(("127.0.0.1", 0), Api)
+    for srv in (blob, gh):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    spec = importlib.util.spec_from_file_location("web_ota_replay", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    body = mod.api(f"http://127.0.0.1:{gh.server_port}/zip", "t0k", raw=True)
+    for srv in (blob, gh):
+        srv.shutdown()
+    assert body == b"zip", body
+    assert seen == {"api": "Bearer t0k", "blob": None}, seen
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         runs = os.path.join(tmp, "runs")
@@ -79,6 +122,7 @@ def main():
                                 "--work", os.path.join(tmp, "work"), "--max-p50", "10"],
                                capture_output=True, text=True, env=env)
         assert gated.returncode == 1, gated
+    test_token_stays_on_github()
     print("ok test_cas_web_ota_replay")
 
 
