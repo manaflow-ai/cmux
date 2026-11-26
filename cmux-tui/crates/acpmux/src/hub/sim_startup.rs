@@ -18,20 +18,3 @@ impl Hub {
         self.resume_queues();
     }
 }
-
-#[cfg(feature = "sim")]
-impl Hub {
-    /// SIM_LEAK_TRACE: on a hub that outlived its simulation, what lets go of it.
-    pub fn sim_leak_probe(self: &Arc<Self>) -> String {
-        let mut out = format!("strong {}", Arc::strong_count(self));
-        let sessions: Vec<Arc<super::Session>> =
-            std::mem::take(&mut *self.sessions.lock().unwrap_or_else(|e| e.into_inner()))
-                .into_values()
-                .collect();
-        let counts: Vec<usize> = sessions.iter().map(Arc::strong_count).collect();
-        out.push_str(&format!(" sessions {} (strong {counts:?})", sessions.len()));
-        drop(sessions);
-        out.push_str(&format!(" after sessions {}", Arc::strong_count(self)));
-        out
-    }
-}

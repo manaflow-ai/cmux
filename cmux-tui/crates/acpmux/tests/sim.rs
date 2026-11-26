@@ -48,6 +48,9 @@ mod world;
 use std::collections::BTreeMap;
 use world::{Faults, Options};
 
+/// The most seeds one test process runs (see the assert in `seeds_hold_the_delivery_invariants`).
+const SEEDS_PER_PROCESS: u64 = 500;
+
 fn env_u64(name: &str) -> Option<u64> {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
 }
@@ -122,6 +125,15 @@ fn seeds_hold_the_delivery_invariants() {
         return;
     }
     let seeds = env_u64("SIM_SEEDS").unwrap_or(64);
+    // Every hub a seed builds outlives its simulation (about 13 MB and 2 fds a seed, one
+    // `acpmux-audit` thread a hub; SIM_LEAK_TRACE=1 shows it): 4000 seeds in one process reached
+    // 31 GB and filled a pool host's disk with swap (acpmux-sim-sweep run 45768539377). Until
+    // what keeps them is found, a process runs at most this many and the sweep runs chunks.
+    assert!(
+        seeds <= SEEDS_PER_PROCESS,
+        "SIM_SEEDS={seeds} is over {SEEDS_PER_PROCESS} in one process: run chunks of at most \
+         that many with SIM_SEED_BASE offsets (acpmux-sim-sweep.yml), each seed's hubs stay alive"
+    );
     let base = env_u64("SIM_SEED_BASE").unwrap_or(0);
     let started = std::time::Instant::now();
     let mut simulated = std::time::Duration::ZERO;
@@ -133,9 +145,6 @@ fn seeds_hold_the_delivery_invariants() {
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
-    if trace_leaks {
-        world::probe();
-    }
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         if trace_leaks {
