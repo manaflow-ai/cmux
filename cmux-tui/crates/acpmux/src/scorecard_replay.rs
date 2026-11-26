@@ -31,7 +31,7 @@
 
 use crate::claude_stdio::prompt_cache::{MIN_MISS_CONTEXT, miss_cause};
 use crate::store::{EventRecord, Store};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -299,7 +299,10 @@ fn resolve(metas: &[crate::store::SessionMeta], wanted: &str) -> Option<usize> {
     if let Some(i) = metas.iter().position(|m| m.id == wanted) {
         return Some(i);
     }
-    let one = |hits: Vec<usize>| (hits.len() == 1).then(|| hits[0]);
+    let one = |hits: Vec<usize>| match hits.as_slice() {
+        [hit] => Some(*hit),
+        _ => None,
+    };
     one(metas
         .iter()
         .enumerate()
@@ -336,7 +339,7 @@ pub fn replay(store: &dyn Store, wanted: &[String]) -> Result<Replay> {
         answer.counters.insert(format!("harnessMagic.scorecard.violations.{name}"), 0);
     }
     for i in picked {
-        let meta = &metas[i];
+        let meta = metas.get(i).context("scorecard replay: selected session is missing")?;
         let session = match replay_session(store, &meta.id, &meta.harness) {
             Ok(s) => s,
             Err(error) => {
