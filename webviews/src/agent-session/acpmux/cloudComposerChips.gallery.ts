@@ -137,7 +137,7 @@ async function assertChips(ctx: PlayContext, before: string[] = []) {
 /// The Environment menu's Cloud row, the menu opened, then closed: what is wrong if it names a team
 /// or its label reads anything but Cloud (https://github.com/manaflow-ai/cmux/issues/45695).
 async function cloudRowProblems(ctx: PlayContext): Promise<string[]> {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   const row = () => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]');
   await ctx.waitFor(row, { capMs: 5_000 });
   const problems: string[] = [];
