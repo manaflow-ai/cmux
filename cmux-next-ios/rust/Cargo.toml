@@ -29,6 +29,7 @@ cmux-bundle = { path = "../../cmux-tui/crates/cmux-bundle" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 # Braid's racer and last-good route (RFD 0164): the signaling dial (signal_dial.rs).
 cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
+cmux-braid-class = { path = "../../cmux-tui/crates/cmux-braid-class" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 # The per-stream seq/ack/replay core of the reliable link (pure; no runtime).

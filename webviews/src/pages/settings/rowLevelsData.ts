@@ -319,7 +319,6 @@ export const ROW_LEVELS: {
     "agentPane.display.environment.placement": "hidden",
     "agentPane.display.environmentCard": "more",
     "agentPane.display.changesPill": "more",
-    "agentPane.display.pinnedPlan": "more",
     "agentPane.display.sendPop": "more",
     "agentPane.display.sendScrollsToTop": "more",
     "agentPane.display.compactShortTurns": "more",

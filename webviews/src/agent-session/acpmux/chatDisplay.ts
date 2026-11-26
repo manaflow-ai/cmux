@@ -21,7 +21,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -155,11 +155,6 @@ export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
 /// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
 /// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
 export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
-/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
-/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
-/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
-/// Not part of ChatDisplay: switching it measures no transcript row again.
-export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
 /// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
 /// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
@@ -229,9 +224,12 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -505,12 +503,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -547,9 +562,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
@@ -572,7 +586,6 @@ let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
-let pinnedPlanOn = false;
 let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
@@ -653,7 +666,6 @@ export function setChatDisplay(value: unknown): void {
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
-  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
@@ -716,7 +728,6 @@ export function setChatDisplay(value: unknown): void {
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
-    pinnedPlan === pinnedPlanOn &&
     sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -744,7 +755,6 @@ export function setChatDisplay(value: unknown): void {
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
-  pinnedPlanOn = pinnedPlan;
   sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -911,9 +921,6 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
-const pinnedPlanSnapshot = () => pinnedPlanOn;
-/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
 /// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
 export const useSendScrollsToTop = (): boolean =>
