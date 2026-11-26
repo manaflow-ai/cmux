@@ -1280,6 +1280,15 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   ].join(" && ");
 }
 
+/**
+ * Each inventory step's budget (StepLog.detachedStep). The image is the same size from roll to roll (33179 SBOM
+ * components in every roll of 2026-11-25/26) but the builder is not: the syft scan took 65 to 275 s and the file
+ * manifest 32 to 232 s, both on the same builder at once, beside the smoke. Rolls 45862819601 and 45890407908 finished
+ * the scan at 268 and 278 s under its old 280 s `timeout`; roll 45779971043 hit both old bounds (scan 281 s, manifest
+ * 301 s at the 300 s exec cap). 600 s is about twice the slowest finish; SLOW_STEP marks a step past half of it.
+ */
+export const INVENTORY_STEP_BUDGET_MS = 600_000;
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1292,16 +1301,18 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
   // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
   // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.step(vm, "sbom", [
+    return L.detachedStep(vm, "sbom", [
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "));
+  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
   };
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
+  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+  const settled = await Promise.allSettled([fileManifest(), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
