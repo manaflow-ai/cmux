@@ -470,25 +470,29 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}" = "true" ]; then
-              ios_build=true
-              echo "Full-ci label present; retaining the simulator build."
-            else
-              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
-            fi
+          # Only iOS candidates go to the Xcode graph. Unrelated files in the
+          # same diff must not turn an unlinked package into a direct app input.
+          ios_inputs="${RUNNER_TEMP}/ios-inputs.txt"
+          should_run=false
+          ios_build=false
+          if grep -E '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt" > "$ios_inputs"; then
+            classifier_output="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "$ios_inputs")"
+            printf '%s\n' "$classifier_output"
+            ios_build="$(sed -n 's/^run=//p' <<< "$classifier_output")"
             if [ -z "$ios_build" ]; then
               echo "::warning::iOS simulator input classifier returned no verdict; running the build"
               ios_build=true
             fi
-            echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
-            python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt"
-          else
-            echo "No iOS-owned files changed; skipping iOS tests."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            # Shared and iOS packages retain Linux coverage even when unlinked.
+            if [ "$ios_build" = "true" ] || grep -Eq '^(Packages/(Shared|iOS)/|vendor/)' "$ios_inputs"; then
+              should_run=true
+              if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}" = "true" ]; then
+                ios_build=true
+              fi
+            fi
           fi
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
           if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-closure-mutex\.py$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/cmux-next/caller_isolation\.py$|scripts/cmux-next/caller-isolated-blocking-pending\.json$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' "${RUNNER_TEMP}/changed-files.txt"; then

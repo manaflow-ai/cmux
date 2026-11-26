@@ -296,13 +296,23 @@ class IOSChangeDetectionTests(unittest.TestCase):
     merge commit, the way actions/checkout leaves it."""
 
     def detect(self, pr_files: dict[str, str], base_files: dict[str, str] | None = None,
-               head_sha: str | None = None) -> dict[str, str]:
+               head_sha: str | None = None, full_ci: bool = False) -> dict[str, str]:
         temp = Path(tempfile.mkdtemp(prefix="ios-detect."))
         self.addCleanup(subprocess.run, ["rm", "-rf", str(temp)])
         origin = temp / "origin"
         origin.mkdir()
         git(origin, "init", "-q", "-b", "main")
         (origin / "README").write_text("root\n")
+        # Keep a small classic Xcode graph in the fixture. The detector must
+        # discover the linked macOS package from XCLocalSwiftPackageReference,
+        # while an unrelated package remains outside the app closure.
+        project = origin / "ios/cmux-ios.xcodeproj/project.pbxproj"
+        project.parent.mkdir(parents=True)
+        project.write_text("A = { isa = XCLocalSwiftPackageReference; "
+                           "relativePath = ../Packages/macOS/CmuxPhonePush; };\n")
+        manifest = origin / "Packages/macOS/CmuxPhonePush/Package.swift"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('let package = Package(name: "CmuxPhonePush")\n')
         git(origin, "add", "-A")
         git(origin, "commit", "-q", "-m", "root")
         for number in range(3):  # history the shallow clone must not need
@@ -337,7 +347,7 @@ class IOSChangeDetectionTests(unittest.TestCase):
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
                     if step.get("id") == "detect")
         script = (step["run"].replace("${{ github.event_name }}", "pull_request")
-                  .replace("${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "false")
+                  .replace("${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", str(full_ci).lower())
                   .replace("python3 scripts/ci/ios_simulator_inputs.py",
                            f"python3 {ROOT / 'scripts/ci/ios_simulator_inputs.py'}"))
         self.assertNotIn("${{", script)
@@ -356,6 +366,29 @@ class IOSChangeDetectionTests(unittest.TestCase):
     def test_a_package_change_runs_only_the_lint(self) -> None:
         self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
                          {"should_run": "false", "should_build": "false", "should_lint": "true"})
+
+    def test_unlinked_shared_package_in_mixed_diff_keeps_only_linux_coverage(self) -> None:
+        self.assertEqual(
+            self.detect({
+                "Packages/Shared/CmuxAgentBrands/Sources/Brands.swift": "x\n",
+                "docs/ios-ci.md": "x\n",
+                "README.md": "x\n",
+                "web/app.ts": "x\n",
+            }),
+            {"should_run": "true", "should_build": "false", "should_lint": "true"},
+        )
+
+    def test_full_ci_preserves_package_scope(self) -> None:
+        self.assertEqual(self.detect({"Packages/Shared/Unlinked/X.swift": "x"}, full_ci=True),
+                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
+        self.assertEqual(self.detect({"Packages/macOS/Unlinked/X.swift": "x"}, full_ci=True),
+                         {"should_run": "false", "should_build": "false", "should_lint": "true"})
+
+    def test_a_classic_xcode_linked_macos_package_runs_the_simulator_build(self) -> None:
+        self.assertEqual(
+            self.detect({"Packages/macOS/CmuxPhonePush/Sources/Push.swift": "x\n"}),
+            {"should_run": "true", "should_build": "true", "should_lint": "true"},
+        )
 
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
