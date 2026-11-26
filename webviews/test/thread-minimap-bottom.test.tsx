@@ -171,6 +171,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     };
     // Up to the top, then down in wheel-sized steps to the bottom, as a reader goes back down a chat.
     await scrollTo(0);
+    console.log("DBG after scroll0", document.querySelectorAll("[data-tick]").length, [...document.querySelectorAll("[data-tick]")].slice(0,3).map(t=>t.getAttribute("data-tick")).join(","), document.querySelectorAll("[data-tick][aria-current=true]").length);
     expect(check(0)[0]).toBe(0);
     for (let top = 0; top < bottom; top += 120) {
       await scrollTo(top);
