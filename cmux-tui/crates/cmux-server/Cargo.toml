@@ -42,6 +42,8 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["blocking", "capture"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
 tempfile = "3"
 ring.workspace = true
