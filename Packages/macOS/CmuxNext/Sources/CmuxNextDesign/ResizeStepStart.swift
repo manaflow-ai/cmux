@@ -6,6 +6,13 @@ public enum ResizeStepStart {
     /// Runs at the start of every live resize step; nil (the default): nothing does.
     public static var willLayOut: (() -> Void)?
 
+    private static var running = false
+
     /// A step begins, when `condition` holds (read only while a hook is set): runs ``willLayOut`` once.
-    public static func begin(if condition: @autoclosure () -> Bool = true) {}
+    public static func begin(if condition: @autoclosure () -> Bool = true) {
+        guard let hook = willLayOut, !running, condition() else { return }
+        running = true
+        defer { running = false }
+        hook()
+    }
 }
