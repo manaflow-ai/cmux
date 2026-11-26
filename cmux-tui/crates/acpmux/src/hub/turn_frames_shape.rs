@@ -89,7 +89,10 @@ pub(crate) fn of_lines(lines: Vec<String>) -> Shape {
                 tidy.push_str(word);
             }
             match tidy.char_indices().nth(LINE_CHARS) {
-                Some((cut, _)) => tidy[..cut].to_owned(),
+                Some((cut, _)) => {
+                    tidy.truncate(cut);
+                    tidy
+                }
                 None => tidy,
             }
         })

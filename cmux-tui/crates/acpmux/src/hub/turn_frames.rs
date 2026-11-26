@@ -576,11 +576,13 @@ fn frame_value(dir: &Path, frame: &Frame, full: bool) -> Option<Value> {
         "moved": frame.moved,
         "thumb": picture_value(&thumb),
     });
-    if let Some(change) = &frame.change {
-        value["change"] = json!(change);
-    }
-    if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
-        value["full"] = picture_value(&bytes);
+    if let Some(fields) = value.as_object_mut() {
+        if let Some(change) = &frame.change {
+            fields.insert("change".into(), json!(change));
+        }
+        if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
+            fields.insert("full".into(), picture_value(&bytes));
+        }
     }
     Some(value)
 }
