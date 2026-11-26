@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
@@ -30,11 +31,12 @@ let package = Package(
     targets: [
         .target(
             name: "MessagesLabHome",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             resources: [
@@ -60,11 +62,11 @@ let package = Package(
         ),
         .testTarget(
             name: "MessagesLabHomeTests",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "MessagesLabHome",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
             // MessagesLab's shared/conversation.json (vendor.tsv), read by path.
             exclude: ["Fixtures"],

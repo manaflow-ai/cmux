@@ -2,7 +2,7 @@
 // Transcript Work Log (Settings > Advanced > Experiments, experiments.transcriptWorkLog, off by
 // default; taste build 9): a finished turn as a work log. Its steps sit in
 // the closed "Worked for", a hairline card under the reply sums the files it changed (+N -N) over the
-// session's branch with Preview, and a sent file's chip says "added to context". `off` is the same
+// session's branch, and a sent file's chip says "added to context". `off` is the same
 // chat at the default look, to compare; `expanded` opens the Worked for in place.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -89,7 +89,7 @@ const openWorked: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
-    note: "Work log on: the turn's steps in the closed Worked for 10s, the reply, then the changes card (Changed 2 files +N -N over the branch, Preview); the sent file reads 'added to context'. Hairline borders, no fills.",
+    note: "Work log on: the turn's steps in the closed Worked for 10s, the reply, then the changes card (Changed 2 files +N -N over the branch); the sent file reads 'added to context'. Hairline borders, no fills.",
     height: 560,
     snapshot: workedTurn(),
     play: workLogOn,
@@ -112,7 +112,7 @@ const variants: Record<string, AgentPaneVariant> = {
     play: workLogOn,
   },
   "long-branch": {
-    note: "Work log on with a long branch name: it ends in an ellipsis (see the narrow width); Preview stays whole.",
+    note: "Work log on with a long branch name: it ends in an ellipsis (see the narrow width).",
     height: 560,
     snapshot: workedTurn(EDITS, "leo/experiments/transcript-work-log-with-a-very-long-branch-name-v2"),
     play: workLogOn,

@@ -127,6 +127,9 @@ mod admission;
 #[path = "server/list_workspaces_page.rs"]
 mod list_workspaces_page;
 use list_workspaces_page::*;
+#[path = "server/list_workspaces_delta.rs"]
+pub(crate) mod list_workspaces_delta;
+use list_workspaces_delta::WORKSPACE_LIST_DELTA_CAPABILITY;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -145,13 +148,14 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -224,12 +228,18 @@ mod detached_terminals;
 mod feed_client_ops;
 mod feed_local;
 mod feed_places;
+#[cfg(unix)]
+pub(crate) mod forum_routed;
 mod frontend_browser_history;
 mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
+pub(crate) use launch_snapshot::{
+    LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
+};
 #[cfg(unix)]
 mod carrier_role;
 #[cfg(unix)]
@@ -326,7 +336,8 @@ mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
 pub use agent_cli_hybrid::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
@@ -451,6 +462,11 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// events, and may reattach with `resume_offset` and `resume_generation` for
 /// only the missing bytes (server/terminal_resume.rs).
 pub const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
+/// `resume_max_bytes` on a resuming `attach-surface`: an exact resume only when
+/// the missed bytes fit; past it the normal replay (`resume: "gap"`), so a
+/// viewer back from a long time away reads one screen, not megabytes of
+/// output it never sees (cmux-next-ios/design/background-delta-sync.md).
+pub const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
 /// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
@@ -688,6 +704,9 @@ pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last
 /// settled tree and frontend projections, for drawing before connecting.
 pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `flush-launch-snapshot`: the launch snapshot written at once, with no
+/// settle or byte-budget wait (a quitting frontend asks after its last save).
+pub const LAUNCH_SNAPSHOT_FLUSH_CAPABILITY: &str = "launch-snapshot-flush-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -802,7 +821,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -810,7 +828,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
@@ -1059,6 +1076,11 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The dated API version the client pins (`YYYY-MM-DD`): the
+        /// newest revision dated on or before it serves it
+        /// (server/api_revision_wire.rs, spec/api-versioning.md).
+        #[serde(default)]
+        api_version: Option<String>,
         /// The client's release (`cmux --version`), for refusals and logs.
         #[serde(default)]
         version: Option<String>,
@@ -1178,11 +1200,13 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs; `since`:
+    /// server/list_workspaces_delta.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
         after: Option<usize>,
+        since: Option<list_workspaces_delta::DeltaCursor>,
     },
     GetFrontendProjection {
         frontend: String,
@@ -1200,6 +1224,9 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// `flush-launch-snapshot` (`launch-snapshot-flush-v1`): write the launch
+    /// snapshot now, not after changes settle (a quitting frontend's last save).
+    FlushLaunchSnapshot,
     JournalFrontendEvent {
         event: crate::FrontendJournalEvent,
     },
@@ -1581,6 +1608,11 @@ enum Command {
         /// same request (`{kind: "browser", url, engine, ...}`).
         #[serde(default)]
         first_tab: Option<frontend_browser_history::FirstTabParams>,
+        /// `user`: `name` is exactly what the caller asked for (`agents chat
+        /// new --name`), pinned like a rename (#56422). Absent or `auto`: a
+        /// starting name the automatic namer may replace.
+        #[serde(default)]
+        name_source: Option<crate::resource_name::NameSource>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1972,6 +2004,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -2588,6 +2624,11 @@ enum Command {
         resume_offset: Option<u64>,
         #[serde(default)]
         resume_generation: Option<String>,
+        /// `terminal-resume-bounded-v1`: the most missed bytes this viewer
+        /// takes as an exact resume; more, and the reply is the replay with
+        /// `resume: "gap"`. Absent: no bound (`terminal-resume-v1`).
+        #[serde(default)]
+        resume_max_bytes: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2920,6 +2961,9 @@ const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
+/// Connections served at once. Measured: a `mux-conn` thread each on the default 2 MiB
+/// stack (virtual), and each may queue up to `OUTBOUND_CONNECTION_BYTE_CAPACITY` (8 x the
+/// 32 MiB attach budget) of output, all of them together `OUTBOUND_GLOBAL_BYTE_CAPACITY`.
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -2966,12 +3010,15 @@ const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
-const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
-const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
-const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// The stack of a resource stream's or a detached wait's worker thread. No
+/// count bounds them: each one's cost is this stack (virtual; the pages it
+/// touches are its RSS), its socket's share of the connection's outbound byte
+/// budget (`OUTBOUND_CONNECTION_BYTE_CAPACITY`) and a few small records.
+const RESOURCE_WORKER_STACK_BYTES: usize = 256 * 1024;
 /// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
 /// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+/// Measured: a `mux-events-out` thread each on the default 2 MiB stack (virtual) plus
+/// its mailbox, for the life of the connection; not yet given a small stack.
 const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
 const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 

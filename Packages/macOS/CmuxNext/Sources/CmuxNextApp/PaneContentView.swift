@@ -52,6 +52,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    var terminalHistoryButton: TerminalHistoryButton?
     /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
     var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?
@@ -178,11 +179,11 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
         let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = content.map { contentHost.placesInHold($0) } ?? false, row = content.map { contentHost.keepsOutOfTabRowInHold($0) } ?? false ? nil : tabRowSharer // held: a key hold's area places a terminal's host or a browser's chrome (and the Home, which keeps its size: the row stays the strip's); any other content lays out here in each frame
-        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
+        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, rowNeed = rowContent?.tabRowNeedWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
-        let slot = shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowTools, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil,
-                                                             sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowTools
+        let (slot, accessoryRoom) = TabRowAccessoryFit.fit(base: shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowNeed, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil, sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowNeed,
+                                                           accessory: rowTools - rowNeed, width: bounds.width, tabs: stripView.isHidden ? 0 : stripView.naturalWidth) // the summary: only what the tabs leave at full width (#53314)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -230,7 +231,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         }
         if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: toolbarWidth(shown: shown, sharing: true), tabs: !stripView.isHidden, toolbar: toolbar?.view, in: self) } else if !held { toolbar?.view.paintTabRowHole(nil) }
+        if !held, hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: toolbarWidth(shown: shown, sharing: true), tabs: !stripView.isHidden, toolbar: toolbar?.view, accessoryRoom: accessoryRoom, in: self) } else if !held { toolbar?.view.paintTabRowHole(nil) }
         if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 
@@ -353,11 +354,11 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             // An earlier switch still waiting on a first frame ends now.
             endPaintHold()
         }
-        let leaving = hosted !== view && !holds ? hosted : nil
+        var leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
         if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
-        if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
+        if holds || (kept == nil && !isBandActive && PanePaintHold.holds(view, replacing: hosted)), let shown, let view { leaving = nil; beginPaintHold(outgoing: shown, incoming: view) } // asked again once in: a chat back from drawn parking learns its move here (`AgentPaneView.movedPageWaits`)
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.

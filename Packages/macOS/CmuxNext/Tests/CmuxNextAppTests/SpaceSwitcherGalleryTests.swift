@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import CmuxTheme
 import Foundation
@@ -34,6 +35,7 @@ import Testing
             h.window.setContentSize(NSSize(width: 300, height: 500))
             h.sidebar.frame = NSRect(x: 0, y: 0, width: 300, height: 500)
             h.sidebar.spacesPosition = .bottom
+            h.sidebar.spacesVisibility = .always
             h.model.profiles = spaces
             h.model.activeProfileID = spaces[0].id
             h.sidebar.profileBar.windowMarks.elsewhere = [spaces[1].id: SpaceElsewhere(windowID: "second", incognito: false),
@@ -65,6 +67,7 @@ import Testing
                 }
                 html += "</section>"
             }
+            html += try Self.spacingExamples(h, mode: mode, out: out)
         }
         try html.write(to: out.appending(path: "index.html"), atomically: true, encoding: .utf8)
         let tar = Process()
@@ -74,6 +77,39 @@ import Testing
         try tar.run()
         tar.waitUntilExit()
         #expect(tar.terminationStatus == 0)
+    }
+
+    private static func spacingExamples(_ h: SidebarTrailingColumnTests.KindHarness, mode: String, out: URL) throws -> String {
+        let design = DesignSettings.shared
+        let previous = design.overrides[.spaceButtonSpacing]
+        defer { design.setOverride(.spaceButtonSpacing, previous) }
+        let bar = h.sidebar.profileBar
+        bar.switcherStyleOverride = .ring
+        bar.setPointerInside(false)
+        bar.setHovered(nil)
+        let profiles = h.model.profiles
+        let extras = (0..<16).map { SidebarProfile(id: ProfileKey("extra-\($0)"), name: "Space \($0 + 5)") }
+        var html = ""
+        let cases: [(String, CGFloat?)] = [("density", nil), ("18pt", 18), ("40pt", 40)]
+        for position in [SpacesPosition.top, .bottom] {
+            h.sidebar.spacesPosition = position
+            for crowded in [false, true] {
+                h.model.profiles = crowded ? profiles + extras : profiles
+                let active = crowded ? 12 : 0
+                h.model.activeProfileID = h.model.profiles[active].id
+                for (label, value) in cases {
+                    design.setOverride(.spaceButtonSpacing, value)
+                    h.sidebar.renderNow()
+                    h.sidebar.layoutSubtreeIfNeeded()
+                    bar.refresh()
+                    try #require(!bar.isHidden && bar.alphaValue > 0.5 && bar.dotIsDrawn(at: active) && bar.plusIsDrawn)
+                    let name = "\(mode)-\(position.rawValue)-\(crowded ? "crowded" : "fitting")-\(label)"
+                    try AAGroupHeaderDensityGalleryTests.write(try render(h), to: out.appending(path: "\(name).png"))
+                    html += "<figure><img src='\(name).png' alt='\(name)'><figcaption>\(name)</figcaption></figure>"
+                }
+            }
+        }
+        return html
     }
 
     private static func render(_ h: SidebarTrailingColumnTests.KindHarness) throws -> CGImage {
