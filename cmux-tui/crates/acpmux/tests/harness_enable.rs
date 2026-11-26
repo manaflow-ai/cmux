@@ -232,3 +232,41 @@ async fn the_cli_confirmation_is_the_enable_op_prompt_text() {
     assert_eq!(programs["plain"], Value::Null, "a file without the execute bit is no program");
     assert_eq!(programs["onpath"], json!(agent), "the profile's own PATH decides, as at spawn");
 }
+
+#[tokio::test]
+async fn harness_disable_forgets_the_confirmation_and_only_locally() {
+    let (folder, gate) = scratch("disable");
+    acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
+    let hub = hub(&gate);
+    let cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let state = || folder_profiles::load_one(&cfg, &gate, &folder, "acme").unwrap().state;
+    let ask = json!({"folder": folder, "id": "acme"});
+    let mut c = connect(&hub, Origin::Local).await;
+    let none = c.request(method::MUX_HARNESS_DISABLE, ask.clone()).await.unwrap();
+    assert_eq!(none["disabled"], false, "nothing was enabled");
+
+    let shown = c.request(method::MUX_HARNESS_ENABLE, ask.clone()).await.unwrap();
+    let sha = shown["prompt"]["sha256"].clone();
+    c.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": "acme", "sha256": sha}))
+        .await
+        .unwrap();
+    assert_eq!(state(), folder_profiles::FolderState::Enabled);
+
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut remote = connect(&hub, origin).await;
+        let e = remote.request(method::MUX_HARNESS_DISABLE, ask.clone()).await.unwrap_err();
+        assert!(e.contains("never from"), "{origin:?}: {e}");
+    }
+    assert_eq!(state(), folder_profiles::FolderState::Enabled);
+
+    let e = c
+        .request(method::MUX_HARNESS_DISABLE, json!({"folder": "repo", "id": "acme"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("absolute"), "{e}");
+
+    let mut app = connect(&hub, Origin::LocalApp).await;
+    let done = app.request(method::MUX_HARNESS_DISABLE, ask.clone()).await.unwrap();
+    assert_eq!(done["disabled"], true);
+    assert_eq!(state(), folder_profiles::FolderState::NeedsEnable);
+}

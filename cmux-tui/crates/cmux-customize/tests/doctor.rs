@@ -241,6 +241,78 @@ fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
 }
 
 #[test]
+fn keys_our_own_tools_read_are_not_unknown() {
+    // Leo, 2026-11-25, of a toast naming agents.desktopBridge (acpmux reads it): "will this be
+    // fixed soon?" Every key file-keys.json names, and anything under it, is someone's.
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        r#"{
+  "agents": { "desktopBridge": { "enabled": true, "entrypoints": ["codex_desktop"] } },
+  "chief.turnHooks": ["x"],
+  "chief": { "turnSkills": ["y"] },
+  "shortcuts": { "bindings": { "palette": "cmd+k" } },
+  "actions": { "test": { "command": "cargo test" } },
+  "agents.desktopBridgeTypo": true
+}
+"#,
+    );
+    let report = home.customize().doctor(&at(NOW));
+    let unknown: Vec<&str> = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == FindingKind::UnknownKey)
+        .map(|f| f.id.as_str())
+        .collect();
+    assert_eq!(unknown, ["unknown-key:agents.desktopBridgeTypo"]);
+}
+
+#[test]
+fn an_edit_above_a_dismissed_key_keeps_it_dismissed() {
+    // A finding's line is not in its fingerprint: an agent's edit above a key moves it, and
+    // what the person dismissed stays dismissed (it came back when three keys' lines moved).
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true\n}\n");
+    let customize = home.customize();
+    customize.doctor_dismiss("unknown-key:mystery", &at(NOW)).unwrap();
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": {\n    \"density\": \"compact\"\n  },\n  \"mystery\": true\n}\n",
+    );
+    let moved = customize.doctor(&at(NOW));
+    let mystery = find(&moved, "unknown-key:mystery");
+    assert_eq!(mystery.line, Some(5));
+    assert!(mystery.dismissed, "the same key on another line is not new");
+}
+
+#[test]
+fn a_state_file_of_the_old_scheme_says_nothing_again() {
+    // doctor.json before version 2 held prints with the line in them: what it announced stays
+    // announced, and what it dismissed stays dismissed.
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true,\n  \"other\": 1\n}\n");
+    let customize = home.customize();
+    let before = customize.doctor(&at(NOW));
+    assert_eq!(before.findings.iter().filter(|f| f.kind == FindingKind::UnknownKey).count(), 2);
+    let file = Roots::under(home.dir.path()).state_dir.join("doctor.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(
+        &file,
+        json!({
+            "announced": { "unknown-key:mystery": "0123456789abcdef", "unknown-key:other": "0123456789abcdef" },
+            "dismissed": { "unknown-key:other": "0123456789abcdef" }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(report.announce, None);
+    assert!(find(&report, "unknown-key:other").dismissed);
+    let again = customize.doctor(&at(NOW));
+    assert!(find(&again, "unknown-key:other").dismissed, "moved over to the new print");
+}
+
+#[test]
 fn a_theme_that_overrides_a_setting_and_a_missing_theme_are_said() {
     let home = Home::new();
     home.write(
@@ -290,7 +362,11 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     let again = customize.doctor_announce(&at(NOW)).unwrap();
     assert_eq!(again.announce, None, "nothing new");
     assert!(again.line.is_some(), "still listed");
+    // The same problem on another line is not new (its line is not in its fingerprint).
     home.write("themes/night.json", "{\n\n  \"appearance\": }\n");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(moved.announce, None, "moved, not changed: {:?}", moved.findings);
+    home.write("themes/dawn.json", "{ \"appearance\": }\n");
     let changed = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(changed.announce.is_some(), "a different problem is new: {:?}", changed.findings);
 }
