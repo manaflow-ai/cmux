@@ -250,6 +250,11 @@ pub trait ReconnectGroupSource: Send + Sync {
         Duration::ZERO
     }
 
+    /// Starts one route-discovery pass for a reconnect. The pass may retry
+    /// several routes, but sources should reset one-time negative caches only
+    /// here, rather than once per route attempt.
+    fn begin_resolution(&self) {}
+
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 
     /// A live group already dialed on another route (a warm standby), taken for the redial
@@ -1344,6 +1349,9 @@ impl ClientConnection {
         // stream on the dead path until iroh's 15 s path idle timeout (then a 10 s close), the
         // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
         group.abandon();
+        if let Some(source) = &self.reconnect_groups {
+            source.begin_resolution();
+        }
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -1494,8 +1502,10 @@ impl ClientConnection {
                                     }
                                 };
                                 match recovery_deadline {
-                                    Some(deadline) => tokio::time::timeout_at(deadline, discovery).await.unwrap_or(None),
-                                    None => tokio::time::timeout(policy.attempt_timeout, discovery).await.unwrap_or(None),
+                                    Some(deadline) => {
+                                        resolve_reconnect_group_until(source.as_ref(), deadline, discovery).await
+                                    }
+                                    None => discovery.await,
                                 }
                             } => next,
                         };
