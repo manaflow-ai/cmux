@@ -338,7 +338,7 @@
   background: var(--acpmux-question-hover);
   color: var(--agent-text);
 }
-.acpmux-question-ask .acpmux-question-actions :is(.acpmux-keycap, .acpmux-question-keys) { display: none; }
+.acpmux-question-ask .acpmux-question-actions :is(.ui-key-hint, .acpmux-question-keys) { display: none; }
 .acpmux-question-ask[data-consent] .acpmux-question-actions { padding: 0; }
 .acpmux-question-ask .acpmux-question-error { padding: var(--ds-space-2) var(--ds-space-2) 0; }
 
