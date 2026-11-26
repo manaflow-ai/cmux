@@ -2417,7 +2417,7 @@ jobs:
                 map_submodules "$m" "$gitlink" || true
               done
           }
-          n=$GIT_CONFIG_COUNT
+          n=$GIT_CONFIG_COUNT sm_unmapped=$GIT_CONFIG_COUNT
           while IFS=$'\t' read -r m url; do
             [ -n "$m" ] || continue
             echo "submodule $url: from the fleet mirror $m"
@@ -2431,7 +2431,8 @@ jobs:
           started=$SECONDS
           # A warm slot holds the submodule commits already: check them out with no network (https refused, so
           # a missing one fails here instead of cloning anonymously), then fetch only with the App's token.
-          if git -c protocol.https.allow=never -c core.hooksPath=/dev/null submodule update --init --force --no-fetch --recursive \
+          # Without the mirror rewrite: a clone from a mirror here skips its refs/pins and leaves no HEAD.
+          if GIT_CONFIG_COUNT=$sm_unmapped git -c protocol.https.allow=never -c core.hooksPath=/dev/null submodule update --init --force --no-fetch --recursive \
               > "$RUNNER_TEMP/submodule-local.log" 2>&1; then
             echo "updated submodules from local objects in $((SECONDS - started)) s"
           elif [ -n "${FETCH_TOKEN:-}" ]; then
