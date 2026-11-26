@@ -51,15 +51,22 @@ struct Stamp {
     updated_at: Option<u64>,
 }
 
-/// The indexes of `list`'s rows (each a row's text, as a peer lists it) past the bound.
-pub(super) fn listed_past_bound(list: &[Arc<str>]) -> HashSet<usize> {
-    past_bound(list.iter().enumerate().map(|(key, text)| {
-        let stamp = serde_json::from_str::<Stamp>(text).ok();
-        let stamp = stamp.as_ref();
-        Closed {
-            key,
-            closed: stamp.and_then(|s| s.status.as_deref()) == Some("closed"),
-            updated: stamp.and_then(|s| s.updated_at).unwrap_or_default(),
+/// The indexes of `list`'s rows past the bound: a row's text (as a peer lists it) is read for
+/// its stamp, a row held here (`peers.rs` `Listed::Held`) is read as it is kept.
+pub(super) fn listed_past_bound(list: &[super::peers::Listed]) -> HashSet<usize> {
+    use super::peers::Listed;
+    past_bound(list.iter().enumerate().map(|(key, row)| match row {
+        Listed::Text(text) => {
+            let stamp = serde_json::from_str::<Stamp>(text).ok();
+            let stamp = stamp.as_ref();
+            Closed {
+                key,
+                closed: stamp.and_then(|s| s.status.as_deref()) == Some("closed"),
+                updated: stamp.and_then(|s| s.updated_at).unwrap_or_default(),
+            }
+        }
+        Listed::Held(_, row) => {
+            Closed { key, closed: row.summary.closed(), updated: row.summary.updated_ms() }
         }
     }))
 }
@@ -174,11 +181,11 @@ mod tests {
 
     #[test]
     fn a_listed_rows_status_and_time_are_read_from_its_text() {
-        let list: Vec<Arc<str>> = (0..CLOSED_KEPT + 2)
+        let list: Vec<super::super::peers::Listed> = (0..CLOSED_KEPT + 2)
             .map(|n| json!({"sessionId": n.to_string(), "status": "closed", "updatedAt": n}))
             .chain([json!({"sessionId": "live", "status": "idle", "updatedAt": 0})])
             .chain([json!({"sessionId": "old", "status": "closed"})])
-            .map(|v| Arc::from(v.to_string()))
+            .map(|v| super::super::peers::Listed::Text(Arc::from(v.to_string())))
             .collect();
         let past = listed_past_bound(&list);
         // The oldest two closed rows, and the one with no time (the oldest of all).
@@ -192,6 +199,43 @@ mod tests {
         let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
         (hub, peer)
+    }
+
+    /// A follow's patch carries every other row the peer listed; those are kept as held, the
+    /// same shared rows, not written out, parsed and encoded again (sessions-2000-attached:
+    /// that walk was the hub's largest cost per prompt at 2,000 sessions).
+    #[test]
+    fn a_patch_keeps_the_rows_it_does_not_name_as_held() {
+        let (hub, peer) = hub_with_peer("vm");
+        peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+        hub.apply_peer_notice(
+            "vm",
+            peer.generation,
+            crate::peer::PeerNotice::sessions_from_values(vec![
+                json!({"sessionId": "s1", "status": "idle", "updatedAt": 1}),
+                json!({"sessionId": "s2", "status": "idle", "updatedAt": 2}),
+                json!({"sessionId": "s3", "status": "idle", "updatedAt": 3}),
+            ]),
+        );
+        let held = |mux: &str| {
+            hub.remote_sessions.read().find_mux("vm", mux).map(|(_, row)| Arc::clone(row))
+        };
+        let (s1, s2) = (held("s1").unwrap(), held("s2").unwrap());
+        let row = json!({"sessionId": "s2", "status": "running", "updatedAt": 9}).to_string();
+        hub.apply_peer_notice(
+            "vm",
+            peer.generation,
+            crate::peer::PeerNotice::SessionsPatch {
+                rows: vec![Arc::from(row)],
+                gone: vec!["s3".into()],
+            },
+        );
+        assert!(Arc::ptr_eq(&held("s1").unwrap(), &s1), "an unnamed row stays the same row");
+        let s2_now = held("s2").unwrap();
+        assert!(!Arc::ptr_eq(&s2_now, &s2));
+        assert_eq!(s2_now.summary.status(), Some("running"));
+        assert!(held("s3").is_none(), "a gone row goes");
+        assert_eq!(listed_ids(&hub), ["s1", "s2"]);
     }
 
     #[test]

@@ -888,9 +888,9 @@ impl Hub {
     }
 
     /// Peer `peer`'s whole list after a follow (`PeerNotice::SessionsPatch`), as the peer would
-    /// list it, each row as its text: each row it last listed, in its live form, unless `gone`
-    /// names it or `rows` holds it anew.
-    fn patched_peer_list(&self, peer: &str, rows: Vec<Arc<str>>, gone: &[String]) -> Vec<Arc<str>> {
+    /// list it: each row it last listed, held here in its live form (not written out as text),
+    /// unless `gone` names it or `rows` holds it anew, then `rows`.
+    fn patched_peer_list(&self, peer: &str, rows: Vec<Arc<str>>, gone: &[String]) -> Vec<Listed> {
         #[derive(serde::Deserialize)]
         struct Id {
             #[serde(rename = "sessionId")]
@@ -900,14 +900,154 @@ impl Hub {
         let mut out: std::collections::HashSet<String> = gone.iter().cloned().collect();
         out.extend(rows.iter().filter_map(id));
         let held = self.remote_sessions.snapshot();
-        // The rows' own text: none is parsed or built.
-        let mut list: Vec<Arc<str>> = held
-            .live_of_peer(peer)
-            .filter(|row| !out.contains(&row.receipt.mux_session_id))
-            .map(|row| Arc::from(row.summary.text()))
+        let mut list: Vec<Listed> = held
+            .live_of_peer_keyed(peer)
+            .filter(|(_, row)| !out.contains(&row.receipt.mux_session_id))
+            .map(|(key, row)| Listed::Held(key.clone(), Arc::clone(row)))
             .collect();
-        list.extend(rows);
+        list.extend(rows.into_iter().map(Listed::Text));
         list
+    }
+
+    /// A peer's whole list (`PeerNotice::Sessions`, a follow's patch too), applied: what differs
+    /// from the rows held is announced.
+    fn apply_peer_list(&self, peer: &str, generation: u64, list: Vec<Listed>) {
+        let peer = peer.to_owned();
+        // The list can land after clients took their snapshot (an
+        // ssh tunnel is slow to open), so tell watchers what changed.
+        // Read the old summaries once writers settled, then do all JSON projection and
+        // comparison work without it. The single-consumer notice loop keeps another
+        // notice for this peer from changing the baseline while this one is built.
+        // Its closed rows past the bound are not taken, and go if held
+        // (`peer_closed_bound.rs`).
+        let past = super::peer_closed_bound::listed_past_bound(&list);
+        let (changed, gone) = loop {
+            let (mut old, live, epoch, purged) = {
+                let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
+                    return;
+                };
+                let epoch = current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
+                let mut purged = current.purge_tombstones.peek();
+                purged.extend(
+                    current
+                        .remote_purge_fences
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .iter()
+                        .cloned(),
+                );
+                // The rows themselves, shared with the table: no summary is copied.
+                let map = self.remote_sessions.settled();
+                (
+                    map.of_peer(&peer)
+                        .map(|(id, r)| (id.clone(), Arc::clone(r)))
+                        .collect::<HashMap<_, _>>(),
+                    map.stale_of_peer(&peer)
+                        .map(|(id, r)| (id.clone(), Arc::clone(r)))
+                        .collect::<HashMap<_, _>>(),
+                    epoch,
+                    purged,
+                )
+            };
+            // Each row is parsed from its text here, one at a time, and kept packed
+            // (`peer_row.rs`), so a list is never held parsed. A row that is not an
+            // object is skipped.
+            let mut listed = Vec::new();
+            let mut changed = Vec::new();
+            for (n, entry) in list.iter().enumerate() {
+                if past.contains(&n) {
+                    continue;
+                }
+                let text: std::borrow::Cow<'_, str> = match entry {
+                    Listed::Text(text) => std::borrow::Cow::Borrowed(text),
+                    // A row held here and still the table's own, not stale: it is listed as it
+                    // is, with no text written, parsed or encoded again (a follow's patch
+                    // carries every other row of the peer; at 2,000 sessions that walk was
+                    // the hub's largest cost per prompt).
+                    Listed::Held(key, row)
+                        if !live.contains_key(key)
+                            && old.get(key).is_some_and(|held| Arc::ptr_eq(held, row)) =>
+                    {
+                        if purged.contains(&row.receipt.mux_session_id) {
+                            continue;
+                        }
+                        old.remove(key);
+                        listed.push((row.receipt.mux_session_id.clone(), row.summary.created_at()));
+                        continue;
+                    }
+                    // Changed or stale since the patch read it: as text, as any listed row.
+                    Listed::Held(_, row) => std::borrow::Cow::Owned(row.summary.text()),
+                };
+                let Ok(s) = serde_json::from_str::<Value>(&text) else { continue };
+                let summary = Self::remote_summary(&peer, s);
+                let Some(receipt) = session_receipt(&summary) else { continue };
+                if purged.contains(&receipt.mux_session_id) {
+                    continue;
+                }
+                let id = receipt.qualified_id();
+                let previous = old.remove(&id);
+                let previous = previous.as_ref().map(|r| &r.summary);
+                let summary = PeerRow::new(&Self::retain_summary_tools(summary, previous))
+                    .keeping_time_breakdown(previous);
+                // A row back as it was before its link dropped keeps that row's
+                // text, which its outage's announcements share too.
+                let summary = match live.get(&id) {
+                    Some(live) if live.summary == summary => live.summary.clone(),
+                    _ => summary,
+                };
+                listed.push((receipt.mux_session_id.clone(), summary.created_at()));
+                // Compared as text.
+                if previous != Some(&summary) {
+                    // One row for the table and the announcement both.
+                    let row = RemoteSession { peer: peer.clone(), summary, receipt };
+                    changed.push((id, Arc::new(row)));
+                }
+            }
+            let gone_ids = old.keys().cloned().collect::<Vec<_>>();
+            let gone = old.into_values().collect::<Vec<_>>();
+            #[cfg(test)]
+            self.pause_after_peer_session_projection_for_test();
+            // The rows writer lock, then the registry with no lock: a replacement or
+            // removal publishes under (or before) this lock (`peer_table.rs`).
+            let mut map = self.remote_sessions.write();
+            let Some(current) = self.peers.get(&peer).filter(|p| p.generation == generation) else {
+                return;
+            };
+            if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire) != epoch {
+                continue;
+            }
+            for id in gone_ids {
+                map.remove(&id);
+            }
+            for (id, row) in &changed {
+                map.insert_shared(id.clone(), Arc::clone(row));
+            }
+            if !changed.is_empty() || !gone.is_empty() {
+                current.remote_rows_epoch.fetch_add(1, std::sync::atomic::Ordering::Release);
+            }
+            // Which generation of each session is current (`peer_snapshot.rs`), sent
+            // while the row swap is still held, so a page cannot observe a row before
+            // its listing record.
+            if self.peer_snapshots.allows(generation) {
+                self.peer_snapshots.listed(&peer, listed, true);
+            }
+            // The tombstones are consumed only after the version fence wins, so a
+            // retry cannot accidentally revive a purge seen during projection.
+            let _ = current.purge_tombstones.take();
+            current.remote_purge_fences.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            break (changed, gone);
+        };
+        // A burst of lists is dirty state, not an immediate disk write for every
+        // notice. The throttle admits one snapshot per interval; disconnect/drop
+        // paths still call with `now = true` for the final state.
+        self.save_peer_cache(&peer, generation, false);
+        // A list that changed many rows (a first list: every row) is one batch for the
+        // watchers that asked for batches (`announce_remote_rows`).
+        let changed = changed.into_iter().map(|(_, row)| (row.summary.clone(), "status"));
+        let gone = gone.into_iter().map(|row| (row.summary.clone(), "purged"));
+        self.announce_remote_rows(&peer, changed.chain(gone));
+        // Its live asks that came before this list.
+        self.release_held_peer_asks(&peer, generation);
     }
 
     /// [`Self::apply_peer_notice`]'s work, without the closed-row bound's check
@@ -981,140 +1121,14 @@ impl Hub {
                     // before its link dropped), with the patch's rows in place and its gone rows
                     // out. Applied as any whole list is, so what differs is announced.
                     let list = self.patched_peer_list(&peer, rows, &gone);
-                    self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(list));
+                    self.apply_peer_list(&peer, generation, list);
                 }
                 PeerNotice::Sessions(list) => {
-                    // The list can land after clients took their snapshot (an
-                    // ssh tunnel is slow to open), so tell watchers what changed.
-                    // Read the old summaries once writers settled, then do all JSON projection and
-                    // comparison work without it. The single-consumer notice loop keeps another
-                    // notice for this peer from changing the baseline while this one is built.
-                    // Its closed rows past the bound are not taken, and go if held
-                    // (`peer_closed_bound.rs`).
-                    let past = super::peer_closed_bound::listed_past_bound(&list);
-                    let (changed, gone) = loop {
-                        let (mut old, live, epoch, purged) = {
-                            let Some(current) =
-                                self.peer(&peer).filter(|p| p.generation == generation)
-                            else {
-                                return;
-                            };
-                            let epoch = current
-                                .remote_rows_epoch
-                                .load(std::sync::atomic::Ordering::Acquire);
-                            let mut purged = current.purge_tombstones.peek();
-                            purged.extend(
-                                current
-                                    .remote_purge_fences
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner())
-                                    .iter()
-                                    .cloned(),
-                            );
-                            // The rows themselves, shared with the table: no summary is copied.
-                            let map = self.remote_sessions.settled();
-                            (
-                                map.of_peer(&peer)
-                                    .map(|(id, r)| (id.clone(), Arc::clone(r)))
-                                    .collect::<HashMap<_, _>>(),
-                                map.stale_of_peer(&peer)
-                                    .map(|(id, r)| (id.clone(), Arc::clone(r)))
-                                    .collect::<HashMap<_, _>>(),
-                                epoch,
-                                purged,
-                            )
-                        };
-                        // Each row is parsed from its text here, one at a time, and kept packed
-                        // (`peer_row.rs`), so a list is never held parsed. A row that is not an
-                        // object is skipped.
-                        let mut listed = Vec::new();
-                        let mut changed = Vec::new();
-                        for (n, text) in list.iter().enumerate() {
-                            if past.contains(&n) {
-                                continue;
-                            }
-                            let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
-                            let summary = Self::remote_summary(&peer, s);
-                            let Some(receipt) = session_receipt(&summary) else { continue };
-                            if purged.contains(&receipt.mux_session_id) {
-                                continue;
-                            }
-                            let id = receipt.qualified_id();
-                            let previous = old.remove(&id);
-                            let previous = previous.as_ref().map(|r| &r.summary);
-                            let summary =
-                                PeerRow::new(&Self::retain_summary_tools(summary, previous))
-                                    .keeping_time_breakdown(previous);
-                            // A row back as it was before its link dropped keeps that row's
-                            // text, which its outage's announcements share too.
-                            let summary = match live.get(&id) {
-                                Some(live) if live.summary == summary => live.summary.clone(),
-                                _ => summary,
-                            };
-                            listed.push((receipt.mux_session_id.clone(), summary.created_at()));
-                            // Compared as text.
-                            if previous != Some(&summary) {
-                                // One row for the table and the announcement both.
-                                let row = RemoteSession { peer: peer.clone(), summary, receipt };
-                                changed.push((id, Arc::new(row)));
-                            }
-                        }
-                        let gone_ids = old.keys().cloned().collect::<Vec<_>>();
-                        let gone = old.into_values().collect::<Vec<_>>();
-                        #[cfg(test)]
-                        self.pause_after_peer_session_projection_for_test();
-                        // The rows writer lock, then the registry with no lock: a replacement or
-                        // removal publishes under (or before) this lock (`peer_table.rs`).
-                        let mut map = self.remote_sessions.write();
-                        let Some(current) =
-                            self.peers.get(&peer).filter(|p| p.generation == generation)
-                        else {
-                            return;
-                        };
-                        if current.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire)
-                            != epoch
-                        {
-                            continue;
-                        }
-                        for id in gone_ids {
-                            map.remove(&id);
-                        }
-                        for (id, row) in &changed {
-                            map.insert_shared(id.clone(), Arc::clone(row));
-                        }
-                        if !changed.is_empty() || !gone.is_empty() {
-                            current
-                                .remote_rows_epoch
-                                .fetch_add(1, std::sync::atomic::Ordering::Release);
-                        }
-                        // Which generation of each session is current (`peer_snapshot.rs`), sent
-                        // while the row swap is still held, so a page cannot observe a row before
-                        // its listing record.
-                        if self.peer_snapshots.allows(generation) {
-                            self.peer_snapshots.listed(&peer, listed, true);
-                        }
-                        // The tombstones are consumed only after the version fence wins, so a
-                        // retry cannot accidentally revive a purge seen during projection.
-                        let _ = current.purge_tombstones.take();
-                        current
-                            .remote_purge_fences
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clear();
-                        break (changed, gone);
-                    };
-                    // A burst of lists is dirty state, not an immediate disk write for every
-                    // notice. The throttle admits one snapshot per interval; disconnect/drop
-                    // paths still call with `now = true` for the final state.
-                    self.save_peer_cache(&peer, generation, false);
-                    // A list that changed many rows (a first list: every row) is one batch for the
-                    // watchers that asked for batches (`announce_remote_rows`).
-                    let changed =
-                        changed.into_iter().map(|(_, row)| (row.summary.clone(), "status"));
-                    let gone = gone.into_iter().map(|row| (row.summary.clone(), "purged"));
-                    self.announce_remote_rows(&peer, changed.chain(gone));
-                    // Its live asks that came before this list.
-                    self.release_held_peer_asks(&peer, generation);
+                    self.apply_peer_list(
+                        &peer,
+                        generation,
+                        list.into_iter().map(Listed::Text).collect(),
+                    );
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(mux_id) =
@@ -1870,3 +1884,11 @@ mod restart_notice_tests;
 #[cfg(test)]
 #[path = "resolve_cost_bench.rs"]
 mod resolve_cost_bench;
+
+/// One row of a peer's whole list (`Hub::apply_peer_list`).
+pub(super) enum Listed {
+    /// As the peer listed it.
+    Text(Arc<str>),
+    /// Held here, in its live form, with its key: a follow's patch carries these unchanged.
+    Held(String, Arc<RemoteSession>),
+}

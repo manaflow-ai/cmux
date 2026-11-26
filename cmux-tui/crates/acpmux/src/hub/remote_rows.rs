@@ -175,6 +175,14 @@ impl RemoteRows {
         self.of_peer(peer).map(|(key, row)| &**self.stale_from.get(key).unwrap_or(row))
     }
 
+    /// [`Self::live_of_peer`], each row shared and with its key.
+    pub(crate) fn live_of_peer_keyed<'a>(
+        &'a self,
+        peer: &str,
+    ) -> impl Iterator<Item = (&'a String, &'a Arc<RemoteSession>)> + 'a {
+        self.of_peer(peer).map(|(key, row)| (key, self.stale_from.get(key).unwrap_or(row)))
+    }
+
     /// Peer `peer`'s rows a dropped link marked stale, each as it was before, with its key.
     pub(crate) fn stale_of_peer<'a>(
         &'a self,
