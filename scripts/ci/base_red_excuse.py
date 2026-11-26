@@ -7589,6 +7589,13 @@ WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have teste
 # while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
 WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
                                   r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# Since lw#11671 (2026-11-26) a discounted status too long for 139 characters keeps its counts, base and first unit:
+# "N failed after discounting K on main SHA8: UNIT", N the run's own failed units (not steps), UNIT the first one's
+# file (a step's " [UNIT]" part, or the step when it has none). Unread, every such red was refused "names no failed
+# steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
+# test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
+# test against main like any other ws-check red: a unit that passes on main stays the head's red.
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
 # ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
 # "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
 WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
@@ -7627,8 +7634,18 @@ def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[lis
 
 
 def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
-    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
-    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION or WS_CHECK_LONG_DESCRIPTION match) is
+    its run's WS_CHECK_RESULT: the count and first step of FAILED, or the count and first unit tools/ws-check left after
+    discounting main's reds (the long form: the unit count, discount, main and first unit's file, cut at 139)."""
+    if named.re is WS_CHECK_LONG_DESCRIPTION:
+        found = ws_check_discount(lines, at, failed)
+        if found is None or not found[0]:
+            return False
+        own, discounted, main = found
+        step, bracket, unit = own[0].partition(" [")
+        first = unit.removesuffix("]") if bracket else step
+        return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
+                and bool(named[4]) and first.startswith(named[4]))
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8145,10 +8162,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     where = f"'{WS_CHECK}' on {sha}"
     if state != "failure":
         raise Refused(f"{where}: an unknown status state {state!r}")
-    named = WS_CHECK_DESCRIPTION.fullmatch(description)
+    named = WS_CHECK_DESCRIPTION.fullmatch(description) or WS_CHECK_LONG_DESCRIPTION.fullmatch(description)
     if not named:
-        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
-                      "read per test")
+        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' or "
+                      "'N failed after discounting K on main SHA8: UNIT' is read per test")
     host = WS_CHECK_REPOS[repo]
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
                         + WS_CHECK_FLEET_JOB, found["url"])

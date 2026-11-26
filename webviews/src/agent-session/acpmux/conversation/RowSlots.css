@@ -1,0 +1,11 @@
+/* A row's slots (RowSlots.tsx): `lead`, `body` and `meta` from the start, `actions` in the end
+   slot. The end slot takes what room the line has left before it (`margin-inline-start: auto`), so
+   its right edge is the line's at every text length; it keeps the line's own gap between its
+   controls. A line as wide as its items draws as before. */
+.cv-row-slots__actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: inherit;
+  margin-inline-start: auto;
+}
