@@ -15,6 +15,8 @@ pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
 pub mod git_swap;
+#[cfg(unix)]
+pub mod hold;
 pub mod layer;
 pub mod link;
 pub mod lower;

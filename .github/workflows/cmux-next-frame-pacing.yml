@@ -75,7 +75,7 @@ jobs:
       name: ci-routing-agent
       deployment: false
     needs: resolve-ref
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
@@ -112,6 +112,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -263,6 +264,7 @@ jobs:
             scripts/cmux-next/tag_teardown.py
             scripts/cmux-next/window_look.py
             scripts/lib/stop-cmux-tui-owners.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -419,7 +421,7 @@ jobs:
   skipped-receipt:
     needs: [resolve-ref, gate, bench]
     if: ${{ !cancelled() && needs.gate.outputs.run != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha || github.sha }}

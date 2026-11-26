@@ -3,7 +3,7 @@
 //! input grants only Send, Retry and Approve while it is on.
 
 use cmux_agent_pane_policy::act_as_me::{
-    ActAsMe, Driver, GrantSource, Holder, Verdict, covers, decide, let_through_record,
+    ActAsMe, Driver, GrantSource, Holder, Verdict, covers, covers_for, decide, let_through_record,
 };
 use cmux_agent_pane_policy::policy;
 
@@ -132,4 +132,37 @@ fn a_let_through_records_the_driver() {
     assert_eq!(record["driver"]["pid"], 4242);
     assert_eq!(record["driver"]["bundleId"], "com.manaflow.cua");
     assert!(record["driver"].get("cuaSession").is_some_and(serde_json::Value::is_null));
+}
+
+/// An administrator's profile also lets posted input save a Cloud environment (the GUI probe's Mac); the
+/// person's own grant does not, and with no grant posted input saves nothing.
+#[test]
+fn a_managed_grant_also_covers_a_cloud_environment_save() {
+    let saves = ["cloud.environment.update", "cloud.environment.create"];
+    assert_eq!(policy().act_as_me_managed_covers.iter().map(String::as_str).collect::<Vec<_>>(), {
+        let mut sorted = saves.to_vec();
+        sorted.sort();
+        sorted
+    });
+    let mut managed = ActAsMe::default();
+    managed.turn_on(GrantSource::ManagedProfile).unwrap();
+    let mut person = ActAsMe::default();
+    person.turn_on(GrantSource::PersonClick).unwrap();
+    for method in saves {
+        assert!(!covers(method), "{method}");
+        assert!(covers_for(Holder::Managed, method), "{method}");
+        assert!(!covers_for(Holder::Person, method), "{method}");
+        assert_eq!(
+            decide(managed, method, false),
+            Verdict::ActsAsPerson(Holder::Managed),
+            "{method}"
+        );
+        assert_eq!(decide(person, method, false), Verdict::Refused, "{method}");
+        assert_eq!(decide(ActAsMe::default(), method, false), Verdict::Refused, "{method}");
+    }
+    // The managed grant reaches nothing else the person's own input guards.
+    for method in ["_acpmux/permission_respond", "acp.trust.set", "session/set_mode", "session/new"]
+    {
+        assert_eq!(decide(managed, method, false), Verdict::Refused, "{method}");
+    }
 }

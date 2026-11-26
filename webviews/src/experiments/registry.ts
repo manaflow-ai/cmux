@@ -14,6 +14,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { forumCallLook } from "../agent-session/acpmux/conversation/forumCall.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
@@ -60,6 +61,7 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
+import { waitingMessagesOrder } from "../agent-session/acpmux/conversation/waitingMessagesOrder.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
 import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
 import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
@@ -69,7 +71,6 @@ import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCar
 import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
 import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
-import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
@@ -167,6 +168,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  waitingMessagesOrder,
   workedLine,
   toolRowWords,
   sinceLook,
@@ -191,7 +193,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   settingsAskCard,
   capacityWaitLook,
   pausedMachineResume,
-  codeRouterOffer,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
@@ -200,6 +201,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
+  forumCallLook,
   tableActionsPlace,
   expandRowLook,
   backgroundReactionLook,
