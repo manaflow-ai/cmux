@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failure.codeRouterFailed" : {
-      "comment" : "Agent pane: the CodeRouter action after acpmux refused the move",
+    "settings.agents.claudeOutputStyle" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code Response Style"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعذّر على CodeRouter استلام هذه المحادثة"
+            "value" : "نمط ردود Claude Code"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter nije mogao preuzeti ovaj chat"
+            "value" : "Stil odgovora za Claude Code"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter kunne ikke overtage denne chat"
+            "value" : "Svarstil for Claude Code"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter konnte diesen Chat nicht übernehmen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodeRouter couldn't take this chat"
+            "value" : "Antwortstil von Claude Code"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter no pudo tomar este chat"
+            "value" : "Estilo de respuesta de Claude Code"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter n'a pas pu reprendre ce chat"
+            "value" : "Style de réponse de Claude Code"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter non ha potuto prendere questa chat"
+            "value" : "Stile di risposta di Claude Code"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter はこのチャットを引き継げませんでした"
+            "value" : "Claude Code の応答スタイル"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter មិនអាចទទួលការជជែកនេះបានទេ"
+            "value" : "រចនាប័ទ្មចម្លើយ Claude Code"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter가 이 채팅을 넘겨받지 못했습니다"
+            "value" : "Claude Code 응답 스타일"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter kunne ikke ta over denne chatten"
+            "value" : "Svarstil for Claude Code"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter nie mógł przejąć tego czatu"
+            "value" : "Styl odpowiedzi Claude Code"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O CodeRouter não conseguiu assumir este chat"
+            "value" : "Estilo de resposta do Claude Code"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter не смог принять этот чат"
+            "value" : "Стиль ответов Claude Code"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter รับแชตนี้ไม่ได้"
+            "value" : "รูปแบบคำตอบของ Claude Code"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter bu sohbeti devralamadı"
+            "value" : "Claude Code yanıt stili"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter не зміг прийняти цей чат"
+            "value" : "Стиль відповідей Claude Code"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter không nhận được cuộc trò chuyện này"
+            "value" : "Kiểu phản hồi của Claude Code"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter 无法接管此对话"
+            "value" : "Claude Code 回复风格"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter 無法接管此對話"
+            "value" : "Claude Code 回覆風格"
           }
         }
       }

@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failure.setUpCodeRouter" : {
-      "comment" : "Agent pane: a failed turn's link to the cmux CodeRouter docs, when no CodeRouter route serves the chat",
+    "settings.choice.claudeOutputStyleExplanatory" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explanatory"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إعداد cmux CodeRouter"
+            "value" : "توضيحي"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Postavi cmux CodeRouter"
+            "value" : "Objašnjavajući"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Konfigurer cmux CodeRouter"
+            "value" : "Forklarende"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter einrichten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Set up cmux CodeRouter"
+            "value" : "Erklärend"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Configurar cmux CodeRouter"
+            "value" : "Explicativo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Configurer cmux CodeRouter"
+            "value" : "Explicatif"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Configura cmux CodeRouter"
+            "value" : "Esplicativo"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter を設定"
+            "value" : "説明的"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "រៀបចំ cmux CodeRouter"
+            "value" : "ពន្យល់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter 설정"
+            "value" : "설명형"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Konfigurer cmux CodeRouter"
+            "value" : "Forklarende"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Skonfiguruj cmux CodeRouter"
+            "value" : "Objaśniający"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Configurar o cmux CodeRouter"
+            "value" : "Explicativo"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Настроить cmux CodeRouter"
+            "value" : "Пояснительный"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ตั้งค่า cmux CodeRouter"
+            "value" : "อธิบาย"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter'ı kur"
+            "value" : "Açıklayıcı"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Налаштувати cmux CodeRouter"
+            "value" : "Пояснювальний"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thiết lập cmux CodeRouter"
+            "value" : "Giải thích"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "设置 cmux CodeRouter"
+            "value" : "解释型"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "設定 cmux CodeRouter"
+            "value" : "解說型"
           }
         }
       }
