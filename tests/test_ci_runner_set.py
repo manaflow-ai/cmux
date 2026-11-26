@@ -141,6 +141,16 @@ class RunnerSetTests(unittest.TestCase):
             self.assertNotIn(persistent, runs_on)
         self.assertEqual(job["permissions"]["pull-requests"], "write")
 
+    def test_red_checks_comment_takes_the_trusted_one_job_runner(self) -> None:
+        # The red checks comment runs after a head's real checks, so a queue on it is the head's verdict wait:
+        # cmux-linux held it 326 s and 421 s on 2026-11-25/26 for 25 s of work (pr-red-checks-comment.yml).
+        job = yaml.safe_load((WORKFLOWS / "pr-red-checks-comment.yml").read_text(encoding="utf-8"))["jobs"]["comment"]
+        runs_on = runs_on_text(job, "pr-red-checks-comment.yml#comment")
+        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
+                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
+            self.assertNotIn(persistent, runs_on)
+
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
         # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
