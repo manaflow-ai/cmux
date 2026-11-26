@@ -248,6 +248,10 @@ path = "tests/test_ci_fleet_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fleet_ios_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
@@ -337,6 +341,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hourly_full_tier.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_hourly_full_tier.py"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
@@ -1062,6 +1071,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_iroh_apple_suites_have_mac_home.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_hashfiles_in_workspace.py"
 lane = "linux-guard"
 
 [[test]]
