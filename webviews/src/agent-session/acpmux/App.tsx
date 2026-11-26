@@ -463,7 +463,7 @@ import type { ChatImage } from "./conversation/chatImages";
 import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
-import { useStreamAppendDeclaration } from "./devMotionAudit";
+import { noteTranscriptFollowing, useStreamAppendDeclaration } from "./devMotionAudit";
 import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { headerBreadcrumb, setHeaderState, useHeaderState } from "./header/headerState";
 import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
@@ -6889,6 +6889,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcriptFollowing = useCallback(() => followingTranscript.current, []);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
+    // `stream-append` excuses a move only while the view follows the end: away from it the growth
+    // lands below the view, so nothing on screen may move (schemas/layout-motion/contract.json).
+    noteTranscriptFollowing(following);
     // Only a chat followed at its latest row lets go of its oldest records (direct.ts `shedOlderHeld`).
     directClient.current?.setFollowing(following);
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
