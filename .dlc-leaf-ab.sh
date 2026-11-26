@@ -7,6 +7,17 @@ set -uo pipefail
 # The worker's checkout leaves submodules empty; ghostty-vt-sys builds from ghostty-next.
 git submodule update --init --depth 1 ghostty-next || exit 1
 test -f ghostty-next/build.zig || { echo "ghostty-next still empty"; exit 1; }
+# The worker has no zig: install the reviewed one the way cmux's CI does (scripts/install-zig-ci.sh),
+# locally, and hand it to ghostty-vt-sys through CMUX_ZIG.
+zenv=$(mktemp)
+t0=$(date +%s)
+GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 GITHUB_ENV="$zenv" GITHUB_PATH=/dev/null \
+  timeout 1200 ./scripts/install-zig-ci.sh 2>&1 | tail -5
+[ ${PIPESTATUS[0]} -eq 0 ] || { echo "ZIG INSTALL FAILED"; exit 1; }
+export CMUX_ZIG="$(sed -n 's/^CMUX_ZIG=//p' "$zenv" | tail -1)"
+[ -x "$CMUX_ZIG" ] || { echo "no CMUX_ZIG after install ($(cat "$zenv"))"; exit 1; }
+export PATH="$(dirname "$CMUX_ZIG"):$PATH"
+echo "zig $("$CMUX_ZIG" version) at $CMUX_ZIG in $(( $(date +%s)-t0 ))s"
 cd cmux-tui
 step() { # $1 label, rest: cargo args; fails the run on a failed step
   echo "=== $1"; cargo "${@:2}" --message-format=short > /tmp/dlc-step.log 2>&1; rc=$?
