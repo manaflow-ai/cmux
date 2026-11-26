@@ -12,8 +12,8 @@ public nonisolated struct KeyBindingIssue: Hashable, Sendable {
         /// More than ``KeyBindingTable/maxSequenceLength`` keys.
         case tooManyKeys
         case noKeys
-        /// Only Command and Control chords reach the key dispatcher (a
-        /// first key with Option but neither).
+        /// Only Command, Control, and Option chords reach the key dispatcher
+        /// (a first key with none of those modifiers).
         case firstKeyNeedsCommandOrControl
         /// A bare first key (no Command, Control or Option) binds only under
         /// a `when` that requires a bare-key page and no text field (``WhenClause/allowsBareKeys``).
@@ -77,6 +77,23 @@ public struct KeyBindingLoader {
         return issues
     }
 
+    /// Replaces the app layer (the shortcuts apps contribute); user
+    /// entries, removals and Ghostty keybinds stay. An entry that fails
+    /// ``validated(_:)`` is left out and reported.
+    @discardableResult
+    public func loadApp(_ entries: [KeyBinding]) -> [KeyBindingIssue] {
+        var issues: [KeyBindingIssue] = []
+        registry.keyBindingLayers.app = entries.enumerated().compactMap { index, entry in
+            switch validated(entry) {
+            case .success(let binding): return binding
+            case .failure(let kind):
+                issues.append(KeyBindingIssue(source: .app, index: index, kind: kind))
+                return nil
+            }
+        }
+        return issues
+    }
+
     /// Replaces the Ghostty config's keybinds (`.ghosttyFallback` and
     /// `.ghostty` entries; others are dropped) and claimed keys. The App calls it on every
     /// Ghostty config or keyboard layout change; app and user entries stay.
@@ -93,7 +110,7 @@ public struct KeyBindingLoader {
     public func validated(_ entry: KeyBinding) -> Result<KeyBinding, KeyBindingIssue.Kind> {
         guard let first = entry.keys.first else { return .failure(.noKeys) }
         guard entry.keys.count <= KeyBindingTable.maxSequenceLength else { return .failure(.tooManyKeys) }
-        if first.modifiers.isDisjoint(with: [.command, .control]) {
+        if first.modifiers.isDisjoint(with: [.command, .control, .option]) {
             guard first.isBare else { return .failure(.firstKeyNeedsCommandOrControl) }
             guard entry.when?.allowsBareKeys == true else { return .failure(.bareKeyNeedsBareKeyContext) }
         }

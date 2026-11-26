@@ -13,6 +13,8 @@ nonisolated private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next",
 /// Computer Use Setup reads the signed host's state and its Accessibility and Screen Recording
 /// grants for Settings, onboarding and the CLI. The host is cmux Remote in builds that embed it,
 /// otherwise the bundled Screen Sharing helper. A status read never starts the on-demand worker.
+/// The palette and CLI action (`palette.computerUse.setup`), the Settings card and the onboarding
+/// step all read it; the two grant actions open the guided window at their grant.
 ///
 /// Nothing polls. A read runs when an input changes (the setting, policy, cmux Remote starting
 /// or stopping), when the app becomes active (the person comes back from System Settings), and
@@ -70,12 +72,14 @@ final class ComputerUseSetup {
         case noAnswer
     }
 
-    private(set) var phase: Phase = .off
+    private(set) var phase: Phase = .off { didSet { rechecking = false } }
     /// The host's grants; meaningful only while `phase` is `.ready`.
     private(set) var permissions: ComputerUsePermissions = .none
     /// The host bundle the grants belong to (the running copy, else the embedded one).
     /// Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// A read of the answered host is in flight (a ``phase`` ends it): the chats read `starting` until it answers.
+    private(set) var rechecking = false
 
     /// cmux Remote's Computer Use worker (the App's setup only): the card's engine, worker and saved approvals.
     @ObservationIgnored var remote: CmuxRemoteComputerUseState?
@@ -98,6 +102,10 @@ final class ComputerUseSetup {
     @ObservationIgnored private var answeredBy: HostState?
     /// The inputs `start()` applied, until the input stream's first value.
     @ObservationIgnored private var appliedAtStart: Inputs?
+    /// The helper app was dropped into a System Settings list (`recheckAfterGrant()`): the next
+    /// time cmux Remote fails or stops answering it is restarted once, since macOS's "Quit &
+    /// Reopen" after a grant quits it. Cleared by that restart, both grants on, or the step's end.
+    @ObservationIgnored private(set) var restartsAfterGrant = false
     /// Maximum reads per check while the host has not answered.
     static let maximumRetries = 6
 
@@ -167,6 +175,27 @@ final class ComputerUseSetup {
         apply(inputs())
     }
 
+    /// The helper app was dropped into a list (the onboarding step's drag panel): reads the grants
+    /// again, and arms one restart for when cmux Remote fails or stops answering before the grants
+    /// are both on. Event driven: the restart follows the read's own failure, never a timer.
+    func recheckAfterGrant() {
+        restartsAfterGrant = true
+        recheck()
+    }
+
+    /// The onboarding step ended: a later failure is the Restart button's, not an automatic restart.
+    func endGrantWatch() { restartsAfterGrant = false }
+
+    /// cmux Remote failed or stopped answering: restarts it once after a drop, then reads again.
+    private func restartAfterGrantIfArmed() {
+        guard restartsAfterGrant else { return }
+        restartsAfterGrant = false
+        guard let restart = prepareRestart() else { return }
+        setupLogger.info("cmux Remote stopped answering after a grant: restarting it once")
+        // task-owner: one helper restart after a grant; a newer apply's generation makes it a no-op.
+        Task { await restart() }
+    }
+
     /// Shows progress now and returns the shared restart work for the action or step.
     func prepareRestart() -> (@MainActor () async -> Void)? {
         let current = inputs()
@@ -222,7 +251,8 @@ final class ComputerUseSetup {
         case .versionMismatch: .helperVersionMismatch
         case .off: .off
         case .failed: .helperFailed
-        case .disabledByPolicy, .unavailable, .starting: .none
+        case .starting: .reading
+        case .disabledByPolicy, .unavailable: .none
         }
     }
 
@@ -236,12 +266,14 @@ final class ComputerUseSetup {
         guard inputs.enabled else { return settle(.off, running: nil) }
         switch inputs.helper {
         case .unavailable: settle(.unavailable, running: nil)
-        case .failed: settle(.failed, running: nil)
+        case .failed:
+            settle(.failed, running: nil)
+            restartAfterGrantIfArmed()
         // On, and the daemon is starting cmux Remote.
         case .off: settle(.starting, running: nil)
         case .running, .screenSharing:
-            // Until this host answers, the grants are being read, not off.
-            if phase != .ready || answeredBy != inputs.helper { settle(.starting, running: nil) }
+            // Until this host answers, the grants are being read, not off; one that answered keeps its card grants.
+            if phase != .ready || answeredBy != inputs.helper { settle(.starting, running: nil) } else { rechecking = true }
             readGrants(host: inputs.helper, generation: generation)
         }
     }
@@ -268,6 +300,7 @@ final class ComputerUseSetup {
                     phase = .ready
                     permissions = granted
                     answeredBy = host
+                    if granted.accessibility, granted.screenRecording { restartsAfterGrant = false }
                     resolve(running: helper)
                     return
                 case .versionMismatch:
@@ -276,12 +309,14 @@ final class ComputerUseSetup {
                     return
                 case .hostPhase(let phase) where phase != .starting:
                     settle(phase, running: nil)
+                    if phase == .failed { restartAfterGrantIfArmed() }
                     return
                 case .noAnswer, .hostPhase:
-                    // A host that answered before keeps its rows until a read succeeds.
                     let hasRetry = attempt + 1 < Self.maximumRetries
-                    if phase != .ready || result == .hostPhase(.starting) { settle(hasRetry ? .starting : .failed, running: nil) }
-                    guard hasRetry else { return }
+                    settle(hasRetry ? .starting : .failed, running: nil) // ends an earlier answer: a host that keeps its pid but stops answering is not ready
+                    // The read budget ran out after a drop: the helper macOS quit for the grant
+                    // (or a copy it reopened that does not answer) is restarted once.
+                    guard hasRetry else { return restartAfterGrantIfArmed() }
                     // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
                     do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
                 }
@@ -296,7 +331,7 @@ final class ComputerUseSetup {
         let resolveHelper = resolveHelper
         // task-owner: one bundle lookup per host identity; a newer one wins (resolvedFor).
         Task { [weak self] in
-            let url = await resolveHelper(running)
+            let url = await awaitConcurrently({ await resolveHelper(running) })
             guard let self, resolvedFor == .some(running) else { return }
             helperAppURL = url
         }

@@ -5,6 +5,7 @@ use super::client_ids::{
     requested_reopen_tab_id,
 };
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 use cmux_json::JsonSet as _;
 
@@ -715,6 +716,9 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
             focus,
+            // Only `workspace.create` names the workspace it makes here: the
+            // caller's own name (CLI and MCP `--name`), pinned (#56422).
+            true,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
@@ -863,7 +867,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
@@ -895,6 +899,8 @@ impl Mux {
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
             let screen = &mut state.workspaces[workspace].screens[screen_index];
             let before = screen.layout_snapshot();
+            let mut old_splits = HashSet::new();
+            collect_screen_split_ids(screen, &mut old_splits);
             if let Some(height) = row_height {
                 anyhow::ensure!(
                     screen.insert_layout_row_below(
@@ -1012,7 +1018,7 @@ impl Mux {
             if focus {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
-            Self::rebuild_split_screen_index(&mut state);
+            Self::reindex_screen_after_growth(&mut state, workspace, screen_index, &old_splits);
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,

@@ -40,6 +40,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     /// page with no `newTab.context` round trip (`injectedNewTabContext`, bd cx-z9kz0). The host
     /// gives what is true at this load: a reloaded page that became a chat gets none.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        view?.documentWillChange(.committed)
         if let view, let log = view.flickerLog {
             log.record("navigation", ["page": AgentPageFlickerLog.pageName(view), "engine": view.engineName])
         }
@@ -67,7 +68,6 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
         view?.applyLiveTree()
-        if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.replayExperiments()
         view?.applyEditedFiles()

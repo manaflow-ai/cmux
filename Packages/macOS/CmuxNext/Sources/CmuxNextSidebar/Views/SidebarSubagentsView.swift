@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextIcons
 
 /// A chat row's subagents under its name (`WorkspaceRowContent.subagents`, Claude desktop's Code tab):
 /// one line per subagent on a thin tree line, each a click that opens its pane beside the chat, then
@@ -83,7 +82,11 @@ final class SidebarSubagentsView: NSView {
         let width = bounds.width
         switch strip.mode {
         case .stack:
-            stackLine.frame = NSRect(x: textX, y: 0, width: max(0, width - textX - trailingInset), height: line)
+            // The stacked line is the height the row reserved for it (`subagentStackHeight`), not a subagent row's: at
+            // a row's 24 pt its frame hung 6 pt past the strip, so "8 running" was cut off by the row's bottom edge
+            // and sat against the next row (Leo 2026-11-24).
+            let stack = SidebarLayoutMetrics.standard.subagentStackHeight
+            stackLine.frame = NSRect(x: textX, y: 0, width: max(0, width - textX - trailingInset), height: stack)
         case .rows:
             var y: CGFloat = 0
             for row in strip.rows {
@@ -208,16 +211,22 @@ final class SidebarSubagentLineView: NSView {
     override func accessibilityPerformPress() -> Bool { onPress?(); return true }
 }
 
-/// The stacked line (Claude's sidebar-subagent-stack-status-row): the subagents' marks overlapping, then
-/// what they do ("3 running", "8 done", "1 failed"), quiet like a second line.
+/// The stacked line (Claude's sidebar-subagent-stack-status-row): the subagents' state marks overlapping as the rows'
+/// badge stack does (`RowBadgeView`, `.stack`: a working spinner, a red warning, a green check), then what they do
+/// ("3 running", "8 done", "1 failed"), quiet like a second line. The marks were one sparkle icon for every state,
+/// told apart only by tint, outlined and overlapped into a smear (Leo 2026-11-24 screenshot).
 final class SidebarSubagentStackView: NSView {
     var onPress: (() -> Void)?
-    private var marks: [DecorativeImageView] = []
+    private let marks = RowBadgeView()
     private var states: [SidebarSubagent.State] = []
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        marks.setAccessibilityElement(false) // the line's own label says it
+        marks.ringColor = WorkspaceRowView.badgeBackdrop(nil)
+        marks.chipColor = Palette.sidebarStep.cgColor
+        addSubview(marks)
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -230,16 +239,7 @@ final class SidebarSubagentStackView: NSView {
 
     func configure(_ strip: SidebarSubagentStrip) {
         states = strip.marks
-        while marks.count < states.count {
-            let view = DecorativeImageView()
-            view.imageScaling = .scaleProportionallyDown
-            addSubview(view, positioned: .below, relativeTo: label)
-            marks.append(view)
-        }
-        for (index, view) in marks.enumerated() {
-            view.isHidden = index >= states.count
-            if index < states.count { view.image = NSImage.icon(.taskAi, size: Self.markSize) }
-        }
+        marks.configure(states.map(Self.indicator), look: .stack)
         let text = Strings.subagentStack(strip)
         label.setString(text)
         setAccessibilityLabel(text)
@@ -247,29 +247,32 @@ final class SidebarSubagentStackView: NSView {
         needsLayout = true
     }
 
-    static var markSize: CGFloat { SidebarStyle.subtitleFont.pointSize + 1 }
+    /// A subagent's state as the status mark every other row draws for it.
+    static func indicator(_ state: SidebarSubagent.State) -> StatusIndicatorState {
+        switch state {
+        case .running: .working
+        case .failed: .error
+        case .done: .success
+        case .stopped: .paused(progress: nil)
+        }
+    }
 
     func tint() {
-        for (index, view) in marks.enumerated() where index < states.count {
-            let tint = switch states[index] {
-            case .running: Palette.accent
-            case .failed: Palette.danger
-            case .done, .stopped: Palette.textTertiary
-            }
-            view.setTint(tint)
-        }
+        marks.ringColor = WorkspaceRowView.badgeBackdrop(nil)
+        marks.chipColor = Palette.sidebarStep.cgColor
         label.setColor(Palette.textTertiary)
     }
 
     override func layout() {
         super.layout()
-        let side = Self.markSize, cy = bounds.midY, step = side * 0.7
+        let cy = bounds.midY
         var x: CGFloat = 0
-        for (index, view) in marks.enumerated() where index < states.count {
-            view.frame = NSRect(x: x, y: cy - side / 2, width: side, height: side)
-            x += step
+        if !marks.isHidden {
+            // The chips' cells start their ring at the box's edge: the first glyph lines up with a row's text column.
+            let w = marks.preferredWidth, h = marks.cellSide
+            marks.frame = NSRect(x: x - marks.cellPad, y: ((bounds.height - h) / 2).rounded(), width: w, height: h)
+            x = marks.frame.maxX - marks.cellPad + Metrics.space2
         }
-        if !states.isEmpty { x += side - step + Metrics.space1 }
         let height = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: cy), width: max(0, bounds.width - x), height: height)
     }

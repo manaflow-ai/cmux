@@ -45,9 +45,10 @@ env:
 jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # Every bounded step at its limit fits: Rust setup 30, the gate step 90, the gate home 20, and the report.
-    timeout-minutes: 150
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Every bounded step at its limit fits: Rust setup 30, the home's build 25, the gate step 90, the gate home 20, and
+    # the token mints (169 minutes), with room for the unbounded report steps.
+    timeout-minutes: 180
     permissions:
       contents: read
     steps:
@@ -60,9 +61,26 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: sticky-read-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: read
+
       - name: Mint today's sticky read token
         id: sticky-read
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.sticky-read-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -77,7 +95,7 @@ jobs:
         id: done
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.sticky-read.outputs.token }}
+          GH_TOKEN: ${{ (steps.sticky-read-bot.outputs.token || steps.sticky-read.outputs.token) }}
         run: |
           value="$(python3 -I scripts/cmux-next/quality-report.py done-today --repo manaflow-ai/cmuxterm-hq 2>/dev/null || true)"
           [[ "$value" == true ]] || value=false
@@ -99,6 +117,18 @@ jobs:
         if: steps.done.outputs.done != 'true'
         timeout-minutes: 30
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The home below only reads the rows the gates wrote, so it gets its own build before the gates run. When the
+      # gates spend their whole limit (run 45522943505: the core group alone ran past 85 minutes on a slow runner),
+      # acpmux was never built under the gate profile, and the home spent its 17 minutes compiling and wrote nothing.
+      # Built here, the home runs in seconds and writes a report, naming every gate that did not get to run.
+      - name: Build the v2 gate home
+        if: steps.done.outputs.done != 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: cmux-tui
+        # `timeout` inside the step's limit, as for the gates below: a cargo the runner leaves behind holds the lock.
+        run: timeout --signal=TERM --kill-after=60s 1380s cargo bench --profile gate -p acpmux --bench v2 --no-run
 
       - name: Run v2 gate measures
         if: steps.done.outputs.done != 'true'
@@ -143,9 +173,27 @@ jobs:
       # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
       # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). These tokens are
       # minted after the slow Rust work so their one-hour lifetime covers the reads that use them.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: hq-read-bot
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }},cmuxterm-hq
+          permission-actions: read
+          permission-issues: read
+
       - name: Mint the read token
         id: hq-read
-        if: steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.hq-read-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -159,9 +207,27 @@ jobs:
 
       # Checks and contents (the commit history) read on this repository only, for the CI health section; its own mint, so an App without the checks
       # grant costs only the CI numbers (n/a, with the reason), never the perf rows or the crash fallback.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: checks-read-bot
+        if: (steps.done.outputs.done != 'true' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: read
+          permission-contents: read
+
       - name: Mint the checks read token
         id: checks-read
-        if: steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (steps.done.outputs.done != 'true' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.checks-read-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -174,32 +240,32 @@ jobs:
           permission-contents: read
 
       - name: Fetch the perf cron's state
-        if: steps.done.outputs.done != 'true' && steps.hq-read.outputs.token != ''
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
         run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
       # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
       # None yet, or no token: the report says "no input given" for god-vs-small.
       - name: Fetch the degenerate lab's god-small rows
-        if: steps.done.outputs.done != 'true' && steps.hq-read.outputs.token != ''
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
         run: |
           set -euo pipefail
-          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --status completed -L 1 \
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --branch nightly-next --status completed -L 1 \
             --json databaseId -q '.[0].databaseId')"
           [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
 
       # Each surface's newest results artifact, on the read token (actions read here and on cmuxterm-hq). A surface
       # that cannot be read is n/a in the report with the reason; one older than 48 h is stale.
       - name: Fetch the first-user journey results
-        if: steps.done.outputs.done != 'true' && steps.hq-read.outputs.token != ''
+        if: steps.done.outputs.done != 'true' && (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) != ''
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
         run: |
           for row in "web $GITHUB_REPOSITORY first-user-journey-web.yml" \
                      "ios $GITHUB_REPOSITORY first-user-journey-ios.yml" \
@@ -213,8 +279,8 @@ jobs:
         if: steps.done.outputs.done != 'true'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
-          CI_GH_TOKEN: ${{ steps.checks-read.outputs.token }}
+          GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
+          CI_GH_TOKEN: ${{ (steps.checks-read-bot.outputs.token || steps.checks-read.outputs.token) }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/quality"

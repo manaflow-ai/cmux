@@ -28,13 +28,17 @@ final class GlassMenuListView: NSView {
 
     private var typeSelect = GlassMenuTypeSelect()
 
+    /// The theme file's menu look (``MenuLook``), set before each ``load(_:)``; standard is today's grid.
+    var look = MenuLook.standard
+    /// A one-line row's height: the look's, else the menu row token.
+    private var rowHeight: CGFloat { look.rowHeight ?? GlassMenuMaterial.rowHeight }
     private var rows: [GlassMenuRow] = []
     private var views: [NSView] = []
     private var highlighted: Int?
     /// The rows' least and most width (points): a menu is as wide as its longest row within them.
     static let minWidth: CGFloat = 220
     static let maxWidth: CGFloat = 360
-    static let separatorHeight: CGFloat = 9
+    static let separatorHeight: CGFloat = MenuMetrics.separatorHeight
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -45,7 +49,7 @@ final class GlassMenuListView: NSView {
         views.forEach { $0.removeFromSuperview() }
         let iconColumn = rows.contains { $0.item?.image != nil }
         views = rows.enumerated().map { index, row in
-            guard let item = row.item else { return GlassMenuSeparatorView() }
+            guard let item = row.item else { return GlassMenuSeparatorView(inset: look.resolvedPadding, inkShare: look.separator.inkShare) }
             let view = makeRow(item, iconColumn: iconColumn)
             view.onActivate = { [weak self] in self?.onPick(index) }
             view.onHover = { [weak self] in self?.onHoverRow(index) }
@@ -57,14 +61,17 @@ final class GlassMenuListView: NSView {
 
     private func makeRow(_ item: NSMenuItem, iconColumn: Bool) -> PopupRowView {
         var layout = PopupRowView.Layout()
-        let inset = MenuMetrics.highlightInset
-        layout.leading = MenuMetrics.iconX - inset
+        let inset = look.resolvedPadding
+        layout.leading = max(0, MenuMetrics.iconX - inset)
         layout.leadingColumn = iconColumn ? MenuMetrics.iconSize : 0
         layout.gap = iconColumn ? MenuMetrics.iconGap : 0
-        layout.trailing = MenuMetrics.trailing - inset
+        layout.trailing = max(0, MenuMetrics.trailing - inset)
         layout.trailingGap = MenuMetrics.shortcutGap
-        layout.minHeight = GlassMenuMaterial.rowHeight
+        layout.minHeight = rowHeight
         layout.hoverFills = false
+        // The pill is concentric with the panel (``GlassMenuMaterial/menuCornerRadius``) unless a
+        // theme file's menu look sets it (`appearance.menu.highlightRadius`).
+        layout.fillRadius = look.highlightRadius ?? GlassMenuMaterial.cornerRadius
         if let stepper = item as? GlassMenuStepperItem {
             let row = GlassMenuStepperRowView(stepper, leading: iconColumn ? icon(item.image) : nil, layout: layout)
             row.onNewValue = { [weak self, weak row] value in
@@ -80,6 +87,7 @@ final class GlassMenuListView: NSView {
         let row = PopupRowView(leading: iconColumn ? icon(item.image) : nil, title: item.title, subtitle: subtitle,
                                trailing: trailing(item), layout: layout)
         row.isEnabled = item.isEnabled
+        if look.subtitle == .muted { row.subtitleLabel.ink = .tertiary }
         if let identifier = item.identifier { row.setAccessibilityIdentifier(identifier.rawValue) }
         row.setAccessibilityRole(.menuItem)
         return row
@@ -89,7 +97,9 @@ final class GlassMenuListView: NSView {
         let view = ThemedImageView()
         view.image = image?.fittedToMenuIconBox()
         view.imageScaling = .scaleProportionallyDown
-        if image?.isTemplate ?? true { view.ink = .primary }
+        // A symbol in the secondary ink, as the Codex menu's light icons: the text leads the row. The glass's veil
+        // holds that ink at 3:1 or more in every theme (``GlassMenuMaterial/veil(for:)``). An avatar keeps its colors.
+        if image?.isTemplate ?? true { view.ink = .secondary }
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
             view.heightAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
@@ -114,24 +124,24 @@ final class GlassMenuListView: NSView {
     /// The size the rows ask for: the widest row within ``minWidth`` and ``maxWidth``, every row's
     /// height and the inset above and below.
     func fittingMenuSize() -> CGSize {
-        let inset = MenuMetrics.highlightInset
+        let inset = look.resolvedPadding
         var width = Self.minWidth
         var height = inset * 2
         for view in views {
             let size = view.fittingSize
             width = max(width, size.width + inset * 2)
-            height += view is GlassMenuSeparatorView ? Self.separatorHeight : max(size.height, GlassMenuMaterial.rowHeight)
+            height += view is GlassMenuSeparatorView ? Self.separatorHeight : max(size.height, rowHeight)
         }
         return CGSize(width: min(width, Self.maxWidth).rounded(.up), height: height.rounded(.up))
     }
 
     override func layout() {
         super.layout()
-        let inset = MenuMetrics.highlightInset
+        let inset = look.resolvedPadding
         var y = inset
         for view in views {
             let height = view is GlassMenuSeparatorView ? Self.separatorHeight
-                : max(view.fittingSize.height, GlassMenuMaterial.rowHeight)
+                : max(view.fittingSize.height, rowHeight)
             view.frame = CGRect(x: inset, y: y, width: bounds.width - inset * 2, height: height)
             y += height
         }

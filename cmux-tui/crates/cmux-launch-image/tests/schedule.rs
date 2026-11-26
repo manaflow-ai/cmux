@@ -63,6 +63,31 @@ fn a_failed_capture_is_due_again() {
 }
 
 #[test]
+fn failed_captures_in_a_row_back_off_until_one_is_done() {
+    let mut s = shown(1_000);
+    s.note(Event::Changed, 0);
+    assert!(s.take_due(1_000));
+    // The first failure waits one debounce, then each one in a row doubles it, up to MAX_RETRY_MS.
+    assert_eq!(s.note(Event::CaptureFailed, 1_000), Some(2_000));
+    assert!(s.take_due(2_000));
+    assert_eq!(s.note(Event::CaptureFailed, 2_000), Some(4_000));
+    assert!(s.take_due(4_000));
+    assert_eq!(s.note(Event::CaptureFailed, 4_000), Some(8_000));
+    for _ in 0..10 {
+        let due = s.due_at().unwrap();
+        assert!(s.take_due(due));
+        s.note(Event::CaptureFailed, due);
+    }
+    let since = 1_000_000;
+    s.note(Event::Changed, since);
+    assert_eq!(s.due_at(), Some(since + cmux_launch_image::schedule::MAX_RETRY_MS));
+    // A capture that is done resets it.
+    assert!(s.take_due(since + cmux_launch_image::schedule::MAX_RETRY_MS));
+    s.note(Event::CaptureDone, since + 60_001);
+    assert_eq!(s.note(Event::Changed, since + 70_000), Some(since + 71_000));
+}
+
+#[test]
 fn quit_captures_a_changed_or_never_captured_window_once() {
     let mut s = shown(100);
     assert!(s.take_quit(), "no capture in this run yet");

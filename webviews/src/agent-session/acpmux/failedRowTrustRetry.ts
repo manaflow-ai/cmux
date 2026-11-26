@@ -1,4 +1,4 @@
-import { isTrustRefusal } from "./direct";
+import { isTrustRefusal } from "./trustRefusal";
 
 /// The failed prompt row a refused send left (direct.ts `send`), when it left one.
 export function failedRowOf(error: unknown): string | undefined {

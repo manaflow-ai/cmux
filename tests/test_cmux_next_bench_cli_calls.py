@@ -46,7 +46,6 @@ KNOWN_CALLS = (
     ("scripts/cmux-next/bench_memory.py", ("acp", "new", "--json", "-d", "-m")),
     ("scripts/cmux-next/idle_cost_load.py", ("acp", "new", "--json", "-d", "-m")),
     ("scripts/cmux-next/idle_cost_load.py", ("send", "--no-wait")),
-    ("scripts/fleet-quit-persistence.sh", ("new", "-d", "-m")),
 )
 
 # cmux-tui's acp.rs `run_as` answers these before acpmux's grammar sees them.

@@ -157,7 +157,7 @@ impl crate::mux::Mux {
             Ok(Heard::Answered(Err(LinkError::Closed))) => {
                 Handover::Unsettled("acpmux closed the link before accepting the prompt".into())
             }
-            Ok(Heard::Answered(Err(LinkError::Timeout | LinkError::Busy))) | Err(_) => {
+            Ok(Heard::Answered(Err(LinkError::Timeout))) | Err(_) => {
                 Handover::Unsettled("acpmux did not accept the prompt in time".into())
             }
         };
@@ -204,7 +204,6 @@ impl crate::mux::Mux {
                         | LinkError::MethodNotFound(_)
                         | LinkError::Closed
                         | LinkError::Timeout
-                        | LinkError::Busy
                         | LinkError::BadList(_),
                     ) => Err(WithdrawError::Unavailable),
                 }
@@ -227,9 +226,9 @@ impl crate::mux::Mux {
             Err(LinkError::Rpc(message, data)) => withdraw_refusal(&message, &data),
             // An acpmux from before the method refuses it as any other error.
             Err(LinkError::MethodNotFound(message)) => withdraw_refusal(&message, &Value::Null),
-            Err(
-                LinkError::Closed | LinkError::Timeout | LinkError::Busy | LinkError::BadList(_),
-            ) => Err(WithdrawError::Unavailable),
+            Err(LinkError::Closed | LinkError::Timeout | LinkError::BadList(_)) => {
+                Err(WithdrawError::Unavailable)
+            }
         }
     }
 }

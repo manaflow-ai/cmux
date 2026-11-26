@@ -123,9 +123,29 @@
 .history-list {
   flex: 1;
   overflow-y: auto;
-  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
-  padding: 4px calc(var(--page-edge) - 8px) 18px;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
+     is the virtualizer's (HistoryPage.tsx `paddingStart`, `paddingEnd`). */
+  padding: 0 calc(var(--page-edge) - 8px);
   outline: none;
+}
+
+/* Windowed: only the headers and rows near the viewport are mounted, each placed at its offset. */
+.history-list-space {
+  position: relative;
+  width: 100%;
+}
+
+.history-list-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Its own block, so the title's margins count in the header's measured height. */
+.history-group {
+  display: flow-root;
 }
 
 .history-group-title {
@@ -140,9 +160,7 @@
   align-items: center;
   gap: 9px;
   padding: 4px 8px;
-  border-radius: 6px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 36px;
+  border-radius: var(--ds-radius-md);
 }
 
 .history-row:hover {
@@ -256,12 +274,12 @@
 .history-sheet-row:focus-visible {
   outline: 2px solid var(--cmux-focus-ring-color, var(--page-selection));
   outline-offset: -2px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 .history-sheet-row[data-popup-open] {
   background: var(--page-hover);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 .history-sheet-title {
@@ -315,7 +333,7 @@
 
 .history-sheet-done {
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   padding: 4px 12px;
   background: var(--page-selection);
   color: var(--page-text);

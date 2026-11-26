@@ -268,14 +268,24 @@ class Plan:
     trusted: Path | None = None  # the reviewed copy trusted_pieces run from
 
 
-def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True)
+def git(repo: Path, *args: str, check: bool = True, lazy: bool = True) -> str:
+    """LAZY=False for a read of refs and commits only: see no_lazy_fetch()."""
+    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True,
+                            env=None if lazy else no_lazy_fetch())
     if check and result.returncode != 0:
         raise SystemExit(f"web-lint: git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
 
 PUSH_RANGE = "push_range.py"
+
+# trust_base() reads the reviewed branches' refs on every push. In a worktree of a blobless mirror a ref whose commit
+# the mirror lacks made `rev-parse ref^{commit}` lazy-fetch that commit's whole history, and pushes sat in this hook
+# 526 to 1436 s with no violation named (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18).
+# Its ref and commit reads run with lazy fetch off, so such a ref reads as absent (a full clone ignores the
+# variable). Reads that may need file contents keep lazy fetch.
+def no_lazy_fetch() -> dict[str, str]:
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
 def load_push_range(trusted_scripts: Path | None):
@@ -513,12 +523,12 @@ def trust_base(repo: Path, head: str) -> str | None:
         for remote in reviewed_remotes(repo):
             ref = f"refs/remotes/{remote}/{branch}"
             if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
-                              capture_output=True).returncode != 0:
+                              capture_output=True, env=no_lazy_fetch()).returncode != 0:
                 continue
-            base = git(repo, "merge-base", head, ref, check=False).strip()
+            base = git(repo, "merge-base", head, ref, check=False, lazy=False).strip()
             if not base:
                 continue
-            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}", lazy=False).split())
             if distance < FAR:
                 return base
             found.append((distance, base))
@@ -2035,13 +2045,30 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
         return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        # One install and one strings pass per package, then every rerun side by side with run_checks' slots: on
+        # 2026-11-26 a webviews pull request over a base red on 13 checks ran them here one at a time, each after its
+        # own `bun install`, 128 s of the fast gates' 290 s job (job 139919568161), when the head's 37 ran at once.
+        ready: dict[str, bool] = {}
+        reruns: list[Result] = []
         for result in failed:
-            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
-            if whole and ensure_deps(base_tree, result.label):
-                continue  # no base to compare with: the red stays this change's
-            if whole:
-                compare.generate_strings(base_tree / result.label)
-            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            # A ratchet that lands with its own script and baseline: the base cannot run it, so every finding on
+            # the merge (base's own moves since the baseline was written included) would be charged here. The
+            # same rule as the webviews checks gate (NEW_CHECK_SCRIPTS); later PRs compare normally.
+            script = compare.NEW_CHECK_SCRIPTS.get(result.command.removeprefix("bun run ").strip())
+            if script and not (base_tree / result.label / script).is_file():
+                print(f"::warning title=web lint (new check)::{result.label}: {result.command} is new; the base "
+                      f"{base[:12]} has no {script}, so this transition is not charged", file=sys.stderr)
+                result.returncode = 0
+                continue
+            if result.label not in plan.script_pieces and result.label not in ready:  # a lone piece needs no install
+                ready[result.label] = ensure_deps(base_tree, result.label) is None
+                if ready[result.label]:
+                    compare.generate_strings(base_tree / result.label)
+            if ready.get(result.label, True):  # else no base to compare with: the red stays this change's
+                reruns.append(result)
+        agains = run_checks(base_tree, plan, [(r.label, r.command, base_tree / r.label,
+                                               package_env(base_tree, r.label)) for r in reruns])
+        for result, again in zip(reruns, agains):
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))

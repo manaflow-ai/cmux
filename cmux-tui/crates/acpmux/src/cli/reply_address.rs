@@ -128,17 +128,65 @@ pub async fn renew() -> Value {
     let Some(want) = of_this_process(false) else {
         return json!({"renewed": false, "reason": "not a Claude Code shell acpmux did not start"});
     };
+    renew_at(&crate::config::socket_path(), want, RENEW_WAIT).await
+}
+
+async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) -> Value {
+    let params = json!({
+        "name": want.name, "socket": want.socket, "token": want.token, "renew": true,
+    });
+    let ask = crate::client::Client::renew_registration(path, params);
+    match tokio::time::timeout(wait, ask).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) if e.is::<crate::client::DaemonError>() => {
+            json!({"renewed": false, "reason": e.to_string()})
+        }
+        Ok(Err(e)) => json!({"renewed": null, "reason": e.to_string(), "retryable": true}),
+        Err(_) => {
+            json!({"renewed": null, "reason": "the daemon did not answer in time", "retryable": true})
+        }
+    }
+}
+
+/// `acpmux register --auto NAME`, from cmux's Claude Code hook (`cli/hook_register.rs`): the
+/// first step a send takes, with no send. Starts no daemon; once the answer says the chat is
+/// reached with this process, leaves the mark that ends the hook's asks.
+pub async fn auto(name: String) -> Value {
+    let env =
+        |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let shell = cfg!(target_os = "macos") && !crate::cli::sender::in_session(env);
+    let (Some(socket), Some(token)) = (
+        env("CLAUDE_CODE_MESSAGING_SOCKET").filter(|_| shell),
+        env("CLAUDE_CODE_MESSAGING_TOKEN").filter(|_| shell),
+    ) else {
+        return json!({"registered": false, "reason": "not a Claude Code shell acpmux did not start"});
+    };
+    let params = json!({"name": name, "socket": socket, "token": token, "auto": true});
+    let v = auto_at(&crate::config::socket_path(), params, WAIT).await;
+    crate::cli::hook_register::mark_if_reached(&crate::config::home(), &socket, &token, &v);
+    v
+}
+
+/// The first step on the daemon at `path`, within `wait`: only a daemon that lists `auto`
+/// (`AUTO_FEATURE`) is asked, since an older one ignores it and would deliver a code on every
+/// prompt.
+async fn auto_at(path: &std::path::Path, params: Value, wait: Duration) -> Value {
     let ask = async {
-        let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
-        let params = json!({
-            "name": want.name, "socket": want.socket, "token": want.token, "renew": true,
-        });
+        let client = crate::client::Client::connect(path).await?;
+        if !client.daemon_lists(crate::hub::register::AUTO_FEATURE) {
+            return Ok(json!({"registered": false, "reason": "the daemon does not take `auto`"}));
+        }
         client.request(crate::rpc::method::MUX_REGISTER, params).await
     };
-    match tokio::time::timeout(RENEW_WAIT, ask).await {
+    match tokio::time::timeout(wait, ask).await {
         Ok(Ok(v)) => v,
-        Ok(Err(e)) => json!({"renewed": false, "reason": e.to_string()}),
-        Err(_) => json!({"renewed": false, "reason": "the daemon did not answer in time"}),
+        Ok(Err(e)) if e.is::<crate::client::DaemonError>() => {
+            json!({"registered": false, "reason": e.to_string()})
+        }
+        Ok(Err(e)) => json!({"registered": null, "reason": e.to_string(), "retryable": true}),
+        Err(_) => {
+            json!({"registered": null, "reason": "the daemon did not answer in time", "retryable": true})
+        }
     }
 }
 
@@ -209,6 +257,74 @@ mod tests {
 
     fn swap(key: &str, value: &'static str) -> Vec<(&'static str, &'static str)> {
         DESKTOP.iter().map(|&(k, v)| (k, if k == key { value } else { v })).collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_uses_one_frame_even_when_the_daemon_is_late() {
+        use crate::rpc::{Message, method};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        for late in [false, true] {
+            let want = auto_register_in(env(&DESKTOP), false).unwrap();
+            let path = socket.clone();
+            let hook = tokio::spawn(async move { renew_at(&path, want, RENEW_WAIT).await });
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, params } = Message::parse(&line).unwrap() else {
+                panic!("expected registration");
+            };
+            assert_eq!(method, method::MUX_REGISTER);
+            assert_eq!(params.unwrap()["renew"], true);
+            if late {
+                tokio::time::pause();
+                tokio::time::advance(RENEW_WAIT).await;
+                let reply = hook.await.unwrap();
+                assert!(reply["renewed"].is_null());
+                assert_eq!(reply["retryable"], true);
+                tokio::time::resume();
+            } else {
+                wr.write_all(Message::ok(id, json!({"renewed": true})).to_line().as_bytes())
+                    .await
+                    .unwrap();
+                assert_eq!(hook.await.unwrap(), json!({"renewed": true}));
+            }
+            assert!(lines.next_line().await.unwrap().is_none(), "exactly one request");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_distinguishes_a_missing_daemon_from_its_refusal() {
+        use crate::rpc::{Message, RpcError};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let want = auto_register_in(env(&DESKTOP), false).unwrap();
+        let absent = renew_at(&socket, want.clone(), RENEW_WAIT).await;
+        assert!(absent["renewed"].is_null());
+        assert_eq!(absent["retryable"], true);
+
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let hook = tokio::spawn(async move { renew_at(&socket, want, RENEW_WAIT).await });
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let line = BufReader::new(rd).lines().next_line().await.unwrap().unwrap();
+        let Message::Request { id, .. } = Message::parse(&line).unwrap() else {
+            panic!("expected renewal");
+        };
+        wr.write_all(
+            Message::err(id, RpcError::invalid_params("wrong inbox")).to_line().as_bytes(),
+        )
+        .await
+        .unwrap();
+        let refusal = hook.await.unwrap();
+        assert_eq!(refusal["renewed"], false);
+        assert_eq!(refusal["reason"], "wrong inbox");
     }
 
     /// Repro (ask-828b64b532): a desktop chat on cosmic-gray that never registered sent the

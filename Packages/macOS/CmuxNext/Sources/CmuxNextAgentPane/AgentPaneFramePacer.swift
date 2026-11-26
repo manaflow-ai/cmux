@@ -31,7 +31,8 @@ import CmuxNextWakeups
 /// - A pane nobody can see (out of a window, hidden, or in a covered or minimized window): its
 ///   frames wait, and its page gets no call, until it shows (``visibilityChanged()``), or the frames
 ///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
-///   close, or a backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
+///   close, or a backlog the page waits on; a hidden page's stream is left out by its socket,
+///   ``AcpmuxPaneSocket/setHidden(_:)``). Each call woke the hidden page's web process: a streaming chat behind another tab
 ///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
@@ -276,10 +277,10 @@ import CmuxNextWakeups
         let result = flush()
         if result.delivered { calls += 1 } else { inFlight = false }
         // A capped flush leaves frames: they go when this call is done, or next turn without one.
-        // They are a backlog, which a hidden pane gets too.
+        // A hidden pane gets them only when its page waits on one of them (``AgentPaneFlush/moreWaits``).
         if result.more {
             pending = true
-            urgent = true
+            urgent = result.moreWaits
             if !inFlight { scheduleNextTurn() }
         }
     }

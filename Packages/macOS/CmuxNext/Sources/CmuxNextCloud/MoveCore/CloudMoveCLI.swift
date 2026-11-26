@@ -254,8 +254,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
-    public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
+    /// `stderrLine` gets its progress lines (``SeedProgress/feed(_:each:)``).
+    public func seedPush(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
+    }
+
+    /// `cmux link seed pull --or-copy` (Bring Back Local); `stderrLine` as ``seedPush(socket:local:remote:stderrLine:)``'s.
+    public func bringBackPull(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
     }
 
     /// `cmux link seed fetch --find-root`: the first copy of the machine's folder of a chat at `remote` (its
@@ -266,25 +272,23 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return try await run(Call(socket: socket, local: local, remote: remote, adopt: adopt)).answer
     }
 
-    /// `cmux link seed pull --or-copy` (Bring Back Local).
-    public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote]).answer
-    }
-
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at `from` to the machine daemon at `to`,
     /// in `cwd`; a running turn stops for the move and goes on where the chat lands. `sync` copies the folder's last
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
-    /// Cloud API's answer for this app on the link in use.
+    /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
+            var login: Bool
         }
+        let stdin = try login.map { try JSONSerialization.data(withJSONObject: ["env": $0]) }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
-                                  vmKind: vmKind, toPid: toPID)).answer
+                                  vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
@@ -309,27 +313,25 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
-    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s inference
-    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762). `team` is
-    /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
-    /// machines, so the active team's would wave through a start no gateway serves.
-    public func inferenceGatewayServes(team: String) async -> Set<String>? {
-        guard let out = try? await output(["verb": "inference-gateway-status", "team": team]).stdout,
-              let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
-              let serves = answer["serves"] as? [String] else { return nil }
-        return Set(serves)
-    }
-
-    /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
-    /// machine can land in either the install token's team or the person's own team: production made every
-    /// cloud-chat-replies-production machine in the personal team while the install token named another (cmuxterm-hq
-    /// probe rows 2026-11-22/23), and a gateway online there was refused as "No Cloud connection serves claude".
-    public func inferenceGatewayServes(teams: [String?]) async -> Set<String>? {
-        var asked: Set<String> = [], serves: Set<String>?
-        for team in teams.compactMap({ $0 }) where asked.insert(team).inserted {
-            if let answer = await inferenceGatewayServes(team: team) { serves = (serves ?? []).union(answer) }
+    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s gateway serves
+    /// now, empty when off or offline; nil `serves` when unread, with the CLI's `error.code` (or ``badAnswer``,
+    /// ``CloudSetup/GatewayRead/timedOut``) (hq#15762). `team` is the backend team the start's machines are made in: a team's
+    /// gateway serves only its own machines. `held`: the install token the app holds and the API that issued it, on stdin, so
+    /// the CLI mints none (its `cmux auth token --team`, up to 25 s, overran this read's 10 s bound: hq#19758); nil for a team
+    /// whose token the app does not hold (the person's own team), whose token the CLI mints (#51322).
+    public func inferenceGatewayStatus(team: String, held: (token: String, apiOrigin: URL)? = nil) async -> CloudSetup.GatewayRead {
+        struct Call: Encodable { var verb = "inference-gateway-status"; var team: String; var held: Bool }
+        let stdin = held.flatMap { try? JSONSerialization.data(withJSONObject: ["access_token": $0.token, "api_origin": $0.apiOrigin.absoluteString]) }
+        let out: Data
+        do { out = try await output(Call(team: team, held: held != nil), stdin: stdin).stdout }
+        catch DaemonError.timedOut { return CloudSetup.GatewayRead(team: team, errorCode: CloudSetup.GatewayRead.timedOut) }
+        catch { return CloudSetup.GatewayRead(team: team, errorCode: Self.badAnswer) }
+        let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any]
+        guard let answer, answer["ok"] as? Bool == true, let serves = answer["serves"] as? [String] else {
+            let code = ((answer?["error"] as? [String: Any])?["code"] as? String) ?? (answer?["error_code"] as? String)
+            return CloudSetup.GatewayRead(team: team, errorCode: code ?? Self.badAnswer)
         }
-        return serves
+        return CloudSetup.GatewayRead(team: team, serves: Set(serves))
     }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
@@ -450,6 +452,26 @@ public nonisolated struct CloudMoveCLI: Sendable {
         _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
     }
 
+    /// The teams the Cloud wire subscribes in (Rust's `wireTeams`, the `install` token on stdin): `active` first, then
+    /// the install token's team when it is another. Nil on any failure (the caller keeps `active` alone).
+    public func startChatWireTeams(active: String?, install: String?) async -> [String]? {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let ask: [String: Any] = ["account": "wire", "wireTeams": active.map { ["active": $0] } ?? [String: String]()]
+        guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
+                                        stdin: Data(((install ?? "") + "\n").utf8)),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
+              let teams = reply["teams"] as? [String] else { return nil }
+        return teams
+    }
+
+    /// ``startChatWireTeams(active:install:)`` through `binary` with `identity`'s install token: nil without the CLI.
+    public static func wireTeams(binary: URL?, identity: MacInstallIdentity, active: String?) async -> [String]? {
+        guard let binary else { return nil }
+        let install = try? await identity.installToken()
+        return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: install)
+    }
+
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
     public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {
@@ -467,6 +489,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatPlan(request: String, access: String? = nil, install: String? = nil) async throws -> (Answer, StartChatPlan) {
         let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n" + (install.map { $0 + "\n" } ?? "")).utf8) })
         return (read.answer, read.plan ?? StartChatPlan(createKey: "", tabKey: ""))
+    }
+
+    /// A new machine in the cloud environment `environment` (`env_…`, the `/v1/cloud-environments` store): the platform's
+    /// workspace ensure (`cmux link start-chat ensure --environment`), which injects the environment's variables and runs
+    /// its setup. The wire's `cloud.environment.boot` is not live on cmux-api or cmux-platform (`CLOUD_LIVE_OPS`), and it
+    /// reads CloudDO's own table, which holds none of these. `key`'s UUID part is the ensure's workspace and client key, so
+    /// a Retry with the same key gets the same machine; `access` is the person's cmux access token (stdin). The machine's id.
+    public func machineInEnvironment(_ environment: String, key: String, platform: String?, access: String) async throws -> String {
+        var call = ["verb": "start-chat-ensure", "key": String(key.suffix(36)), "environment": environment]
+        call["platform"] = platform
+        let read = try await run(call, reading: "reservation", stdin: Data((access + "\n").utf8))
+        let object = read.object.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+        guard read.answer.ok, let id = object?["machine"]?.stringValue else {
+            throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
+        }
+        return id
     }
 
     /// `cmux link start-chat pin`: the send `key` of `account` runs on `machine`, one the App just made for it.

@@ -52,6 +52,7 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
+#[cfg(test)]
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
@@ -154,6 +155,11 @@ impl Failure {
 /// `Some(exit code)` when `args` is a verb this module runs.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
+    // `cmux machine revoke --help`: that verb's usage, exit 0 (before, a usage error, exit 2).
+    if let Some(text) = verb_help(&command_args) {
+        println!("{text}");
+        return Some(0);
+    }
     let parsed = parse(&command_args)?;
     let fail = |failure: Failure| {
         super::app::failure(
@@ -209,6 +215,47 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(code) => code,
         Err(failure) => fail(failure),
     })
+}
+
+/// `machine add|revoke|rotate|vault ... --help`: the verb's own lines of [`USAGE`] (the vault's
+/// whole usage for `vault`) and the auth notes every verb shares. `None` without a help flag.
+pub(super) fn verb_help(args: &[String]) -> Option<String> {
+    let [scope, verb, rest @ ..] = args else { return None };
+    let asks =
+        rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"));
+    if scope != "machine"
+        || !asks
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault")
+    {
+        return None;
+    }
+    if verb == "vault" {
+        return Some(vault::USAGE.to_owned());
+    }
+    let own = format!("cmux machine {verb} ");
+    let mut usage = Vec::new();
+    let mut notes = Vec::new();
+    for line in USAGE.lines() {
+        if let Some(form) = line.strip_prefix("usage: ").or_else(|| line.strip_prefix("       ")) {
+            if form.starts_with(&own) || form == own.trim_end() {
+                usage.push(form);
+            }
+        } else if !line.trim_start().starts_with("cmux machine ")
+            || line.trim_start().starts_with(&own)
+        {
+            notes.push(line);
+        }
+    }
+    let mut text = String::new();
+    for (index, form) in usage.iter().enumerate() {
+        text.push_str(if index == 0 { "usage: " } else { "\n       " });
+        text.push_str(form);
+    }
+    for note in notes {
+        text.push('\n');
+        text.push_str(note);
+    }
+    Some(text)
 }
 
 /// What `machine <words>` is: this module's verb, a usage error in one, or
@@ -414,7 +461,8 @@ pub(crate) fn read_credential(
         std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
     } else {
-        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
+        // `CMUX_CLOUD_ACCESS_TOKEN`, else an API token in `CMUX_TOKEN` (api_tokens.rs).
+        return Ok(super::api_tokens::env_credential(env));
     };
     let credential = raw.trim().to_owned();
     if credential.is_empty() {
@@ -514,7 +562,7 @@ impl Platform {
             .map_err(|e| internal(&e))?;
         let space =
             cmux_build_space::headers().map_err(|e| Failure::new("build_space", e.to_string()))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::machine_join")
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -1545,3 +1593,6 @@ pub(super) fn merge_peer_rows(mut result: Value, peers: &[Value]) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod seeded_tests;

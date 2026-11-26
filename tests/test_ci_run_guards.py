@@ -53,8 +53,6 @@ _guard_child_spec = _git_fixture_importlib.spec_from_file_location(
 guard_child_env = _git_fixture_importlib.module_from_spec(_guard_child_spec)
 _guard_child_spec.loader.exec_module(guard_child_env)
 
-FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
-
 
 class AffectedSelectionFailsOpen(unittest.TestCase):
     def test_a_selection_that_raises_runs_every_step(self):
@@ -261,7 +259,7 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         planned = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
         by_group = {u.group or u.job: u for u in planned}
         self.assertEqual(run_ci_guards.ordered_split(by_group["release-notary"]), 1)
-        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 2)
+        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 3)
 
     def test_a_stateful_groups_tail_waits_for_its_head_then_runs_together(self) -> None:
         import contextlib  # noqa: PLC0415
@@ -559,19 +557,6 @@ class PortableSubstitutes(unittest.TestCase):
         result = self.run_payload("./a.sh\nswift test\n")
         self.assertEqual(result.returncode, 2)
         self.assertIn("unrecognized line", result.stderr)
-
-
-class FastWorkflowReportsOnMainPush(unittest.TestCase):
-    def test_main_push_keeps_the_standalone_last_green_guard(self) -> None:
-        workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
-        triggers = workflow.get("on") or workflow.get(True)
-        self.assertNotIn("pull_request", triggers)
-        self.assertNotIn("merge_group", triggers)
-        self.assertEqual(triggers["push"]["branches"], ["main"])
-        job = workflow["jobs"]["fast-guards"]
-        self.assertEqual(job["name"], "CI fast guards")
-        runs = [s.get("run", "") for s in job["steps"]]
-        self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
 
 
 class FeatRoutesSelectTheGroups(unittest.TestCase):

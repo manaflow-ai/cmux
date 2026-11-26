@@ -521,7 +521,9 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
             );
         }
         let (mut ws, _) =
-            tokio_tungstenite::connect_async(request).await.map_err(|e| e.to_string())?;
+            cmux_egress::ws::connect_async(request, "cmux_tui::remote_cli::acpmux_peer")
+                .await
+                .map_err(|e| e.to_string())?;
         let hello = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": 1, "clientInfo": {"name": "cmux-cloud-peer"}}});
         let status = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/status", "params": {}});
@@ -550,3 +552,7 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
 #[cfg(test)]
 #[path = "acpmux_peer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "acpmux_peer_seeded_tests.rs"]
+mod seeded_tests;

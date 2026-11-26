@@ -23,12 +23,14 @@ export interface MachinesState {
 
 /** How long a row waits, between asks, for the other Mac's person to answer its card: 2 s, then a
  * little longer each time, about three minutes in all. After the last one the row stops asking and
- * says "No answer from…" with Retry. Not now ends the wait at once: nothing asks again until Retry. */
+ * says "No answer from…" with Retry. Not now ends the wait at once: nothing asks again until Retry.
+ * retry-prompt-ok: each ask is a consent card on the other person's screen, so asking again is a choice. */
 export const DIAL_RECHECK_MS: readonly number[] = [2000, 3000, 5000, 8000, 13000, 20000, 30000, 30000, 30000, 30000];
 
-/** The `unavailable` reasons that mean the other Mac's cmux predates the consent (#43384: an older
- * Mac answers a session hello `service.unknown`; one with no session gate `service.off`). */
-const UPDATE_REASONS = new Set(["service.unknown", "service.off"]);
+/** The `unavailable` reasons that mean the other machine's cmux predates the consent (#43384: an older
+ * Mac answers a session hello `service.unknown`; one with no session gate `service.off`; a Linux box
+ * whose acpmux still asks for a consent it has no card for, `service.outdated`). */
+const UPDATE_REASONS = new Set(["service.unknown", "service.off", "service.outdated"]);
 
 /** Runs `run` once after `ms`; the answer cancels it. A test hands its own to run the asks itself. */
 export type DialSchedule = (run: () => void, ms: number) => () => void;

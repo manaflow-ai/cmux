@@ -60,17 +60,18 @@
     },
     "whats-new-gallery.yml": {
       "render": "reads release-notes/next/highlights, scripts/ and webviews/ only, here and in a worktree at an earlier commit with the same patterns"
-    },
-    "cloud-vm-image-roll.yml": {
-      "plan": "auto-roll.ts plan reads git history and images/cmux-vm (the lock, pin-cmux-tui.ts), never cmux-next-ios/verify/"
     }
   },
   "full": {
     "cmux-next-car-guards.yml": {
       "linux": "runs tests/test_ci_fleet_rule_lints.py, whose allowlist names cmux-next-ios/verify/ scripts; with them absent its git grep skips them and it reports 20 stale entries"
     },
-    "cloud-vm-image-roll.yml": {
-      "promote": "images/cmux-vm/image-roll-push.sh commits the roll and rebases it onto feat-cmux-next before the push; the production push keeps the full tree it was proven with rather than a sparse index"
+    "fixit-handoff.yml": {
+      "find": "bisects the red across git history and runs its check on each candidate tree, so the check may read any path",
+      "land": "reverts the culprit at the tip and pushes the revert; the push keeps the full tree it verified rather than a sparse index"
+    },
+    "ios-internal-nightly-trigger.yml": {
+      "yolo": "ios_internal_yolo.py merges each named PR onto feat-cmux-next and pushes the ios-yolo/ stack; the merge and push need the full tree"
     }
   },
   "own_patterns": {

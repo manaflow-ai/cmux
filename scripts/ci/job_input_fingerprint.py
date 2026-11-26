@@ -2,7 +2,7 @@
 """The inputs of a cmux-next job as one key, so a pass can be reused.
 
 With `vars.CI_NEXT_JOB_REUSE == '1'`, cmux-next.yml's fast-tier, fast-tier-cargo,
-swift test, Release compile and generated files jobs look up a pass recorded
+swift test, daemon tests, Release compile and generated files jobs look up a pass recorded
 under `job-pass-<job>-<key>` (an Actions artifact, scripts/ci/job_reuse.py)
 before they build. A hit skips the build and the tests and names the run that
 passed; a job that passes records its own.
@@ -33,6 +33,11 @@ The key covers:
   requirement, the CEF steps), the configured Xcode app and the web bundles'
   source key; for swift-test, the base commit when it checks the generated files
   on its own build (`generated_base`, '' otherwise).
+
+cmux-tui-artifacts keys the cmux-tui artifact build inputs from
+scripts/cmux-next/cmux-tui-tree-inputs.txt and the artifact workflow. Its mode flags distinguish daemon
+tests, Windows legs and an explicitly selected macOS runner, so a non-publishing dispatch reuses only a
+pass that ran the same work.
 
 dev-release-product keys the compiled DEV Release app itself (scripts/ci/dev_release_product_reuse.py
 moves the bytes), so its closure is broad: every path in the tree except PRODUCT_EXCLUDES, the paths
@@ -79,7 +84,9 @@ MAC_COMMON = (
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
     "scripts/ci/e2e_warm_derived_data.py", "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
-    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
+    "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
 ) + route.FULL_INPUTS + route.VENDORED_PINS + route.GENERATED_INPUTS
 
@@ -175,12 +182,26 @@ JOBS = {
     "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
                                                          "layout_reducer", "generated_base"),
                       SWIFT_TEST + GENERATED, web=True, whole_tree=True),
+    # The daemon suites read the whole tree (the app's packages, the same-tree cmux-tui, the web bundles).
+    "daemon-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app", "generated_base")),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE, whole_tree=True),
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
     ), whole_tree=True),
+    "cmux-tui-artifacts": Job(
+        required=(),
+        flags=("daemon_tests", "include_windows", "macos_runner"),
+        inputs=(
+            "cmux-tui",
+            ".github/workflows/cmux-tui-build-package.yml",
+            "scripts/ci/job_input_fingerprint.py", "scripts/ci/job_reuse.py", "scripts/ci/cmux_next_route.py",
+            "scripts/ci", "scripts/cmux-next", "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh",
+            "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+        ),
+        workflow=".github/workflows/cmux-tui-artifacts.yml",
+    ),
     # The unsigned DEV Release app (scripts/ci/dev_release_product_reuse.py): Xcode, the SDK, the arch,
     # that script's RECIPE and the cmux-tui tree it bundles (CMUX_TUI_TREE_KEY, or `own`: the tree's
     # own key is a function of TUI_TREE_INPUTS, which the closure keeps). The build
@@ -232,7 +253,11 @@ def graph_reads(root: str, rev: str) -> set[str]:
 
 def input_paths(root: str, rev: str, job: str) -> list[str]:
     spec = JOBS[job]
-    paths = set(MAC_COMMON) | set(spec.inputs or ()) | graph_reads(root, rev)
+    paths = set(spec.inputs or ())
+    if job == "cmux-tui-artifacts":
+        paths |= tui_tree_inputs(root, rev)
+    else:
+        paths |= set(MAC_COMMON) | graph_reads(root, rev)
     if spec.web:
         paths |= set(web_bundle_inputs())
     paths = {normalize(path) for path in paths}

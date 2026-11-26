@@ -7,15 +7,22 @@
 //   bun scripts/chat-sim.ts --list
 //   bun scripts/chat-sim.ts incoming-notice-turn --trace /tmp/sim.jsonl
 //   bun scripts/chat-sim.ts --all
+//   bun scripts/chat-sim.ts churn --churn   (layout shifts and sub-second rows per minute)
+//   bun scripts/chat-sim.ts --map   (every mapped case, what is expected of it, and whether it holds)
 //   bun scripts/chat-sim.ts --long 1000 --trace /tmp/long.jsonl
-//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --last N --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
 //   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
 //   bun scripts/chat-sim.ts --capture SESSION --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-x
 //   bun scripts/chat-sim.ts --capture SESSION --report "WHY DID IT" [--minutes 6]   (the minutes before that prompt)
 //   bun scripts/chat-sim.ts --capture HOST/NAME --window "22:05Z-22:11Z" --out /tmp   (a chat on a peer, over the hub)
+//   bun scripts/chat-sim.ts --reported [--update]   (replay each fixture and compare the rows breaking each rule)
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
+//   bun scripts/chat-sim.ts --cases   (the layout-shift case space; test/layout-every-case-browser-N.test.ts plays it)
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --integrity   (bubble-integrity checker only)
+//   bun scripts/chat-sim.ts --stream-map [ID...]                           (the stream scenario map, model cases)
+//   ... --start-at S | --seek-to-event SEQ [--lead S]   (apply the steps before at once; trace from there)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -35,11 +42,25 @@ import {
   REMOTE_SESSION,
   type HistoryTurn,
 } from "../src/agent-session/acpmux/sim/capture";
+import { readRecords, readReplayRange } from "../src/agent-session/acpmux/sim/records";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
-import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { DROPPED, parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { churnSummary, runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { DROPPED, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
+import { replayReported, ruleCounts } from "../src/agent-session/acpmux/sim/reported";
+import { EVERYWHERE, MAP } from "../src/agent-session/acpmux/sim/map";
+import { seekFromArgs, seekPlan } from "../src/agent-session/acpmux/sim/seek";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import {
+  CONTENT_KINDS,
+  PERTURBATIONS,
+  PERTURBATION_NAMES,
+  WIDTHS,
+  layoutCaseScenario,
+  layoutCases,
+} from "../src/agent-session/acpmux/sim/layoutCases";
+import { integrityScan, runMapScenario } from "../src/agent-session/acpmux/sim/mapRun";
+import { STREAM_SCENARIOS } from "../src/agent-session/acpmux/sim/streamScenarios";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -52,24 +73,13 @@ const number = (name: string) => (value(name) === undefined ? undefined : Number
 function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
+      .split("\nimport ", 1)[0]!
       .split("\n")
-      .slice(1, 20)
+      .slice(1)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
   process.exit(code);
-}
-
-/** A session directory's records (events/*.ndjson), or one NDJSON file's. */
-function readRecords(path: string): EventRecord[] {
-  if (statSync(path).isDirectory()) {
-    const dir = existsSync(join(path, "events")) ? join(path, "events") : path;
-    return readdirSync(dir)
-      .filter((name) => name.endsWith(".ndjson"))
-      .sort()
-      .flatMap((name) => parseRecords(readFileSync(join(dir, name), "utf8")));
-  }
-  return parseRecords(readFileSync(path, "utf8"));
 }
 
 if (flag("--help") || flag("-h")) usage(0);
@@ -232,6 +242,10 @@ async function remoteCapture(source: string, zone: string, minutes: number) {
   };
 }
 
+const fixtureDir = join(import.meta.dir, "..", "test", "fixtures", "chat-sim");
+
+if (flag("--reported")) process.exit(replayReported(fixtureDir, flag("--update")) ? 1 : 0);
+
 const capture = value("--capture");
 if (capture) {
   // A reported breakage as a fixture (sim/README.md "Capture a reported breakage"): the window's records,
@@ -257,28 +271,25 @@ if (capture) {
   }
   const clean = sanitizeRecords(records, { from: range.fromSeq, to: range.toSeq });
   const name = value("--name") ?? `capture-${new Date(window[0]).toISOString().slice(0, 16).replace(/[-:T]/g, "")}`;
-  const out = home(value("--out") ?? join(import.meta.dir, "..", "test", "fixtures", "chat-sim"));
+  const out = home(value("--out") ?? fixtureDir);
   const fixture = join(out, `${name}.ndjson`);
   writeFileSync(fixture, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
   const hostBuild = [...records]
     .reverse()
     .find((record: EventRecord) => record.kind === "host_started" && record.at <= window[1])?.msg?.hostBuild;
-  writeFileSync(
-    join(out, `${name}.json`),
-    JSON.stringify(
-      {
-        window: [new Date(window[0]).toISOString(), new Date(window[1]).toISOString()],
-        zone,
-        hostBuild: typeof hostBuild === "string" ? hostBuild : null,
-        capturedAt: new Date().toISOString(),
-        records: clean.length,
-        leadIn: range.leadIn,
-        inWindow: range.inWindow,
-      },
-      null,
-      2,
-    ) + "\n",
-  );
+  const metadata = {
+    window: [new Date(window[0]).toISOString(), new Date(window[1]).toISOString()],
+    zone,
+    hostBuild: typeof hostBuild === "string" ? hostBuild : null,
+    capturedAt: new Date().toISOString(),
+    records: clean.length,
+    leadIn: range.leadIn,
+    inWindow: range.inWindow,
+  };
+  const writeMetadata = (expect?: Record<string, number>) =>
+    writeFileSync(join(out, `${name}.json`), JSON.stringify({ ...metadata, expect }, null, 2) + "\n");
+  // A recapture replaces the previous sidecar even if the whole replay below cannot finish.
+  writeMetadata();
   const written = performance.now();
   console.log(
     `captured ${clockLabel(window[0], zone)} to ${clockLabel(window[1], zone)} from ${from}: ` +
@@ -303,6 +314,8 @@ if (capture) {
       };
     }),
   );
+  const whole = runs.find((run) => run.offset.from === 0)?.violations;
+  if (whole) writeMetadata(ruleCounts(whole));
   const realFirst = records.find((record) => record.seq === range.fromSeq)!.at;
   for (const run of runs) {
     if (!run.violations) {
@@ -332,10 +345,9 @@ const drift = value("--drift");
 if (drift) {
   // What the offline simulator does not play: record kinds the chats here wrote that no committed fixture
   // and no scenario holds, and that the sanitizer does not drop as noise. One line each, most written first.
-  const fixtures = join(import.meta.dir, "..", "test", "fixtures", "chat-sim");
   const covered = new Set<string>();
-  for (const name of readdirSync(fixtures).filter((file) => file.endsWith(".ndjson")))
-    for (const record of readRecords(join(fixtures, name))) covered.add(`${record.dir} ${record.kind}`);
+  for (const name of readdirSync(fixtureDir).filter((file) => file.endsWith(".ndjson")))
+    for (const record of readRecords(join(fixtureDir, name))) covered.add(`${record.dir} ${record.kind}`);
   for (const name of scenarioNames())
     for (const record of SCENARIOS[name]!().events) covered.add(`${record.dir} ${record.kind}`);
   const seen = new Map<string, { records: number; chats: Set<string>; newest: number }>();
@@ -494,6 +506,70 @@ if (sweep) {
     );
   process.exit(classes.size ? 1 : 0);
 }
+if (flag("--cases")) {
+  // The layout-shift case space (sim/layoutCases.ts): each case is drawn and judged frame by frame in the
+  // browser lane; here it is listed, with each content kind's chat checked by the model's rules.
+  const cases = layoutCases();
+  for (const content of CONTENT_KINDS) {
+    const result = runSimulation(layoutCaseScenario(content));
+    console.log(`${content.padEnd(22)} ${String(result.steps).padStart(5)} steps  ${summarize(result)}`);
+  }
+  for (const [name, { provoked, about }] of Object.entries(PERTURBATIONS))
+    console.log(`${name.padEnd(22)} ${provoked ? "provoked" : "unprovoked"}  ${about}`);
+  console.log(
+    `${cases.length} cases: ${CONTENT_KINDS.length} content kinds x ${PERTURBATION_NAMES.length} perturbations, plus widths ${WIDTHS.join("/")}`,
+  );
+  process.exit(0);
+}
+if (flag("--map")) {
+  // The scenario map (sim/map.ts): each case, what is expected, and whether it holds on this checkout.
+  const runs = new Map<string, SimResult>();
+  const run = (name: string) => runs.get(name) ?? runs.set(name, runSimulation(SCENARIOS[name]!())).get(name)!;
+  const rulesOf = (name: string) => run(name).violations.map((violation) => `${violation.rule}: ${violation.detail}`);
+  let wrong = 0;
+  for (const entry of MAP) {
+    const broken = entry.scenario ? [...(entry.check?.(run(entry.scenario)) ?? []), ...rulesOf(entry.scenario)] : [];
+    const state = !entry.scenario ? "not played" : broken.length ? (entry.open ? "open" : "BROKEN") : "holds";
+    if (state === "BROKEN" || (state === "holds" && entry.open && entry.check)) wrong += 1;
+    console.log(`${state.padEnd(10)} ${entry.id}${entry.scenario ? ` (${entry.scenario})` : ""}`);
+    console.log(
+      `           when:     ${entry.when}\n           wrong:    ${entry.wrong}\n           expected: ${entry.expected}`,
+    );
+    if (entry.open) console.log(`           open:     ${entry.open}`);
+    if (state !== "holds" || flag("--verbose"))
+      for (const line of broken.slice(0, 5)) console.log(`           now:      ${line}`);
+  }
+  for (const each of EVERYWHERE) {
+    const breaks = scenarioNames().filter((name) => each.check(run(name)).length > 0);
+    const fresh = breaks.filter((name) => !each.known?.[name]);
+    wrong += fresh.length;
+    console.log(`${(fresh.length ? "BROKEN" : breaks.length ? "open" : "holds").padEnd(10)} everywhere: ${each.id}`);
+    console.log(`           expected: ${each.expected}`);
+    for (const name of breaks)
+      console.log(`           breaks:   ${name}${each.known?.[name] ? ` (open: ${each.known[name]})` : ""}`);
+  }
+  const count = (state: (entry: (typeof MAP)[number]) => boolean) => MAP.filter(state).length;
+  console.log(
+    `${MAP.length} cases: ${count((entry) => !!entry.scenario && !entry.open)} hold, ${count((entry) => !!entry.scenario && !!entry.open)} open, ${count((entry) => !entry.scenario)} not played; ${scenarioNames().length} scenarios; ${EVERYWHERE.length} checks on every scenario`,
+  );
+  process.exit(wrong ? 1 : 0);
+}
+// The stream scenario map's model cases (docs/design/chat-stream-scenarios.md); the live ones run in its test.
+if (flag("--stream-map")) {
+  const ids = args.filter((arg) => !arg.startsWith("--"));
+  let failed = 0;
+  for (const entry of STREAM_SCENARIOS) {
+    if (entry.harness !== "sim" || (ids.length && !ids.includes(entry.id))) continue;
+    const findings = runMapScenario(entry);
+    if (findings.length) failed += 1;
+    console.log(`${findings.length ? "FAIL" : "pass"} ${entry.id.padEnd(28)} ${entry.title}`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 3)))
+      console.log(
+        `  ${finding.rule.padEnd(22)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(failed ? 1 : 0);
+}
 if (flag("--list")) {
   for (const name of scenarioNames()) console.log(`${name.padEnd(24)} ${SCENARIOS[name]!().about}`);
   console.log(`${"--long N".padEnd(24)} N turns of mixed work (about 12 rows a turn)`);
@@ -503,18 +579,30 @@ if (flag("--list")) {
 const scenarios: SimScenario[] = [];
 const replay = value("--replay");
 if (replay) {
-  const range = { from: number("--from"), to: number("--to"), limit: number("--limit") };
-  const raw = readRecords(replay.replace(/^~/, process.env.HOME ?? "~"));
+  const last = number("--last");
+  if (flag("--last") && (last === undefined || !Number.isSafeInteger(last) || last < 0)) {
+    console.error("chat-sim: --last needs a nonnegative integer");
+    process.exit(2);
+  }
+  const {
+    records: raw,
+    parsed,
+    count,
+  } = await readReplayRange(home(replay), {
+    from: number("--from"),
+    to: number("--to"),
+    last,
+  });
+  if (parsed < count) console.error(`parsed ${parsed} of ${count} event files (${raw.length} records in range)`);
+  const limit = number("--limit");
   const sanitizeTo = value("--sanitize");
   if (sanitizeTo) {
-    const clean = sanitizeRecords(raw, range);
+    const clean = sanitizeRecords(raw, { limit });
     writeFileSync(sanitizeTo, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
     console.log(`wrote ${clean.length} sanitized records (of ${raw.length}) to ${sanitizeTo}`);
     scenarios.push(replayScenario(`replay:${sanitizeTo}`, clean));
   } else {
-    const kept = raw
-      .filter((record) => record.seq >= (range.from ?? 0) && record.seq <= (range.to ?? Number.POSITIVE_INFINITY))
-      .slice(0, range.limit ?? Number.POSITIVE_INFINITY);
+    const kept = raw.slice(0, limit);
     scenarios.push(replayScenario(`replay:${replay}`, kept));
   }
 } else if (value("--long")) {
@@ -522,21 +610,47 @@ if (replay) {
 } else if (flag("--all")) {
   for (const name of scenarioNames()) scenarios.push(SCENARIOS[name]!());
 } else {
-  const name = args.find((arg) => !arg.startsWith("--"));
+  const name = args.find((arg, at) => !arg.startsWith("--") && !args[at - 1]?.startsWith("--"));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
+}
+
+// The bubble-integrity checker on recorded chats: one line a finding, exit 1 on any.
+if (flag("--integrity")) {
+  let found = 0;
+  for (const scenario of scenarios) {
+    const findings = integrityScan(scenario);
+    found += findings.length;
+    console.log(`${scenario.name}: ${scenario.events.length} records, ${findings.length} integrity findings`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 20)))
+      console.log(
+        `  ${finding.rule.padEnd(24)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(found ? 1 : 0);
 }
 
 const tracePath = value("--trace");
 if (tracePath) writeFileSync(tracePath, "");
 const results: SimResult[] = [];
+const seek = seekFromArgs(value);
 for (const scenario of scenarios) {
-  const result = runSimulation(scenario, {
+  // A seek still runs every step (the state at the start is exact); the trace and the violations start there.
+  const start = seek ? seekPlan(scenario.steps, seek).start : 0;
+  if (seek)
+    console.log(
+      `seek: ${start} steps applied at once, from step ${start} (+${(((scenario.steps[start]?.at ?? 0) - (scenario.steps[0]?.at ?? 0)) / 1000).toFixed(1)} s)`,
+    );
+  const ran = runSimulation(scenario, {
     rowsInTraceUpTo: number("--rows-up-to"),
     onStep: tracePath
-      ? (trace) => appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n")
+      ? (trace) => {
+          if (trace.step >= start)
+            appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n");
+        }
       : undefined,
   });
+  const result = start ? { ...ran, violations: ran.violations.filter((violation) => violation.step >= start) } : ran;
   results.push(result);
   if (flag("--violations-json")) {
     // One row per rule it broke (its first step), for `--sweep`.
@@ -549,6 +663,19 @@ for (const scenario of scenarios) {
     continue;
   }
   console.log(summarize(result));
+  if (flag("--churn")) {
+    // Layout shifts and sub-second rows per minute of churn, and each one (`--show N` at most).
+    console.log(`  churn ${churnSummary(result)}`);
+    const show = Number(value("--show") ?? 20);
+    for (const shift of result.shifts.slice(0, show))
+      console.log(
+        `  shift ${shift.phase.padEnd(8)} step ${shift.step} (+${(shift.at / 1000).toFixed(1)} s, ${shift.label}) moved ${shift.moved} rows up to ${shift.px}px, back ${shift.back}px; cause ${shift.cause}`,
+      );
+    for (const flash of result.flashes.slice(0, show))
+      console.log(
+        `  flash ${flash.phase.padEnd(8)} step ${flash.step} (+${(flash.at / 1000).toFixed(1)} s, ${flash.label}) ${flash.kind} ${flash.id} shown ${flash.shownMs} ms`,
+      );
+  }
   // One line per distinct violation (the same row breaking the same rule at many steps prints once).
   const seen = new Set<string>();
   for (const violation of result.violations) {
