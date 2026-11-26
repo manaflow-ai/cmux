@@ -187,6 +187,11 @@ async fn every_case_of_the_corpus_is_identical_local_and_routed() {
     .await
     .unwrap();
     let dump = print_rows(&rows);
+    // The table, for `--nocapture`: one verdict line per case, then the summary.
+    for row in &rows {
+        println!("{}", row.line());
+    }
+    println!("{}", Summary::of(&rows).line());
     assert_eq!(seen.len(), CORPUS.len(), "one row per case, as it is done");
     for row in &rows {
         if row.skipped.is_some() {
