@@ -15,8 +15,8 @@ cmux setup check examples/looks/web-coding-app/profile   # offline check of this
 | File | What it sets |
 | --- | --- |
 | `cmux-setup.json` | sidebar, tabs, chat column, diff and attention settings, the motion switches |
-| `themes/web-coding-app.json` | page and frame colors, plus 150 ms hover fades |
-| `agent-pane/theme.css` | the chat's paint (cmux.agentPane.style/1 tokens), no size or spacing changes |
+| `themes/web-coding-app.json` | page and frame colors, plus requested native hover timings |
+| `agent-pane/theme.css` | the chat’s text and prompt colors, hover and fold durations |
 | `keybindings.json` | new chat, step sessions, reopen, unread, model, effort, mode, shortcut search |
 
 Remove it with `cmux setup remove manaflow-ai/web-coding-app-profile`; everything you had comes back.
@@ -118,13 +118,13 @@ reopen has a key, and the mode menu has one.
 | Motion | Reference | cmux with this profile | Status |
 | --- | --- | --- | --- |
 | Streaming text reveal | word by word, each word fades in over about 200-300 ms | characters, 120 ms fade | partial: waits on `agentPane.display.streaming` |
-| Diff / file card enter | within one frame | 80 ms fade | matched |
-| Collapsible row hover | background 150 ms ease | theme requests 150 ms on hover entry and exit | partial: row timing unverified |
-| Collapsible chevron rotate | 150 ms ease | the transcript uses the shared fold duration | partial: no per-chevron timing |
-| List header / icon fade | opacity 150 ms ease | 150 ms for controls using the theme hover fade | partial: individual controls unverified |
+| Diff / file card enter | within one frame | uses the shared card transition | partial: enter timing unverified |
+| Collapsible row hover | background 150 ms ease | 150 ms for chat controls using the quick transition | partial: row timing unverified |
+| Collapsible chevron rotate | 150 ms ease | 150 ms shared transcript fold duration | partial: curve and rendered timing unverified |
+| List header / icon fade | opacity 150 ms ease | control-specific fades can cap the shared duration | partial: individual controls unverified |
 | Popover / model picker open | no transition | no transition | matched |
 | Spinner | dot grid, still under reduced motion | status spinner, still under reduced motion | partial: shape differs |
 | Reduced motion | animations off | follows the system setting, plus `ui.animations.enabled` | matched |
-| Message send, dialog open, button press | not measured | 120 ms, 180 ms, 80 ms | unmeasured |
+| Message send, dialog open, button press | not measured | control-specific durations | unmeasured |
 
-The theme sets `motion.fades.hover` and `motion.fades.hoverOut` in seconds. Streaming and transcript folds use separate timing controls. See `docs/cmux-next/extensions/behavior-motion-gaps.md` for the available profile controls.
+The chat stylesheet sets `--cmux-motion-quick` and `--cmux-motion-settle` to 150 ms. The native theme also requests 0.15 seconds for `motion.fades.hover` and `motion.fades.hoverOut`. See `docs/cmux-next/extensions/behavior-motion-gaps.md` for the available profile controls.

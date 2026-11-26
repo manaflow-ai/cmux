@@ -1,23 +1,12 @@
-/* A light web coding agent's chat: near-black prose on white, gray activity lines, your prompt in a #f1f1f1 bubble,
-   a white composer with a hairline #e5e5e5 edge. Paint only: no size or spacing changes, so nothing moves when this
-   applies or comes off. */
+/* Chat colors follow the profile's page and ink. Quick transitions and transcript
+   folds use the reference's 150 ms timing when motion is enabled. */
 :root {
-  --cv-text: #171717;
-  --cv-text-muted: #707070;
-  --cv-activity-text: #707070;
-  --cv-bubble: #f1f1f1;
-  --cv-link: #0b62d6;
-  --cv-code-bg: #f4f4f4;
-}
-:root .acpmux-shell,
-:root[data-borders] .acpmux-shell {
-  --acpmux-composer-bg: #ffffff;
-  --acpmux-composer-edge: #e5e5e5;
-  --acpmux-composer-hover: #fafafa;
-  --acpmux-composer-placeholder: #8f8f8f;
-  --acpmux-composer-dim: #8f8f8f;
-}
-:root .acpmux-composer-box {
-  --acpmux-composer-radius: 12px;
-  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 62%, var(--agent-page-bg));
+  --cv-activity-text: var(--cv-text-muted);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg));
+  --cv-user-bubble-text: var(--agent-text);
+  --cv-link: var(--agent-link);
+  --cmux-motion-quick: 150ms;
+  --cmux-motion-settle: 150ms;
 }
