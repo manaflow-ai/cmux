@@ -83,6 +83,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_git_token_env.py"
 
 [[test]]
+path = "tests/test_nightly_release_downloads.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_release_downloads.py"
+
+[[test]]
 path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
