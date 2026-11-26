@@ -257,7 +257,8 @@ jobs:
       # plan records no clips and leaves the pick as it was.
       - name: Plan the What's New clips
         id: clips
-        if: ${{ steps.decide.outputs.wanted == 'true' && github.event_name != 'pull_request' && steps.last_toured.outputs.defer != 'true' }}
+        # Also on a tip under the gap: a clip still waiting tours it anyway (the hold step below).
+        if: ${{ steps.decide.outputs.wanted == 'true' && github.event_name != 'pull_request' }}
         continue-on-error: true
         env:
           # The waiting befores' shared app is the newest nightly tip before them (one GET of nightly.yml's runs).
@@ -278,9 +279,26 @@ jobs:
           echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
 
+      # A tip under the gap defers only when no What's New clip is waiting. On 2026-11-25 tip 4755643e
+      # (run 45692277328) deferred 50 min after tour run 45680711758 failed at checkout, and the two
+      # clips that tour owed waited for a tip past the gap that the stalled nightly never pushed.
+      - name: Hold a tip under the gap with no clips waiting
+        id: hold
+        if: ${{ steps.decide.outputs.wanted == 'true' && steps.last_toured.outputs.defer == 'true' }}
+        env:
+          CLIPS_PLAN: ${{ steps.clips.outputs.plan }}
+        run: |
+          if [ -n "$CLIPS_PLAN" ] && [ "$CLIPS_PLAN" != "[]" ]; then
+            echo "under the gap, but What's New clips wait: touring anyway"
+            echo "held=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "under the gap and no clips wait: deferring"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Pick an owned gui runner
         id: pick
-        if: ${{ steps.decide.outputs.wanted == 'true' && steps.last_toured.outputs.defer != 'true' }}
+        if: ${{ steps.decide.outputs.wanted == 'true' && steps.hold.outputs.held != 'true' }}
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}

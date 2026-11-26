@@ -80,6 +80,7 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-interactivity/**"
       - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-engine/**"
@@ -246,11 +247,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/ffi_build_supersede.py
 
+  portable-tests:
+    name: app FFI unit tests (Linux)
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui/crates/cmux-app-ffi -> target
+          key: app-ffi-unit-tests
+
+      - name: Test the reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Test the remote desktop FFI
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: cargo test --locked
+
+      - name: Test the palette ranker
+        working-directory: cmux-tui
+        run: cargo test -p cmux-palette-ranker --locked
+
   build:
     name: build xcframework
-    needs: placement
-    # Runs whatever the placement did (it only picks the runner); not on a cancelled run.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
+    needs: [placement, portable-tests]
+    # Placement may fail open; portable tests must pass before taking a Mac for the xcframework.
+    if: ${{ !cancelled() && needs.portable-tests.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
     # The placement's route (above) when it placed this attempt. Without one
     # (no placement, or a busy promote pool and no free Blacksmith slot),
     # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
@@ -373,18 +411,6 @@ jobs:
       - name: Install Apple targets
         working-directory: cmux-tui
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-
-      - name: Test the reducer
-        working-directory: cmux-tui
-        run: cargo test -p cmux-layout-reducer --locked
-
-      - name: Test the remote desktop FFI
-        working-directory: cmux-tui/crates/cmux-rd-ffi
-        run: cargo test --locked
-
-      - name: Test the palette ranker
-        working-directory: cmux-tui
-        run: cargo test -p cmux-palette-ranker --locked
 
       # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
       - name: Build universal xcframework

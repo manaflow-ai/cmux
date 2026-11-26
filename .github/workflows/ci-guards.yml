@@ -978,6 +978,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the Team-signed tree's on-branch check spends no REST call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_team_signed_on_branch_check.py
+
       - name: Validate every build-fleet client call checks the client is installed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_ci_client_guarded.py
@@ -1360,6 +1364,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate every push- or PR-started workflow has a concurrency group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
+
       - name: Validate pull_request tailnet joins are opt-in and same-repo only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
@@ -1453,6 +1461,10 @@ jobs:
       - name: Validate the submodule init cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_init_submodule.sh
+
+      - name: Validate ios-live person slots and supervision
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_person_slot.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
