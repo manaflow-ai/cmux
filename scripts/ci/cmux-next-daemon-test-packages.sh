@@ -11,7 +11,7 @@
 # linked the hub carrier, which filled an 8-vCPU runner's disk on every run
 # from 171c1fa97a7 ("No space left on device", cmux-tui-artifacts run 43758800604).
 # Falls back to the members alone (all their test targets) when a match is in
-# a file it cannot place in one target, and to `--workspace` when a match is
+# a file it cannot place in one target (a tests/ file no target of its own names), and to `--workspace` when a match is
 # outside a member it can name.
 # Usage (from the repository root or cmux-tui/): scripts/ci/cmux-next-daemon-test-packages.sh
 set -euo pipefail
@@ -32,8 +32,17 @@ while IFS= read -r file; do
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
-  # A member that names its own test targets may not map tests/NAME.rs to NAME.
-  if grep -qE '^autotests *= *false' "$dir/Cargo.toml"; then placed=0; continue; fi
+  # A member that names its own test targets (autotests = false) does not map tests/NAME.rs to NAME:
+  # build the targets it declares ([[test]] name = ...) and its lib and bins, never "every target of
+  # every member". One such member (cmux-tui, #56928) used to switch placement off for all of them, so
+  # acpmux's 349 test binaries linked on every run and filled the runner's disk (cmux-tui-artifacts
+  # runs 45792271430 and the four before it: "No space left on device").
+  if grep -qE '^autotests *= *false' "$dir/Cargo.toml"; then
+    targets+=("--lib" "--bins")
+    while IFS= read -r declared; do targets+=("--test" "$declared"); done < <(
+      awk '/^\[\[test\]\]/ { t = 1; next } /^\[/ { t = 0 } t && /^name *=/ { gsub(/^name *= *"|".*$/, ""); print }' "$dir/Cargo.toml")
+    continue
+  fi
   rel="${file#"$dir"/}"
   case "$rel" in
     src/*) targets+=("--lib" "--bins") ;;
