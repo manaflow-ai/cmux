@@ -752,7 +752,8 @@ class RiskTierCalls(unittest.TestCase):
         for name in ("Grade the pull request", "Set the risk label"):
             with self.subTest(step=name):
                 _, step = workflow_step("risk-tier.yml", "evidence", name)
-                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["READ_TOKEN"],
+                                 "${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}")
                 self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
         self.assertTrue(mint["continue-on-error"])

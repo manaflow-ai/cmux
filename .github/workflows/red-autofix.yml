@@ -257,11 +257,15 @@ jobs:
           (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
             --allowedTools "Read,Edit,Glob,Grep" \
             --disallowedTools "Bash,WebFetch,WebSearch" \
-            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json"
+            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json" \
+            2> "$RUNNER_TEMP/fixer.err" || echo "red-autofix: the fixer exited $?: $(tail -c 600 "$RUNNER_TEMP/fixer.err")" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ -s "$RUNNER_TEMP/fixer.json" ] || echo '{}' > "$RUNNER_TEMP/fixer.json"
           python3 -I trusted/scripts/ci/red_autofix.py diff --repo-dir target --tree "$tree" --out "$RUNNER_TEMP/fix.patch" > /dev/null
           python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
           data = json.load(open(sys.argv[1]))
+          if data.get("is_error") or data.get("subtype", "success") != "success":
+              print(f"red-autofix: the fixer ended {data.get('subtype')}: {str(data.get('result'))[:300]}", file=sys.stderr)
           out = data.get("structured_output") or {}
           if not out:
               try:
