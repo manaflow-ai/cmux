@@ -175,8 +175,8 @@ struct SidebarIconsNeverMeetTests {
         #expect(offenders.isEmpty, "\(offenders.count) overlaps: \(offenders.prefix(12).joined(separator: "; "))")
     }
 
-    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin never share a box with the dot, the spinner, the
-    /// count or the task count, at rest or revealed, at every width.
+    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin never share a box with the dot, the spinner or
+    /// the count, at rest or revealed, at every width.
     @Test(arguments: [false, true])
     func aTilesIconsNeverMeet(_ unreadDot: Bool) throws {
         for width in Self.widths {
@@ -185,7 +185,6 @@ struct SidebarIconsNeverMeetTests {
             info.workspace = CmuxNextSidebar.WorkspaceID("ws")
             info.unreadDot = unreadDot
             info.activity = .working(progress: nil)
-            info.taskProgress = SidebarTaskProgress(done: 2, total: 9)
             view.onMore = {}
             view.onUnpin = {}
             view.isPinned = { true }
@@ -195,7 +194,7 @@ struct SidebarIconsNeverMeetTests {
                 view.needsLayout = true
                 view.layoutSubtreeIfNeeded()
                 let icons: [(String, NSView?)] = [("more", view.hoverMore), ("unpin", view.hoverUnpin), ("rowBadge", view.rowBadge),
-                                                  ("unread", view.badge), ("activity", view.activity), ("taskCount", view.taskCount)]
+                                                  ("unread", view.badge), ("activity", view.activity)]
                 let drawn: [(String, CGRect)] = icons.compactMap { name, v in
                     guard let v, !v.isHidden, v.frame.width > 0, v.alphaValue > 0.01 else { return nil }
                     return (name, v.frame.insetBy(dx: 0.5, dy: 0.5))

@@ -49,6 +49,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+// How the link left the device: through a proxy, or one that inspects TLS (absent: direct).
+const LINK_STAT_EGRESS = new Set(["proxy", "inspected"])
 /** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
 const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
 const LINK_STAT_MARKS = new Set([
@@ -110,6 +112,8 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   if (switches !== undefined) line.switches = switches
   const net = word(f.net, LINK_STAT_NETS)
   if (net) line.net = net
+  const egress = word(f.egress, LINK_STAT_EGRESS)
+  if (egress) line.egress = egress
   const upS = num(f.upS, 30 * 86_400)
   if (upS !== undefined) line.upS = upS
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
@@ -1085,7 +1089,13 @@ export class TeamHub extends DurableObject<Env> {
       // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
       const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
       target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
-      if (f.payload.kind === "wg-init") this.prewarmRelay(f.sessionId, att, target)
+      if (f.payload.kind === "wg-init") {
+        // PROTOCOL.md "Early relay ticket": a dialer with no path but the relay asks for its own ticket now, so its
+        // join runs while the Mac gathers and answers. Only the service sends `wg-ticket`; a client's is refused above.
+        const early = (f.payload as { ticketEarly?: unknown }).ticketEarly === true ? this.ticketFor(f.sessionId, att.deviceId) : null
+        if (early) ws.send(JSON.stringify({ type: "signal", to: att.deviceId, from: f.to, fromUserId: att.userId, sessionId: f.sessionId, payload: { kind: "wg-ticket" }, relayTicket: early }))
+        this.prewarmRelay(f.sessionId, att, target)
+      }
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
