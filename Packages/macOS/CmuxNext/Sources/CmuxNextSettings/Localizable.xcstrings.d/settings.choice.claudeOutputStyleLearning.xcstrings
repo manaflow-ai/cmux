@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failure.codeRouterMoving" : {
-      "comment" : "Agent pane: the CodeRouter action while acpmux moves the chat",
+    "settings.choice.claudeOutputStyleLearning" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Learning"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "جارٍ النقل إلى CodeRouter…"
+            "value" : "تعلّم"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prelazak na CodeRouter…"
+            "value" : "Učenje"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Flytter til CodeRouter…"
+            "value" : "Læring"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wechsel zu CodeRouter …"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moving to CodeRouter…"
+            "value" : "Lernen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pasando a CodeRouter…"
+            "value" : "Aprendizaje"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Passage à CodeRouter…"
+            "value" : "Apprentissage"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Passaggio a CodeRouter…"
+            "value" : "Apprendimento"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter に移動中…"
+            "value" : "学習"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំពុងផ្លាស់ទៅ CodeRouter…"
+            "value" : "ការរៀន"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter로 옮기는 중…"
+            "value" : "학습"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Flytter til CodeRouter …"
+            "value" : "Læring"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Przenoszenie do CodeRouter…"
+            "value" : "Nauka"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Movendo para o CodeRouter…"
+            "value" : "Aprendizado"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Переход на CodeRouter…"
+            "value" : "Обучение"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "กำลังย้ายไป CodeRouter…"
+            "value" : "การเรียนรู้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "CodeRouter'a geçiliyor…"
+            "value" : "Öğrenme"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Перехід на CodeRouter…"
+            "value" : "Навчання"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đang chuyển sang CodeRouter…"
+            "value" : "Học tập"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在切换到 CodeRouter…"
+            "value" : "学习型"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在切換到 CodeRouter…"
+            "value" : "學習型"
           }
         }
       }
