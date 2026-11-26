@@ -199,6 +199,11 @@ impl SettingNames {
             if self.leaves.contains(path.as_str()) {
                 continue;
             }
+            // A key no row has that another reader owns (file-keys.json), or anything under it.
+            let segments: Vec<String> = path.split('.').map(str::to_owned).collect();
+            if cmux_config::schema::file_key(&segments).is_some() {
+                continue;
+            }
             if self.prefixes.contains(path.as_str()) {
                 if let Value::Object(inner) = value {
                     self.collect_unknown(inner, &path, out);
