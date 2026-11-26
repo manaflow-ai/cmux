@@ -1,4 +1,12 @@
 name: cmux-next hot verify
+# A dispatch runs on feat-cmux-next's tip whatever PR it looks at, so twenty PRs' looks read as twenty runs of one
+# sha on one branch (NOW's ci-parallel paged 10 on 2026-11-25). The run name names its target: the PR, its head and
+# the half, so each look is told apart in the runs list and by leo-workspace tools/ci_trace.py detect_parallel, which
+# keys a dispatch on its run name (a real loop repeats one name). A PR or push run keeps GitHub's own title.
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+  && format('cmux-next hot verify PR {0} {1}{2}{3}', inputs.pr, inputs.head, inputs.kind == 'merge' && ' merge' || '', inputs.look_result != '' && ' result' || '')
+  || github.event.pull_request.title || github.event.head_commit.message || github.workflow }}
 
 # Look first, then test (Leo, 2026-11-15): "front load that. Just screenshot it, take a video, touch it,
 # interact with it, click around with it, and then push it through the various testing instead of the other way
@@ -357,6 +365,7 @@ jobs:
             /scripts/cmux-next/hot-verify-pr.sh
             /scripts/ci/gh_budget_wait.sh
             /scripts/ci/ci_pool_tokens.py
+            /.gitmodules
           sparse-checkout-cone-mode: false
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
       # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
@@ -477,6 +486,7 @@ jobs:
           sparse-checkout: |
             /scripts/ci/cmux_tui_tree_key.py
             /scripts/cmux-next/cmux-tui-tree-inputs.txt
+            /.gitmodules
           sparse-checkout-cone-mode: false
       # tree= in the request makes the controller wait up to 50 min for the tree's completion.json (cmuxterm-hq
       # hot_verify_look.go hotLookTreeWait). Name it only when it is published, or when something will publish it:
@@ -614,6 +624,7 @@ jobs:
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/ci_pool_tokens.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
       # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the

@@ -1,7 +1,7 @@
 import AppKit
 import CoreGraphics
 import Darwin
-import SystemConfiguration
+import IOKit
 
 /// When the app's warm-up may make an `NSOpenPanel` (``MadeAheadPanelStore``'s warm check). The three facts it reads
 /// are injected, so a test checks the rule with no running app and no console session (`OpenPanelWarmGateTests`).
@@ -9,7 +9,7 @@ import SystemConfiguration
 struct OpenPanelWarmGate: Sendable {
     /// Whether the app's event loop runs (`NSApp.isRunning`).
     var appIsRunning: @MainActor @Sendable () -> Bool
-    /// Whether this account is the console user (SCDynamicStore `State:/Users/ConsoleUser`).
+    /// Whether this account is the console user (IOConsoleUsers' session on the console, ``consoleHolderUID(in:)``).
     var sessionIsOnConsole: @MainActor @Sendable () -> Bool
     /// Whether the person has paused (no input for a second, or cmux in the background) outside a tracking loop.
     var personIsIdle: @MainActor @Sendable () -> Bool
@@ -42,14 +42,35 @@ struct OpenPanelWarmGate: Sendable {
     }
 }
 
-/// Whether this process's account is the console user: the rule of bench_launch.py `gui_session()` and the hq worker
-/// gate (build-fleet console_session.go readConsoleUser); change all three together. `loginwindow` or no console
-/// user means nobody. Not `CGSessionCopyCurrentDictionary`: it is nil for a process outside a Quartz GUI session (an
-/// app started over SSH, as every fleet bench is), even when its account is on the console.
+extension OpenPanelWarmGate {
+    /// The uid of the account whose session WindowServer has on the console, from IOConsoleUsers' entries: the first
+    /// one with kCGSSessionOnConsoleKey whose login is not still in progress, as the hq worker gate reads it
+    /// (build-fleet screen_share.go consoleHolderFromIOReg) and bench_launch.py `console_user()`; change all three
+    /// together. nil when nobody is (the login window). Not SCDynamicStore's `State:/Users/ConsoleUser`: that is the
+    /// last account to log in, and a Screen Sharing login to another account's own session (the fleet's hidden CI
+    /// accounts, 2026-11-18) takes it over while this account's session stays on the console.
+    nonisolated static func consoleHolderUID(in sessions: [[String: Any]]) -> uid_t? {
+        for session in sessions {
+            guard session["kCGSSessionOnConsoleKey"] as? Bool == true,
+                  session["kCGSessionLoginDoneKey"] as? Bool != false else { continue }
+            guard session["kCGSSessionUserNameKey"] as? String != "loginwindow",
+                  let uid = (session["kCGSSessionUserIDKey"] as? NSNumber)?.uint32Value else { return nil }
+            return uid_t(uid)
+        }
+        return nil
+    }
+}
+
+/// Whether this process's account is the console user (``OpenPanelWarmGate/consoleHolderUID(in:)``). Not
+/// `CGSessionCopyCurrentDictionary`: it is nil for a process outside a Quartz GUI session (an app started over SSH, as
+/// every fleet bench is), even when its account is on the console. An unreadable registry means nobody.
 private func thisAccountIsConsoleUser() -> Bool {
-    var uid: uid_t = 0
-    guard let name = SCDynamicStoreCopyConsoleUser(nil, &uid, nil) as String?, name != "loginwindow" else { return false }
-    return uid == getuid()
+    let root = IORegistryGetRootEntry(kIOMainPortDefault)
+    guard root != IO_OBJECT_NULL else { return false }
+    defer { IOObjectRelease(root) }
+    guard let sessions = IORegistryEntryCreateCFProperty(root, "IOConsoleUsers" as CFString, kCFAllocatorDefault, 0)?
+        .takeRetainedValue() as? [[String: Any]] else { return false }
+    return OpenPanelWarmGate.consoleHolderUID(in: sessions) == getuid()
 }
 
 /// In the background the person types elsewhere: nothing here waits on the main thread. In front, the time since the
