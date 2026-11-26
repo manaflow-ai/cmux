@@ -192,6 +192,39 @@ fn a_layer_folder_no_entry_uses_is_left_over_and_removal_keeps_a_copy() {
 }
 
 #[test]
+fn live_bridge_settings_and_migration_inputs_load_without_a_toast() {
+    let home = Home::new();
+    let settings = json!({
+        "agents": {"desktopBridge": {"enabled": true, "entrypoints": ["claude-desktop"]}},
+        "status": {"working": "legacy"},
+        "tunable": {"diagnostics": {"focusLog": false}},
+        "remote": {"ultraMode": true},
+        "appearance.tabBarBackground": "dark",
+    });
+    home.write("cmux-next.json", &settings.to_string());
+    let report = home.customize().doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(kinds(&report), Vec::new());
+    assert_eq!(report.announce, None);
+}
+
+#[test]
+fn a_typo_beside_a_live_or_retired_key_still_reports_the_exact_key() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        &json!({
+            "agents.desktopBridge": {"enabled": false, "entrypoint": []},
+            "tunable": {"diagnostics": {"focusLog": true, "foucusLog": true}},
+        })
+        .to_string(),
+    );
+    let report = home.customize().doctor(&at(NOW));
+    assert_eq!(report.findings.len(), 2);
+    find(&report, "unknown-key:agents.desktopBridge.entrypoint");
+    find(&report, "unknown-key:tunable.diagnostics.foucusLog");
+}
+
+#[test]
 fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
     let home = Home::new();
     home.write(
@@ -260,6 +293,37 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     home.write("themes/night.json", "{\n\n  \"appearance\": }\n");
     let changed = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(changed.announce.is_some(), "a different problem is new: {:?}", changed.findings);
+}
+
+#[test]
+fn moving_a_misspelling_keeps_its_new_line_and_its_identity() {
+    let home = Home::new();
+    let customize = home.customize();
+    let id = "unknown-key:appearance.acent";
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    // A misspelling is information, never a toast (#55870).
+    let first = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(first.announce, None);
+    home.write("cmux-next.json", "{\n  // moved\n  \"appearance\": {\"acent\": \"red\"}\n}");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(find(&moved, id).line, Some(3));
+    assert_eq!(find(&moved, id).fingerprint, find(&first, id).fingerprint);
+    assert_eq!(moved.announce, None);
+    customize.doctor_dismiss(id, &at(NOW)).unwrap();
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    assert!(find(&customize.doctor(&at(NOW)), id).dismissed);
+
+    // Older builds saved a hash containing the line. An upgrade must honor it too.
+    let state = home.dir.path().join("state/doctor.json");
+    fs::write(
+        state,
+        json!({"announced": {id: "aa00000000000001"}, "dismissed": {id: "aa00000000000001"}})
+            .to_string(),
+    )
+    .unwrap();
+    let upgraded = customize.doctor_announce(&at(NOW)).unwrap();
+    assert!(find(&upgraded, id).dismissed);
+    assert_eq!(upgraded.announce, None);
 }
 
 #[test]

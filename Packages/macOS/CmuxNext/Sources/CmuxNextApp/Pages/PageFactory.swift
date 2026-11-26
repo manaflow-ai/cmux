@@ -104,31 +104,6 @@ struct PageFactory {
         }
     }
 
-    /// The React CodeRouter page (cmux.coderouter). Its namespace goes to the CodeRouter app's
-    /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
-    /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
-    func coderouterWebPage() -> PageWebView? {
-        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
-            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
-                throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
-            }
-            return try await router.appControl(method, params)
-        }, pageShapes: true)
-        let registry = services.registry
-        let provider = CodeRouterPageProvider(ops: ops, connect: { id in
-            registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
-        })
-        let confirming = ConfirmingPageProvider(inner: provider, presenter: DialogPageConfirmationPresenter()) { op, params in
-            CodeRouterPageConfirmations.confirmation(op: op, params: params)
-        }
-        let native = AppPageNativeProvider(services: services, page: .coderouter)
-        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
-        confirming.anchor = { [weak page] in page }
-        native.anchor = { [weak page] in page }
-        return page
-    }
-
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
     /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
     /// sign-in and sign-out run the app's own account flow after the native sheet.
