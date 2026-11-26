@@ -55,6 +55,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# The merge train's combined tip (cmuxterm-hq tools/fleet-reconcilers/merge_train.py; standing PR #55855).
+TRAIN_TIP = "lane/merge-train"
 sys.path.insert(0, str(HERE))
 try:  # a head whose step-table runner does not import still routes: its pipeline starts (table_steps)
     import ci_steps  # noqa: E402
@@ -171,7 +173,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
     # full-ci asks for the full tier, so it beats fast-track.
     fast = False
@@ -186,10 +188,22 @@ def route(event: dict, callees: dict, files: list[str] | None,
         # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review). full-ci is
         # the same handoff from a lane VM, whose broker never sets ready-to-land (land-judge's land_tier asks it).
         action, added = "ready_for_review", ""
+    head = pr.get("head") or {}
+    train_tip = (head.get("ref") == TRAIN_TIP
+                 and (head.get("repo") or {}).get("full_name") == ((pr.get("base") or {}).get("repo") or {}).get("full_name"))
     start, why = [], {}
     for name, config in sorted(callees.items()):
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
+            continue
+        if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
+            # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
+            # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
+            if files is None or (matches_filter(config, files) and affects(config, files)):
+                start.append(name)
+                why[name] = f"the merge train's tip ({TRAIN_TIP})"
+            else:
+                why[name] = "no changed file is one of its inputs"
             continue
         if config.get("land_handoff_only") and not handoff and not land_update:
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
@@ -339,7 +353,7 @@ def main(argv: list[str]) -> int:
         files = changed_files()
         decided = head_tier.decide("pull_request", event)
         start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees))
-        labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+        labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
         added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full,
