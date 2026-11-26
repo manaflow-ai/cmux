@@ -50,7 +50,7 @@ pub const SETTING_AUTOCOMPACT_WINDOW: &str = "agents.claudeAutocompactWindow";
 /// above 0, else none.
 pub fn claude_autocompact_window_in(doc: Option<&serde_json::Value>) -> Option<String> {
     doc.and_then(|d| crate::user_settings::value(d, SETTING_AUTOCOMPACT_WINDOW))
-        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| v.as_u64())
         .filter(|n| *n > 0)
         .map(|n| n.to_string())
 }
