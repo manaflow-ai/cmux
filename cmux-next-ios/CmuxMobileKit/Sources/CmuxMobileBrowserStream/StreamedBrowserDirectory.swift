@@ -70,6 +70,14 @@ public final class StreamedBrowserDirectory {
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
     public var tabsRetained: (@MainActor (Set<String>) -> Void)?
     public var tabRenamed: (@MainActor (_ old: String, _ new: String) -> Void)?
+    /// Hears one Mac's browser tabs each time it lists its workspaces: a tab new since
+    /// the last list opens where Settings → Browser → Open New Pages says.
+    public var browserTabsListed: (@MainActor (_ macID: String, _ tabs: [(id: String, url: URL?)]) -> Void)?
+
+    /// One Mac listed its workspaces (`tabs`: its browser tabs, in list order).
+    public func listed(macID: String, browserTabs tabs: [(id: String, url: URL?)]) {
+        browserTabsListed?(macID, tabs)
+    }
 
     /// The streamed model of a tab (`tab`: its key on the Mac, `url`: its
     /// first page), or nil when not linked.
