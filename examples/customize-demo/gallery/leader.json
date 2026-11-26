@@ -1,0 +1,18 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-leader",
+  "description": "Drive the window from the keyboard with a prefix key, on cmux's own Command-J leader: Command-J then V or minus splits, Z zooms, E evens the splits, O floats the pane, C opens a terminal tab, A starts a chat beside you, D opens the diff, B hides the sidebar, X closes the tab. Command-J W, R or M then H, J, K or L moves focus, resizes or moves the tab. Holding Command shows the keys.",
+  "created_ms": 0,
+  "settings": {
+    "shortcuts.showModifierHoldHints": true,
+    "browser.vimKeys": true
+  },
+  "files": {
+    "keybindings.json": "// Leader keys (the leader look): Command-J, then a letter. Command-J is cmux's own leader\n// (Command-J T is the Quick Terminal, Command-J S a new chat), so nothing a terminal or a chat\n// types is taken. After Command-J: W is focus, R is resize, M is move, each then H, J, K or L.\n// `cmux setup remove manaflow-ai/leader` puts your own keys back.\n[\n  // Panes\n  { \"key\": \"cmd+j v\", \"command\": \"splitRight\" },\n  { \"key\": \"cmd+j minus\", \"command\": \"splitDown\" },\n  { \"key\": \"cmd+j z\", \"command\": \"toggleSplitZoom\" },\n  { \"key\": \"cmd+j e\", \"command\": \"equalizeSplits\" },\n  { \"key\": \"cmd+j o\", \"command\": \"toggleFloatingPane\" },\n  { \"key\": \"cmd+j x\", \"command\": \"closeTab\" },\n\n  // Things to open\n  { \"key\": \"cmd+j c\", \"command\": \"new.terminal.tab\" },\n  { \"key\": \"cmd+j a\", \"command\": \"new.agentChat.right\" },\n  { \"key\": \"cmd+j d\", \"command\": \"openDiffViewer\" },\n  { \"key\": \"cmd+j b\", \"command\": \"toggleSidebar\" },\n\n  // Workspaces\n  { \"key\": \"cmd+j rightbracket\", \"command\": \"nextSidebarTab\" },\n  { \"key\": \"cmd+j leftbracket\", \"command\": \"prevSidebarTab\" },\n\n  // Command-J W: focus\n  { \"key\": \"cmd+j w h\", \"command\": \"focusLeft\" },\n  { \"key\": \"cmd+j w j\", \"command\": \"focusDown\" },\n  { \"key\": \"cmd+j w k\", \"command\": \"focusUp\" },\n  { \"key\": \"cmd+j w l\", \"command\": \"focusRight\" },\n\n  // Command-J R: resize\n  { \"key\": \"cmd+j r h\", \"command\": \"resizePaneLeft\" },\n  { \"key\": \"cmd+j r j\", \"command\": \"resizePaneDown\" },\n  { \"key\": \"cmd+j r k\", \"command\": \"resizePaneUp\" },\n  { \"key\": \"cmd+j r l\", \"command\": \"resizePaneRight\" },\n\n  // Command-J M: move the tab to the next pane that way\n  { \"key\": \"cmd+j m h\", \"command\": \"moveSurfaceToPaneLeft\" },\n  { \"key\": \"cmd+j m j\", \"command\": \"moveSurfaceToPaneDown\" },\n  { \"key\": \"cmd+j m k\", \"command\": \"moveSurfaceToPaneUp\" },\n  { \"key\": \"cmd+j m l\", \"command\": \"moveSurfaceToPaneRight\" }\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/leader",
+    "name": "leader",
+    "source": "looks/leader"
+  }
+}

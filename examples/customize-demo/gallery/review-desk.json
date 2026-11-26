@@ -1,0 +1,35 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-review-desk",
+  "description": "Review what an agent did without leaving the chat. The chat stays the main pane and every diff, file and link it opens lands in a column on its right; new terminals split instead of stacking as tabs; the edited-files card stays open; the tab bar gets Split Right, Split Down, Open Diff Viewer and Zoom buttons. Shift-Command-D opens the diff; in the diff ] F and [ F step files, N and Shift-N step hunks, G G goes to the top. Two palette actions show the branch against main and start Claude to review it.",
+  "created_ms": 0,
+  "settings": {
+    "layout.mainPane": "agent-chats",
+    "layout.linkPlacement": "split-right",
+    "layout.newPanePlacement": "split",
+    "layout.splitSizing": "halve",
+    "layout.paneSeparation": "borders",
+    "tabs.toolbarButtons": [
+      "splitRight",
+      "splitDown",
+      "openDiffViewer",
+      "toggleSplitZoom"
+    ],
+    "tabs.plusButton": "always",
+    "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.scope": "session",
+    "agentPane.display.sessionInfo.placement": "push"
+  },
+  "files": {
+    "keybindings.json": "// Review desk keys (the review-desk look). Shift-Command-D opens the diff viewer. Inside the\n// diff viewer, where letters are not typing, ] F and [ F step files, N and Shift-N step hunks and\n// G G goes to the top (J, K, Shift-G and / are the viewer's own already).\n// `cmux setup remove manaflow-ai/review-desk` puts your own keys back.\n[\n  { \"key\": \"cmd+shift+d\", \"command\": \"openDiffViewer\" },\n  { \"key\": \"rightbracket f\", \"command\": \"diffViewerNextFile\", \"when\": \"diffViewerFocused\" },\n  { \"key\": \"leftbracket f\", \"command\": \"diffViewerPreviousFile\", \"when\": \"diffViewerFocused\" },\n  { \"key\": \"n\", \"command\": \"diffViewerNextHunk\", \"when\": \"diffViewerFocused\" },\n  { \"key\": \"shift+n\", \"command\": \"diffViewerPreviousHunk\", \"when\": \"diffViewerFocused\" },\n  { \"key\": \"g g\", \"command\": \"diffViewerGoToTop\", \"when\": \"diffViewerFocused\" }\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/review-desk",
+    "name": "review-desk",
+    "source": "looks/review-desk",
+    "actions": [
+      "review-branch",
+      "review-claude"
+    ]
+  }
+}

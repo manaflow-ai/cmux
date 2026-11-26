@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-t3code-archive",
+  "description": "Fold seen, finished chats until new activity and archive the settled group on demand.",
+  "created_ms": 0,
+  "settings": {
+    "sidebar.settleFinished": true
+  },
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/t3code-archive",
+    "name": "Settled and archived chats",
+    "source": "looks/t3code/archive"
+  }
+}

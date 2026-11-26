@@ -1,0 +1,49 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-hearth-look",
+  "description": "A whole cmux look after a warm chat assistant desktop app: a cream paper theme (Hearth) and a warm brown dark (Hearth Dark), serif reading prose at a roomy size and width, prompts as outlined cards on the leading edge with the reply flowing under them as plain prose, a rounded message box and a quiet header. Built only from public surfaces; remove it and everything you had comes back.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "hearth",
+    "agentPane.display.layout.messages": "card",
+    "agentPane.display.layout.composer": "rounded",
+    "agentPane.display.layout.header": "quiet",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.ui": "source-sans",
+    "agentPane.display.font.size": 16,
+    "agentPane.display.font.lineHeight": 1.7,
+    "agentPane.display.code.scale": 0.85,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "recents",
+    "sidebar.sessionTree": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.controlsOnHover": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.working": true,
+    "markdown.font.preset": "serif",
+    "markdown.font.size": 16,
+    "markdown.layout.width": 72
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Hearth's chat: your prompt a soft card in a warm tint with a gentle outline and generous\n   corners, tool cards like a ruled page, quiet secondary text warmed toward the accent.\n   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so\n   nothing in the transcript moves when this applies or reloads. Every color is made from the\n   theme's own, so it reads over Hearth and Hearth Dark and over any theme of your own. */\n:root {\n  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 8%, transparent);\n  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-accent) 26%, transparent);\n  --cv-user-bubble-radius: 14px;\n  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 5%, transparent);\n  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 18%, transparent);\n  --cv-code-edge-fade: 32px;\n  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 88%, var(--agent-accent)) 84%, transparent);\n  /* Tool rows and \"Worked for\" draw --cv-activity-text (the stock 58% of the text): this look's muted\n     ink instead, so they hold 4.5:1 on its paper (golden-look-contrast-N.test.ts). */\n  --cv-activity-text: var(--cv-text-muted);\n  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 88%, var(--agent-accent)) 74%, transparent);\n  --cv-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));\n  --agent-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));\n}\n",
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": { \"en\": \"Hearth sidebar\" },\n  \"version\": \"1.0.0\",\n  \"description\": \"Hearth's hover card and sidebar rows: the conversation in full, medium names and a soft arc while work runs.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"repository\": \"https://github.com/local/customize\",\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.hovercard/1\": { \"export\": \"renderCard\" },\n    \"cmux.sidebar.rows/1\": { \"export\": \"decorateRows\" }\n  },\n  \"scopes\": { \"workspace:read\": \"Name the rows to decorate.\" },\n  \"activation\": [\"onInterface:cmux.hovercard/1\", \"onInterface:cmux.sidebar.rows/1\"],\n  \"files\": [\"main.js\"]\n}\n",
+    "customize/main.js": "// Hearth's sidebar: a reading card with the conversation in full, and calm rows.\n// Public surfaces only: cmux.hovercard/1 and cmux.sidebar.rows/1 (docs/cmux-next/sidebar-customization.md).\n\nconst FIELDS = [\"needsInput\", \"task\", \"lastReply\", \"agent\"]\n\nfunction renderCard(ctx) {\n  const card = ctx.card\n  const facts = FIELDS.flatMap((kind) => card.facts.filter((fact) => fact.kind === kind))\n  return VStack({ spacing: 8 }, [\n    Text(card.title).font(\"headline\").lineLimit(2),\n    card.status ? Text(card.status).secondary() : null,\n    ...facts.map((fact) => Text(fact.text).lineLimit(fact.kind === \"task\" || fact.kind === \"lastReply\" ? 5 : 1)),\n  ])\n}\n\n// Rows: medium names, and the arc as the loading indicator.\nfunction decorateRows() {\n  const workspaces = cmux.live(\"workspace.list\", {})\n  return VStack([\n    ForEach({ items: () => workspaces() ?? [], key: (w) => w.id }, (w) =>\n      Group({ row: () => w().id, title: () => w().name, weight: () => \"medium\", indicator: () => \"arc\" }, []),\n    ),\n  ])\n}\n\nglobalThis.__cmuxAppExports = { renderCard, decorateRows }\n",
+    "themes/hearth-dark.json": "// Hearth Dark: the same desk by lamplight. A warm brown-black page (#1f1c19), the sidebar a step\n// darker (#191714), warm off-white ink (#ece6dc) and the terracotta lifted (#e08a63) to read on it.\n{\n  \"name\": \"Hearth Dark\",\n  \"description\": \"A warm brown-black page, warm off-white ink, a darker sidebar and a lifted terracotta accent.\",\n\n  \"appearance.theme\": \"Builtin Dark\",\n  // The window, sidebar and pages take that theme too, over an App Theme of your own.\n  \"appearance.appTheme\": \"followTerminal\",\n  \"colors\": { \"background\": \"#1f1c19\", \"foreground\": \"#ece6dc\", \"selection\": \"#3a332c\", \"accent\": \"#e08a63\" },\n  \"appearance.accent\": \"theme\",\n\n  \"appearance.background\": \"none\",\n  \"appearance.borders\": \"none\",\n  \"appearance.chromeStyle\": \"flat\",\n  \"appearance.titleAreaTone\": \"oneColor\",\n  \"appearance.density\": \"comfortable\",\n\n  \"appearance.metrics.sidebarWidth\": 272,\n  \"appearance.metrics.sidebarRowHeight\": 32,\n  \"appearance.metrics.chromeFontSize\": 13,\n\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#191714\",\n  \"appearance.surfaces.sidebar.opacity\": 1,\n  \"appearance.surfaces.agentPane.color\": \"#1f1c19\",\n  \"appearance.surfaces.agentPane.opacity\": 1,\n  \"appearance.surfaces.tabBar.color\": \"#1f1c19\",\n  \"appearance.surfaces.tabBar.opacity\": 1,\n  \"sidebar.sectionLook\": \"quiet\",\n  \"appearance.statusIndicator.style\": \"arc\"\n}\n",
+    "themes/hearth.json": "// Hearth: warm cream paper. The page a soft cream (#f7f3ea), the sidebar a shade deeper (#efe9dc),\n// warm near-black ink (#2b2722) and a terracotta accent (#b0532f) for focus and links.\n{\n  \"name\": \"Hearth\",\n  \"description\": \"Warm cream paper, warm ink, a deeper cream sidebar and a terracotta accent.\",\n\n  \"appearance.theme\": \"Builtin Light\",\n  // The window, sidebar and pages take that theme too, over an App Theme of your own.\n  \"appearance.appTheme\": \"followTerminal\",\n  \"colors\": { \"background\": \"#f7f3ea\", \"foreground\": \"#2b2722\", \"selection\": \"#e6dccb\", \"accent\": \"#b0532f\" },\n  \"appearance.accent\": \"theme\",\n\n  \"appearance.background\": \"none\",\n  \"appearance.borders\": \"none\",\n  \"appearance.chromeStyle\": \"flat\",\n  \"appearance.titleAreaTone\": \"oneColor\",\n  \"appearance.density\": \"comfortable\",\n\n  // Proportions: a roomy 272 pt sidebar of 32 pt rows, 13 pt chrome text.\n  \"appearance.metrics.sidebarWidth\": 272,\n  \"appearance.metrics.sidebarRowHeight\": 32,\n  \"appearance.metrics.chromeFontSize\": 13,\n\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#efe9dc\",\n  \"appearance.surfaces.sidebar.opacity\": 1,\n  \"appearance.surfaces.agentPane.color\": \"#f7f3ea\",\n  \"appearance.surfaces.agentPane.opacity\": 1,\n  \"appearance.surfaces.tabBar.color\": \"#f7f3ea\",\n  \"appearance.surfaces.tabBar.opacity\": 1,\n  \"sidebar.sectionLook\": \"quiet\",\n  \"appearance.statusIndicator.style\": \"arc\"\n}\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/hearth-look",
+    "name": "Hearth",
+    "source": "looks/hearth"
+  }
+}
