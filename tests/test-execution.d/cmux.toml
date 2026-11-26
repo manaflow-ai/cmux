@@ -220,6 +220,11 @@ path = "tests/test_cmux_next_media_base_build_keeps_afters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_media_defer_keeps_clips.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_media_defer_keeps_clips.py"
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -234,6 +239,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tour_timeout.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_media_tour_timeout.py"
 
 [[test]]
 path = "tests/test_cmux_next_media_tree_fallback.py"
@@ -262,6 +272,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 [[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_autofix_drift_scope.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_autofix_drift_scope.py"
 
 [[test]]
 path = "tests/test_cmux_next_pr_autofix_push_gate.py"
@@ -393,6 +408,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Unit tests of cmux-rd's license gate and notices list (cmux-tui/crates/cmux-rd-host/scripts/release.py) on fabricated cargo metadata; run python3 tests/test_cmux_rd_license_gate.py yourself after changing release.py (a second, stdlib only). The real release crate tree is checked by cmux-rd-host's tests/release_features.rs, which cmux-rd-release.yml's cargo test runs."
 
 [[test]]
+path = "tests/test_cmux_scheme_compile_fleet.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_scheme_compile_fleet.py"
+
+[[test]]
 path = "tests/test_cmux_settings_jsonc.py"
 lane = "linux-guard"
 
@@ -417,12 +437,22 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_branch_on_request.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_branch_on_request.py"
+
+[[test]]
 path = "tests/test_cmux_tui_channel_keeper.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_dispatch_points_channel.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_dispatch_points_channel.py"
 
 [[test]]
 path = "tests/test_cmux_tui_election_budget.py"
@@ -524,8 +554,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_takeover.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_media_last_toured.py"
 lane = "linux-guard"

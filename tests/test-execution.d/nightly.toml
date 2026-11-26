@@ -43,6 +43,11 @@ path = "tests/test_nightly_cmux_tui_resolve.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_component_fallbacks.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_component_fallbacks.py"
+
+[[test]]
 path = "tests/test_nightly_dedicated_mini.py"
 lane = "linux-guard"
 

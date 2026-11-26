@@ -322,6 +322,10 @@ path = "tests/windows_daemon_start.rs"
 [[test]]
 name = "windows_terminal_hosts"
 path = "tests/windows_terminal_hosts.rs"
+# RFD 0135 gate 2 runs this ignored integration test directly from rfd0135_gates.py.
+[[test]]
+name = "lid_close_gate"
+path = "tests/lid_close_gate.rs"
 
 [build-dependencies]
 # build.rs reads the browser registry's ids and names.
