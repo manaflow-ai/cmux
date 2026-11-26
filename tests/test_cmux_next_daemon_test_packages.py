@@ -99,17 +99,28 @@ class TargetsOfTheMatches(unittest.TestCase):
         self.assertEqual(args, ["-p", "a", "--test", "hits"])
 
     def test_a_match_it_cannot_place_builds_the_whole_members(self) -> None:
-        # A member that sets autotests = false names its own targets; a match outside src/ and
-        # tests/ (a bench) belongs to no target the script names. Either keeps every test target.
-        for extra, rel in (("autotests = false\n", "tests/hits.rs"), ("", "benches/b.rs")):
-            with self.subTest(rel=rel, extra=extra):
-                with tempfile.TemporaryDirectory() as tmp:
-                    box = Fixture(Path(tmp))
-                    box.crate("a", extra)
-                    box.write("cmux-tui/crates/a/src/lib.rs", "#[test] fn cmux_next_lib() {}\n")
-                    box.write(f"cmux-tui/crates/a/{rel}", "#[test] fn cmux_next_x() {}\n")
-                    box.commit()
-                    self.assertEqual(run(box.root), ["-p", "a"])
+        # A match outside src/ and tests/ (a bench) belongs to no target the script names: it keeps
+        # every test target of the member.
+        self.box.crate("a")
+        self.box.write("cmux-tui/crates/a/src/lib.rs", "#[test] fn cmux_next_lib() {}\n")
+        self.box.write("cmux-tui/crates/a/benches/b.rs", "#[test] fn cmux_next_x() {}\n")
+        self.box.commit()
+        self.assertEqual(run(self.box.root), ["-p", "a"])
+
+    def test_a_member_with_autotests_off_builds_its_declared_targets_and_does_not_widen_the_others(self) -> None:
+        # cmux-tui sets autotests = false (one `it` binary, #56928). That once switched placement off for
+        # every member, so acpmux's ~300 test binaries linked on every run and filled the pool runner's
+        # disk (cmux-tui-artifacts runs 45792271430 and four before it).
+        box = self.box
+        box.crate("big")
+        box.write("cmux-tui/crates/big/tests/wanted.rs", "#[test] fn cmux_next_a() {}\n")
+        box.write("cmux-tui/crates/big/tests/unrelated.rs", "#[test] fn other() {}\n")
+        box.crate("one", 'autotests = false\n\n[[test]]\nname = "it"\npath = "tests/it/main.rs"\n')
+        box.write("cmux-tui/crates/one/tests/it/main.rs", "#[test] fn cmux_next_b() {}\n")
+        box.commit()
+        args = run(box.root)
+        self.assertEqual(pairs(args, "-p"), {"big", "one"}, args)
+        self.assertEqual(pairs(args, "--test"), {"wanted", "it"}, args)
 
     def test_a_match_outside_a_member_tests_the_workspace(self) -> None:
         self.box.write("cmux-tui/loose/x.rs", "#[test] fn cmux_next_x() {}\n")
