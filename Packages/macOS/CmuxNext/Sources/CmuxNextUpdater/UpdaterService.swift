@@ -186,6 +186,9 @@ public final class UpdaterService {
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
     @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
+    /// This build's PRs for About cmux's credits, read once per launch (``showAboutPanel(bundle:)``).
+    @ObservationIgnored var aboutPullRequests: BuildPullRequests?
+    @ObservationIgnored var aboutPullRequestsTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).

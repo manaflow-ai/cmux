@@ -56,7 +56,7 @@ enum WindowHandlers {
         })
         registry.bind("about", run: { _ in
             context.activateApp()
-            AboutPanelPullRequests.show(updater: context.services.updater)
+            context.services.updater.showAboutPanel()
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
         registry.bind("showHideAllWindows", run: { _ in

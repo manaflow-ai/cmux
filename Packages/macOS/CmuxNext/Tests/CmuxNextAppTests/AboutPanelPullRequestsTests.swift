@@ -1,5 +1,4 @@
 import AppKit
-@testable import CmuxNextApp
 import CmuxNextUpdater
 import Foundation
 import Testing
