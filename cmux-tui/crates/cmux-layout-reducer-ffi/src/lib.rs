@@ -7,7 +7,8 @@
 //! (`sidebar_row_layout`), the session tree's folds, hidden rows and pull
 //! request badge (`sidebar_session_tree`), the sections' window
 //! membership, pins, loose-row edits and workspace order
-//! (`sidebar_sections`), the app sidebar
+//! (`sidebar_sections`), the pending sidebar changes' record writes
+//! (`sidebar_pending_records`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -306,6 +307,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     &request,
                 ))
                 .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_pending_records" => {
+                use cmux_layout_reducer::sidebar_pending_records;
+                let request: sidebar_pending_records::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_pending_records::respond(request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_sections" => {
                 use cmux_layout_reducer::sidebar_sections;
