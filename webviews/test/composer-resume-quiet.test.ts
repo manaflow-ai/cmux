@@ -14,7 +14,7 @@ import { pageDensities } from "../src/gallery/pageDensityFixtures";
 
 await requireBrowserLane("composer-resume-quiet.test.ts", async () => {
   setDefaultTimeout(300_000);
-  const ENTRY = "agent-pane.feel-plan-tray";
+  const ENTRY = "agent-pane.feel-tray";
   const VARIANT = "one";
   const { createServer } = await import("vite");
   let server: Awaited<ReturnType<typeof createServer>>;
