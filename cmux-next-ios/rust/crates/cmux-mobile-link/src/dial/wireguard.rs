@@ -96,6 +96,11 @@ fn screen_offered() -> bool {
     classes_offered() && std::env::var("CMUX_LINK_SCREEN").map_or(true, |value| value != "off")
 }
 
+/// This side's class lanes, as both dial sides offer and agree them.
+fn class_offer() -> crate::classes::ClassLanes {
+    crate::classes::ClassLanes::offer(classes_offered(), screen_offered())
+}
+
 /// Bind the liveness port and carry its datagrams to and from the link:
 /// to `peer_ip` only, in the tunnel's interactive class (ahead of the
 /// link's TCP), and only datagrams from `peer_ip` back. `None` when the
@@ -2911,12 +2916,7 @@ pub(super) fn dial_wireguard<'a>(
                         let mut lanes =
                             super::offered_lanes(options, options.video_lane, options.webrtc_media);
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
-                        if classes_offered() {
-                            lanes.push(crate::classes::CLASSES_LANE.to_owned());
-                            if screen_offered() {
-                                lanes.push(crate::classes::SCREEN_LANE.to_owned());
-                            }
-                        }
+                        lanes.extend(class_offer().lanes());
                         lanes
                     },
                     relayed,
@@ -3060,9 +3060,9 @@ pub(super) fn dial_wireguard<'a>(
         let agreed = super::input_lane_agreed(options, &lanes);
         let liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
         let reliable = super::reliable_agreed(options, &lanes);
-        let classes_agreed =
-            classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
-        let screen_agreed = screen_offered() && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
+        let class_lanes = class_offer().agreed(&lanes);
+        let classes_agreed = class_lanes.classes;
+        let screen_agreed = class_lanes.screen;
         let video_agreed = options.video_lane && super::video_lane_listed(&lanes);
         let webrtc_media_agreed = video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
         let (peer_key, peer_ip) = (parse_key(&answer_key)?, ip);
@@ -3374,11 +3374,8 @@ impl Dialer for WireGuardDialer {
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
-            let classes_wanted =
-                classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
-            let screen_wanted = classes_wanted
-                && screen_offered()
-                && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
+            let class_lanes = class_offer().agreed(&lanes);
+            let (classes_wanted, screen_wanted) = (class_lanes.classes, class_lanes.screen);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
                 open_liveness(&net, peer_ip, false, classes_wanted, screen_wanted).await
             } else {
@@ -3426,12 +3423,7 @@ impl Dialer for WireGuardDialer {
                                 super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
-                                if classes_wanted {
-                                    lanes.push(crate::classes::CLASSES_LANE.to_owned());
-                                    if screen_wanted {
-                                        lanes.push(crate::classes::SCREEN_LANE.to_owned());
-                                    }
-                                }
+                                lanes.extend(class_lanes.lanes());
                             }
                             lanes
                         },
