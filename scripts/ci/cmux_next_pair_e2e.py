@@ -567,6 +567,8 @@ def run_pair(a, note, share):
         # The launch the share leg quits keeps its helpers: a tagged DEV build otherwise starts
         # `cmux-tui __dev-reaper`, which SIGTERMs acpmux, and with it the share host, as the app
         # exits (run 45886008693). A shipped app never starts it; TagTeardown ends them at the end.
+        # That is the first launch without discovery, else the identity restart (the last launch
+        # before the share leg); the launches it replaces still end their helpers.
         share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")
         mac_log = start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else share_launch)
         t0 = time.monotonic()
@@ -646,7 +648,7 @@ def run_pair(a, note, share):
             except subprocess.TimeoutExpired:
                 app.kill()
                 app.wait(15)
-            mac_log = start_mac(share_launch, "-pair")
+            mac_log = start_mac(env, "-pair")
             if not wait_for(lambda: status().get("device_id") == mac_id, 120):
                 raise SystemExit("FAIL pairing: the restarted Mac did not register the same device id")
             asked_from = time.monotonic()
@@ -704,7 +706,7 @@ def run_pair(a, note, share):
                                         relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
             note(f"- upload: {line}")
         if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
-            app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, ids, phone_log, streams,
+            app, restart_ok = discovery_restart(app, exe, share_launch, a.out, support, status, ids, phone_log, streams,
                                                 phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
         if proof is not None:

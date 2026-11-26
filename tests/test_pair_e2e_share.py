@@ -349,4 +349,6 @@ class ShareLaunchKeepsHelpersTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_pair_e2e.py").read_text()
         self.assertIn('share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")', source)
         self.assertIn('if discovery else share_launch)', source)
-        self.assertIn('start_mac(share_launch, "-pair")', source)
+        # The identity restart is the launch the share leg quits when discovery runs (run 45901838391).
+        self.assertIn('discovery_restart(app, exe, share_launch,', source)
+        self.assertIn('start_mac(env, "-pair")', source)
