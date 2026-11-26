@@ -83,7 +83,7 @@ fn record(seq: usize, role: &str) -> String {
 fn open_page(records: &[String]) -> Vec<u8> {
     let mut size = 2;
     let mut start = records.len();
-    while start > 0 && size + records[start - 1].len() + 1 <= OPEN_BYTES {
+    while start > 0 && size + records[start - 1].len() < OPEN_BYTES {
         start -= 1;
         size += records[start].len() + 1;
     }
@@ -94,7 +94,7 @@ fn open_page(records: &[String]) -> Vec<u8> {
 fn first_screen(records: &[String]) -> Vec<u8> {
     let mut size = 2;
     let mut start = records.len();
-    while start > 0 && size + records[start - 1].len() + 1 <= FIRST_SCREEN_BYTES {
+    while start > 0 && size + records[start - 1].len() < FIRST_SCREEN_BYTES {
         start -= 1;
         size += records[start].len() + 1;
     }

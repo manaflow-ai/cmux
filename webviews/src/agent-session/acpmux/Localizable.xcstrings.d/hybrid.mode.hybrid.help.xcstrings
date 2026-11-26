@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.mode.hybrid.help" : {
+      "comment" : "Agent pane, the three-state cloud control: tooltip of the Hybrid choice",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل على هذا الـ Mac. تنتقل إلى السحابة عند سكون هذا الـ Mac أو انشغاله إذا توفرت خانة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radi na ovom Macu. Prelazi u oblak kada ovaj Mac spava ili je zauzet, ako ima slobodnog mjesta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kører på denne Mac. Flytter til skyen, når denne Mac sover eller er optaget, hvis der er en ledig plads."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Läuft auf diesem Mac. Wechselt in die Cloud, wenn dieser Mac schläft oder ausgelastet ist, sofern ein Platz frei ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs on this Mac. Moves to Cloud when this Mac sleeps or is busy, if a slot is free."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se ejecuta en este Mac. Pasa a la nube cuando este Mac entra en reposo o está ocupado, si hay un hueco libre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S’exécute sur ce Mac. Passe dans le cloud quand ce Mac est en veille ou occupé, si une place est libre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viene eseguita su questo Mac. Passa al cloud quando questo Mac è in stop o occupato, se c’è un posto libero."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このMacで実行します。このMacがスリープ中または負荷が高いとき、空きスロットがあればクラウドに移ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការលើ Mac នេះ។ ផ្លាស់ទៅ Cloud នៅពេល Mac នេះដេក ឬជាប់រវល់ ប្រសិនបើមានកន្លែងទំនេរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac에서 실행됩니다. 이 Mac이 잠자기 상태이거나 바쁠 때 빈 슬롯이 있으면 클라우드로 옮겨집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjører på denne Macen. Flytter til skyen når denne Macen sover eller er opptatt, hvis det er en ledig plass."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Działa na tym Macu. Przenosi się do chmury, gdy ten Mac śpi lub jest zajęty, jeśli jest wolne miejsce."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "É executada neste Mac. Vai para a nuvem quando este Mac entra em repouso ou está ocupado, se houver uma vaga livre."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Работает на этом Mac. Переходит в облако, когда этот Mac спит или занят, если есть свободное место."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำงานบน Mac เครื่องนี้ ย้ายไปยังคลาวด์เมื่อ Mac เครื่องนี้พักเครื่องหรือไม่ว่าง หากมีช่องว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac’te çalışır. Bu Mac uyuduğunda veya meşgul olduğunda, boş yer varsa buluta taşınır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Працює на цьому Mac. Переходить у хмару, коли цей Mac спить або зайнятий, якщо є вільне місце."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy trên máy Mac này. Chuyển lên đám mây khi máy Mac này ngủ hoặc bận, nếu còn chỗ trống."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在这台 Mac 上运行。这台 Mac 睡眠或繁忙时，如有空位则转到云端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在這台 Mac 上執行。這台 Mac 睡眠或忙碌時，如有空位則轉到雲端。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

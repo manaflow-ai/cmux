@@ -45,6 +45,14 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: it expects the Linux jobs' runs-on not
+    # to reach cmux-linux, which #49544 and #48188 made the PR-gate Linux label. Exit: update the test to the
+    # cmux-linux route, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_same_repo_linux_owned_first.py",
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
+    # wrong, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_webviews_affected.py",
     # Manual capture harness regression; the workflow path is an admission identity fixture,
     # not a workflow file read. Run after changing the harness or its HQ workflow identity.
     # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
