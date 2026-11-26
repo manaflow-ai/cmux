@@ -42,6 +42,7 @@ mod row_layout;
 mod screen;
 mod share_approval;
 mod tabs;
+mod task_composer;
 mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
@@ -81,6 +82,10 @@ pub use pane_filter::{
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
+pub use task_composer::{
+    TaskPickChange, TaskPickToggle, TaskTerminalLaunch, task_image_mime_type, task_pick_toggle,
+    task_terminal_line,
+};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
