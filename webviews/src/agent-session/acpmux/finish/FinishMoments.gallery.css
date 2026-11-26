@@ -2,14 +2,14 @@
 .acpmux-finish-stage {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: var(--ds-space-4, 16px);
+  padding: var(--ds-space-5, 24px);
   color: var(--agent-text);
 }
 .acpmux-finish-stage__header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   height: 28px;
 }
 .acpmux-finish-stage__title {

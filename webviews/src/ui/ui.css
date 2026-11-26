@@ -188,7 +188,7 @@
   align-items: center;
   min-width: 120px;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-3, 12px);
 }
 
 .ui-select-value {
@@ -225,7 +225,7 @@
 
 .ui-submenu-trigger::after {
   position: absolute;
-  inset-inline-end: -12px;
+  inset-inline-end: calc(-1 * var(--ds-space-3, 12px));
   inset-block: 0;
   width: 12px;
   content: "";
@@ -239,7 +239,7 @@
 
 .ui-menu-group-label,
 .ui-drill-section {
-  padding: 6px 8px 2px;
+  padding: 6px var(--ds-space-2, 8px) 2px;
   color: var(--menu-label-color, var(--ui-fg-2));
   font-size: var(--menu-label-size, var(--text-caption));
   font-weight: var(--menu-label-weight, var(--weight-emphasis));
@@ -248,7 +248,7 @@
 
 .ui-separator {
   height: 1px;
-  margin: 4px 2px;
+  margin: var(--ds-space-1, 4px) 2px;
   background: var(--menu-separator, var(--ui-line));
 }
 
@@ -259,7 +259,7 @@
   box-sizing: border-box;
   width: 100%;
   height: var(--ui-row-height);
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-1, 4px);
   padding: 0 var(--ui-row-padding-inline);
   border: 0;
   border-radius: var(--ui-row-radius);
@@ -276,7 +276,7 @@
 .ui-toolbar .ui-separator {
   width: 1px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-1, 4px);
 }
 
 /* .ui-tooltip's look is the title tooltip's (pages/shared/desktop.css), the native tooltip's. */
@@ -360,7 +360,7 @@
 }
 
 .ui-combobox-item {
-  padding: 3px 8px;
+  padding: 3px var(--ds-space-2, 8px);
   border-radius: 5px;
 }
 

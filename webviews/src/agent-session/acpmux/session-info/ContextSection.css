@@ -24,13 +24,13 @@
   --acpmux-context-used: var(--agent-accent);
   --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
   min-width: 0;
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-1, 4px);
 }
 .acpmux-session-info-context__total {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 2px 8px 6px;
+  gap: var(--ds-space-2, 8px);
+  padding: 2px var(--ds-space-2, 8px) 6px;
   white-space: nowrap;
 }
 .acpmux-session-info-context__tokens {
@@ -69,7 +69,7 @@
 .acpmux-session-info-context__bar {
   display: flex;
   height: var(--acpmux-context-bar-height);
-  margin: 0 8px 6px;
+  margin: 0 var(--ds-space-2, 8px) 6px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--acpmux-context-free);
@@ -200,11 +200,11 @@
   max-width: min(230px, calc(100vw - 24px));
 }
 .acpmux-context-pop .acpmux-session-info-context__bar {
-  margin: 8px 0 6px;
+  margin: var(--ds-space-2, 8px) 0 6px;
 }
 .acpmux-context-pop .acpmux-session-info-row {
-  margin: 0 -4px;
-  padding: 0 4px;
+  margin: 0 calc(-1 * var(--ds-space-1, 4px));
+  padding: 0 var(--ds-space-1, 4px);
   width: calc(100% + 8px);
 }
 

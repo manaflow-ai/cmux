@@ -149,7 +149,7 @@
 /* The account card: under the avatar, over the columns. */
 .acpmux-cols-card {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--ds-space-1, 4px));
   left: var(--ds-space-1);
   z-index: var(--layer-raised);
   /* Its frame follows Text Size as the names in it do (--ui-px, ui/popupSurface.css). */
@@ -512,7 +512,7 @@
   flex: 0 0 var(--ds-control-icon);
   width: var(--ds-control-icon);
   height: var(--ds-control-icon);
-  margin-right: -4px;
+  margin-right: calc(-1 * var(--ds-space-1, 4px));
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -646,8 +646,8 @@
   cursor: ew-resize;
   touch-action: none;
 }
-.acpmux-cols-resize[data-edge="end"] { right: -8px; }
-.acpmux-cols-resize[data-edge="start"] { left: -8px; }
+.acpmux-cols-resize[data-edge="end"] { right: calc(-1 * var(--ds-space-2, 8px)); }
+.acpmux-cols-resize[data-edge="start"] { left: calc(-1 * var(--ds-space-2, 8px)); }
 .acpmux-cols-resize::after {
   content: "";
   position: absolute;
@@ -676,8 +676,8 @@
   cursor: ns-resize;
   touch-action: none;
 }
-.acpmux-cols-resize-y[data-edge="bottom"] { bottom: -4px; }
-.acpmux-cols-resize-y[data-edge="top"] { top: -4px; }
+.acpmux-cols-resize-y[data-edge="bottom"] { bottom: calc(-1 * var(--ds-space-1, 4px)); }
+.acpmux-cols-resize-y[data-edge="top"] { top: calc(-1 * var(--ds-space-1, 4px)); }
 .acpmux-cols-resize-y::after {
   content: "";
   position: absolute;
@@ -702,10 +702,10 @@
   cursor: nwse-resize;
   touch-action: none;
 }
-.acpmux-cols-resize-corner[data-edge="end"] { right: -4px; }
-.acpmux-cols-resize-corner[data-edge="start"] { left: -4px; }
-.acpmux-cols-resize-corner[data-side="bottom"] { bottom: -4px; }
-.acpmux-cols-resize-corner[data-side="top"] { top: -4px; }
+.acpmux-cols-resize-corner[data-edge="end"] { right: calc(-1 * var(--ds-space-1, 4px)); }
+.acpmux-cols-resize-corner[data-edge="start"] { left: calc(-1 * var(--ds-space-1, 4px)); }
+.acpmux-cols-resize-corner[data-side="bottom"] { bottom: calc(-1 * var(--ds-space-1, 4px)); }
+.acpmux-cols-resize-corner[data-side="top"] { top: calc(-1 * var(--ds-space-1, 4px)); }
 .acpmux-cols-resize-corner[data-edge="start"][data-side="bottom"],
 .acpmux-cols-resize-corner[data-edge="end"][data-side="top"] { cursor: nesw-resize; }
 .acpmux-cols-resize-corner::after {

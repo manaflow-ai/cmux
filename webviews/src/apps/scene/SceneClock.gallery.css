@@ -6,12 +6,12 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
-  padding: 16px;
+  gap: var(--ds-space-4, 16px);
+  padding: var(--ds-space-4, 16px);
 }
 .gallery-scene-clock-row {
   display: flex;
-  gap: 24px;
+  gap: var(--ds-space-5, 24px);
 }
 .gallery-scene-clock-tile {
   box-sizing: border-box;

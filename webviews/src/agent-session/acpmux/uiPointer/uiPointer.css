@@ -51,14 +51,14 @@
   flex-direction: column;
   gap: 0;
   width: max-content;
-  padding: 4px 8px;
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
 }
 
 .cmux-ui-pointer-label__head,
 .cmux-ui-pointer-label__styles {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   min-width: 0;
   white-space: nowrap;
 }
@@ -121,32 +121,32 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 4px 12px;
+  gap: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
   width: max-content;
   /* One line wherever it fits; it wraps its keys under the text only in a narrow pane. */
   max-width: calc(100vw - 8px);
   margin-inline: auto;
-  padding: 4px 8px;
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
 }
 
 .cmux-ui-pointer-hint[data-edge="top"] {
-  top: 4px;
+  top: var(--ds-space-1, 4px);
 }
 
 .cmux-ui-pointer-hint[data-edge="bottom"] {
-  bottom: 4px;
+  bottom: var(--ds-space-1, 4px);
 }
 
 .cmux-ui-pointer-hint__keys {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   color: var(--agent-muted);
 }
 
 .cmux-ui-pointer-hint__key {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1, 4px);
   white-space: nowrap;
 }
 

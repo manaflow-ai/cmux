@@ -214,9 +214,9 @@
 .acpmux-attachment-video-length,
 .acpmux-attachment-video-unplayable {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  padding: 0 4px;
+  right: var(--ds-space-1, 4px);
+  bottom: var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-1, 4px);
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.55);
@@ -246,7 +246,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 4px;
+  padding: var(--ds-space-1, 4px);
   border-radius: var(--acpmux-attach-radius);
   line-height: 1.25;
   text-align: center;
@@ -261,13 +261,13 @@
   justify-content: center;
   gap: 3px;
   width: 104px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2, 8px);
   color: var(--agent-muted);
   text-align: center;
 }
 /* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
 .acpmux-attachment-image-failed {
-  gap: 4px;
+  gap: var(--ds-space-1, 4px);
 }
 .acpmux-attachment-image-failed .acpmux-attachment-failed-text {
   display: -webkit-box;
@@ -352,7 +352,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   color: var(--agent-muted);
 }
 .acpmux-attachment-image.acpmux-attachment-failed {
@@ -418,8 +418,8 @@
    (a click there opens it). */
 .acpmux-attachment-original-retry {
   position: absolute;
-  bottom: 4px;
-  left: 4px;
+  bottom: var(--ds-space-1, 4px);
+  left: var(--ds-space-1, 4px);
   width: 16px;
   height: auto;
   aspect-ratio: 1;
@@ -439,7 +439,7 @@
   align-items: center;
   height: 32px;
   max-width: min(220px, 70vw);
-  padding: 0 32px 0 10px;
+  padding: 0 var(--ds-space-6, 32px) 0 10px;
   color: var(--agent-text);
 }
 .acpmux-attachment-file span {
@@ -509,7 +509,7 @@
 }
 .acpmux-pdf-sheet-mark {
   position: absolute;
-  left: 4px;
+  left: var(--ds-space-1, 4px);
   top: 7px;
   color: var(--agent-accent, var(--agent-text));
   /* Part of the sheet drawing: it scales with the sheet, from the body step. */
@@ -518,14 +518,14 @@
   letter-spacing: 0.03em;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {
-  left: 24px;
+  left: var(--ds-space-5, 24px);
   top: 38px;
   font-size: calc(var(--text-body) * 24 / 13);
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-pdf-sheet-lines {
   position: absolute;
-  inset: 18px 4px 5px;
+  inset: 18px var(--ds-space-1, 4px) 5px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -541,13 +541,13 @@
 .acpmux-pdf-sheet-lines i:nth-child(4) { width: 90%; }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-fold { width: 42px; height: 42px; }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-lines {
-  inset: 92px 24px 32px;
+  inset: 92px var(--ds-space-5, 24px) var(--ds-space-6, 32px);
   gap: 13px;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-lines i { height: 4px; }
 .acpmux-pdf-viewer {
   width: min(520px, calc(100vw - 32px));
-  padding: 0 0 16px;
+  padding: 0 0 var(--ds-space-4, 16px);
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
@@ -562,7 +562,7 @@
   display: flex;
   align-items: center;
   min-height: 44px;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   padding: 0 10px 0 14px;
   border-bottom: 0.5px solid var(--agent-border);
 }
@@ -572,15 +572,15 @@
   display: grid;
   place-items: center;
   min-height: 300px;
-  padding: 24px;
+  padding: var(--ds-space-5, 24px);
   background: color-mix(in srgb, var(--agent-control) 38%, transparent);
 }
 .acpmux-pdf-viewer-open {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   max-width: calc(100% - 32px);
-  margin: 12px 16px 0;
+  margin: var(--ds-space-3, 12px) var(--ds-space-4, 16px) 0;
   padding: 7px 10px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 7px;
@@ -603,7 +603,7 @@
      is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
      while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
   --acpmux-document-meta-pad-block: 7px;
-  padding: var(--acpmux-document-meta-pad-block) 8px;
+  padding: var(--acpmux-document-meta-pad-block) var(--ds-space-2, 8px);
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
@@ -615,8 +615,8 @@
    stray button under the thumbnail. */
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: var(--ds-space-1, 4px);
+  right: var(--ds-space-1, 4px);
   width: 16px;
   height: 16px;
   padding: 0;
@@ -635,7 +635,7 @@
   cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
-  top: 8px;
+  top: var(--ds-space-2, 8px);
 }
 [data-composer-buttons-visible] .acpmux-attachment-remove,
 .acpmux-attachment:hover .acpmux-attachment-remove,
@@ -724,7 +724,7 @@ button.acpmux-attachment-pasted-open:hover {
   justify-content: flex-start;
   gap: 0;
   height: 100%;
-  padding: 8px 12px 4px;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px) var(--ds-space-1, 4px);
   overflow: hidden;
 }
 .acpmux-text-card__lines {
@@ -758,7 +758,7 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-text-card__foot {
   display: flex;
   flex: none;
-  gap: 8px;
+  gap: var(--ds-space-2, 8px);
   min-width: 0;
 }
 .acpmux-text-card__label {
@@ -1061,7 +1061,7 @@ button.acpmux-attachment-pasted-open:hover {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 .acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
-  padding-top: calc(var(--ds-space-3) + 12px);
+  padding-top: calc(var(--ds-space-3) + var(--ds-space-3, 12px));
 }
 /* `chevron`: the face's own chevron, turning over as the chip opens. */
 .acpmux-paste-chip__chevron {
@@ -1111,7 +1111,7 @@ button.acpmux-attachment-pasted-open:hover {
   box-sizing: border-box;
   min-width: var(--ds-icon-16);
   height: var(--ds-icon-16);
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1, 4px);
   border-radius: 999px;
   /* The accent role and the text the theme draws on it. */
   background: var(--agent-accent);
@@ -1192,7 +1192,7 @@ button.acpmux-attachment-pasted-open:hover {
   min-width: 0;
   max-width: min(340px, 72vw);
   height: 32px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2, 8px);
   color: var(--agent-text);
   vertical-align: middle;
 }
@@ -1228,7 +1228,7 @@ button.acpmux-attachment-pasted-open:hover {
   font-size: var(--text-caption);
   white-space: nowrap;
 }
-.cv-user__files { --acpmux-file-chip-radius: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.cv-user__files { --acpmux-file-chip-radius: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-1, 4px); }
 .cv-user__files > .acpmux-file-chip {
   border-radius: var(--acpmux-file-chip-radius);
   background: var(--agent-control);
@@ -1241,8 +1241,8 @@ button.acpmux-attachment-pasted-open:hover {
    never overlap, and the tile's tooltip names the source. Clicks go through it to the tile. */
 .acpmux-source-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: var(--ds-space-1, 4px);
+  right: var(--ds-space-1, 4px);
   width: 16px;
   aspect-ratio: 1;
   pointer-events: none;
@@ -1268,12 +1268,12 @@ button.acpmux-attachment-pasted-open:hover {
 /* Leave the removal button its corner while keeping the attachment source visible. */
 [data-composer-buttons-visible] .acpmux-attachment:not(.acpmux-file-chip) > .acpmux-source-badge {
   right: auto;
-  left: 4px;
+  left: var(--ds-space-1, 4px);
 }
 .acpmux-attachment-document > .acpmux-source-badge { top: 20px; }
 /* A file chip's rides its file glyph's top-right corner, clear of the chip's ×. */
 .acpmux-file-chip > .acpmux-source-badge {
-  top: 4px;
+  top: var(--ds-space-1, 4px);
   right: auto;
   left: 17px;
   width: 12px;
@@ -1335,9 +1335,9 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-bar {
   position: absolute;
-  right: 8px;
+  right: var(--ds-space-2, 8px);
   bottom: var(--ds-space-1);
-  left: 8px;
+  left: var(--ds-space-2, 8px);
   height: calc(var(--ds-space-1) / 2);
   overflow: hidden;
   border-radius: var(--ds-radius-sm);

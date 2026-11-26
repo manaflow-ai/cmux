@@ -3,7 +3,7 @@
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 /* The button is the header's panel toggle (header/PanelToggle.tsx, header.css .acpmux-header-tool). */
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing);--glass-elevation:var(--ui-popup-drop);--glass-edge:var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));/* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */--glass-opaque:var(--surface-popup)}
-.acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:var(--ds-space-3);width:min(288px,calc(100% - 2 * var(--ds-space-3)));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
+.acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:var(--ds-space-48, 48px);right:var(--ds-space-3);width:min(288px,calc(100% - 2 * var(--ds-space-3)));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
 .acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg);box-shadow:var(--acpmux-popup-elevation)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 /* The column clips its rows, so its drag edge sits just inside its left edge (ui/SplitEdge.css). */
@@ -76,14 +76,14 @@
 .acpmux-summary-link[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-summary-more{display:block;width:100%;height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-summary-stack{flex:none;display:flex;padding-left:var(--ds-space-1)}
-.acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}
+.acpmux-summary-dot{width:14px;height:14px;margin-left:calc(-1 * var(--ds-space-1, 4px));box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}
 .acpmux-summary-dot[data-tone="1"]{background:var(--agent-ansi-2,#3fb950)}
 .acpmux-summary-dot[data-tone="2"]{background:var(--agent-ansi-6,#39c5cf)}
 .acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-status-failure)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
-.acpmux-summary-title__button{display:inline-flex;align-items:center;gap:var(--ds-space-1);margin:-2px -4px;padding:2px 4px;border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-title__button{display:inline-flex;align-items:center;gap:var(--ds-space-1);margin:-2px calc(-1 * var(--ds-space-1, 4px));padding:2px var(--ds-space-1, 4px);border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
 .acpmux-summary-title__button{max-width:100%;text-align:left}
 .acpmux-summary-title__text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -91,7 +91,7 @@
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
 .acpmux-summary-card:focus{outline:none}
-.acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:-8px}
+.acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:calc(-1 * var(--ds-space-2, 8px))}
 .acpmux-summary-tab{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 var(--ds-space-2);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;font-weight:var(--weight-regular);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-tab:hover,.acpmux-summary-tab[data-selected]{color:var(--agent-text)}
 .acpmux-summary-tab[data-selected]{background:var(--acpmux-menu-hover);font-weight:var(--weight-emphasis)}
@@ -153,7 +153,7 @@
 .acpmux-summary-task{position:relative;display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:var(--ds-radius-popup);background:var(--ds-surface-card)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:var(--ds-space-2)}
 /* A running task's Stop takes its time's place at the row's end, as Session Info's does (sessionInfo.css .acpmux-session-info-task--command), and takes no room of its own: at rest the time, under the pointer or keyboard focus Stop over it, its glyph on the time's right edge (Leo, 2026-11-24: "you're early ellipsis-ing because of a button that doesnt even always show"). The time keeps the glyph's width, so Stop never lies over the words. */
-.acpmux-summary-task>.acpmux-session-info-stop{position:absolute;top:50%;right:calc(var(--ds-space-2) - 4px);translate:0 -50%}
+.acpmux-summary-task>.acpmux-session-info-stop{position:absolute;top:50%;right:calc(var(--ds-space-2) - var(--ds-space-1, 4px));translate:0 -50%}
 .acpmux-summary-task:has(>.acpmux-session-info-stop)>.acpmux-summary-row>.acpmux-summary-meta{min-width:16px;text-align:right;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
 .acpmux-summary-task>.acpmux-session-info-stop[data-state=idle]{opacity:0}

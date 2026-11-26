@@ -193,8 +193,8 @@
 
 .signin-chatgpt-badge {
   position: absolute;
-  inset-inline-end: -4px;
-  inset-block-end: -4px;
+  inset-inline-end: calc(-1 * var(--ds-space-1, 4px));
+  inset-block-end: calc(-1 * var(--ds-space-1, 4px));
   display: inline-flex;
   border-radius: 50%;
   background: var(--page-bg, Canvas);

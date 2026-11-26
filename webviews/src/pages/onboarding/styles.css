@@ -1425,7 +1425,7 @@ img.onb-make-tile-image {
 /* Form: the question on the left, its control on the right, as a Settings pane. */
 .onb-make[data-look="form"] {
   --onb-make-legend-w: 136px;
-  gap: 24px;
+  gap: var(--ds-space-5, 24px);
 }
 .onb-make[data-look="form"] .onb-make-label {
   float: left;
@@ -1434,7 +1434,7 @@ img.onb-make-tile-image {
   padding-top: var(--ds-space-1);
 }
 .onb-make[data-look="form"] .onb-make-control {
-  margin-left: calc(var(--onb-make-legend-w) + 16px);
+  margin-left: calc(var(--onb-make-legend-w) + var(--ds-space-4, 16px));
 }
 .onb-make[data-look="form"] .onb-make-options {
   grid-template-columns: 1fr;
@@ -1573,8 +1573,8 @@ img.onb-make-tile-image {
 .onb-make-window-bar {
   position: relative;
   display: flex;
-  gap: 4px;
-  padding: calc(3 * var(--w-u)) 8px 0;
+  gap: var(--ds-space-1, 4px);
+  padding: calc(3 * var(--w-u)) var(--ds-space-2, 8px) 0;
 }
 .onb-make-window-bar span {
   width: calc(3 * var(--w-u));
@@ -1594,7 +1594,7 @@ img.onb-make-tile-image {
   flex: 1;
   gap: var(--w-gap);
   min-height: 0;
-  padding: calc(var(--w-gap) + 4px);
+  padding: calc(var(--w-gap) + var(--ds-space-1, 4px));
   padding-top: calc(var(--w-gap) + var(--w-u));
 }
 .onb-make-pane {

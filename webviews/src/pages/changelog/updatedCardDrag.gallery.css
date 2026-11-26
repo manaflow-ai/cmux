@@ -8,15 +8,15 @@
 }
 .wn-drag-ghost {
   position: absolute;
-  left: 12px;
-  right: 12px;
+  left: var(--ds-space-3, 12px);
+  right: var(--ds-space-3, 12px);
   height: var(--composer-material-height);
   border: 1px dashed color-mix(in srgb, var(--page-text, CanvasText) 28%, transparent);
   border-radius: var(--composer-material-radius, 12px);
   pointer-events: none;
 }
-.wn-drag-ghost[data-anchor="top"] { top: 8px; }
-.wn-drag-ghost[data-anchor="bottom"] { bottom: 8px; }
+.wn-drag-ghost[data-anchor="top"] { top: var(--ds-space-2, 8px); }
+.wn-drag-ghost[data-anchor="bottom"] { bottom: var(--ds-space-2, 8px); }
 .wn-drag-ghost[data-near] {
   border-style: solid;
   border-color: var(--cmux-accent, currentColor);

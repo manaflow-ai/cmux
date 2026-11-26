@@ -9,7 +9,7 @@
 }
 .acd-workspaces {
   flex: 1;
-  padding: 8px 12px;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
   color: var(--cmux-text-secondary, #999);
 }
 .acd-section {
@@ -27,7 +27,7 @@
   display: flex;
   align-items: center;
   height: 24px;
-  padding: 0 8px 0 12px;
+  padding: 0 var(--ds-space-2, 8px) 0 var(--ds-space-3, 12px);
 }
 .acd-title {
   flex: 1;
@@ -37,7 +37,7 @@
 }
 .acd-icons {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-1, 4px);
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -67,9 +67,9 @@
   align-items: center;
   gap: 6px;
   height: 24px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-3, 12px);
   border-radius: 6px;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-1, 4px);
 }
 .acd-row:hover {
   background: var(--cmux-hover, rgba(255, 255, 255, 0.08));

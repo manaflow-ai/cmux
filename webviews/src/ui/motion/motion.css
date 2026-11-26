@@ -46,8 +46,8 @@
 .ui-slide-indicator[data-look="underline"]::after {
   content: "";
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: var(--ds-space-2, 8px);
+  right: var(--ds-space-2, 8px);
   bottom: 0;
   border-top: 2px solid var(--ui-slide-fill, var(--agent-accent, var(--cmux-accent)));
   border-radius: 0;

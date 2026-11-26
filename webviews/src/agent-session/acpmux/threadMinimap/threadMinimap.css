@@ -581,7 +581,7 @@
 .acpmux-scrollmap__view {
   position: absolute;
   top: 0;
-  left: -4px;
+  left: calc(-1 * var(--ds-space-1, 4px));
   width: 34px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--acpmux-minimap-text) 6%, transparent);
@@ -601,7 +601,7 @@
   opacity: 0.55;
 }
 .acpmux-scrollmap__mark[data-kind="agent"] {
-  left: 4px;
+  left: var(--ds-space-1, 4px);
   width: 32px;
   pointer-events: none;
 }
@@ -694,7 +694,7 @@
   opacity: 0.25;
 }
 .acpmux-minimap__rail[data-replies-look="lanes"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
-  margin-inline-start: 8px;
+  margin-inline-start: var(--ds-space-2, 8px);
   width: 18px;
 }
 /* The head control (RailShowControl.tsx): the list's name in the rail's muted type, just above its

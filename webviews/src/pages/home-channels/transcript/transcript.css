@@ -404,11 +404,11 @@
 }
 
 .mt-tapbacks.in {
-  right: -12px;
+  right: calc(-1 * var(--ds-space-3, 12px));
 }
 
 .mt-tapbacks.out {
-  left: -12px;
+  left: calc(-1 * var(--ds-space-3, 12px));
 }
 
 .mt-tapback {
