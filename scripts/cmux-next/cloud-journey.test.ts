@@ -8,7 +8,7 @@ import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./clo
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -62,6 +62,9 @@ describe("cloud journey", () => {
 
   test("parses warm-home answers and unsupported images", () => {
     expect(parseWarmHomeAnswer('{"accepted":true,"state":"ready"}')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    // acpmux --json pretty-prints (cli/output.rs print_json): prod's stub leg read this as "no JSON answer".
+    expect(parseWarmHomeAnswer('{\n  "accepted": true,\n  "state": "ready",\n  "shapes": [\n    {\n      "harness": "claude"\n    }\n  ]\n}\n')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    expect(parseWarmHomeAnswer('note: dialing\n{\n  "accepted": false,\n  "state": "busy"\n}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
     expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });
@@ -440,6 +443,15 @@ describe("cloud journey", () => {
     // No baseline: every failed step counts.
     expect(newReds(null, after).map((s) => s.step)).toEqual(["health", "running (status)"]);
   });
+  test("capacityOnly: no machine or a rate limit is never the deploy's red", () => {
+    const red = (detail: string) => ({ step: "create machine", status: "fail" as const, ms: 1, detail });
+    expect(capacityOnly([red("POST /v1/cloud/machines: HTTP 429 Too Many Requests")])).toBe(true);
+    expect(capacityOnly([red("no machine available in any region"), red("rate limited, retry after 30 s")])).toBe(true);
+    // A machine given and then broken is the build's: vm_unavailable on its first exec, a crash, a timeout.
+    expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
+    expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
+    expect(capacityOnly([])).toBe(false);
+  });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
     const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
@@ -679,9 +691,16 @@ describe("cloud journey: leaked machine sweep", () => {
       const isLong = /--resume-matrix|--wake-echo/.test(text);
       if (isLong) long.push(f);
       const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
-      // Every timeout in such a file, a superset of the journey jobs' own.
-      for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
-        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, fits: true });
+      // Every timeout in a job that runs a journey (its block names the script); a file that names it but no job
+      // that does (a matrix that runs it through another script) holds every job. A job that runs none, like
+      // backend.yml's `test` (95 min, #56565), makes no journey machine and so needs no age bound.
+      const jobs = (text.split(/^jobs:\s*$/m)[1] ?? text).split(/^(?=  [A-Za-z0-9_-]+:\s*$)/m);
+      const journeyJobs = jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j));
+      for (const job of journeyJobs.length ? journeyJobs : jobs) {
+        const name = /^  ([A-Za-z0-9_-]+):/.exec(job)?.[1] ?? "?";
+        for (const m of job.matchAll(/timeout-minutes:\s*(\d+)/g)) {
+          expect({ f, name, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, name, fits: true });
+        }
       }
     }
     expect(seen).toContain("cmux-vm.yml");
