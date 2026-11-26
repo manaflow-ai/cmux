@@ -1001,18 +1001,17 @@ impl ChannelHandle {
             };
             tokio::select! {
                 biased;
-                _ = cancelled.wait_for(|cancelled| *cancelled) => {
-                    // hostd has a prefix of this JSON message. Close this channel before the
-                    // next writer can append to it; the hub opens a fresh channel on this link.
-                    if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
-                        *closed.lock().unwrap_or_else(PoisonError::into_inner) =
-                            Some(("partial_message".into(), "write was cancelled".into()));
-                        sender.close("partial_message", "write was cancelled").await;
-                    }
-                    Err(cmux_mobile_link::LinkError::ChannelClosed)
-                }
-                outcome = sender.send_observed(data.into(), &watch.accepted) => outcome,
+                _ = cancelled.wait_for(|cancelled| *cancelled) => {}
+                outcome = sender.send_observed(data.into(), &watch.accepted) => return outcome,
             }
+            // hostd has a prefix of this JSON message. Close this channel before the next
+            // writer can append to it; the hub opens a fresh channel on this link.
+            if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
+                *closed.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(("partial_message".into(), "write was cancelled".into()));
+                sender.close("partial_message", "write was cancelled").await;
+            }
+            Err(cmux_mobile_link::LinkError::ChannelClosed)
         })
         .await?;
         Ok(())
