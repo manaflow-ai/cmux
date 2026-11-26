@@ -48,7 +48,7 @@
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 0: never), its attempts run on a
 //!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
@@ -1598,8 +1598,14 @@ impl Hub {
         // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
         // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
+        // The person waits on their own turn until its first token (`hub/cpu_pressure.rs`).
+        let waited = turn.persons && !turn.trigger;
         self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
+            session.awaiting_reply.store(waited, std::sync::atomic::Ordering::SeqCst);
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+            if waited {
+                super::cpu_pressure::wake();
+            }
         })
     }
 
