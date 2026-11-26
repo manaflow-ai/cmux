@@ -14,6 +14,10 @@ workspace = true
 name = "cas-replay"
 path = "src/bin/cas-replay.rs"
 
+[[bin]]
+name = "cas-lazy-bench"
+path = "src/bin/cas-lazy-bench.rs"
+
 [dependencies]
 blake3 = "1"
 cmux-signed-envelope = { path = "../cmux-signed-envelope" }

@@ -17,6 +17,7 @@
 pub mod assemble;
 pub mod cdc;
 pub mod id;
+pub mod lazy;
 pub mod manifest;
 pub mod pack;
 pub mod plan;
