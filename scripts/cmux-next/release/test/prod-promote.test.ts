@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, gh, GH_RATE_LIMIT_WAIT_MS, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, ghGraphql, GH_RATE_LIMIT_WAIT_MS, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -460,6 +460,52 @@ describe("gh() retries GitHub 5xx", () => {
   })
 })
 
+
+describe("ghGraphql() retries a failed read", () => {
+  // 2026-11-24 14:27Z (run 45406811977): the REST hour was spent 25 minutes before its reset, so G1 fell back to
+  // GraphQL, whose one 502 (then a 200 with an error and no data) failed promote-gates; production waited for the
+  // next backend push.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const stub = (answers: Array<number | "errors" | "throw">) => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      const a = answers.shift()
+      if (a === undefined || a === "throw") throw new Error("test: network down")
+      if (a === "errors") return Response.json({ errors: [{ type: "SERVICE_UNAVAILABLE", message: "try again" }] })
+      return a === 200 ? Response.json({ data: { ok: true } }) : new Response("bad gateway", { status: a })
+    }) as typeof fetch
+    return () => calls
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a 502 then data returns the data", async () => {
+    const calls = stub([502, 200])
+    expect(await ghGraphql("query{}", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls()).toBe(2)
+  })
+  it("a 200 with errors and no data, then a network error, then data returns the data", async () => {
+    const calls = stub(["errors", "throw", 200])
+    expect(await ghGraphql("query{}", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls()).toBe(3)
+  })
+  it("a failure on every try throws after the last retry, naming the error", async () => {
+    const calls = stub([502, "errors", 503, "errors"])
+    await expect(ghGraphql("query{}", {}, [0, 0, 0])).rejects.toThrow("SERVICE_UNAVAILABLE: try again")
+    expect(calls()).toBe(4)
+  })
+  it("a 400 (a bad query) throws at once", async () => {
+    const calls = stub([400, 200])
+    await expect(ghGraphql("query{}", {}, [0, 0, 0])).rejects.toThrow("HTTP 400")
+    expect(calls()).toBe(1)
+  })
+})
 
 describe("gh() waits once for a spent GITHUB_TOKEN hour", () => {
   // 2026-11-21: the repository token's hour still ran out a few minutes before each reset (14:49Z for 14:51Z),

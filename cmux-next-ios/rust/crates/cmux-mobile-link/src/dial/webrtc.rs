@@ -31,6 +31,38 @@ use super::{DialError, DialFuture, Dialed, Dialer, LinkPath, SessionEvents, Tran
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient};
 use crate::timing::Timeline;
 
+/// `urls` with each `stun:` and `turn:` host as the IPv4 literal it resolves to: DNS, or the
+/// literal it last resolved to when DNS is down (`route_literals`), so ICE gathers without
+/// DNS. A URL whose host does not resolve, and `turns:` (TLS names its host), stay as they are.
+async fn literal_urls(
+    urls: &[String],
+    routes: &std::sync::Arc<crate::route_literals::RouteLiterals>,
+) -> Vec<String> {
+    // Every URL at once: a hanging DNS costs the dial one bound, not one per URL.
+    futures_util::future::join_all(urls.iter().map(|url| literal_url(url, routes))).await
+}
+
+async fn literal_url(url: &str, routes: &std::sync::Arc<crate::route_literals::RouteLiterals>) -> String {
+    let Some((scheme, rest)) = url.split_once(':').filter(|(scheme, _)| matches!(*scheme, "stun" | "turn"))
+    else {
+        return url.to_owned();
+    };
+    let (host_port, query) = rest.split_once('?').map_or((rest, None), |(hp, q)| (hp, Some(q)));
+    let Some((host, port)) = crate::route_literals::split_host_port(host_port, 3478) else {
+        return url.to_owned();
+    };
+    let ipv4 = routes
+        .resolve_host(&host)
+        .await
+        .ok()
+        .and_then(|found| found.into_iter().find(std::net::IpAddr::is_ipv4));
+    match (ipv4, query) {
+        (Some(ip), Some(query)) => format!("{scheme}:{ip}:{port}?{query}"),
+        (Some(ip), None) => format!("{scheme}:{ip}:{port}"),
+        (None, _) => url.to_owned(),
+    }
+}
+
 /// The data channel label (PROTOCOL.md).
 pub const LABEL: &str = "cmux-mobile-link";
 /// The input lane's data channel: ordered and reliable, its own SCTP stream
@@ -113,15 +145,16 @@ async fn new_peer_connection_for(
         APIBuilder::new().with_setting_engine(settings).build()
     };
     let ice_servers: &[crate::api::IceServer] = if udp_blocked { &[] } else { &options.ice_servers };
+    let mut rtc_servers = Vec::with_capacity(ice_servers.len());
+    for server in ice_servers {
+        rtc_servers.push(RTCIceServer {
+            urls: literal_urls(&server.urls, &options.routes).await,
+            username: server.username.clone().unwrap_or_default(),
+            credential: server.credential.clone().unwrap_or_default(),
+        });
+    }
     let config = RTCConfiguration {
-        ice_servers: ice_servers
-            .iter()
-            .map(|server| RTCIceServer {
-                urls: server.urls.clone(),
-                username: server.username.clone().unwrap_or_default(),
-                credential: server.credential.clone().unwrap_or_default(),
-            })
-            .collect(),
+        ice_servers: rtc_servers,
         ice_transport_policy: if options.relay_only {
             RTCIceTransportPolicy::Relay
         } else {
@@ -436,10 +469,12 @@ async fn finish(
         }
     });
     Ok(Dialed {
+        tunnel_keys: None,
         stream: Box::new(DataChannelStream { inner: stream }),
         // A data channel cannot be held: ICE consent ends it after 30 s of
         // silence whatever the link does.
         hold: None,
+        on_link: None,
         path: path_rx,
         peer: peer_rx,
         guard: Box::new(Guard {
@@ -453,6 +488,8 @@ async fn finish(
         liveness: None,
         media,
         webrtc_media: false,
+        overlay: None,
+        reliable: false,
     })
 }
 
@@ -494,6 +531,7 @@ impl Dialer for WebRtcDialer {
                 lane = Some(lane_rx);
             }
             let mut agreed = false;
+            let mut reliable = false;
             let timeline = &options.timeline;
             trickle(&pc, signaling, mac, session_id, timeline);
             let offer = pc.create_offer(None).await.map_err(transport_error)?;
@@ -539,6 +577,7 @@ impl Dialer for WebRtcDialer {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
                                 agreed = super::input_lane_agreed(options, &lanes);
+                                reliable = super::reliable_agreed(options, &lanes);
                                 video_agreed = super::video_lane_listed(&lanes);
                                 answered = true;
                                 timeline.mark("answer_received");
@@ -564,7 +603,10 @@ impl Dialer for WebRtcDialer {
                 timeline.mark("video_lane");
                 media = Some(super::PendingMedia::Receive(receiver));
             }
-            finish(pc, opened, lane, media, events, remote, signaling, session_id, timeline).await
+            let mut dialed =
+                finish(pc, opened, lane, media, events, remote, signaling, session_id, timeline).await?;
+            dialed.reliable = reliable;
+            Ok(dialed)
         })
     }
 
@@ -580,6 +622,7 @@ impl Dialer for WebRtcDialer {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             // The media lane: the phone offered it and its SDP has the video
             // m-line. The sending track must exist before the offer applies.
             let video = options.video_lane && super::video_lane_listed(&lanes) && sdp.contains("m=video");
@@ -659,7 +702,11 @@ impl Dialer for WebRtcDialer {
                 let carrier = crate::media::track::SendCarrier::new(track, sender).await;
                 media = Some(super::PendingMedia::Send(carrier));
             }
-            finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline).await
+            let mut dialed =
+                finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline)
+                    .await?;
+            dialed.reliable = reliable;
+            Ok(dialed)
         })
     }
 }

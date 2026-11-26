@@ -1,6 +1,7 @@
 //! `cmux-config`: the owner of the settings file
-//! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
-//! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
+//! (`~/.config/cmux/cmux-next.json`, in `~/.config/cmux-next/` on macOS;
+//! "cmux.json" in the plans) inside the cmux daemon
+//! (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
 //! - [`app_ops`]: the Mac app's reads of the file as JSON ops (the app
 //!   FFI's `cmux_settings_call`).
@@ -31,6 +32,7 @@ pub mod effective;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
+pub mod history;
 pub mod hosts;
 pub mod hosts_edit;
 pub mod jsonc;
@@ -53,23 +55,25 @@ pub mod theme_file;
 pub mod transcript_look;
 pub mod value;
 pub mod watch;
+pub mod worktree_names;
 pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;
 pub use effective::EffectiveSettings;
+pub use history::HistoryEntry;
 pub use keybindings::owner::{
     KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal,
     KeybindingsStore,
 };
-pub use location::{CONFIG_OVERRIDE, config_path, keybindings_path, seed_path};
+pub use location::{CONFIG_OVERRIDE, NEXT_DIR, config_path, keybindings_path, seed_path};
 pub use managed::{ManagedPreferences, ManagedReader, ManagedSource, Policy, TeamPolicyLayer};
 pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;
 pub use schema::{Row, Schema};
 pub use store::{
     Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, ThemeRead,
-    WriteMeta, apply,
+    WriteMeta, apply, apply_with_history,
 };
 pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};

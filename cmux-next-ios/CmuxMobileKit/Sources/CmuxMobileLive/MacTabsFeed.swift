@@ -11,6 +11,9 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "tabs-feed")
 /// under (``MacTabsSink/save(_:hash:mime:macID:)``).
 public struct MacTabCard: Equatable, Sendable {
     public var tabID: String
+    /// The tab's durable id on the Mac: `tabID` names a tab only within one epoch, this one
+    /// stays the tab's across them. Empty when the Mac does not say.
+    public var tabKey: String
     public var title: String
     /// `browser`, `terminal`, `agent`, or a kind a newer Mac names.
     public var kind: String
@@ -29,6 +32,7 @@ public struct MacTabCard: Equatable, Sendable {
 
     init(_ row: TabsRow) {
         tabID = MacTabsFeed.tabID(wire: row.tabId)
+        tabKey = row.tabKey
         title = row.title
         kind = row.kind
         faviconHash = row.faviconHash
@@ -84,11 +88,18 @@ public final class MacTabsFeed {
     }
 
     private struct Session {
+        /// Which link-up of its Mac this is: a newer one replaces it.
+        let id: UInt64
         let mirror: TabsMirror
         let outbox: AsyncStream<Data>.Continuation
     }
     /// The Macs whose channel is open, by Mac id.
     private var sessions: [String: Session] = [:]
+    /// Each Mac's mirror, kept across link-ups: the next link-up says `resume` from its rev and
+    /// the Mac answers with the deltas since, not the whole manifest again. Made at the Mac's
+    /// first link-up with the blobs on disk; it goes with this feed (the signed-in coordinator).
+    private var mirrors: [String: TabsMirror] = [:]
+    private var lastSessionID: UInt64 = 0
     /// The cards nearest the open tab of each Mac, kept for a link that comes up later.
     private var near: [String: [String]] = [:]
 
@@ -106,9 +117,18 @@ public final class MacTabsFeed {
         return String(surface)
     }
 
-    /// The newest cards of `macID` (empty before its first manifest).
+    /// The newest cards of `macID` (empty before its first manifest), kept while no link is up.
     public func cards(macID: String) -> [MacTabCard] {
-        sessions[macID]?.mirror.rows().map(MacTabCard.init) ?? []
+        mirrors[macID]?.rows().map(MacTabCard.init) ?? []
+    }
+
+    /// `macID` was deleted: its kept cards and its place in the stream go, and an open channel
+    /// of it stops at its next chunk (its session is no longer the Mac's).
+    public func forget(macID: String) {
+        sessions[macID]?.outbox.finish()
+        sessions[macID] = nil
+        mirrors[macID] = nil
+        near[macID] = nil
     }
 
     /// The cards on screen and around them, nearest the open tab first: their blobs are asked
@@ -141,7 +161,10 @@ public final class MacTabsFeed {
             return
         }
         let (frames, outbox) = AsyncStream<Data>.makeStream()
-        let session = Session(mirror: TabsMirror(held: sink?.heldBlobs(macID: macID) ?? []), outbox: outbox)
+        let mirror = mirrors[macID] ?? TabsMirror(held: sink?.heldBlobs(macID: macID) ?? [])
+        mirrors[macID] = mirror
+        lastSessionID &+= 1
+        let session = Session(id: lastSessionID, mirror: mirror, outbox: outbox)
         sessions[macID] = session
         // task-owner: this read; one writer per channel keeps the frames in order, ended below.
         let writer = Task {
@@ -153,7 +176,7 @@ public final class MacTabsFeed {
             outbox.finish()
             writer.cancel()
             // A newer link's session of the same Mac stays.
-            if sessions[macID]?.mirror === session.mirror { sessions[macID] = nil }
+            if sessions[macID]?.id == session.id { sessions[macID] = nil }
         }
         write(session.mirror.linkUp(viewport: viewport), to: session)
         if let near = near[macID], !near.isEmpty {
@@ -163,6 +186,12 @@ public final class MacTabsFeed {
             // The link cuts the stream where it likes: Rust keeps the partial frame and
             // answers with one event per frame a chunk completes.
             read: while let chunk = try await channel.receive() {
+                // A newer link-up of this Mac shares the mirror and started its stream over:
+                // this channel's bytes would land in the middle of the new channel's frames.
+                guard sessions[macID]?.id == session.id else {
+                    await channel.close(code: "cancelled", reason: "a newer tabs channel of this Mac took over")
+                    break read
+                }
                 for event in session.mirror.receive(chunk: chunk) {
                     if case .broken(let reason) = event {
                         log.error("tabs stream unreadable: \(reason, privacy: .public)")

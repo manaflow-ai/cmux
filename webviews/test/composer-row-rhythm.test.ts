@@ -90,8 +90,14 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         const walk = (node: Node) => {
           if (node instanceof SVGSVGElement) {
             if (shown(node)) {
+              // The drawn box: a provider mark draws inside padding at a line glyph's ink (composerLocation.css).
               const box = node.getBoundingClientRect();
-              parts.push({ kind: "icon", left: box.left, right: box.right });
+              const style = getComputedStyle(node);
+              parts.push({
+                kind: "icon",
+                left: box.left + (parseFloat(style.paddingLeft) || 0),
+                right: box.right - (parseFloat(style.paddingRight) || 0),
+              });
             }
             return;
           }

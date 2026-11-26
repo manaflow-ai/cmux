@@ -40,7 +40,14 @@ export function nativeChatMenu(rows: readonly ChatMenuItem[]): NativeMenuBinding
       item.children = row.children.map((child) => {
         const childId = `${id}/${child.key}`;
         if (!row.disabled && child.disabled !== true) callbacks.set(childId, child.onSelect);
-        return { id: childId, label: nativeMenuText(child.label), enabled: !row.disabled && child.disabled !== true };
+        return {
+          id: childId,
+          label: nativeMenuText(child.label),
+          enabled: !row.disabled && child.disabled !== true,
+          // A row that is on or off on its own (Auto, Wrap lines) draws its check natively too.
+          ...(child.on !== undefined ? { checked: child.on } : {}),
+          ...(child.separatorBefore ? { separatorBefore: true } : {}),
+        };
       });
     } else if (!row.disabled && row.onSelect) {
       callbacks.set(id, () => row.onSelect?.());

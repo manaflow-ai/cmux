@@ -104,7 +104,7 @@ is an action id (`cmux action list` names them), optionally followed by a title 
 The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
 Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
 checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
-action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+action (or one that quits, closes, signs out, clears, resets or removes), a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
 rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
 your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
 (Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.
@@ -112,10 +112,11 @@ your sidebar as it was. Empty (the default) draws no block. Together with `sideb
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
-`cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
-and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
-whole window's look.
+(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons),
+`rex` (the Rex app: one flat list of sessions, the status first, then the name) or `cmux`, the default,
+which is today's sidebar. Settings > Customize lists each look as one switch. The transcript (`agentPane.display.transcriptLook`)
+and the composer (`agentPane.display.composerLook`) use the same names for `claude`, `codex` and
+`studio`, so one word sets the whole window's look; `rex` is a sidebar look only.
 
 ```sh
 cmux settings set sidebar.look claude
@@ -219,7 +220,7 @@ Two detectors hold this:
 - Swift (`AASidebarLookPresetGalleryTests`, CmuxNextAppTests): through the real sidebar list, for
   every look, a row changing state (working, busy, waiting, error, done, unread, idle) and a hot
   reload move no row's frame; switching looks keeps the list width and one workspace row height
-  across all four looks; and switching away and back returns every row frame exactly. Its gallery
+  across every look; and switching away and back returns every row frame exactly. Its gallery
   (`CMUX_TEST_REQUIRE_GUI=1`) writes `sidebar-look-presets-gallery/`, one column per look, dark
   above light.
 
@@ -243,7 +244,10 @@ heights, title and detail type) so the two can be compared number by number.
 
 What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
 project, shows the time and draws the thin ring (`arc`); Studio groups by project, shows the time and draws an
-icon for each status.
+icon for each status. Rex lists every session flat (no folders, headings or counts), draws the
+status first in the icon's place (it keeps that slot while idle, so the name never moves) and hides
+the icon, color and time. Rex is not in the table: no capture of its sidebar has been measured yet,
+so its gallery column draws at the default width.
 
 Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them
 yourself: `appearance.metrics.sidebarWidth` (for example 256, 288 or 300) and `sidebar.density`.

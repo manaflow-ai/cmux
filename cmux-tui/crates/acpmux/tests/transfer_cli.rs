@@ -80,7 +80,7 @@ impl Daemon {
         policy: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_full(tag, peer, harness_env, "fake", false, vars, policy).await
+        Self::spawn_full(tag, peer, harness_env, "fake", false, None, vars, policy).await
     }
 
     /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
@@ -95,7 +95,7 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", false).await
+        Self::spawn_inner(tag, peer, agent_env, "fake", false, None).await
     }
 
     /// [`Self::spawn`], with the test agent under the harness name `harness`.
@@ -105,7 +105,7 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
     ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, harness, false).await
+        Self::spawn_inner(tag, peer, agent_env, harness, false, None).await
     }
 
     /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
@@ -116,7 +116,7 @@ impl Daemon {
         agent_env: Value,
         linked: bool,
     ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", linked).await
+        Self::spawn_inner(tag, peer, agent_env, "fake", linked, None).await
     }
 
     async fn spawn_inner(
@@ -125,8 +125,9 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
         linked: bool,
+        link: Option<(u16, u16, u64)>,
     ) -> Self {
-        Self::spawn_full(tag, peer, agent_env, harness, linked, &[], "approve-all").await
+        Self::spawn_full(tag, peer, agent_env, harness, linked, link, &[], "approve-all").await
     }
 
     /// [`Self::spawn_inner`], with `vars` in the daemon's env and `policy` its permission policy.
@@ -137,6 +138,7 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
         linked: bool,
+        link: Option<(u16, u16, u64)>,
         vars: &[(&str, &str)],
         policy: &str,
     ) -> Self {
@@ -144,7 +146,15 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": harness, "permissionPolicy": policy});
+        // `FAMILY` in `agent_env` is not the agent's environment: it is the profile's `family`
+        // (`claude`, `codex`), which names the native store the chat's files travel from.
+        let mut agent_env = agent_env;
+        let family = agent_env.as_object_mut().and_then(|env| env.remove("FAMILY"));
+        let mut profile = json!({"argv": ["python3", fake], "env": agent_env});
+        if let Some(family) = family {
+            profile["family"] = family;
+        }
+        let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();
@@ -152,8 +162,13 @@ impl Daemon {
         }
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
-            session_move::fake_ssh(&home, &peer_home, &peer_socket)
+            let link = link.map(|(_, port, delay)| (port, delay));
+            session_move::fake_ssh(&home, &peer_home, &peer_socket, link)
         });
+        if let Some((port, ..)) = link {
+            config["websocket"] =
+                json!({"listen": format!("127.0.0.1:{port}"), "token": "5a".repeat(32)});
+        }
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
         if let Some(path) = path {
@@ -221,16 +236,32 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_eq!(info["moving"], false, "{info}");
 }
 
+#[path = "transfer_cli/composer_attachments.rs"]
+mod composer_attachments;
+#[path = "transfer_cli/first_turn_fence.rs"]
+mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
+#[path = "transfer_cli/place_set.rs"]
+mod place_set;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_as.rs"]
+mod session_move_as;
 
+#[path = "transfer_cli/session_move_ask.rs"]
+mod session_move_ask;
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
+#[path = "transfer_cli/session_move_history.rs"]
+mod session_move_history;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]
 mod session_move_reachable;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
+#[path = "transfer_cli/synced_pins_drafts.rs"]
+mod synced_pins_drafts;
+#[path = "transfer_cli/view_latency.rs"]
+mod view_latency;

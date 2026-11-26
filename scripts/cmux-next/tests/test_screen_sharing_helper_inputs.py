@@ -81,9 +81,19 @@ def phase_inputs(text: str) -> set[str]:
     return set(re.findall(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"', match.group(1)))
 
 
+CRATES = "cmux-tui/crates/"
+# A vendored crate (cmux-rd-host's `[patch.crates-io]` smoltcp) is covered by the whole `cmux-tui/vendor` input.
+VENDOR = "cmux-tui/vendor"
+
+
+def crates_only(closure: set[str]) -> set[str]:
+    return {c for c in closure if c.startswith(CRATES)}
+
+
 class ScreenSharingHelperInputs(unittest.TestCase):
     def setUp(self):
-        self.closure = crate_closure(ROOT, HOST)
+        self.full_closure = crate_closure(ROOT, HOST)
+        self.closure = crates_only(self.full_closure)
         self.script = {p for p in script_inputs(SCRIPT.read_text(encoding="utf-8")) if p.startswith("cmux-tui/crates")}
         self.phase = {p for p in phase_inputs(PROJECT.read_text(encoding="utf-8")) if p.startswith("cmux-tui/crates")}
 
@@ -98,7 +108,7 @@ class ScreenSharingHelperInputs(unittest.TestCase):
         # The cache key above decides when a cached helper is stale. The phase only tells Xcode (and the router)
         # when the app's helper can change: a crate only a Linux or Windows table names (cmux-file-lock, through
         # cmux-rd-host's Linux and Windows host) never changes the macOS helper.
-        self.assertEqual(macos_crate_closure(ROOT, HOST) - self.phase, set(),
+        self.assertEqual(crates_only(macos_crate_closure(ROOT, HOST)) - self.phase, set(),
                          "a crate the macOS helper compiles is missing from the Xcode phase")
         self.assertEqual(self.phase - self.closure, set(), "the Xcode phase names a crate the helper never reaches")
 
@@ -106,7 +116,14 @@ class ScreenSharingHelperInputs(unittest.TestCase):
         macos = macos_crate_closure(ROOT, HOST)
         self.assertIn("cmux-tui/crates/cmux-rd-proto", macos)
         self.assertNotIn("cmux-tui/crates/cmux-file-lock", macos)
-        self.assertLessEqual(macos, self.closure)
+        self.assertLessEqual(macos, self.full_closure)
+
+    def test_both_name_the_vendor_folder_for_a_vendored_crate_of_the_closure(self):
+        vendored = {c for c in self.full_closure if c.startswith(VENDOR + "/")}
+        self.assertEqual(self.full_closure - self.closure - vendored, set(), "a crate outside crates/ and vendor/")
+        if vendored:
+            self.assertIn(VENDOR, script_inputs(SCRIPT.read_text(encoding="utf-8")))
+            self.assertIn(VENDOR, phase_inputs(PROJECT.read_text(encoding="utf-8")))
 
     def test_neither_names_the_whole_crates_folder(self):
         for found in (self.script, self.phase):

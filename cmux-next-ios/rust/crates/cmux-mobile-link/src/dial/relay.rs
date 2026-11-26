@@ -20,10 +20,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use cmux_braid_carrier::{Carrier, CarrierKind, Endpoint, OpenFuture};
 use cmux_transport::relay_frame::{FrameKind, PeerId, RELAY_FRAME_MAX_PAYLOAD, RelayFrame};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
@@ -122,6 +123,57 @@ impl RelayEndpoint {
         let rest = self.base_url.split_once("://").map_or(self.base_url.as_str(), |(_, rest)| rest);
         rest.split(['/', '?']).next().unwrap_or_default().to_owned()
     }
+
+    /// This endpoint as a braid carrier endpoint (RFD 0164 B7): the WebSocket relay, the last
+    /// rung of every ladder. The address carries the port the join dials (443, or 80 for a plain
+    /// `http://` service, unless the URL names one).
+    pub fn carrier_endpoint(&self) -> Endpoint {
+        let host = self.host();
+        let plain = self.base_url.starts_with("http://") || self.base_url.starts_with("ws://");
+        let named_port = host.rsplit_once(':').is_some_and(|(name, port)| {
+            !name.is_empty() && !port.ends_with(']') && port.parse::<u16>().is_ok()
+        });
+        let address =
+            if named_port { host.clone() } else { format!("{host}:{}", if plain { 80 } else { 443 }) };
+        Endpoint { kind: CarrierKind::WssRelay, address, host, login: None }
+    }
+}
+
+/// The relay as a braid carrier ([`cmux_braid_carrier::Carrier`]): opening its endpoint joins
+/// `session_id`'s relay as the endpoint's device, taking only `peer_device`'s frames.
+pub struct RelayRung<'a> {
+    pub endpoint: &'a RelayEndpoint,
+    pub session_id: &'a str,
+    pub peer_device: &'a str,
+    pub ticket: Option<&'a str>,
+}
+
+impl Carrier for RelayRung<'_> {
+    type Link = RelayCarrier;
+
+    fn kind(&self) -> CarrierKind {
+        CarrierKind::WssRelay
+    }
+
+    fn open<'b>(&'b self, endpoint: &'b Endpoint) -> OpenFuture<'b, RelayCarrier> {
+        Box::pin(async move {
+            if endpoint.kind != CarrierKind::WssRelay {
+                return Err(std::io::Error::other("the endpoint is another carrier's"));
+            }
+            RelayCarrier::join(self.endpoint, self.session_id, self.peer_device, self.ticket)
+                .await
+                .map_err(std::io::Error::other)
+        })
+    }
+}
+
+impl RelayRung<'_> {
+    /// [`Carrier::open`] on this rung's own endpoint, with the failure as the relay's own (the
+    /// session's retries read [`RelayFailure::is_final`]).
+    pub async fn join(&self) -> Result<RelayCarrier, RelayFailure> {
+        let endpoint = self.endpoint.carrier_endpoint();
+        self.open(&endpoint).await.map_err(RelayFailure::from_io)
+    }
 }
 
 /// `https://host` → `wss://host/v1/relay/<session>?deviceId=<id>`.
@@ -164,7 +216,25 @@ pub enum RelayFailure {
     Timeout,
 }
 
+impl std::fmt::Display for RelayFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
+impl std::error::Error for RelayFailure {}
+
 impl RelayFailure {
+    /// A carrier's open error back as the relay's failure: the one [`RelayRung`] wrapped, else
+    /// an unreachable relay with the error's text.
+    pub fn from_io(error: std::io::Error) -> Self {
+        let detail = error.to_string();
+        match error.into_inner().map(|inner| inner.downcast::<RelayFailure>()) {
+            Some(Ok(failure)) => *failure,
+            _ => Self::Unreachable { detail },
+        }
+    }
+
     /// A short line for logs and the diagnosis.
     pub fn describe(&self) -> String {
         match self {
@@ -235,12 +305,64 @@ fn classify(error: tokio_tungstenite::tungstenite::Error) -> RelayFailure {
 /// into as few frames as fit; what the peer sends arrives on `inbound`.
 pub struct RelayCarrier {
     queue: Arc<ClassQueue>,
+    hold: HoldPort,
     pub(crate) inbound: mpsc::Receiver<Bytes>,
     dead: watch::Receiver<bool>,
     peer_online: watch::Receiver<bool>,
     tasks: Vec<JoinHandle<()>>,
     /// When the join answered.
     pub joined_at: Instant,
+}
+
+/// The relay socket's text side for the relay-held send queue (RFD 0142 R8,
+/// [`crate::relay_hold`]): hold frames out, the relay's hold frames in. Cheap
+/// to clone; it outlives nothing (a dead socket drops what is written).
+#[derive(Clone)]
+pub struct HoldPort {
+    text: mpsc::Sender<String>,
+    frames: broadcast::Sender<crate::relay_hold::Incoming>,
+    /// Frames that came before anyone subscribed (the relay drains held items
+    /// the moment the socket joins, maybe before the session's reader starts).
+    unread: Arc<std::sync::Mutex<std::collections::VecDeque<crate::relay_hold::Incoming>>>,
+    dead: watch::Receiver<bool>,
+}
+
+impl std::fmt::Debug for HoldPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HoldPort").field("dead", &*self.dead.borrow()).finish_non_exhaustive()
+    }
+}
+
+/// Hold frames a port buffers for a slow reader before the oldest go.
+const HOLD_FRAMES: usize = 256;
+/// Hold frames out the writer has not taken yet, at most.
+const HOLD_TEXT_QUEUE: usize = 128;
+
+impl HoldPort {
+    /// Write one hold frame (`hold` or `held_ack`) to the relay. `false` when the
+    /// socket is dead or the queue is full: route the send another way.
+    pub fn send_text(&self, text: String) -> bool {
+        !*self.dead.borrow() && self.text.try_send(text).is_ok()
+    }
+
+    /// The relay's hold frames (`held`, `hold_refused`, `held_item`, `delivered`): those that
+    /// arrived while nobody was subscribed, then the rest as they come, with no gap between.
+    pub fn subscribe(
+        &self,
+    ) -> (Vec<crate::relay_hold::Incoming>, broadcast::Receiver<crate::relay_hold::Incoming>) {
+        let mut unread = self.unread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let frames = self.frames.subscribe();
+        (unread.drain(..).collect(), frames)
+    }
+
+    pub fn is_dead(&self) -> bool {
+        *self.dead.borrow()
+    }
+
+    /// Becomes `true` when the socket fails.
+    pub fn dead(&self) -> watch::Receiver<bool> {
+        self.dead.clone()
+    }
 }
 
 impl std::fmt::Debug for RelayCarrier {
@@ -278,6 +400,7 @@ impl RelayCarrier {
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }
+        let request = cmux_egress::ws::checked(request, "cmux_mobile_link::dial::relay").map_err(classify)?;
         let host = request.uri().host().unwrap_or_default().trim_matches(['[', ']']).to_owned();
         let (socket, via) =
             tokio::time::timeout(JOIN_WAIT, crate::egress::connect_websocket(request, &endpoint.egress))
@@ -302,6 +425,15 @@ impl RelayCarrier {
         let (dead_tx, dead) = watch::channel(false);
         let dead_tx = Arc::new(dead_tx);
         let (peer_tx, peer_online) = watch::channel(false);
+        let (text_tx, mut text_rx) = mpsc::channel::<String>(HOLD_TEXT_QUEUE);
+        let (frames_tx, _) = broadcast::channel(HOLD_FRAMES);
+        let unread = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let hold = HoldPort {
+            text: text_tx,
+            frames: frames_tx.clone(),
+            unread: Arc::clone(&unread),
+            dead: dead.clone(),
+        };
         let writer = {
             let (queue, dead_tx) = (Arc::clone(&queue), Arc::clone(&dead_tx));
             tokio::spawn(async move {
@@ -315,6 +447,13 @@ impl RelayCarrier {
                                 Some(item) => item,
                                 None => break,
                             },
+                            Some(text) = text_rx.recv() => {
+                                let sent = tokio::time::timeout(WRITE_WAIT, sink.send(Message::Text(text.into()))).await;
+                                if !matches!(sent, Ok(Ok(()))) {
+                                    break;
+                                }
+                                continue;
+                            }
                             _ = ping.tick() => {
                                 let sent = tokio::time::timeout(WRITE_WAIT, sink.send(Message::Text(APP_PING.into()))).await;
                                 if !matches!(sent, Ok(Ok(()))) {
@@ -407,6 +546,21 @@ impl RelayCarrier {
                                 Some("error") => {
                                     tracing::debug!(code = %value["code"], "relay refused a frame");
                                 }
+                                Some("held" | "hold_refused" | "held_item" | "delivered") => {
+                                    if let Some(frame) = crate::relay_hold::Incoming::parse(&text) {
+                                        // No subscriber yet: keep it for the first (bounded).
+                                        let mut unread =
+                                            unread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                        if frames_tx.receiver_count() > 0 {
+                                            let _ = frames_tx.send(frame);
+                                        } else {
+                                            if unread.len() == HOLD_FRAMES {
+                                                unread.pop_front();
+                                            }
+                                            unread.push_back(frame);
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -421,7 +575,15 @@ impl RelayCarrier {
                 dead_tx.send_replace(true);
             })
         };
-        Self { queue, inbound, dead, peer_online, tasks: vec![writer, reader], joined_at: Instant::now() }
+        Self {
+            queue,
+            hold,
+            inbound,
+            dead,
+            peer_online,
+            tasks: vec![writer, reader],
+            joined_at: Instant::now(),
+        }
     }
 
     /// Queue one datagram to the peer, in `class` (dropped past its class's
@@ -448,6 +610,11 @@ impl RelayCarrier {
     /// The relay's word on the peer's socket, as it changes.
     pub fn peer_online_watch(&self) -> watch::Receiver<bool> {
         self.peer_online.clone()
+    }
+
+    /// The socket's text side for relay-held sends.
+    pub fn hold_port(&self) -> HoldPort {
+        self.hold.clone()
     }
 
     /// Debug and tests: close the socket, as a proxy that resets it would.
@@ -495,6 +662,58 @@ mod tests {
             RelayEndpoint::with_token("https://mobile-api.cmux.dev/x", None, "dev", "secret-token");
         assert_eq!(endpoint.host(), "mobile-api.cmux.dev");
         assert!(!format!("{endpoint:?}").contains("secret-token"));
+    }
+
+    #[test]
+    fn the_relay_is_a_braid_carrier_on_the_last_rung() {
+        let endpoint = |base: &str| RelayEndpoint::with_token(base, None, "dev", "t").carrier_endpoint();
+        let wss = endpoint("https://mobile-api.cmux.dev/");
+        assert_eq!(wss.kind, CarrierKind::WssRelay);
+        assert_eq!(wss.address, "mobile-api.cmux.dev:443");
+        assert_eq!(wss.host, "mobile-api.cmux.dev");
+        assert!(wss.on_443() && wss.login.is_none());
+        assert_eq!(endpoint("http://127.0.0.1:9000").address, "127.0.0.1:9000");
+        assert_eq!(endpoint("http://relay.test").address, "relay.test:80");
+        assert_eq!(endpoint("https://[::1]").address, "[::1]:443");
+        assert_eq!(endpoint("https://[::1]:8443").address, "[::1]:8443");
+        assert_eq!(cmux_braid_carrier::rank(&wss).0, cmux_braid_carrier::Rung::LastResort);
+        // A network whose only way out is a proxy keeps the relay on 443, and drops it elsewhere.
+        let proxy = cmux_braid_carrier::NetFacts { proxy_only: true, ..Default::default() };
+        assert!(cmux_braid_carrier::usable(&wss, proxy));
+        assert!(!cmux_braid_carrier::usable(&endpoint("https://relay.test:8443"), proxy));
+        let rung = RelayRung {
+            endpoint: &RelayEndpoint::with_token("https://x", None, "dev", "t"),
+            session_id: "s",
+            peer_device: "p",
+            ticket: None,
+        };
+        assert_eq!(rung.kind(), CarrierKind::WssRelay);
+        assert!(rung.reliable());
+    }
+
+    #[test]
+    fn a_relay_failure_survives_the_carrier_error() {
+        let refused = RelayFailure::Refused { status: 503, code: "relay_off".into() };
+        let back = RelayFailure::from_io(std::io::Error::other(refused.clone()));
+        assert_eq!(back, refused);
+        assert!(back.is_final(), "a refusal stays final through the carrier");
+        let other = RelayFailure::from_io(std::io::Error::other("no route"));
+        assert_eq!(other, RelayFailure::Unreachable { detail: "no route".into() });
+    }
+
+    /// Opening another carrier's endpoint is refused before any join.
+    #[tokio::test]
+    async fn the_relay_rung_opens_only_relay_endpoints() {
+        let relay = RelayEndpoint::with_token("https://x", None, "dev", "t");
+        let rung = RelayRung { endpoint: &relay, session_id: "s", peer_device: "p", ticket: None };
+        let turn = Endpoint {
+            kind: CarrierKind::TurnTls,
+            address: "t.example:443".into(),
+            host: "t.example".into(),
+            login: None,
+        };
+        let error = rung.open(&turn).await.err().expect("refused");
+        assert!(error.to_string().contains("another carrier"));
     }
 
     #[test]

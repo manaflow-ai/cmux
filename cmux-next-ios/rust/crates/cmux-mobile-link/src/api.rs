@@ -175,7 +175,7 @@ impl ApiClient {
 
     /// `method` on `path` with the bearer token and, for a dev build, the
     /// build space header.
-    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
         let request = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(&self.token);
         match &self.build_space {
             Some(space) => request.header(crate::build_space::HEADER, space.as_str()),
@@ -194,14 +194,15 @@ impl ApiClient {
     /// and verifying against the OS trust store ([`crate::egress`]).
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        crate::egress::http_client_builder()
+        crate::egress::http_client_builder("cmux_mobile_link::api")
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .dns_resolver(std::sync::Arc::new(RouteResolve))
             .build()
             .expect("HTTP client builds")
     }
 
-    async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+    pub(crate) async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
         let status = response.status();
         if status.is_success() {
             return Ok(response);
@@ -326,6 +327,22 @@ pub struct MyDevice {
     /// When the device first registered (ISO 8601).
     #[serde(default)]
     pub created_at: Option<String>,
+}
+
+/// The API's names resolve as a dial's do: DNS, or the literals they last resolved to when DNS
+/// is down ([`crate::route_literals`]). TLS still names and verifies the host.
+struct RouteResolve;
+
+impl reqwest::dns::Resolve for RouteResolve {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let found = crate::route_literals::RouteLiterals::shared().resolve_host(&host).await?;
+            let addrs: reqwest::dns::Addrs =
+                Box::new(found.into_iter().map(|ip| std::net::SocketAddr::new(ip, 0)));
+            Ok(addrs)
+        })
+    }
 }
 
 /// `GET /v1/ice` results kept while their credentials have plenty of life

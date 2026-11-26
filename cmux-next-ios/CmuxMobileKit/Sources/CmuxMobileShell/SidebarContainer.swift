@@ -143,7 +143,18 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     /// never reach controls that cannot be seen; it is shown again as soon
     /// as a drag or an open begins.
     private func setSidebarPresent(_ present: Bool) {
+        if present { sizeSidebar() }
         if sidebarController.view.isHidden == present { sidebarController.view.isHidden = !present }
+    }
+
+    /// The sidebar's frame for the container's current bounds; a no-op when
+    /// it already has it.
+    private func sizeSidebar() {
+        let frame = CGRect(x: 0, y: 0, width: sidebarWidth, height: view.bounds.height)
+        let sidebarTransform = sidebarController.view.transform
+        sidebarController.view.transform = .identity
+        if sidebarController.view.frame != frame { sidebarController.view.frame = frame }
+        sidebarController.view.transform = sidebarTransform
     }
 
     /// The grounds again when the Mac's theme changes (ask-87d30da8e5): UIKit tracks the
@@ -169,10 +180,11 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         contentController.view.frame = cardView.bounds
         scrimView.frame = cardView.bounds
         shadowView.layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: theme.metrics.sidebarCardRadius).cgPath
-        let sidebarTransform = sidebarController.view.transform
-        sidebarController.view.transform = .identity
-        sidebarController.view.frame = CGRect(x: 0, y: 0, width: sidebarWidth, height: bounds.height)
-        sidebarController.view.transform = sidebarTransform
+        // The closed sidebar is hidden: it takes the new size when it shows
+        // (`setSidebarPresent`). Resized here it laid out its whole SwiftUI
+        // list on every rotation, in the turn's one long main-thread pass,
+        // for a view nobody could see (ios-rotate, optimum ledger row 8).
+        if !sidebarController.view.isHidden { sizeSidebar() }
         if animator == nil, !isTracking {
             offset = model.isOpen ? sidebarWidth : 0
             apply()

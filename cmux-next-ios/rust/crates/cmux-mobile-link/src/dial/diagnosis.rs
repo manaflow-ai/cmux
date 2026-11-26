@@ -25,10 +25,15 @@ pub struct PathFailures {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub udp: Option<String>,
     /// TURN: `none_offered` (the service listed no TURN server),
-    /// `no_allocation` (neither UDP nor TLS on 443 got one in time) or `off`
+    /// `no_allocation` (neither UDP nor TLS on 443 got one in time),
+    /// `proxy_refused` (the system's proxy refused TURN over TLS: sign-in the
+    /// link cannot do, a policy; [`Self::turn_detail`] says what) or `off`
     /// (debug: relay via cmux only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn: Option<String>,
+    /// The proxy's refusal, as a sentence, when `turn` is `proxy_refused`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_detail: Option<String>,
     /// The TURN server's host, for the person and for IT.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_host: Option<String>,
@@ -66,7 +71,8 @@ impl std::fmt::Display for PathFailures {
         }
         if let Some(turn) = &self.turn {
             let host = self.turn_host.as_deref().map(|host| format!(" ({host})")).unwrap_or_default();
-            parts.push(format!("TURN{host} {}", turn.replace('_', " ")));
+            let detail = self.turn_detail.as_deref().map(|detail| format!(": {detail}")).unwrap_or_default();
+            parts.push(format!("TURN{host} {}{detail}", turn.replace('_', " ")));
         }
         if let Some(relay) = &self.relay {
             let host = self.relay_host.as_deref().map(|host| format!(" ({host})")).unwrap_or_default();
@@ -121,6 +127,21 @@ impl Diagnosis {
             state.failures.turn = Some(outcome.to_owned());
             state.failures.turn_host = host;
         });
+    }
+
+    /// The system's proxy refused TURN over TLS: `proxy_refused`, the
+    /// proxy's sentence, and the TURN host.
+    pub fn turn_refused_by_proxy(&self, detail: &str, host: Option<String>) {
+        self.with(|state| {
+            state.failures.turn = Some("proxy_refused".to_owned());
+            state.failures.turn_detail = Some(detail.to_owned());
+            state.failures.turn_host = host;
+        });
+    }
+
+    /// Whether a proxy refused TURN over TLS on this dial.
+    pub fn turn_refused(&self) -> bool {
+        self.with(|state| state.failures.turn.as_deref() == Some("proxy_refused"))
     }
 
     /// The relay's outcome without a join (`unavailable`, `peer_cannot`,

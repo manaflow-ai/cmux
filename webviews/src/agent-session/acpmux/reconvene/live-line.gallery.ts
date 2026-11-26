@@ -101,10 +101,10 @@ export const ARMS: Record<string, Arm> = arms({
 ${LIVE} :is(.cv-worked__time, .cv-worked__own) { color: var(--cv-text-dim); font-variant-numeric: tabular-nums; }`,
     ready: LIVE,
   },
-  /// The band crosses the words only; the time is never lit and keeps tabular figures.
+  /// The band crosses the words only (the shipped default since the band's box is the words'); the
+  /// time keeps tabular figures.
   "shimmer-verb": {
     css: `
-${LIVE} .cv-shimmer__lit-time { visibility: hidden; }
 ${LIVE} :is(.cv-worked__time, .cv-worked__own) { color: var(--cv-text-dim); font-variant-numeric: tabular-nums; }`,
     ready: LIVE,
   },

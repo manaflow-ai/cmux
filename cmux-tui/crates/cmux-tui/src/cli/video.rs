@@ -534,7 +534,9 @@ fn download(url: &str, destination: &Path) -> Result<u64, String> {
 
 async fn download_async(url: &str, destination: &Path) -> Result<u64, String> {
     let name = Source::Web(url.to_owned()).name();
-    let client = reqwest::Client::builder()
+    // The person named this URL (`cmux video open URL`); a redirect off it is still checked.
+    cmux_egress::allow_named(url);
+    let client = cmux_egress::client_builder("cmux_tui::cli::video")
         .timeout(DOWNLOAD_TIMEOUT)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 5 {
