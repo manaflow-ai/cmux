@@ -911,6 +911,14 @@ mod channel_write_tests {
             while !watch.take_progress() {
                 tokio::task::yield_now().await;
             }
+            let queued = ChannelWriteWatch::new();
+            let abandoned = tokio::spawn({
+                let (handle, queued) = (handle.clone(), queued.clone());
+                async move { handle.send_observed(b"abandoned".to_vec(), queued).await }
+            });
+            queued.cancel();
+            assert!(abandoned.await.unwrap().is_err());
+            assert!(!queued.take_progress(), "waiting for the current writer accepted no bytes");
             let next = tokio::spawn({
                 let handle = handle.clone();
                 async move { handle.send(b"next".to_vec()).await }
