@@ -141,19 +141,9 @@ enum TerminalLoadWatch {
         case stalled(title: String, detail: String?)
     }
 
+    /// What the cover draws for `state` after `waited`; the words live with the panel that draws them and its Retry.
     static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
-        switch state {
-        case .attached:
-            return .loading
-        case .failed:
-            return .stalled(title: "Can't reach this terminal", detail: "Check that the Mac is on and cmux is open.")
-        case .offline:
-            return .stalled(title: state.quietLine ?? "Your Mac is offline", detail: "The terminal opens when it is back.")
-        case .connecting(let mac), .reattaching(let mac):
-            guard waited >= bound else { return .loading }
-            return .stalled(title: "Still connecting to \(named(mac))", detail: "Trying again.")
-        }
+        TerminalLoadStalledPanel.stage(state, waited: waited)
     }
 }
 
@@ -188,6 +178,24 @@ struct TerminalLoadStalledPanel: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("terminal.connecting.stalled")
         .environment(\.colorScheme, .dark)
+    }
+}
+
+extension TerminalLoadStalledPanel {
+    /// The cover's stage: the skeleton, or this panel's words (drawn with its Retry).
+    static func stage(_ state: TerminalConnectionState, waited: Duration) -> TerminalLoadWatch.Stage {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
+        switch state {
+        case .attached:
+            return .loading
+        case .failed:
+            return .stalled(title: "Can't reach this terminal", detail: "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return .stalled(title: state.quietLine ?? "Your Mac is offline", detail: "The terminal opens when it is back.")
+        case .connecting(let mac), .reattaching(let mac):
+            guard waited >= TerminalLoadWatch.bound else { return .loading }
+            return .stalled(title: "Still connecting to \(named(mac))", detail: "Trying again.")
+        }
     }
 }
 

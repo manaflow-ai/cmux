@@ -461,6 +461,18 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_swift_kit_button_given_an_action_is_an_action(self):
+        """`RetryButton(action: retry)` (iOS TerminalLoadStalledPanel) is a person action like `Button(\"Retry\")`."""
+        panel = ("struct StalledPanel: View {\n"
+                 "    let retry: () -> Void\n"
+                 "    var body: some View {\n"
+                 "        Text(\"Can't reach this terminal\")\n"
+                 "        RetryButton(action: retry)\n    }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/StalledPanel.swift", panel)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
     def test_a_model_that_names_its_action_type_is_an_action_and_a_text_field_is_not(self):
         """A row model's `var action: Action?` (Mac Home chief connections) carries the person's action; a field
         that only holds words (`var action: String?`, a subagent's description) does not."""

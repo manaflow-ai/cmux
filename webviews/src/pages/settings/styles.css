@@ -4238,7 +4238,6 @@ button.menu-disclosure {
    type under Connect Claude, the paste form inside it once opened. */
 .models-claude-paste > summary {
   width: fit-content;
-  cursor: pointer;
 }
 .models-claude-paste[open] > summary {
   margin-bottom: 8px;

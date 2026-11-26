@@ -132,6 +132,8 @@ PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
+    # A Swift kit button drawn with the action handed to it (`RetryButton(action: retry)`, CmuxMobileDesign).
+    r"|\b[A-Z]\w*Button\s*\(\s*action:\s*\w"
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
     r"|\bvar\s+action\s*:\s*\w*Action\?"
     # A sidebar section's click handler for its own rows (`func activate(_ id: LayoutItemID) -> Bool`).
