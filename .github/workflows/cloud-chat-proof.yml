@@ -513,15 +513,17 @@ jobs:
           set -o pipefail
           python3 -I scripts/cmux-next/cloud-github-config-check.py | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # Places both proof jobs on the ephemeral Blacksmith macOS 26 label whose queue moves. Run 42759281426
+  # Places both proof jobs on the Blacksmith macOS 26 label whose queue moves when attempt 1 does not take the
+  # owned GUI pool (vars.CI_PR_POOL_OWNED off; the proof jobs' runs-on names it first). Run 42759281426
   # sat queued over an hour on blacksmith-6vcpu-macos-26, the one label the jobs named. This runs
   # e2e_runner_pool.py, test-e2e.yml's picker, with owned pools off (--owned 0): it reads the queue
   # janitor's pool snapshot and takes blacksmith-12vcpu-macos-26 or blacksmith-6vcpu-macos-26 by its own
   # fixed order and per-label capacity, skipping a stalled label (--order and --max-queued are the
-  # shared call's; the auto path does not read them). Owned Macs stay out: the proof jobs hold a Stack account pair
-  # (.github/runners.json cloud-chat-proof.yml#proof), and an owned route needs the per-job exclusive
-  # claim the signing jobs get from glaeda. No secret is read here; a failed pick leaves the proof
-  # on the declared macos_26 pool.
+  # shared call's; the auto path does not read them). This pick is Blacksmith-only because the owned
+  # route is the proof jobs' own first term, not because of the Stack pair they hold: Leo, 2026-11-19: "if
+  # 99.99999% of the code is ours, there's literally nothing to be concerned about if we literally dont allow
+  # forks to run on ours automatically/require qpproval each time for external ci running". No secret is
+  # read here; a failed pick leaves the proof on the declared macos_26 pool.
   pick-proof-runner:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && (inputs.flow == 'chat' || inputs.flow == '' || inputs.flow == 'github-pr-app')
     continue-on-error: true
@@ -582,9 +584,11 @@ jobs:
       name: ${{ inputs.flow == 'github-pr-app' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
     needs: [resolve, pick-proof-runner, github-config]
-    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
-    # pick, takes the declared macos_26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # Attempt 1 takes the owned M4 Pro GUI pool (glaeda-gui-std, a console session, as stable-next.yml's smoke)
+    # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
+    # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
+    # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -1033,9 +1037,11 @@ jobs:
       name: cmux-next-cloud-journey
       deployment: false
     needs: [resolve, pick-proof-runner, proof-staging]
-    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
-    # pick, takes the declared macos_26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # Attempt 1 takes the owned M4 Pro GUI pool (glaeda-gui-std, a console session, as stable-next.yml's smoke)
+    # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
+    # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
+    # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
