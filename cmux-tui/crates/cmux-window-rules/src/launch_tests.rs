@@ -443,3 +443,60 @@ fn a_pending_home_landing_stays_dropped_after_the_person_left_and_came_back() {
     // Never left: Home lands once listed.
     assert_eq!(pending_home(&read(false, false, true)), HomeStep::Land { window: "front".into() });
 }
+
+fn front(page: Option<&str>, workspace: Option<&str>, live: Option<FrontLive>) -> FrontFacts {
+    FrontFacts {
+        page: page.map(str::to_owned),
+        workspace: workspace.map(str::to_owned),
+        pane: Some("p".into()),
+        tab: Some("t".into()),
+        live,
+    }
+}
+
+fn live_tab(dead: bool, relaunch: bool) -> Option<FrontLive> {
+    Some(FrontLive { home: false, tab: Some(SavedTab { dead, relaunch }) })
+}
+
+#[test]
+fn the_front_window_on_another_page_reopens_on_it() {
+    assert_eq!(front_landing(&front(Some("settings"), Some("w"), None)), None);
+}
+
+#[test]
+fn the_front_window_on_home_or_nothing_lands_home() {
+    assert_eq!(
+        front_landing(&front(Some("home"), Some("w"), None)),
+        Some(Landing::Home { why: HomeWhy::LastWasHome })
+    );
+    assert_eq!(
+        front_landing(&front(None, None, None)),
+        Some(Landing::Home { why: HomeWhy::FirstLaunch })
+    );
+    let home = Some(FrontLive { home: true, tab: None });
+    assert_eq!(
+        front_landing(&front(None, Some("w"), home)),
+        Some(Landing::Home { why: HomeWhy::LastWasHome })
+    );
+    assert_eq!(
+        front_landing(&front(None, Some("w"), None)),
+        Some(Landing::Home { why: HomeWhy::UnknownWorkspace })
+    );
+}
+
+#[test]
+fn the_front_window_lands_on_its_tab_while_listed() {
+    let at = |tab: Option<&str>| {
+        Some(Landing::Workspace {
+            workspace: "w".into(),
+            pane: Some("p".into()),
+            tab: tab.map(str::to_owned),
+        })
+    };
+    assert_eq!(front_landing(&front(None, Some("w"), live_tab(false, false))), at(Some("t")));
+    // A tab whose process ended is still that tab: the daemon relaunches it.
+    assert_eq!(front_landing(&front(None, Some("w"), live_tab(true, false))), at(Some("t")));
+    assert_eq!(front_landing(&front(None, Some("w"), live_tab(false, true))), at(Some("t")));
+    let gone = Some(FrontLive { home: false, tab: None });
+    assert_eq!(front_landing(&front(None, Some("w"), gone)), at(None));
+}

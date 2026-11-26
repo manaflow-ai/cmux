@@ -190,13 +190,6 @@ pub(super) fn transcript_rows_range(
         }
     };
 
-    // Queued messages wait at the bottom, under the running turn, until
-    // their own turn starts (Codex app).
-    let queued: Vec<usize> = vis
-        .iter()
-        .copied()
-        .filter(|&i| matches!(t.items[i], Item::User { queued: true, .. }))
-        .collect();
     let mut k = 0usize;
     let mut turn_open = true;
     // When a turn's work is collapsed, rendering resumes at this item (the
@@ -209,10 +202,6 @@ pub(super) fn transcript_rows_range(
             reopen_at = None;
         }
         let item = &t.items[i];
-        if matches!(item, Item::User { queued: true, .. }) {
-            k += 1;
-            continue;
-        }
         match item {
             Item::User { text, steer, queued } => {
                 k += 1;
@@ -738,8 +727,14 @@ pub(super) fn transcript_rows_range(
             }
         }
     }
-    for &i in &queued {
-        if let Item::User { text, .. } = &t.items[i] {
+    // Queued prompts dock at the bottom, under the running turn, until each is delivered and
+    // joins the transcript where it arrived (`Transcript::queue`). They are no item: their rows
+    // name the index past the last one, which no fold or copy resolves.
+    let docked: &[acpmux::transcript::QueuedPrompt] = if footer { &t.queue } else { &[] };
+    for q in docked {
+        let i = t.items.len();
+        {
+            let text = &q.text;
             spacer(&mut rows, i, false);
             let bg = Style::default().bg(c.user_bg);
             let style = c.dim().bg(c.user_bg);
@@ -892,8 +887,11 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
             if t.active_tools == 1 { "" } else { "s" }
         ));
     }
-    let queued =
-        t.items.iter().filter(|item| matches!(item, Item::User { queued: true, .. })).count();
+    if let Some(wait) = t.subagent_wait(now_ms()) {
+        label.push_str(" · ");
+        label.push_str(&wait);
+    }
+    let queued = t.queue.len();
     if queued > 0 {
         label.push_str(&format!(" · {} queued", queued));
     }

@@ -177,6 +177,11 @@ pub struct EventsParams {
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
     pub subagent: Option<String>,
+    /// True: answered in order, after every line already queued to this connection, as an attach
+    /// is. A pane's stall check sets it: it compares the newest record with what the stream has
+    /// delivered, so an answer ahead of the records queued before it reads a healthy stream as
+    /// stalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.
+    pub in_order: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
