@@ -23,7 +23,8 @@
 #     REPEAT times (ALLOC arm=A rI lines). The dhat arm writes its profile after the last sample (--heap-profile) and
 #     its live bytes by allocation site print as DHAT lines. A round starts only while the last round's time still
 #     fits in alloc_budget seconds from the start, so a job cap cuts repeats, not counts. Answers whether the
-#     daemon's heap is live data (dhat's bytes near mimalloc's heap) or the allocator's retention.
+#     daemon's heap is live data (dhat's bytes near mimalloc's heap) or the allocator's retention. alloc_arms=A,B
+#     runs a subset (dhat alone in a job of its own: it records slowly and writes at the budget's end if not done).
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -42,6 +43,7 @@ freed=0
 cap_ab=""
 alloc_ab=0
 alloc_budget=3000
+alloc_arms="mimalloc system dhat"
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -58,6 +60,7 @@ for arg in "$@"; do
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
     alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
+    alloc_arms=*) alloc_arms="${arg#alloc_arms=}"; alloc_arms="${alloc_arms//,/ }" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -209,7 +212,8 @@ if [[ "$alloc_ab" == 1 ]]; then
   trap 'rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
   mkdir "$ab/mimalloc" "$ab/system" "$ab/dhat"
   cp "$bin/acpmux" "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/mimalloc/"
-  for arm in system dhat; do
+  for arm in $alloc_arms; do
+    [[ "$arm" == mimalloc ]] && continue
     feature=system-alloc; [[ "$arm" == dhat ]] && feature=dhat-heap
     t0=$SECONDS
     (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux --features "$feature" 2>&1 | tail -n 3
@@ -218,7 +222,7 @@ if [[ "$alloc_ab" == 1 ]]; then
     cp "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/$arm/"
     echo "INFINITE-ALLOC-BUILD arm=$arm feature=$feature seconds=$((SECONDS - t0))"
   done
-  echo "INFINITE-ALLOC repeat=$repeat counts=$counts days=$days budget_s=$alloc_budget head=$(git rev-parse HEAD) built_s=$((SECONDS - started_at))"
+  echo "INFINITE-ALLOC arms=${alloc_arms// /,} repeat=$repeat counts=$counts days=$days budget_s=$alloc_budget head=$(git rev-parse HEAD) built_s=$((SECONDS - started_at))"
   round_s=0
   for r in $(seq 1 "$repeat"); do
     # Round 1 always runs: a job that only built measured nothing.
@@ -227,11 +231,18 @@ if [[ "$alloc_ab" == 1 ]]; then
       break
     fi
     t0=$SECONDS
-    for arm in mimalloc system dhat; do
-      profile=(); [[ "$arm" == dhat ]] && profile=(--heap-profile)
+    for arm in $alloc_arms; do
+      # Every arm answers _acpmux/heap_profile after its last sample: dhat's live bytes, glibc's mallinfo2
+      # (system), nothing more for mimalloc. dhat records slowly, so it also writes at the budget's end
+      # (--heap-profile-at) and its run is cut there: what it held then, at the count it reached.
+      profile=(--heap-profile); limit=()
+      if [[ "$arm" == dhat ]]; then
+        left=$((alloc_budget - (SECONDS - started_at)))
+        profile+=(--heap-profile-at "$(( $(date +%s) + left - 240 ))"); limit=(timeout --signal=KILL "$((left - 120))")
+      fi
       dhat_out="$ab/dhat-r$r.json"
       ACPMUX_DHAT_OUT="$([[ "$arm" == dhat ]] && echo "$dhat_out")" \
-        python3 scripts/measure/infinite-items.py --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
+        ${limit[@]+"${limit[@]}"} python3 scripts/measure/infinite-items.py --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
         --counts "$counts" --days "$days" ${profile[@]+"${profile[@]}"} ${extra[@]+"${extra[@]}"} 2>&1 \
         | sed -u "s/^/ALLOC arm=$arm r$r /" || status=$?
       if [[ "$arm" == dhat ]]; then
