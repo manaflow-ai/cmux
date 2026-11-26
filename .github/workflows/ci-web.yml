@@ -2297,7 +2297,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
-          sparse-checkout: scripts/ci/webviews_test_shards.py
+          sparse-checkout: |
+            scripts/ci/webviews_test_shards.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -2356,6 +2358,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/webviews_test_history.py
             scripts/ci/web_subareas.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

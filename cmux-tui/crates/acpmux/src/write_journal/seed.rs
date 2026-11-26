@@ -76,6 +76,77 @@ impl SeededReplica {
     }
 }
 
+impl SeededReplica {
+    /// The names directly under `dir` ("" is the folder). A file the seed left out (too large,
+    /// a link, `.git`) is listed too, as a file of size 0 (`.git` as a folder): the tree shows
+    /// what the machine has, and opening it is [`ReplicaRead::MachineOnly`]. `None` when the
+    /// seed stopped early (`!complete`) or `dir` is itself left out: only the machine knows.
+    pub(super) fn list(&self, dir: &str) -> io::Result<Option<Vec<super::browse::ListEntry>>> {
+        if !self.complete || (!dir.is_empty() && self.left_out(dir)) {
+            return Ok(None);
+        }
+        let mut out = Vec::new();
+        match std::fs::read_dir(self.dir.root().join(dir)) {
+            Ok(rd) => {
+                for e in rd {
+                    let e = e?;
+                    let (Some(name), kind) =
+                        (e.file_name().to_str().map(str::to_owned), e.file_type()?)
+                    else {
+                        continue;
+                    };
+                    if kind.is_symlink() {
+                        continue;
+                    }
+                    let size = if kind.is_file() { e.metadata()?.len() } else { 0 };
+                    out.push(super::browse::ListEntry { name, is_dir: kind.is_dir(), size });
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        for left in &self.left_out {
+            if let Some(name) = left.strip_prefix(&prefix).filter(|n| !n.contains('/')) {
+                out.push(super::browse::ListEntry {
+                    name: name.to_owned(),
+                    is_dir: name == ".git",
+                    size: 0,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(Some(out))
+    }
+
+    pub(super) fn dir_exists(&self, dir: &str) -> bool {
+        dir.is_empty() || self.dir.root().join(dir).is_dir()
+    }
+
+    /// Every file the replica holds, as journal paths, in name order.
+    pub(super) fn walk_files(&self) -> io::Result<Vec<String>> {
+        let mut out = Vec::new();
+        let mut stack = vec![String::new()];
+        while let Some(rel) = stack.pop() {
+            let mut names: Vec<_> =
+                std::fs::read_dir(self.dir.root().join(&rel))?.collect::<io::Result<Vec<_>>>()?;
+            names.sort_by_key(std::fs::DirEntry::file_name);
+            for e in names {
+                let Some(name) = e.file_name().to_str().map(str::to_owned) else { continue };
+                let kind = e.file_type()?;
+                let path = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+                if kind.is_dir() {
+                    stack.push(path);
+                } else if kind.is_file() {
+                    out.push(path);
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+}
+
 impl ReplicaSource for SeededReplica {
     fn generation(&self) -> u64 {
         self.dir.generation()
