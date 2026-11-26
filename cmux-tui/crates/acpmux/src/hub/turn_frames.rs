@@ -11,8 +11,15 @@
 //! - `turn-end`: the turn's result was written.
 //! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
 //!
-//! The page is the one turn shots take (`turn_shots.rs`): the selected, live, agent-driven http(s)
-//! tab of the chat's workspace, through the app's own browser host. No page: no frame, never a wait.
+//! Sources, first that answers: the page turn shots take (`turn_shots.rs`: the selected, live,
+//! agent-driven http(s) tab of the chat's workspace, through the app's own browser host); in a turn
+//! that drives the iOS Simulator ([`drives_simulator`]), the booted simulator's screen (`xcrun simctl
+//! io booted screenshot`, no screen-recording grant needed); in a turn that customizes the app
+//! ([`customizes_app`]), the app's window. In a turn that runs a Mac app it built or opened
+//! ([`turn_frames_native::runs_mac_app`]), that app's front window, through the resident Computer Use
+//! worker (`turn_frames_native.rs`); a launch asks for frames a few seconds on
+//! ([`LAUNCH_FRAMES`]), as `open` returns before the window shows and `swift run` holds its call
+//! while the app runs. None: no frame, never a wait.
 //!
 //! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
 //! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
@@ -21,6 +28,7 @@
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
+use super::turn_frames_native;
 use super::turn_shots::{capture_page, prune, segment};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -44,8 +52,14 @@ pub(crate) const LOOK_EDGE: u32 = 512;
 const REPL_SESSION: &str = "acpmux-turn-frames";
 const LOOK_REPL_SESSION: &str = "acpmux-turn-frames-look";
 const INDEX: &str = "frames.json";
-/// One app-window capture, run to answer.
+/// One app-window or simulator capture, run to answer.
 const WINDOW_LIMIT: Duration = Duration::from_secs(20);
+/// The largest capture read back (a 6.9" simulator's PNG is about 3 MB).
+pub(super) const MAX_CAPTURE_BYTES: u64 = 8 << 20;
+/// After a call that launches a Mac app, frames this long after it (its window takes a moment, and
+/// `swift run` builds first).
+pub(crate) const LAUNCH_FRAMES: [Duration; 3] =
+    [Duration::from_secs(4), Duration::from_secs(12), Duration::from_secs(30)];
 
 /// Every frame's place in the daemon's order: the preview window asks for what is newer than the
 /// last it drew.
@@ -86,6 +100,12 @@ struct Turn {
     /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
     /// are of the app's window (`cmux window screenshot`, masked by the app).
     chrome: bool,
+    /// The turn drives the iOS Simulator ([`drives_simulator`]): with no agent-driven page, frames
+    /// are of the booted simulator's screen.
+    simulator: bool,
+    /// The Mac app the turn last ran ([`turn_frames_native::runs_mac_app`]): with no agent-driven
+    /// page or simulator, frames are of its front window.
+    mac_app: Option<String>,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -294,6 +314,24 @@ pub(crate) fn customizes_app(update: &Value) -> bool {
             .any(|verb| command.contains(verb))
 }
 
+/// A tool call that drives the iOS Simulator: a `simctl` run, a build or test for it
+/// (`xcodebuild ... -sdk iphonesimulator`, `-destination 'platform=iOS Simulator,...'`), or an
+/// edit of a Swift file under an iOS folder.
+pub(crate) fn drives_simulator(update: &Value) -> bool {
+    let command = update
+        .pointer("/rawInput/command")
+        .and_then(|c| c.as_str().map(str::to_owned).or_else(|| Some(c.to_string())))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let runs = ["simctl", "iphonesimulator", "ios simulator"].iter().any(|v| command.contains(v));
+    runs || named_paths(update).iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        p.ends_with(".swift")
+            && p.split('/')
+                .any(|seg| seg == "ios" || seg.ends_with("-ios") || seg.starts_with("ios-"))
+    })
+}
+
 /// The turn began: a new frame list, and its first frame. Nothing for a chat with no workspace.
 pub(super) fn turn_began(session: &Session, turn: &str) {
     let workspace =
@@ -314,6 +352,8 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             debounce: 0,
             kinds: HashMap::new(),
             chrome: false,
+            simulator: false,
+            mac_app: None,
         },
     );
     ask(&session.id, "turn-start");
@@ -341,13 +381,38 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         if customizes_app(update) {
             turn.chrome = true;
         }
-        let Some(trigger) = trigger_of(tool, update) else { return };
-        turn.debounce += 1;
-        (turn.id.clone(), turn.debounce, trigger)
+        if drives_simulator(update) {
+            turn.simulator = true;
+        }
+        let ran = turn_frames_native::runs_mac_app(update);
+        let launched = ran.is_some() && ran != turn.mac_app;
+        if launched {
+            turn.mac_app = ran;
+        }
+        let trigger = trigger_of(tool, update);
+        if trigger.is_some() {
+            turn.debounce += 1;
+        }
+        (turn.id.clone(), turn.debounce, trigger, launched)
     };
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
     let session = session.to_owned();
-    let (turn_id, debounce, trigger) = generation;
+    let (turn_id, debounce, trigger, launched) = generation;
+    if launched {
+        let (session, turn_id) = (session.clone(), turn_id.clone());
+        runtime.spawn(async move {
+            let mut waited = Duration::ZERO;
+            for at in LAUNCH_FRAMES {
+                tokio::time::sleep(at.saturating_sub(waited)).await;
+                waited = at;
+                if !turns().get(&session).is_some_and(|t| t.id == turn_id && t.live) {
+                    return;
+                }
+                ask(&session, "build");
+            }
+        });
+    }
+    let Some(trigger) = trigger else { return };
     runtime.spawn(async move {
         tokio::time::sleep(DEBOUNCE).await;
         let settled = turns()
@@ -440,19 +505,30 @@ fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
-/// folder and the picture. Blocking.
+/// drives the iOS Simulator, its screen, else, in a turn that ran a Mac app, its front window, else,
+/// in a turn that customizes the app, the app's window.
+/// The turn, what was shot (a tab id, `simulator`, `app` or `window`), the turn's folder and the picture.
+/// Blocking.
 fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
-    let (turn_id, workspace, chrome) = {
+    let (turn_id, workspace, chrome, simulator, mac_app) = {
         let all = turns();
         let turn = all.get(session)?;
-        (turn.id.clone(), turn.workspace.clone(), turn.chrome)
+        (turn.id.clone(), turn.workspace.clone(), turn.chrome, turn.simulator, turn.mac_app.clone())
     };
     let base = root();
     let dir = turn_dir(&base, session, &turn_id)?;
     crate::home_fs::create_dirs(&dir).ok()?;
     let raw = dir.join(format!("{repl}.capture.png"));
     let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
+    if shown.is_none() && simulator && simulator_shot(&raw) {
+        shown = Some("simulator".to_owned());
+    }
+    if shown.is_none()
+        && let Some(app) = mac_app
+        && turn_frames_native::native_shot(session, &app, &raw)
+    {
+        shown = Some("app".to_owned());
+    }
     if shown.is_none() && chrome && window_shot(&raw) {
         shown = Some("window".to_owned());
     }
@@ -465,12 +541,35 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
 /// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
 /// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
     let binary =
         std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    bounded_shot(binary.as_ref(), &["window", "screenshot", "--out"], out)
+}
+
+/// `xcrun simctl io booted screenshot --type=png OUT`: the booted iOS Simulator's screen. Only on
+/// a Mac (or with `ACPMUX_XCRUN` naming a stand-in); false with no simulator booted, which simctl
+/// says at once. Bounded by [`WINDOW_LIMIT`].
+fn simulator_shot(out: &Path) -> bool {
+    let binary = std::env::var_os("ACPMUX_XCRUN").filter(|v| !v.is_empty());
+    let binary = match binary {
+        Some(b) => b,
+        None if cfg!(target_os = "macos") => "xcrun".into(),
+        None => return false,
+    };
+    simulator_shot_with(binary.as_ref(), out)
+}
+
+fn simulator_shot_with(xcrun: &std::ffi::OsStr, out: &Path) -> bool {
+    bounded_shot(xcrun, &["simctl", "io", "booted", "screenshot", "--type=png"], out)
+}
+
+/// Runs `binary ARGS OUT` to write a PNG at `out`, at most [`WINDOW_LIMIT`]; true when it exited 0
+/// and wrote a picture of a sane size.
+fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
     let mut command = tokio::process::Command::new(binary);
     command
-        .args(["window", "screenshot", "--out"])
+        .args(args)
         .arg(out)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -480,7 +579,7 @@ fn window_shot(out: &Path) -> bool {
         tokio::time::timeout(WINDOW_LIMIT, command.status()).await.ok().and_then(Result::ok)
     });
     ran.is_some_and(|status| status.success())
-        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= 8 << 20)
+        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= MAX_CAPTURE_BYTES)
 }
 
 /// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
@@ -628,12 +727,13 @@ fn look_now(session: &str) -> Value {
     if !turns().contains_key(session) {
         return json!({"error": "this chat has no workspace page to look at: open the page with the browser or `open` tools first"});
     }
-    // A look may always see the app's own window: the agent asked.
+    // A look may always see the simulator or the app's own window: the agent asked.
     if let Some(turn) = turns().get_mut(session) {
         turn.chrome = true;
+        turn.simulator = true;
     }
     let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
-        return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
+        return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted, no Mac app this turn ran has a window Computer Use may look at without asking, and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
     let kept = keep(session, &turn_id, &dir, &picture, "look", None);
     let hash = dhash(&picture);
