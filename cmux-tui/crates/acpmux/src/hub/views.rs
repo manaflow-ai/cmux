@@ -1112,16 +1112,16 @@ impl Hub {
             // A History of the person's prompts leaves it out (`turn.notice`).
             turn.insert("notice".into(), Value::Bool(true));
         }
-        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        summary.set(
-            "respawnPending",
-            json!(
-                session
-                    .profile_respawn
-                    .load(Ordering::SeqCst)
-                    .then_some(super::profile_respawn::PROFILE_CHANGED)
-            ),
-        );
+        // A profile change keeps its specific reason; route, credential, gateway, capacity and
+        // stale-host changes expose the generic quiet wait so a long-lived background task is
+        // visible while it safely finishes (`idle.rs`).
+        let profile_pending = session
+            .profile_respawn
+            .load(Ordering::SeqCst)
+            .then_some(super::profile_respawn::PROFILE_CHANGED);
+        let quiet_pending =
+            session.respawn_when_quiet.load(Ordering::SeqCst).then_some("restart when quiet");
+        summary.set("respawnPending", json!(profile_pending.or(quiet_pending)));
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);

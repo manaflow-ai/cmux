@@ -113,7 +113,7 @@ impl Hub {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
-        self.respawn_when_quiet(&session);
+        self.respawn_when_quiet_required(&session);
         Ok(json!({"sessionId": session.id, "restart": "whenQuiet"}))
     }
 }

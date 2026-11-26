@@ -1068,8 +1068,9 @@ impl Hub {
             }
             return steered;
         }
-        // An automatic continuation runs only while its chat still ends on the cut turn: no await
-        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
+        // An automatic continuation runs only while its chat still ends on the cut turn. Its
+        // required environment handoff has already completed before this prompt is admitted;
+        // ordinary prompts may await the quiet restart check below before `queue_slot`.
         let after_turn = opts.after_turn.clone();
         let fired = opts.fired;
         super::auto_resume::check_cut(
@@ -1078,6 +1079,17 @@ impl Hub {
             false,
             opts.provenance.as_ref(),
         )?;
+        // A route/credential/gateway/profile restart marked while this chat was between turns
+        // must not let the next ordinary prompt reuse the old environment. Recheck the same
+        // quietness and process census used by the reaper before claiming the turn; if work is
+        // still present, the mark remains and the prompt may continue on the live child.
+        // Continuations already completed their required handoff before calling this path.
+        // Ordinary prompts still perform the quiet/census check, but a queued continuation never
+        // awaits here and therefore cannot accidentally join the queue after the check.
+        if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
+        {
+            let _ = self.end_quiet_stale(session, "prompt-restart", None).await;
+        }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
         // this one queues behind it, and steers in once that turn shows (`queue.rs`
@@ -3060,7 +3072,7 @@ impl Hub {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
             if automatic {
-                self.respawn_when_quiet(session);
+                self.respawn_when_quiet_required(session);
                 self.append(
                     session,
                     "mux",
@@ -3510,18 +3522,23 @@ impl Hub {
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
         // this detach done or nothing of it.
+        // Stop takes the retry mark before it waits for this child slot. A generation-fenced
+        // teardown therefore takes the slot without waiting, then tries the mark; if either
+        // operation is busy it returns and the retry handoff rechecks after the competitor
+        // releases its lock. The guard stays alive through the asynchronous kill.
+        let mut slot = match generation {
+            Some(_) => match session.child.try_lock() {
+                Ok(slot) => slot,
+                Err(_) => return false,
+            },
+            None => session.child.lock().await,
+        };
         let child = if let Some(generation) = generation {
-            // Stop takes the same mark lock before fencing this generation. Use try_lock so the
-            // mark and child removal are one synchronous decision; if a start/stop owns the slot,
-            // leave the child in place and let the caller retry rather than waiting after Stop.
-            let Some(result) = session.auto_resume.with_current(generation, || {
-                let mut slot = session.child.try_lock().map_err(|_| ())?;
+            let Some(result) = session.auto_resume.try_with_current(generation, || {
                 if self.hands_off(session) {
                     return Err(());
                 }
                 session.detaching.store(true, Ordering::SeqCst);
-                self.revoke_permission_chat(session);
-                self.cancel_pending_permissions(session);
                 Ok(slot.take())
             }) else {
                 return false;
@@ -3531,17 +3548,18 @@ impl Hub {
             };
             child
         } else {
-            let mut slot = session.child.lock().await;
             if self.hands_off(session) {
                 return false;
             }
             // Held through the agent's end, so no new agent starts beside the one ending; a
             // shutdown that meets the lock meanwhile waits for this end (`detaching`).
             session.detaching.store(true, Ordering::SeqCst);
-            self.revoke_permission_chat(session);
-            self.cancel_pending_permissions(session);
             slot.take()
         };
+        // Permission state is independent of the retry mark. Keep it outside that mark's
+        // critical section, while the child slot remains held through the asynchronous kill.
+        self.revoke_permission_chat(session);
+        self.cancel_pending_permissions(session);
         if let Some(child) = child {
             child.kill().await;
             // A host that never took the terminate still runs its agent: it is ended by its
@@ -3554,6 +3572,7 @@ impl Hub {
             }
         }
         session.detaching.store(false, Ordering::SeqCst);
+        drop(slot);
         // Its next start runs the profile as it is now (`profile_respawn.rs`).
         self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;

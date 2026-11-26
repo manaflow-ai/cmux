@@ -74,7 +74,7 @@ impl Hub {
                 return false;
             }
         }
-        self.respawn_when_quiet(session);
+        self.respawn_when_quiet_required(session);
         true
     }
 

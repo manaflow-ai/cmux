@@ -258,8 +258,20 @@ impl Hub {
     /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
     /// of what runs under it included, and its next prompt starts it again.
     pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
-        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        if !session.respawn_when_quiet.swap(true, Ordering::SeqCst) {
+            session.state_seq.fetch_add(1, Ordering::SeqCst);
+            self.events.row_changed(session);
+        }
         self.wake_idle_reaper();
+    }
+
+    /// Mark a restart whose replacement environment is required by the next automatic retry.
+    /// The quiet mark remains shared with opportunistic stale/profile restarts so the idle reaper
+    /// keeps one hibernation path, while the separate bit tells retry handoff whether it may use
+    /// the existing child.
+    pub(super) fn respawn_when_quiet_required(self: &Arc<Self>, session: &Session) {
+        session.respawn_required.store(true, Ordering::SeqCst);
+        self.respawn_when_quiet(session);
     }
 
     /// A child was published: make sure the reaper runs and sees it.

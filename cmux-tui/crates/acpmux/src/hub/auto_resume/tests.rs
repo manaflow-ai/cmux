@@ -100,7 +100,7 @@ async fn live_retry_chat() -> (Arc<Hub>, Arc<Session>) {
         "defaultHarness": "fake",
     }))
     .unwrap();
-    config.store.mode = crate::store::StoreMode::Memory;
+    config.store.mode = crate::config::StoreMode::Memory;
     config.profile_sources = crate::config::ProfileSources::none();
     let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
     let hub = Hub::new(config, store);
@@ -121,7 +121,7 @@ async fn live_retry_chat() -> (Arc<Hub>, Arc<Session>) {
 async fn automatic_restart_retry_waits_for_background_work_before_hibernating_the_old_route() {
     let (hub, session) = live_retry_chat().await;
     let old = session.child.lock().await.clone().expect("live fake child");
-    session.respawn_when_quiet.store(true, std::sync::atomic::Ordering::SeqCst);
+    hub.respawn_when_quiet_required(&session);
     session.meta.lock().unwrap().last_turn = Some(json!({
         "turnId": "retry-turn",
         "promptId": "retry-root",
@@ -151,11 +151,30 @@ async fn automatic_restart_retry_waits_for_background_work_before_hibernating_th
 }
 
 #[tokio::test]
+async fn automatic_restart_retry_does_not_wait_for_opportunistic_stale_work() {
+    let (hub, session) = live_retry_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    // A stale binary/profile refresh is safe to defer: a transport continuation can still use
+    // the current child, while the quiet reaper preserves the eventual replacement.
+    hub.respawn_when_quiet(&session);
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId": "retry-turn", "promptId": "retry-root", "status": "failed",
+        "errorText": "HTTP 503",
+    }));
+    *session.work_below_since.lock().unwrap() = 1;
+    let generation = session.auto_resume.next_generation();
+    session.auto_resume.lock().replace(Mark::Firing("retry-turn".into(), generation));
+    assert!(hub.prepare_retry_handoff(&session, "retry-turn", false, generation).await);
+    assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn automatic_restart_retry_stop_retains_the_old_child() {
     for stop_before_wait in [true, false] {
         let (hub, session) = live_retry_chat().await;
         let old = session.child.lock().await.clone().unwrap();
-        session.respawn_when_quiet.store(true, std::sync::atomic::Ordering::SeqCst);
+        hub.respawn_when_quiet_required(&session);
         session.meta.lock().unwrap().last_turn = Some(json!({
             "turnId":"retry-turn", "promptId":"retry-root", "status":"failed",
             "errorText":"HTTP 503"
@@ -192,7 +211,7 @@ async fn automatic_restart_retry_stop_retains_the_old_child() {
 async fn automatic_restart_retry_shutdown_preserves_the_durable_schedule() {
     let (hub, session) = live_retry_chat().await;
     let old = session.child.lock().await.clone().unwrap();
-    session.respawn_when_quiet.store(true, std::sync::atomic::Ordering::SeqCst);
+    hub.respawn_when_quiet_required(&session);
     session.meta.lock().unwrap().last_turn = Some(json!({
         "turnId":"retry-turn", "promptId":"retry-root", "status":"failed",
         "errorText":"HTTP 503"
