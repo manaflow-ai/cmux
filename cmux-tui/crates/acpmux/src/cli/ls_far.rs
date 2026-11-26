@@ -545,8 +545,17 @@ fn refresh_detached(cache: &Path) {
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
         }
+        drop(lease);
     }
-    drop(lease);
+    // In tests no child starts; the lease stands in for the refresh it would run (its lock and
+    // mark held for the test's life), so the next `ls` sees a refresh running, as it would.
+    #[cfg(test)]
+    {
+        static HELD: std::sync::Mutex<Vec<RelayLease>> = std::sync::Mutex::new(Vec::new());
+        if let Ok(mut held) = HELD.lock() {
+            held.push(lease);
+        }
+    }
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the
