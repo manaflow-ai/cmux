@@ -92,8 +92,13 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         timeout-minutes: 10
         uses: ./.github/actions/setup-cmux-tui-rust
