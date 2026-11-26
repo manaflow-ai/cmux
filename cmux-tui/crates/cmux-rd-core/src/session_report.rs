@@ -123,10 +123,8 @@ impl SessionReport {
             Some(self.last_presented_us.map_or(presented_us, |t| t.max(presented_us)));
         self.frames_presented = self.frames_presented.saturating_add(1);
         let Some(row) = row else { return };
-        if let Some(decoded) = row.viewer.decoded_us {
-            if let Some(us) = presented_us.checked_sub(decoded) {
-                self.present.add(us);
-            }
+        if let Some(us) = row.viewer.decoded_us.and_then(|d| presented_us.checked_sub(d)) {
+            self.present.add(us);
         }
         let display = row.host.map(|h| h.display_us).filter(|t| *t != 0);
         if let (Some(display), Some(offset)) = (display, offset_us) {
