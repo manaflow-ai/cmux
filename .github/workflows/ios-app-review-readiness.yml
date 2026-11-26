@@ -98,7 +98,7 @@ jobs:
       actions: write # dispatch and read ios-review-gate.yml
       contents: read
     # The dispatch step mints an App token and needs an ephemeral runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.CI_OVERFLOW_LINUX) && vars.CI_OVERFLOW_LINUX || 'cmux-gcp-nightly-jit-x64' }}
     # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
     # macOS queue), and a followed successor waits behind the run holding the
     # gate's group first, so up to about 4; past this the push run is red with

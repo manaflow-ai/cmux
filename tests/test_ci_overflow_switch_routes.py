@@ -24,6 +24,18 @@ RUNS_ON = re.compile(r"^\s*(?:-\s*)?runs-on:\s*(?P<expr>.+?)\s*$")
 SWITCH = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\b")
 SWITCH_AS_LABEL = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\s*\|\|")
 
+# Secret-bearing jobs may filter the switch through a literal label list before using it.
+BOUNDED_SWITCH = re.compile(
+    r"""contains\(fromJSON\('\[\s*"[\w-]+"(?:\s*,\s*"[\w-]+")*\s*\]'\),\s*"""
+    r"(?P<switch>vars\.CI_OVERFLOW_(?:LINUX|MAC))\)\s*&&\s*(?P=switch)(?=\s*\|\|)"
+)
+
+
+def invalid_switch_reads(expr):
+    expr = BOUNDED_SWITCH.sub(lambda match: match.group("switch"), expr)
+    return [match.group() for match in SWITCH.finditer(expr) if not SWITCH_AS_LABEL.match(expr, match.start())]
+
+
 # Runs-on expressions naming a Blacksmith label without the switch, after this change.
 # 232: localization-fill translate/open, customize-prompts-cold-model and auto-resume-nightly-notarization preflight
 # hold the Claude token or an App key and keep an ephemeral label (tests/test_ci_fork_runner_routing.py);
@@ -82,12 +94,15 @@ class OverflowSwitchRoutes(unittest.TestCase):
 
     def test_switch_is_the_label_itself(self):
         for name, number, expr in runs_on_expressions():
-            for match in SWITCH.finditer(expr):
-                self.assertTrue(
-                    SWITCH_AS_LABEL.match(expr, match.start()),
-                    f"{name}:{number} reads {match.group(0)} other than as the label (`{match.group(0)} || ...`); "
-                    "the variable holds the overflow label when on and is unset when off",
-                )
+            self.assertEqual(invalid_switch_reads(expr), [], f"{name}:{number} must use the switch as its runner label")
+
+    def test_allowlist_must_return_the_checked_switch(self):
+        linux = "vars.CI_OVERFLOW_LINUX"
+        check = f"""contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404"]'), {linux})"""
+        self.assertEqual(invalid_switch_reads(f"{check} && {linux} || 'fallback'"), [])
+        for chosen in ("vars.CI_OVERFLOW_MAC", "'unrelated-label'"):
+            self.assertIn(linux, invalid_switch_reads(f"{check} && {chosen} || 'fallback'"))
+        self.assertIn(linux, invalid_switch_reads(f"{linux} && 'unrelated-label' || 'fallback'"))
 
 
 if __name__ == "__main__":

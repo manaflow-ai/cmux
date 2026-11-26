@@ -39,9 +39,6 @@ jobs:
     if: ${{ (vars.LOCALIZATION_FILL || 'on') != '0' && github.repository_owner == 'manaflow-ai' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
-    env:
-      # The wait gives up after 10 minutes; the next run fills what this one could not.
-      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
       pull-requests: read
@@ -170,9 +167,6 @@ jobs:
     needs: [gaps, translate]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
-    env:
-      # The wait gives up after 10 minutes; the next run fills what this one could not.
-      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
     env:
