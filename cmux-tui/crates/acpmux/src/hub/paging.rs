@@ -90,6 +90,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
     // (`server/host_notice.rs`).
     "host_notice",
+    // A chat moved to another place from the place menu (`server/place_set.rs`).
+    "moved",
     // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
     "model_rewrite",
     "model_reroute",
