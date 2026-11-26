@@ -39,6 +39,11 @@ path = "tests/test_ci_api_workerd_infra_shards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_build_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_build_manifest.py"
+
+[[test]]
 path = "tests/test_ci_app_input_digest.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_input_digest.py"
@@ -294,6 +299,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_base_verdicts.py"
 lane = "linux-guard"
 
 [[test]]
@@ -923,6 +932,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_team_signed_on_branch_check.py"
 lane = "linux-guard"
 
 [[test]]
