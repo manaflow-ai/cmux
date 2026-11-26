@@ -84,7 +84,9 @@ pub(crate) async fn capacity_now(hub: &Hub, host: &str) -> Option<Capacity> {
         arch: std::env::consts::ARCH,
         cpus: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         ram_total: peer_status::ram_total()?,
-        ram_free_fraction: pressure["available_ram_fraction"].as_f64(),
+        ram_free_fraction: pressure
+            .get("available_ram_fraction")
+            .and_then(serde_json::Value::as_f64),
         disk_free: crate::config::home()
             .ancestors()
             .find_map(peer_status::disk)
