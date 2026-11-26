@@ -27,6 +27,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_same_tree_failed as failed  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KEY = "a" * 40
@@ -163,7 +165,7 @@ class Workflow(unittest.TestCase):
     def test_the_failed_report_reads_the_publish_record_before_any_red(self):
         steps = {step.get("name"): step for step in self.job()["steps"]}
         report = steps["Report the unavailable same-tree cmux-tui"]
-        run = report["run"]
+        run = step_run(report)
         self.assertIn("scripts/ci/cmux_next_same_tree_failed.py", run)
         self.assertLess(run.index("cmux_next_same_tree_failed.py"), run.index("cmux_tui_tree_takeover.py"))
         self.assertLess(run.index("cmux_next_same_tree_failed.py"), run.index("::error"))
@@ -195,7 +197,7 @@ class Workflow(unittest.TestCase):
                    "ORIGIN": "dispatch", "ORIGIN_RUN": "11", "REF_NAME": "lane/x", "REF_KIND": "heads",
                    "DEV_DAILY_SHA": "", "TIP_SUITE": "", "DEV_DAILY": "false", "GH_TOKEN": "t",
                    "TARGET_URL": "https://x"}
-            result = subprocess.run(["bash", "-c", report["run"]], cwd=root, env=env, capture_output=True,
+            result = subprocess.run(["bash", "-c", step_run(report)], cwd=root, env=env, capture_output=True,
                                     text=True, timeout=30)
             return result, calls.read_text().split() if calls.exists() else []
 
