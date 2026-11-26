@@ -27,6 +27,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "SIM_FAULTS",
     "SIM_RESEND",
     "SIM_KNOWN_GAPS",
+    "SIM_LEAK_TRACE",
 ]);
 
 #[path = "sim/agent.rs"]
