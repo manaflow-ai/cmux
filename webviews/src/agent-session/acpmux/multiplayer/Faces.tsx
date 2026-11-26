@@ -10,6 +10,7 @@ import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
 import { PRESENCE_STACK } from "./facesModel";
+import type { RoomStrip } from "./roomStrip";
 import { signed } from "../../../ui/Typography";
 
 /// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
@@ -189,6 +190,68 @@ export function TypingLine({ typing, look = "dots" }: { typing: Participant[]; l
           <i />
         </span>
       )}
+    </output>
+  );
+}
+
+/// A room's avatar strip in the header (RFD 0141): the daemon's faces in its order, people and
+/// agents alike, an away face dimmed, and its "+N". Nothing when the strip is empty.
+export function StripStack({ strip }: { strip: RoomStrip }) {
+  const t = useT();
+  if (strip.faces.length === 0 && strip.more === 0) return null;
+  const names = strip.faces.map((face) => face.name).join(", ");
+  return (
+    <div className="cv-presence" data-look="stack" data-strip="">
+      <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
+      {strip.faces.map((face) => (
+        // tooltip-allow: a face in the strip, named on hover.
+        <span
+          key={face.id}
+          className="cv-presence__person"
+          data-kind={face.kind}
+          data-status={face.status}
+          aria-hidden="true"
+          title={face.name}
+        >
+          <Face person={face} size={20} />
+        </span>
+      ))}
+      {strip.more > 0 && (
+        <span className="cv-presence__more" aria-hidden="true">
+          {signed(t("multiplayer.more", { count: strip.more }))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/// The strip's activity line over the composer: "Ana is typing…" for people, "Claude is working…"
+/// for agents, from the one list the daemon ranked, with the dot wave while anyone acts.
+export function ActivityLine({ strip }: { strip: RoomStrip }) {
+  const t = useT();
+  const line = strip.line;
+  if (!line || line.actors.length === 0) return null;
+  const typers = line.actors.filter((actor) => actor.kind === "person");
+  const workers = line.actors.filter((actor) => actor.kind === "agent");
+  const parts: string[] = [];
+  if (typers.length === 1) parts.push(t("multiplayer.typing.one", { name: typers[0]!.name }));
+  else if (typers.length === 2)
+    parts.push(t("multiplayer.typing.two", { first: typers[0]!.name, second: typers[1]!.name }));
+  for (const worker of workers) parts.push(t("multiplayer.agentWorking", { name: worker.name }));
+  if (line.more > 0) parts.push(signed(t("multiplayer.more", { count: line.more })));
+  return (
+    <output className="cv-typing" data-look="dots" data-strip="" aria-live="polite">
+      <span className="cv-typing__faces">
+        {line.actors.map((actor) => (
+          <Face key={actor.id} person={actor} />
+        ))}
+      </span>
+      <span className="cv-typing__words">{parts.join(" · ")}</span>
+      <span className="cv-typing__dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
     </output>
   );
 }

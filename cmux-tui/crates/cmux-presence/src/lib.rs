@@ -3,9 +3,11 @@
 
 mod activity;
 mod lease;
+mod strip;
 
 pub use activity::AgentActivity;
 pub use lease::{Delta, Lease, Merge};
+pub use strip::{Actor, Face, LINE_NAMES, Line, STRIP_FACES, Strip, strip};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_LEASE_MS: u32 = 30_000;

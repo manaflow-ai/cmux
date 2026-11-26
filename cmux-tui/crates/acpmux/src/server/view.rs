@@ -320,7 +320,8 @@ pub(super) fn rooms(hub: &Hub, conn: &Arc<Conn>, params: &Value) -> Result<Value
             conn.send(&Message::notification(crate::rpc::method::MUX_ROOM, note));
         }
     });
-    let watched = hub.presence.rooms(&conn.id, sink, rooms)?;
+    let viewer = crate::hub::presence::Who::of(crate::author::author(params)?.as_ref());
+    let watched = hub.presence.rooms_as(&conn.id, &viewer, sink, rooms)?;
     Ok(json!({"rooms": watched}))
 }
 

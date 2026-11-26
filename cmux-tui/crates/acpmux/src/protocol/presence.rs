@@ -67,6 +67,10 @@ pub struct RoomsParams {
     pub chats: Vec<String>,
     #[serde(default)]
     pub workspaces: Vec<String>,
+    /// The person the client draws for (`_meta.acpmux.author`; none: the owner): their face
+    /// stays out of every `strip` this connection hears.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<AuthorMeta>,
 }
 
 /// `_acpmux/rooms`'s answer: how many rooms the connection watches now.
@@ -92,6 +96,10 @@ pub struct RoomNote {
     pub deltas: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub left: Vec<String>,
+    /// The room's avatar strip after this note, for this subscriber (`cmux_presence::strip`):
+    /// `{faces, more, line?}`, the subscriber's own face left out. A client draws it as is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strip: Option<serde_json::Value>,
 }
 
 /// One person in a chat. The hub never marks the caller's own entry: a connection may carry
