@@ -35,7 +35,8 @@
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
 # Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
-# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. The report keeps the measured app's
+# Info.plist for its CFBundleVersion and CMUXCommit after the copies and DMG have been deleted.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
 # /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
 # anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
@@ -87,10 +88,14 @@ main() {
   # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
   mkdir -p "$out/mnt-layout"
   if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
-    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
+    local layout_app
+    layout_app="$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)"
+    cp "$layout_app/Contents/Info.plist" "$out/Info.plist" || rc=1
+    bundle_layout "$layout_app" "$out/layout.txt" LF
     hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
   else
     echo "LF-LAYOUT unknown: attach failed"
+    rc=1
   fi
   OUT="$out"
   cua_pick "$out"
