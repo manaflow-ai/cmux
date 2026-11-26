@@ -52,6 +52,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview/subscriptions
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Plan or apply
         env:

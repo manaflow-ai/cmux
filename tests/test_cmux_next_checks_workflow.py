@@ -187,8 +187,11 @@ class ChecksJobStructure(unittest.TestCase):
         for step in checks:
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
-        self.assertIn("GITHUB_STEP_SUMMARY", aggregate["run"])
-        self.assertIn("exit 1", aggregate["run"])
+        verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
+        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
+        self.assertIn("GITHUB_STEP_SUMMARY", verdict)
+        self.assertIn("exit 1", verdict)
 
     def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
         _, _, aggregate = self.split()
@@ -3160,6 +3163,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            # The cheap gate (note-cheap-gate): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
@@ -4855,6 +4860,30 @@ class FastTierCargoRoute(unittest.TestCase):
         self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
+
+
+class SwiftPmFetchesStepAroundADeadProxy(unittest.TestCase):
+    """Every `swift build` or `swift test` a Mac step runs goes through scripts/ci/github-egress-run.sh, so a dead
+    github.com proxy tunnel on a mini goes direct instead of failing the package fetch (run 45866233902: daemon
+    tests, "Failed to connect to 127.0.0.1 port 18434" on every package; #58915 covered only xcodebuild)."""
+
+    def test_every_swiftpm_build_runs_through_the_egress_route(self):
+        jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        direct = []
+        for job_id, job in jobs.items():
+            for step in job.get("steps") or []:
+                for line in step_run(step).splitlines():
+                    code = line.split("#", 1)[0]
+                    if re.search(r"(^|[\s;&|(])swift (build|test)\b", code) and "github-egress-run.sh" not in code:
+                        if "swiftpm_build_metrics.py" in code or re.match(r"\s*swift (build|test)\b", code):
+                            direct.append(f"{job_id}: {code.strip()[:120]}")
+        self.assertEqual([], direct)
+
+    def test_the_route_probes_and_retries_once_direct(self):
+        script = (ROOT / "scripts/ci/github-egress-run.sh").read_text()
+        self.assertIn("github-egress-direct.sh", script)
+        self.assertIn("github_egress_probe", script)
+        self.assertIn('github_egress_retry_direct "$log"', script)
 
 
 if __name__ == "__main__":
