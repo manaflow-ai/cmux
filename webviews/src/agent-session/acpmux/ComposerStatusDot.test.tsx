@@ -282,3 +282,30 @@ test("the machine name at rest draws only behind its switch, only for the fact a
   await dot({ facts, machineAtRest: "on", arm: "strip", now: 3 });
   expect(name()).toBeNull();
 });
+
+// RFD 0128 (rows into the dot): a queue a failed turn paused is the dot's to say, with the turn's
+// error and Resume; the queue's own note stays out once the dot says it, and stays for an acpmux
+// that sends no such item.
+test("a paused queue is the dot's to say, naming the error, and the queue note defers to it", async () => {
+  const { ComposerStatusFoot, dotSaysQueuePaused } = await import("./ComposerStatusDot");
+  const paused: StatusItem = {
+    kind: "queuePaused",
+    level: "attention",
+    words: "status.queuePaused.paused",
+    action: "resumeQueue",
+  } as StatusItem;
+  const snapshot = { summary: { queuePaused: true, composerStatus: { items: [paused], facts: [] } } };
+  expect(dotSaysQueuePaused(snapshot)).toBe(true);
+  expect(dotSaysQueuePaused({ summary: { queuePaused: true } })).toBe(false);
+  expect(
+    dotSaysQueuePaused({
+      summary: { composerStatus: { items: [{ ...paused, words: "status.queuePaused.someday" }], facts: [] } },
+    }),
+  ).toBe(false);
+  await render(
+    <ComposerStatusFoot snapshot={snapshot} link={null} heldForHost={false} pauseReason="429 rate limited" />,
+  );
+  expect(button().getAttribute("aria-label")).toBe("Paused after an error: 429 rate limited");
+  await render(<ComposerStatusFoot snapshot={snapshot} link={null} heldForHost={false} />);
+  expect(button().getAttribute("aria-label")).toBe("Queue paused");
+});

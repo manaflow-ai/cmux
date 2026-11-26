@@ -28,6 +28,7 @@ import {
   shown,
   statusDueAt,
   statusWordsKey,
+  withPauseReason,
   worstLevel,
   type FooterFact,
   type HostRecovery,
@@ -73,6 +74,15 @@ export function statusDotMounts(snapshot: StatusSnapshot): boolean {
   return readComposerStatus(snapshot.summary?.composerStatus) !== undefined || !!snapshot.peerLinks?.[peer]?.status;
 }
 
+/// Whether the dot says the chat's queue is paused (acpmux's `queuePaused` item, with its Resume):
+/// then the queue's own paused note stays out (ComposerQueue `pauseSaid`). An older acpmux sends no
+/// item and a remote chat from one gets no dot: the note says it as before.
+export function dotSaysQueuePaused(snapshot: StatusSnapshot): boolean {
+  if (!statusDotMounts(snapshot)) return false;
+  const items = readComposerStatus(snapshot.summary?.composerStatus)?.items ?? [];
+  return items.some((item) => item.kind === "queuePaused" && statusWordsKey(item) !== undefined);
+}
+
 /// The composer footer's status slot (Composer.tsx `chips`): the dot with the session's items, its
 /// machine link's item, and the pane's own (its connection to acpmux, a held send), or an older
 /// acpmux's machine row as before.
@@ -82,6 +92,7 @@ export function ComposerStatusFoot({
   heldForHost,
   onReconnectMachine,
   onResumeQueue,
+  pauseReason,
 }: {
   snapshot: StatusSnapshot;
   /// The chat's machine link (peerLink.ts), null for a chat on this Mac or one said elsewhere.
@@ -89,6 +100,8 @@ export function ComposerStatusFoot({
   heldForHost: boolean;
   onReconnectMachine?: (link: PeerLink) => void;
   onResumeQueue?: () => void;
+  /// Why a failed turn paused the queue (queuePause.ts): the queue item's row names it.
+  pauseReason?: string | undefined;
 }) {
   const mounts = statusDotMounts(snapshot);
   const host = useHostRecovery(mounts);
@@ -100,7 +113,7 @@ export function ComposerStatusFoot({
   // unless a person must act on it.
   const linkShown = linkItem && (link !== null || linkItem.level === "problem") ? [linkItem] : [];
   const held = sendsHeldItem(heldForHost);
-  const items = [...(status?.items ?? []), ...linkShown, ...(held ? [held] : [])];
+  const items = [...withPauseReason(status?.items ?? [], pauseReason), ...linkShown, ...(held ? [held] : [])];
   const reconnect = link && onReconnectMachine && !link.stuck ? () => onReconnectMachine(link) : undefined;
   return (
     <ComposerStatusDot
@@ -528,7 +541,13 @@ export function ComposerStatusDot({
                 return (
                   <li key={item.kind} className="acpmux-status-row" data-tone={item.level}>
                     <span className="acpmux-status-row-dot" aria-hidden="true" />
-                    <span className="acpmux-status-row-words">{words}</span>
+                    <span
+                      className="acpmux-status-row-words"
+                      // tooltip-allow: a long error is cut to three lines; its whole text is the tooltip
+                      title={item.subject !== undefined && item.kind === "queuePaused" ? words : undefined}
+                    >
+                      {words}
+                    </span>
                     {when ? <span className="acpmux-status-row-time">{when}</span> : null}
                     {action && actionWords ? (
                       <button type="button" className="acpmux-status-action" onClick={() => onAction?.(action)}>
