@@ -15,8 +15,26 @@ import SwiftUI
 /// tabs whose inputs changed, so a busy Mac or a streaming chat does not
 /// re-run the tabs screen and every card.
 @MainActor @Suite(.serialized) struct WorkspaceTabsSourceListTests {
-    static func source(_ store: AppStore) -> WorkspaceTabsSource {
-        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
+    @MainActor final class DeferredQueue {
+        private var pending: [@MainActor () -> Void] = []
+
+        var count: Int { pending.count }
+        var scheduler: WorkspaceTabsSource.MainActorEnqueuer {
+            { [weak self] work in self?.pending.append(work) }
+        }
+
+        func drain() {
+            let work = pending
+            pending = []
+            for operation in work { operation() }
+        }
+    }
+
+    static func source(_ store: AppStore, enqueueMainActor: @escaping WorkspaceTabsSource.MainActorEnqueuer = { work in
+        Task { @MainActor in work() }
+    }) -> WorkspaceTabsSource {
+        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(),
+                            enqueueMainActor: enqueueMainActor)
     }
 
     /// A deferred tab refresh is scheduled on the main actor. Wait for the
@@ -41,14 +59,6 @@ import SwiftUI
             try await Task.sleep(for: min(.milliseconds(10), left))
         }
         try #require(condition(), what + " within 30 s")
-    }
-
-    /// Lets every main-actor task already queued before this marker run. This
-    /// is a scheduler barrier, so negative assertions cover late work too.
-    static func waitForScheduledMainActorTurn() async throws {
-        let marker = SourceChanges()
-        Task { @MainActor in marker.count = 1 }
-        try await waitUntil("the scheduled main-actor turn") { marker.count == 1 }
     }
 
     /// A publish that changes another workspace (or nothing the kit shows)
@@ -187,17 +197,21 @@ import SwiftUI
     /// that tab once, after the update, so its title is not frozen.
     @Test func chatStoreAppearingRebuildsItsTab() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let source = Self.source(store)
+        let queue = DeferredQueue()
+        let source = Self.source(store, enqueueMainActor: queue.scheduler)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
-        try await Self.waitForKitTabBuilds(source, before + 1)
+        #expect(queue.count == 1)
+        _ = source.chatStore(agent, workspace)
+        #expect(queue.count == 1)
+        queue.drain()
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
-        try await Self.waitForScheduledMainActorTurn()
+        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
     }
 
@@ -228,7 +242,8 @@ import SwiftUI
     /// the grid rests (one list publish then, not one grid body per card).
     @Test func titleChangesWaitForTheGridToRest() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let source = Self.source(store)
+        let queue = DeferredQueue()
+        let source = Self.source(store, enqueueMainActor: queue.scheduler)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         source.overviewVisibilityChanged(true)
@@ -236,11 +251,10 @@ import SwiftUI
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
-        try await Self.waitForScheduledMainActorTurn()
+        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before)
         source.overviewIdleChanged(true)
-        try await Self.waitForKitTabBuilds(source, before + 1)
-        try await Self.waitForScheduledMainActorTurn()
+        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
         source.overviewVisibilityChanged(false)
     }
