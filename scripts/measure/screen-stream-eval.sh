@@ -87,6 +87,8 @@ if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
 export EVAL_PREBUILT="$prebuilt"
+# The viewer half of a two-Mac run: targets whose viewer proves readiness itself (apple) build its tools.
+export EVAL_VIEWER_OF="$viewer_of"
 if [[ -n "$video_path$video_sha" ]]; then
   [[ "$video_path" == /* && -f "$video_path" && "$video_sha" =~ ^[0-9a-f]{64}$ ]] || {
     echo "screen-stream-eval.sh: video=ABSOLUTE_PREBUILT_PATH and video-sha256=HEX64 are required together" >&2
