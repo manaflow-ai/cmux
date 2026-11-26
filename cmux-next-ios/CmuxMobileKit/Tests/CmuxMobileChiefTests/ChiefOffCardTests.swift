@@ -38,9 +38,10 @@ import Testing
                                     refusal: .init(chief: Self.other, kind: .unavailable)) == .off)
     }
 
-    @Test func onlyOffAndFailedTakeATap() {
+    @Test func onlyOffTakesATap() {
         #expect(ChiefOffCard.off.offersTurnOn)
-        #expect(ChiefOffCard.failed.offersTurnOn)
+        // A failed Turn On is tried again on its own (Leo, 2026-11-22): no Try Again.
+        #expect(!ChiefOffCard.failed.offersTurnOn)
         #expect(!ChiefOffCard.turningOn.offersTurnOn)
         #expect(!ChiefOffCard.unavailable.offersTurnOn)
     }
@@ -54,6 +55,13 @@ import Testing
         #expect(kind(ChiefCloudError.badReply("x")) == .retryable)
         #expect(kind(URLError(.notConnectedToInternet)) == .retryable)
         #expect(ChiefOffCard.refusal(of: Self.hosted, for: URLError(.timedOut)).chief == Self.hosted)
+    }
+
+    @Test func aFailedTurnOnShowsAsTurningOnUntilTheQuietBound() {
+        #expect(ChiefOffCard.failed.shown(failingPastBound: false) == .turningOn)
+        #expect(ChiefOffCard.failed.shown(failingPastBound: true) == .failed)
+        #expect(ChiefOffCard.off.shown(failingPastBound: true) == .off)
+        #expect(ChiefOffCard.unavailable.shown(failingPastBound: false) == .unavailable)
     }
 
     // MARK: Turn On over the service
@@ -152,12 +160,13 @@ import Testing
         #expect(sources.offCard == .off)
     }
 
-    @Test func aFailedTurnOnOffersTryAgainAndASuccessClearsIt() async {
+    @Test func aFailedTurnOnIsMadeAgainOnItsOwnAndASuccessClearsIt() async {
         Service.reset(503, #"{}"#)
         let (sources, chief) = sourcesWithTheBrainOff()
         await sources.turnOn(chief)
         #expect(sources.offCard == .failed)
-        #expect(sources.offCard?.offersTurnOn == true)
+        // No Try Again: Home's AutoRetry makes the same Turn On again (Leo, 2026-11-22).
+        #expect(sources.offCard?.offersTurnOn == false)
         Service.reset(200, #"{"ok":true,"value":{"config":{"enabled":true}}}"#)
         await sources.turnOn(chief)
         #expect(sources.turnOnRefusal == nil)
