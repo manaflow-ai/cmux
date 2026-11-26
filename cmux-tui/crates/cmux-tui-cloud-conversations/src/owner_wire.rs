@@ -18,6 +18,14 @@ pub struct OwnerWire {
     pub account: Option<String>,
 }
 
+/// The lease's bearer for a socket the holder opens itself (the machine state sockets, which go to
+/// the platform origin the app names, not the lease's API origin). The token is zeroized on drop.
+pub struct LeaseBearer {
+    pub token: zeroize::Zeroizing<String>,
+    /// The lease generation the token belongs to ([`CloudConversations::lease_generation`]).
+    pub generation: u64,
+}
+
 /// Why an owner socket did not open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnerWireError {
@@ -59,6 +67,25 @@ impl CloudConversations {
             Err(ConnectError::Unavailable(reason)) => {
                 Err((OwnerWireError::Unavailable(reason), session.generation))
             }
+        }
+    }
+
+    /// The person's current bearer, read like [`Self::open_owner_wire`] reads it (an expiring or
+    /// expired lease announces `cloud-session-needed` to the app). A tailscale lease has no bearer
+    /// (`Forbidden`). The error carries the lease generation it saw.
+    pub fn lease_bearer(&self) -> Result<LeaseBearer, (OwnerWireError, u64)> {
+        let generation = self.inner.generation();
+        let session = match self.inner.stream_session() {
+            Ok(session) => session,
+            Err("signed_out") => return Err((OwnerWireError::SignedOut, generation)),
+            Err(_) => return Err((OwnerWireError::Expired, generation)),
+        };
+        match session.bearer() {
+            Some(token) if session.agent.is_none() => Ok(LeaseBearer {
+                token: zeroize::Zeroizing::new(token.to_owned()),
+                generation: session.generation,
+            }),
+            _ => Err((OwnerWireError::Forbidden, session.generation)),
         }
     }
 

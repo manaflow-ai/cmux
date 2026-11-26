@@ -17,4 +17,8 @@
   --cv-text-dim: color-mix(in srgb, var(--agent-text) 62%, transparent);
   --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
   --agent-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  /* Motion: popovers and menus enter over 150 ms on a standard ease (--cmux-motion-micro, --cmux-ease-out).
+     Animations off and Reduce Motion still win: cmux puts its own values back. */
+  --cmux-motion-micro: 150ms;
+  --cmux-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
