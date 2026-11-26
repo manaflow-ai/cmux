@@ -1331,6 +1331,12 @@
       "streams": [
         "control"
       ]
+    },
+    {
+      "name": "apps-cloud-machine",
+      "streams": [
+        "control"
+      ]
     }
   ],
   "tui_actions": [
