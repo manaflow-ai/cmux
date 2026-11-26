@@ -305,7 +305,7 @@ public final class HomeChiefComputerSection: NSStackView {
         switch reply.shows {
         case .hidden: return nil
         case .keepUnavailable: return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) }
-        case .fromStatus: return status.map { HomeChiefComputer(status: $0, paid: true, chief: source.chief()) }
+        case .fromStatus: return status.flatMap { HomeChiefComputer(status: $0, paid: true, chief: source.chief()) }
         }
     }
 
@@ -424,22 +424,24 @@ public final class HomeChiefComputerSection: NSStackView {
         case .asleep: "asleep"
         case .waking: "waking"
         }
-        let request = NoteRequest(state: wire, hasImage: hasImage, feedLive: feedLive)
+        let request = NoteRequest(state: wire, hasImage: hasImage, feedLive: feedLive, strings: .init(
+            connecting: HomeEngineStrings.computerConnecting, unavailable: HomeEngineStrings.computerUnavailable,
+            asleep: HomeEngineStrings.computerAsleep, waking: HomeEngineStrings.computerWaking))
         return (try? HomeRules.call("chief_settings.computerNote", request))
             ?? NoteReply(note: nil, sleepFace: state == .asleep || state == .waking, awake: state == .waking)
     }
 
     private nonisolated struct NoteRequest: Encodable {
         struct Strings: Encodable {
-            var connecting = HomeEngineStrings.computerConnecting
-            var unavailable = HomeEngineStrings.computerUnavailable
-            var asleep = HomeEngineStrings.computerAsleep
-            var waking = HomeEngineStrings.computerWaking
+            var connecting: String
+            var unavailable: String
+            var asleep: String
+            var waking: String
         }
         var state: String
         var hasImage: Bool
         var feedLive: Bool
-        var strings = Strings()
+        var strings: Strings
     }
 
     private nonisolated struct NoteReply: Decodable {
