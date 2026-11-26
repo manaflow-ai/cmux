@@ -144,23 +144,6 @@
   align-items: center;
   gap: 0.5em;
 }
-:where(.ui-keyhint) {
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: 1;
-  opacity: 0.6;
-}
-
-/* A dialog button's keycap (ui/DialogButton) in a shared button: caption size in the button's own ink,
-   quieter, in every host (the agent pane loads no ui.css). */
-.ui-btn .ui-keyhint {
-  font: inherit;
-  color: inherit;
-  font-size: var(--text-caption);
-  line-height: 1;
-  opacity: 0.6;
-}
-
 /* SELECT TRIGGER: a Select given `buttonClassName="ui-btn"` is a subtle button with its value and a
    chevron, the height, radius, fill and type of every other button beside it. Here, not in ui.css, so
    the agent pane (which loads no ui.css) draws it the same: without this its trigger was the
@@ -436,4 +419,23 @@
 }
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.ui-btn, .ui-switch, .ui-switch-thumb, .ui-input, .ui-tabs-trigger) {
   transition: none;
+}
+
+/* SIGN IN'S BACKEND LINE (ui/SignInButton `backend`): what a Sign In signs in to, a quiet caption under the
+   button ("Signs in to cmux.com"; Leo: "why is the stuff so weird to log in to dev builds?"). */
+:where(.ui-sign-in) {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+:where(.ui-sign-in__backend) {
+  font-size: var(--text-caption);
+  line-height: 1.3;
+  color: var(--ds-color-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -268,6 +268,10 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         if (!working) {
           // Closed, the capture's screenshot is the small image at its row's edge.
           const edge = steps.getByRole("img", { name: "Capture the repaired screen" });
+          console.log("CAPTURE_DIAGNOSTIC", await steps.evaluate((group) => Array.from(group.querySelectorAll(".cv-step")).map(el => ({
+            id: el.getAttribute("data-step-call"), text: el.textContent?.slice(0,180), classes: Array.from(el.children).map(c => c.className),
+            imgs: Array.from(el.querySelectorAll("img")).map(img => [img.alt, img.getAttribute("src")?.slice(0,70), img.naturalWidth, img.closest("[aria-hidden]")?.outerHTML.slice(0,150), img.getBoundingClientRect().toJSON()]),
+          }))));
           await edge.waitFor();
           await steps.locator("button.cv-tool", { hasText: "Capture the repaired screen" }).click();
           // Opened, the row shows its image under it (ToolImages) and the small one steps aside, so a

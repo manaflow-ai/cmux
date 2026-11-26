@@ -92,7 +92,7 @@ cmux-tui/crates/acpmux/src/hub/offer_results.rs	1
 cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs	2
 cmux-tui/crates/acpmux/src/hub/peers.rs	1
 cmux-tui/crates/acpmux/src/hub/permission_groups.rs	1
-cmux-tui/crates/acpmux/src/hub/permissions.rs	2
+cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2
 cmux-tui/crates/acpmux/src/hub/pool/held.rs	1
 cmux-tui/crates/acpmux/src/hub/pool/mod.rs	6
 cmux-tui/crates/acpmux/src/hub/pool/spare.rs	2
