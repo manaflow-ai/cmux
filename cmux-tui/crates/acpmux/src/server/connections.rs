@@ -539,11 +539,17 @@ fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
 /// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
 /// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
 fn delivered(kind: &str, value: String) -> String {
-    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
-        value.chars().filter(|c| !c.is_whitespace()).collect()
+    if kind == "claude-token" && value.chars().any(paste_noise) {
+        value.chars().filter(|c| !paste_noise(*c)).collect()
     } else {
         value
     }
+}
+
+/// Whitespace, and the invisible spaces a copy adds that Unicode does not call whitespace
+/// (zero-width space, non-joiner, joiner, word joiner, BOM; cmux#57418).
+pub(crate) fn paste_noise(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}')
 }
 
 /// The secret a reference names; the error says why it did not resolve, never a value.
@@ -1148,7 +1154,7 @@ mod tests {
     #[test]
     fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
         let d = dirs();
-        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
+        let reference = secret_file(&d, "claude-token", "\u{FEFF} sk-ant-oat01-ab\n  cd\t\u{a0}e\u{200B}f \r");
         add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
         let (_, kind, _, secret) =
             credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();

@@ -275,7 +275,7 @@ export function ClaudeTokenStatus({ claude, busy, run }: { claude: ClaudeTokenSt
           className="button"
           data-models-action="retryClaudeToken"
           disabled={busy}
-          onClick={() => void run({ action: "connectClaudeToken" })}
+          onClick={() => void run({ action: "claudeSetupToken" })}
         >
           {t("settingsWindow.models.tryAgain")}
         </Button>
@@ -1004,13 +1004,7 @@ export function AddConnectionSheet({
           </div>
         )}
         {picked?.kind === "claude" && (
-          <ClaudeConnectForm
-            claude={claudeTokenOf(models)}
-            pasteOpen={start === "claude"}
-            busy={busy}
-            run={run}
-            onDone={onClose}
-          />
+          <ClaudeConnectForm claude={claudeTokenOf(models)} busy={busy} run={run} onDone={onClose} />
         )}
         {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
@@ -1104,56 +1098,42 @@ function KeyForm({
 /** Whether `token` reads as a Claude setup token; shared with the chat's model picker. */
 export { isClaudeToken };
 
-/** Add a Connection > Claude Code: one click. Connect Claude has the app run `claude setup-token`
- * itself, open the sign-in page in cmux's browser and save the token it prints (`connectClaudeToken`),
- * with the run's progress line beneath; the sheet closes once a run it started ends saved. Pasting a
- * token by hand stays behind a collapsed Paste a token instead. */
+/** Add a Connection > Claude Code (cmux#57418): Claude Code's own `claude setup-token`, run in a cmux
+ * terminal tab (`claudeSetupToken`), signs in and prints a long-lived token; the person pastes it in
+ * step 2 (`addClaudeToken`, every whitespace character taken out). A one-click run an older build left
+ * in flight still shows its line with Cancel, so it can be ended. */
 function ClaudeConnectForm({
   claude,
-  pasteOpen = false,
   busy,
   run,
   onDone,
 }: {
   claude: ClaudeTokenState;
-  /// Opened on the paste: the sheet started on Claude Code (Settings > Cloud's Paste a token instead,
-  /// a token's Replace).
-  pasteOpen?: boolean;
   busy: boolean;
   run: Run;
   onDone(): void;
 }) {
-  const running = claude.attempt !== null;
-  // Done: a run this form saw ended with its token saved (the host's `saved`; a Cancel is not).
-  const [seen, setSeen] = useState(false);
-  if (running && !seen) setSeen(true);
-  const saved = seen && !running && claude.error === null && claude.saved === true;
-  useEffect(() => {
-    if (saved) onDone();
-  }, [saved, onDone]);
   return (
     <div className="accounts-form" data-models-way="claude" data-models-claude-form="">
       <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
-      {running || claude.error ? (
+      {(claude.attempt !== null || claude.error !== null) && (
         <ClaudeTokenStatus claude={claude} busy={busy} run={run} />
-      ) : (
-        <div className="accounts-buttons">
-          <Button
-            type="button"
-            className="button"
-            variant="solid"
-            data-models-action="connectClaudeToken"
-            disabled={busy}
-            onClick={() => void run({ action: "connectClaudeToken" })}
-          >
-            {t("connect.claude.button")}
-          </Button>
-        </div>
       )}
-      <details className="models-claude-paste" data-models-claude-paste="" open={pasteOpen}>
-        <summary className="row-help">{t("connect.pasteToken")}</summary>
-        <ClaudeTokenForm busy={busy || running} run={run} onDone={onDone} />
-      </details>
+      <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
+      <div className="accounts-buttons">
+        <Button
+          type="button"
+          className="button"
+          variant="solid"
+          data-models-action="claudeSetupToken"
+          disabled={busy}
+          onClick={() => void run({ action: "claudeSetupToken" })}
+        >
+          {t("settingsWindow.models.claude.openTerminal")}
+        </Button>
+      </div>
+      <div className="row-title">{t("settingsWindow.models.claude.step2")}</div>
+      <ClaudeTokenForm busy={busy} run={run} onDone={onDone} />
     </div>
   );
 }

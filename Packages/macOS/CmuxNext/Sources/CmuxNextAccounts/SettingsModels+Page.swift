@@ -69,9 +69,10 @@ extension SettingsModels: PageProvider {
                        harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: openSignInPage))
     }
 
-    /// ``CloudSetup/run`` for the app: Set up Claude and Continue with ChatGPT connect in place, with no
-    /// Settings window and no terminal (Leo, 2026-11-25: one button, done when the chat starts; the
-    /// card's spinner is the progress). An acpmux that cannot, and the other buttons, `openSettings`.
+    /// ``CloudSetup/run`` for the app: Continue with ChatGPT connects in place, with no Settings window
+    /// (the card's spinner is the progress). Set up Claude opens Settings > Cloud on Claude's Claude Code
+    /// steps (cmux#57418: `claude setup-token` in a terminal tab, then paste its token); so do an acpmux
+    /// that cannot connect in place and the other buttons (`openSettings`).
     public static func cloudSetupRun(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                                      openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?,
                                      changed: @escaping @MainActor () -> Void,

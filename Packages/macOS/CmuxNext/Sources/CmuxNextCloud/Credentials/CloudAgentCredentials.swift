@@ -130,12 +130,13 @@ public final class CloudAgentCredentials {
                 push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: nil, endpoint: endpoint))
     }
 
-    /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh
-    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:push:)``).
+    /// The chat started on `credential`: its choice is spent, a ChatGPT plan token is kept fresh on that
+    /// machine through `push`, and any credential is sent again on the machine's next link
+    /// (``CloudAgentCredentialRefresher/track(_:machine:push:)``, cmux#57418).
     @discardableResult
     public func started(chat: String, machine: String, on credential: CloudAgentCredential,
                         push: @escaping CloudAgentCredentialRefresher.Push) -> UUID? {
         chosen[ChatKey(machine: machine, chat: chat)] = nil
-        return refresher.track(credential, push: push)
+        return refresher.track(credential, machine: machine, push: push)
     }
 }

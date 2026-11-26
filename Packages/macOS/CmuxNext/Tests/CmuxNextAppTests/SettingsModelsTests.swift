@@ -410,11 +410,32 @@ import Testing
         #expect(calls.first { $0.method == "_acpmux/connections/claude_token.begin" }?.params == ["label": "Claude"])
         #expect(calls.filter { $0.method == "_acpmux/connections/claude_token.wait" }.count == 2)
         #expect(typed.lines.isEmpty)
-        // The Cloud card's Set up Claude (`claudeSetupToken`) takes the same one click on this daemon.
-        daemon.claudeWaits.withLock { $0 = ["done"] }
+        // cmux#57418: Settings' Open Terminal (`claudeSetupToken`) runs `claude setup-token` in a terminal
+        // tab even on a daemon with the one click, so the person sees it and pastes its token back.
         _ = try await models.run(["action": "claudeSetupToken"], context: click)
-        await models.claudeTokenTask?.value
-        #expect(typed.lines.isEmpty)
+        #expect(typed.lines == ["claude setup-token"])
+        #expect(daemon.calls.withLock { $0 }.filter { $0.method == "_acpmux/connections/claude_token.begin" }.count == 1)
+    }
+
+    /// cmux#57418: Settings > Cloud stuck on "Waiting for you to sign in to Claude in the browser...".
+    /// Open Terminal ends a one-click run still waiting on its page and clears its line, then types
+    /// `claude setup-token`; the Cloud chat's Set up Claude no longer starts the hidden run at all.
+    @Test func claudeSetupTokenEndsAStuckBrowserWaitAndTheChatNoLongerStartsOne() async throws {
+        let daemon = Daemon()
+        daemon.claudeOneClick.withLock { $0 = true }
+        daemon.claudeWaits.withLock { $0 = ["pending"] }
+        let typed = Typed()
+        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
+        let models = make(daemon: daemon, harnesses: harnesses)
+        _ = try await models.run(["action": "connectClaudeToken"], context: click)
+        #expect(models.state["claudeToken"]?["phase"] == "signing_in")
+        _ = try await models.run(["action": "claudeSetupToken"], context: click)
+        #expect(typed.lines == ["claude setup-token"])
+        #expect(models.state["claudeToken"] == ["attempt": .null, "phase": .null, "error": .null, "saved": false])
+        #expect(daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/claude_token.cancel" })
+        let begun = daemon.calls.withLock { $0 }.filter { $0.method == "_acpmux/connections/claude_token.begin" }.count
+        #expect(await models.connectInPlace("setUpClaude") == false)
+        #expect(daemon.calls.withLock { $0 }.filter { $0.method == "_acpmux/connections/claude_token.begin" }.count == begun)
     }
 
     @Test func claudeOneClickShowsItsFailureAndCancels() async throws {

@@ -179,8 +179,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "cancelClaudeToken":
       return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
     case "claudeSetupToken":
-      // The app opens a terminal tab running `claude setup-token`; the state does not change.
-      return state;
+      // The app opens a terminal tab running `claude setup-token` and ends a one-click run left waiting.
+      return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
     case "addClaudeToken": {
       if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
       const id = nextId("claude-token", connections);

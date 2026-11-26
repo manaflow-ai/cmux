@@ -42,7 +42,8 @@ const MARK = { claude: "claude", codex: "openai" } as const satisfies Record<Con
 const LINE = { claude: "connect.claude.line", codex: "connect.codex.line" } as const;
 const BUTTON = { claude: "connect.claude.button", codex: "cloudSetup.chatgpt" } as const;
 const PHASE = {
-  claude: { starting: "connect.claude.starting", signing_in: "connect.claude.signingIn", saving: "connect.saving" },
+  // cmux#57418: Claude signs in with `claude setup-token` in a terminal, its token pasted in Settings: no browser.
+  claude: { starting: "connect.claude.starting", signing_in: "harnesses.waitingSignIn", saving: "connect.saving" },
   codex: { starting: "connect.claude.starting", signing_in: "connect.codex.signingIn", saving: "connect.saving" },
 } as const satisfies Record<ConnectCardFamily, Record<ConnectPhase, string>>;
 // Codex's browser sign-in has no "opening" step of its own: its first phase reads as signing in.

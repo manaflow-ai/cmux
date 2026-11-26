@@ -4,9 +4,9 @@
 // listed or explained here (Settings > Models marks it This Mac only). A row is Connected for Cloud by the
 // rule a Cloud start uses (CloudSetup.swift `choice`): an enabled, signed-in personal connection that
 // serves Cloud and the family, else the team's shared key for it. Each row fixes itself in place: Sign in
-// with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Connect Claude runs
-// the one-click `connectClaudeToken` with its progress line under the row (Paste a token instead opens
-// Models' Claude Code steps), Turn On runs `enable` on a connection turned off, and Add an API key opens
+// with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Connect Claude opens
+// Models' Claude Code steps (cmux#57418: `claude setup-token` in a terminal tab, then paste the token it
+// prints), Turn On runs `enable` on a connection turned off, and Add an API key opens
 // Settings > Models' own key steps (`addKey`); this card adds no second way in. A row's connection is
 // changed in place from its more menu: a ChatGPT plan signs in again or signs out, a Claude Code token or an
 // API key is replaced (the same add steps, then the old one is removed) or removed.
@@ -82,6 +82,13 @@ export function CloudModelsCard({ focus }: { focus: string | null }) {
   const store = useStore();
   const { busy, error, run } = useModelsRun();
   const [sheet, setSheet] = useState<{ start: SheetStart; replacing: string | null } | null>(null);
+  // Opened on Claude with nothing serving it (a Cloud chat's Set up Claude): the Claude Code steps open
+  // at once, once per focus, so the next click is Open Terminal (`claude setup-token`).
+  const [stepsShownFor, setStepsShownFor] = useState<string | null>(null);
+  if (models && focus === "cloud.claude" && stepsShownFor !== focus && models.personal.available) {
+    setStepsShownFor(focus);
+    if (cloudReadiness(models, "claude").state === "missing") setSheet({ start: "claude", replacing: null });
+  }
   if (!models) return null;
   // Replace: the sheet adds the new token or key of the replaced one's kind, the new one takes the old one's
   // place in the order (the first that works serves Cloud), then the old one goes. The sheet closes on the
@@ -238,9 +245,9 @@ function CloudModelRow({
               type="button"
               className="button"
               variant="solid"
-              data-cloud-action="connectClaudeToken"
+              data-cloud-action="setUpClaude"
               disabled={busy}
-              onClick={() => void run({ action: "connectClaudeToken" })}
+              onClick={() => onSetUp("claude")}
             >
               {t("connect.claude.button")}
             </Button>
@@ -314,21 +321,9 @@ function CloudModelRow({
           </div>
         </div>
       )}
-      {needsSetUp && row === "claude" && (
+      {needsSetUp && claudeRunning && (
         <div className="accounts-body">
           <ClaudeTokenStatus claude={claude} busy={busy} run={run} />
-          {claude.attempt === null && (
-            <Button
-              type="button"
-              className="button"
-              variant="ghost"
-              data-cloud-action="setUpClaude"
-              disabled={busy}
-              onClick={() => onSetUp("claude")}
-            >
-              {t("connect.pasteToken")}
-            </Button>
-          )}
         </div>
       )}
       {row === "chatgpt" && pending && (

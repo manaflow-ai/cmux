@@ -279,12 +279,14 @@ public final class SettingsModels {
         case "cancelClaudeToken":
             await cancelClaudeToken()
         case "claudeSetupToken":
-            // A daemon with the one-click run (`claude_token.begin`) needs no terminal: the app runs
-            // `claude setup-token` itself and the token is never shown. An older one: the terminal tab.
-            do { return try await connectClaudeToken(label: params["label"]?.stringValue) } catch let error as PageError where error.code == "cmux.models.unsupported" {
-                guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
-                try await harnesses.typeLine("claude setup-token")
-            }
+            // cmux#57418: Claude Code's own `claude setup-token`, in a terminal tab the person sees, whose
+            // long-lived token they paste back (`addClaudeToken`). The hidden one-click run
+            // (`connectClaudeToken`) could wait on its browser page forever; it stays only for callers
+            // that ask for it by name. A one-click line left from an older run is cleared.
+            guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
+            await cancelClaudeToken()
+            setClaudeToken(attempt: nil, phase: nil, error: nil)
+            try await harnesses.typeLine("claude setup-token")
         case "addClaudeToken":
             try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":

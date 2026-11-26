@@ -255,7 +255,8 @@ test("Connect opens the inline card already signing in; its progress line follow
   expect(card()?.textContent).toContain("Opening the Claude sign-in page…");
   expect(card()?.querySelector('[data-connect-action="cancel"]')).not.toBeNull();
   await act(async () => setProgress({ phase: "signing_in", error: null }));
-  expect(card()?.textContent).toContain("Waiting for you to sign in to Claude in the browser…");
+  // cmux#57418: Claude signs in through `claude setup-token` in a terminal, not in the browser.
+  expect(card()?.textContent).toContain("Waiting for sign-in…");
   await act(async () => setProgress({ phase: "saving", error: null }));
   expect(card()?.textContent).toContain("Saving…");
   await act(async () => setProgress({ phase: null, error: null }));

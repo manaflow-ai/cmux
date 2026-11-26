@@ -155,7 +155,7 @@ test("the connect card's one click asks for the family's way in; while it waits 
       />,
     ),
   );
-  expect(mount.textContent).toContain(translate("connect.claude.signingIn"));
+  expect(mount.textContent).toContain(translate("harnesses.waitingSignIn"));
   expect(button("connectChatGPT").disabled).toBe(true);
   expect(mount.querySelector('[data-action="dismiss"]')).toBeNull();
   await act(async () => mount.querySelector<HTMLButtonElement>('[data-connect-action="cancel"]')!.click());

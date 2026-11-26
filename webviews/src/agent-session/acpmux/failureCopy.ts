@@ -134,6 +134,10 @@ const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
 const OAUTH_REFRESH = /\binvalid_(?:grant|rapt)\b/i;
 const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
+/// A Cloud machine's agent with no credential at all, not a refused one (cmux#57418): Claude Code's
+/// "Not logged in · Please run /login" and acpmux's "has no model route" / "is not signed in here".
+/// The Cloud card says it is missing, where "rejected" misstated it; the kind stays as it was.
+const NO_CREDENTIAL = /not logged in|has no model route|not signed in here/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
@@ -424,7 +428,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    const cause = MISSING_CREDENTIAL.test(message ?? "")
+    const cause = [MISSING_CREDENTIAL, NO_CREDENTIAL].some((re) => re.test(message ?? ""))
       ? t("turn.failure.cloudAuthMissing", { harness })
       : EXPIRED_CREDENTIAL.test(message ?? "")
         ? t("turn.failure.cloudAuthExpired", { harness })

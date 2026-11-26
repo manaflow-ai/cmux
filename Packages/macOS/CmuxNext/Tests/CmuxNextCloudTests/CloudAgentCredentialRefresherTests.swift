@@ -105,6 +105,55 @@ struct CloudAgentCredentialRefresherTests {
         #expect(refresher.trackedCount == 0 && clock.sleeperCount == 0)
     }
 
+    /// cmux#57418: a Claude chat on a Cloud machine whose acpmux restarted while its agent slept (a VM
+    /// resumed, a machine update) lost its token ("Not logged in"). The machine's next link sends every
+    /// chat on it its connection's credential again, read now; other machines' chats are left alone.
+    @Test func aNewLinkToTheMachineSendsItsChatsTheirCredentialsAgain() async {
+        let clock = ManualClock()
+        var reads: [String] = []
+        let refresher = CloudAgentCredentialRefresher(clock: clock, now: { Self.base }) { id in
+            reads.append(id)
+            return CloudAgentCredential(connectionID: id, family: "claude", kind: "claude-token",
+                                        env: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-\(id)-\(reads.count)"], expiresAt: nil)
+        }
+        let claude = CloudAgentCredential(connectionID: "claude", family: "claude", kind: "claude-token",
+                                          env: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-old"], expiresAt: nil)
+        let here = Machine(), there = Machine(), gone = Machine()
+        gone.answer = .gone
+        #expect(refresher.track(claude, machine: "m1", push: here.push) != nil)
+        #expect(refresher.track(claude, machine: "m1", push: gone.push) != nil)
+        #expect(refresher.track(claude, machine: "m2", push: there.push) != nil)
+        #expect(clock.sleeperCount == 0, "a token that does not expire is never refreshed on a timer")
+        // The first handshake seen, then the same one again (no new link), then a new one.
+        #expect(refresher.linked(machine: "m1", handshake: "a"))
+        #expect(!refresher.linked(machine: "m1", handshake: "a"))
+        #expect(!refresher.linked(machine: "m1", handshake: nil))
+        #expect(refresher.linked(machine: "m1", handshake: "b"))
+        #expect(!refresher.linked(machine: "m3", handshake: "x"), "no chat tracked there")
+        #expect(await refresher.resend(machine: "m1") == 1)
+        #expect(reads == ["claude"], "one read for the connection")
+        #expect(here.pushes == [["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-claude-1"]])
+        #expect(there.pushes.isEmpty)
+        #expect(refresher.trackedCount == 2, "the chat its machine no longer has is dropped")
+        #expect(await refresher.resend(machine: "m1") == 1)
+        #expect(here.pushes.count == 2 && gone.pushes.count == 1)
+    }
+
+    @Test func aChatStartedOnAClaudeTokenIsHeldForItsMachinesNextLink() async {
+        var reads = 0
+        let credentials = CloudAgentCredentials { _ in
+            reads += 1
+            return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"}}"#.utf8)
+        }
+        let launch = CloudAgentCredential(connectionID: "route-claude", family: "claude", kind: "claude-token",
+                                          env: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"], expiresAt: nil)
+        let machine = Machine()
+        #expect(credentials.started(chat: "tab-1", machine: "m1", on: launch, push: machine.push) != nil)
+        #expect(credentials.refresher.linked(machine: "m1", handshake: "resumed"))
+        #expect(await credentials.refresher.resend(machine: "m1") == 1)
+        #expect(machine.pushes == [["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"]] && reads == 1)
+    }
+
     @Test func aFailedReadOrPushIsTriedAgainAMinuteLater() async throws {
         let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
         let refresher = make(clock, acpmux)

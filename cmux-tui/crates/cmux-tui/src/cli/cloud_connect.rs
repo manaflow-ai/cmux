@@ -328,7 +328,12 @@ pub(super) fn run(
             let token = if *token_stdin {
                 // `claude setup-token` wraps its token; a pasted or piped one loses its whitespace (#56100).
                 let read = (io.api_key)("the Claude setup-token")?;
-                Zeroizing::new(read.split_whitespace().collect::<String>())
+                // Zero-width spaces and a BOM too: not whitespace to Unicode, but a copy adds them (cmux#57418).
+                Zeroizing::new(
+                    read.chars()
+                        .filter(|c| !c.is_whitespace() && !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'))
+                        .collect::<String>(),
+                )
             } else {
                 (io.claude_token)()?
             };

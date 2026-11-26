@@ -90,9 +90,17 @@ test("an expired sign-in on an older Cloud machine says Sign in again opens a te
     expect(failureCopy(t, expired, { ...older, terminalSignIn: undefined }), lang).toBe(cause);
   }
   const t = ((key: string) => key) as Translate;
+  // cmux#57418: no credential at all reads as missing, not as one the provider rejected.
   expect(failureCopy(t, "Not logged in · Please run /login", older)).toBe(
-    "turn.failure.cloudAuthRejected turn.failure.cloudSignInInTerminal",
+    "turn.failure.cloudAuthMissing turn.failure.cloudSignInInTerminal",
   );
+  expect(
+    failureCopy(
+      t,
+      "Claude is not signed in here. This Cloud machine's Claude has no model route (Claude home ~/.claude). (Claude said: Not logged in · Please run /login)",
+      { hostKind: "cloud", harness: "claude" },
+    ),
+  ).toBe("turn.failure.cloudAuthMissing");
   expect(failureCopy(t, "429 Too Many Requests", older)).toBe("turn.failure.rateLimited");
 });
 

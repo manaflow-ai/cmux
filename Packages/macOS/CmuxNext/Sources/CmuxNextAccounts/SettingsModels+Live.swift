@@ -175,13 +175,13 @@ extension SettingsModels {
     }
 
     /// The Cloud chat's Set up Cloud button in place (`cloud.setUp`, whose click the pane already took):
-    /// `setUpClaude` runs Claude's one-click connection, `connectChatGPT` Continue with ChatGPT, and the
-    /// chat starts once the connection shows (``onConnections``). False when this Mac's acpmux cannot
-    /// (an older daemon, no daemon): the caller opens Settings > Cloud instead, as before.
+    /// `connectChatGPT` runs Continue with ChatGPT, and the chat starts once the connection shows
+    /// (``onConnections``). False for `setUpClaude` (cmux#57418: Claude signs in with `claude setup-token`
+    /// in a terminal tab, whose token is pasted in Settings > Cloud's Claude Code steps) and when this
+    /// Mac's acpmux cannot (an older daemon, no daemon): the caller opens Settings > Cloud on the row.
     public func connectInPlace(_ action: String) async -> Bool {
         do {
             switch action {
-            case "setUpClaude": _ = try await connectClaudeToken(label: nil)
             case "connectChatGPT": _ = try await connectChatGPT(id: nil)
             default: return false
             }

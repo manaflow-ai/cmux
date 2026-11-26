@@ -9,7 +9,14 @@ public import Foundation
 /// connection (`agent-session-credentials` -> the machine acpmux's `agent/credentials.update`, which
 /// restarts that Codex app-server on it and resumes its thread). One read per connection serves
 /// all of its agents. A read or push that fails is tried again after ``retry``; an agent whose chat
-/// is gone is dropped. Other kinds (a Claude token, an API key) do not expire and are not tracked.
+/// is gone is dropped. Other kinds (a Claude token, an API key) do not expire and are not refreshed.
+///
+/// Every agent, of any kind, is also held by its machine so a new link to that machine (a VM that
+/// paused and resumed, a daemon an update or a crash restarted) gets its chats' current credentials
+/// again (``resend(machine:)``, cmux#57418): the machine's acpmux keeps a launch credential only in
+/// memory, so one restarted while the chat's agent slept lost it, and the chat's next turn ran with no
+/// sign-in ("Not logged in · Please run /login"). A push of the credential the session already holds
+/// restarts nothing there (`agent/credentials.update` answers `restart: none`).
 ///
 /// Each connection's deadline is a ``DemandTimer`` on the injected clock; the wall-clock expiry is
 /// read through `now`.
@@ -41,12 +48,23 @@ public final class CloudAgentCredentialRefresher {
         let push: Push
         /// The expiry of the token its machine has now.
         var delivered: Date
+        var machine: String?
+    }
+
+    /// An agent on a credential that does not expire, held only to send again on a new link.
+    private struct Held {
+        let connectionID: String
+        let machine: String
+        let push: Push
     }
 
     private let read: Read
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private var agents: [String: [UUID: Agent]] = [:]
+    private var held: [UUID: Held] = [:]
+    /// The last live handshake seen per machine (``linked(machine:handshake:)``).
+    private var handshakes: [String: String] = [:]
     private var timers: [String: DemandTimer] = [:]
     /// Connections whose refresh runs now: a track then waits for its end to reschedule.
     private var refreshing: Set<String> = []
@@ -55,18 +73,25 @@ public final class CloudAgentCredentialRefresher {
         (self.clock, self.now, self.read) = (clock, now, read)
     }
 
-    /// Tracks an agent that started on `credential`; nil (not tracked) for one that does not expire.
+    /// Tracks an agent that started on `credential` on `machine`. One that does not expire is only held
+    /// for ``resend(machine:)``; with no machine as well, it is not tracked (nil).
     @discardableResult
-    public func track(_ credential: CloudAgentCredential, push: @escaping Push) -> UUID? {
-        guard credential.refreshes, let expires = credential.expiresAt else { return nil }
+    public func track(_ credential: CloudAgentCredential, machine: String? = nil, push: @escaping Push) -> UUID? {
+        guard credential.refreshes, let expires = credential.expiresAt else {
+            guard let machine else { return nil }
+            let id = UUID()
+            held[id] = Held(connectionID: credential.connectionID, machine: machine, push: push)
+            return id
+        }
         let id = UUID()
-        agents[credential.connectionID, default: [:]][id] = Agent(push: push, delivered: expires)
+        agents[credential.connectionID, default: [:]][id] = Agent(push: push, delivered: expires, machine: machine)
         if !refreshing.contains(credential.connectionID) { schedule(credential.connectionID, after: nil) }
         return id
     }
 
     /// Stops refreshing agent `id` (its chat closed or moved).
     public func untrack(_ id: UUID) {
+        held[id] = nil
         for (connection, group) in agents where group[id] != nil {
             agents[connection]?[id] = nil
             if agents[connection]?.isEmpty == true { stop(connection) }
@@ -74,7 +99,46 @@ public final class CloudAgentCredentialRefresher {
     }
 
     /// How many agents are tracked now.
-    public var trackedCount: Int { agents.values.reduce(0) { $0 + $1.count } }
+    public var trackedCount: Int { agents.values.reduce(0) { $0 + $1.count } + held.count }
+
+    /// Machine `machine`'s daemon answered a new handshake `handshake` (a reconnect, a resume, a restarted
+    /// daemon; nil while none is live): whether its chats' credentials are due again (``resend(machine:)``).
+    /// The first handshake seen counts too, as the app cannot know what the machine kept meanwhile.
+    public func linked(machine: String, handshake: String?) -> Bool {
+        guard let handshake, handshakes[machine] != handshake else { return false }
+        handshakes[machine] = handshake
+        return held.values.contains { $0.machine == machine }
+            || agents.values.contains { $0.values.contains { $0.machine == machine } }
+    }
+
+    /// Sends every tracked chat on `machine` its connection's credential again, read now (cmux#57418:
+    /// a resumed VM or a restarted daemon re-gets what its acpmux lost). One read per connection; a
+    /// chat its machine no longer has is dropped; a read or push that fails waits for the next link.
+    /// How many pushes were delivered.
+    @discardableResult
+    public func resend(machine: String) async -> Int {
+        var targets: [String: [(id: UUID, push: Push)]] = [:]
+        for (id, agent) in held where agent.machine == machine { targets[agent.connectionID, default: []].append((id, agent.push)) }
+        for (connection, group) in agents {
+            for (id, agent) in group where agent.machine == machine { targets[connection, default: []].append((id, agent.push)) }
+        }
+        var delivered = 0
+        for (connection, chats) in targets.sorted(by: { $0.key < $1.key }) {
+            guard let fresh = try? await read(connection) else { continue }
+            for chat in chats {
+                switch await chat.push(fresh.env) {
+                case .delivered:
+                    delivered += 1
+                    if let expires = fresh.expiresAt, let had = agents[connection]?[chat.id]?.delivered, expires > had {
+                        agents[connection]?[chat.id]?.delivered = expires
+                    }
+                case .failed: break
+                case .gone: untrack(chat.id)
+                }
+            }
+        }
+        return delivered
+    }
 
     private func stop(_ connection: String) {
         agents[connection] = nil
