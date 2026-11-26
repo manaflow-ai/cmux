@@ -248,14 +248,15 @@ fn an_unknown_field_never_warns() {
     let capped = row("claude", json!({"autocompact": "capped", "autocompactCap": null}));
     assert!(usage_warnings(&capped, &UsageLimits::default()).is_empty());
     let none = row("claude", json!({"autocompact": "none", "autocompactCap": null}));
-    assert_eq!(rules(&usage_warnings(&none, &UsageLimits::default())), ["noAutocompactCap"]);
+    assert!(usage_warnings(&none, &UsageLimits::default()).is_empty(), "the cap rule is opt-in");
+    assert_eq!(rules(&usage_warnings(&none, &cap_on())), ["noAutocompactCap"]);
 }
 
 /// A peer's row is renamed `<peer>/<name>`; its commands follow, so they reach the peer's session.
 #[test]
 fn a_peers_row_names_the_peers_session_in_its_commands() {
     let mut summary = row("claude", json!({"autocompact": "none", "contextTokens": 412_000}));
-    let warnings = usage_warnings(&summary, &UsageLimits::default());
+    let warnings = usage_warnings(&summary, &cap_on());
     summary["usageWarnings"] = json!(warnings);
     summary["name"] = json!("box/dep-1");
     super::usage_warnings::for_name(&mut summary);
