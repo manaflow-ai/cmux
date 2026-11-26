@@ -186,6 +186,7 @@ cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
+cmux-intent.workspace = true
 dirs = "6"
 # Read the containing app identity for DEV helper discovery and the app orphan exit
 # (src/daemon/app_orphan.rs).
