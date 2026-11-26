@@ -1059,6 +1059,68 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
+/// One aging pass over every mounted projection's content store
+/// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
+/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
+pub fn age_once() -> Option<cmux_projection::hold::Held> {
+    let started = std::time::Instant::now();
+    #[cfg(target_os = "linux")]
+    {
+        let now = std::time::SystemTime::now();
+        let aging = cmux_projection::overlay::content::Aging::default();
+        let live: Vec<(String, Arc<Projected>)> = projections()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(name, projected)| (name.clone(), projected.clone()))
+            .collect();
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            if report.went_cold_blobs + report.deleted_blobs > 0 {
+                eprintln!(
+                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                     deleted ({} bytes freed); holds {} bytes",
+                    report.went_cold_blobs,
+                    report.went_cold_bytes,
+                    report.went_cold_saved_bytes,
+                    report.deleted_blobs,
+                    report.deleted_stored_bytes,
+                    report.held_bytes()
+                );
+            }
+        }
+    }
+    let state = crate::platform::workspace_state_dir()?;
+    let held = cmux_projection::hold::held(&state.join("projections"));
+    let line = serde_json::to_vec(&json!({
+        "schema": "projection-held/v1",
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "held": held,
+    }))
+    .ok()?;
+    let to = state.join("projection-held.json");
+    let temp = to.with_extension("json.new");
+    if std::fs::write(&temp, line).and_then(|()| std::fs::rename(&temp, &to)).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    eprintln!(
+        "cmux projection held: {} logical bytes ({} stored, {} duplicate) in {} blobs ({} cold) \
+         over {} projections, in {} ms",
+        held.logical_bytes,
+        held.stored_bytes,
+        held.duplicate_bytes,
+        held.blobs,
+        held.cold_blobs,
+        held.projections,
+        started.elapsed().as_millis()
+    );
+    Some(held)
+}
+
 /// Starts the reaper thread: a pass [`REAP_FIRST_AFTER`] the daemon starts, then every
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
@@ -1071,6 +1133,7 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
             std::thread::sleep(REAP_FIRST_AFTER);
             loop {
                 reap_once(acpmux_socket.as_deref());
+                age_once();
                 std::thread::sleep(REAP_EVERY);
             }
         });
