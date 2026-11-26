@@ -38,7 +38,6 @@ function StatusLabel({ status, detail, inline }: { status: string; detail?: stri
   return (
     <output
       className={inline ? "acpmux-status acpmux-status--inline" : "acpmux-status"}
-      data-tab-row-accessory={inline ? "" : undefined}
       /* tooltip-allow: the warning's detail, shown nowhere else */ title={detail}
       aria-label={detail}
     >
