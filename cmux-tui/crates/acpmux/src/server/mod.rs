@@ -46,6 +46,7 @@ mod app_reply;
 #[cfg(test)]
 mod attach_latency_bench;
 mod auto_gate;
+mod autocloud_enroll;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -167,8 +168,10 @@ pub(crate) mod outbox;
 mod pairing;
 mod paused_files;
 pub mod peer_auth;
+mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
+mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
