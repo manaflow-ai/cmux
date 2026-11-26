@@ -455,10 +455,19 @@ pub struct AgentsView {
 /// `countsAsSignedIn`, `awaitsConfirmation`, `install`'s guard and
 /// `OnboardingAgent.offersSignIn`).
 pub fn agents(facts: &AgentsFacts) -> AgentsView {
-    let listed: Vec<usize> =
-        (0..facts.agents.len()).filter(|i| facts.agents[*i].installed).collect();
-    let installable: Vec<usize> = (0..facts.agents.len())
-        .filter(|i| !facts.agents[*i].installed && install_page(&facts.agents[*i].id).is_some())
+    let listed: Vec<usize> = facts
+        .agents
+        .iter()
+        .enumerate()
+        .filter(|(_, agent)| agent.installed)
+        .map(|(index, _)| index)
+        .collect();
+    let installable: Vec<usize> = facts
+        .agents
+        .iter()
+        .enumerate()
+        .filter(|(_, agent)| !agent.installed && install_page(&agent.id).is_some())
+        .map(|(index, _)| index)
         .collect();
     let has = |set: &[String], id: &str| set.iter().any(|entry| entry == id);
     let marks = facts
@@ -479,7 +488,7 @@ pub fn agents(facts: &AgentsFacts) -> AgentsView {
         facts.agents.iter().any(|agent| agent.id == id && agent.auth == Auth::SignedIn)
     });
     let finish_install = facts.install_awaiting_read.as_deref().map(|id| {
-        if listed.iter().any(|index| facts.agents[*index].id == id) {
+        if listed.iter().any(|index| facts.agents.get(*index).is_some_and(|agent| agent.id == id)) {
             FinishInstall::SignIn
         } else {
             FinishInstall::Failed { message: INSTALLED_NOT_FOUND.to_owned() }
