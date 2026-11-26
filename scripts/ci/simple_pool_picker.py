@@ -789,7 +789,12 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                 owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app,
                   retry_runner=choice.retry_label if choice.owned and choice.retry_label else choice.label,
-                  shard_runner=choice.label,
+                  # ci-macos.yml's shards read pr_shard_runner before pr_gui_runner, so on a pool with a gui
+                  # label this stays empty: there the shards take the gui label, one runner per mini, and wait
+                  # in GitHub's queue for a mini whose gui token is free. On the pool label (60 slots, up to 11
+                  # runners a mini) main's run 45238525234 put shards 3, 6 and 7 on one mini together: shard 3
+                  # waited out take-gui's 1800 s behind shard 7, and none of its tests ran.
+                  shard_runner="" if gui else choice.label,
                   persistent="true" if choice.owned else "false", jobs=str(jobs),
                   placed=str(jobs if choice.owned else 0),
                   owned_jobs=f" {' '.join(owned_jobs)} " if owned_jobs else "",
