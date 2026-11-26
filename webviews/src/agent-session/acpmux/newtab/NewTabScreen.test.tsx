@@ -1034,7 +1034,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
       row.textContent?.trim(),
     );
   await typePrompt("/");
-  expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  // Skills first, A to Z, then the other commands in their order (folderCommands.ts skillsFirst).
+  expect(names()).toEqual(["/review-pr", "/model", "/compact"]);
   await typePrompt("/comp");
   expect(names()).toEqual(["/compact"]);
   await typePrompt("src/app");
@@ -1047,6 +1048,76 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
   expect([...container.querySelectorAll(".nt-field .acpmux-slash-token")].map((token) => token.textContent)).toEqual([
     "/review-pr",
   ]);
+});
+
+test("before the agent's deferred chat answers, `/` lists the skills of the newest chat in this folder, A to Z", async () => {
+  const reads: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat(
+          [
+            session({ sessionId: "older", cwd: "/Users/you/src/cmux", updatedAt: 1 }),
+            session({ sessionId: "newer", cwd: "/Users/you/src/cmux", updatedAt: 2 }),
+            // A deferred chat that never started: the newest, with no list yet.
+            session({ sessionId: "deferred", cwd: "/Users/you/src/cmux", updatedAt: 3 }),
+          ],
+          { commands: [{ name: "model", description: "", source: "cmux" }] },
+        )}
+        lastAgent="claude"
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        readChatCommands={async (sessionId) => {
+          reads.push(sessionId);
+          if (sessionId === "deferred") return [];
+          return [
+            { name: "prime", description: "", source: "skill" },
+            { name: "issues", description: "", source: "skill" },
+          ];
+        }}
+      />,
+    );
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await typePrompt("use this /");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // The empty deferred chat gives way to the next newest.
+  expect(reads).toEqual(["deferred", "newer"]);
+  expect(names()).toEqual(["/issues", "/prime"]);
+  await typePrompt("/");
+  expect(names()).toEqual(["/issues", "/prime", "/model"]);
+  // Kept for this agent and folder: the menu opening again reads nothing more.
+  expect(reads).toEqual(["deferred", "newer"]);
+});
+
+test("a Codex skill from the newest chat's list goes as `/$name` before Codex's own list arrives", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([session({ sessionId: "codex-chat", harness: "codex", cwd: "/Users/you/src/cmux" })], {
+          commands: [],
+        })}
+        lastAgent="codex"
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        readChatCommands={async () => [{ name: "$emil-color", description: "", source: "skill" }]}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("use /");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /$emil-color now");
 });
 
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
@@ -1343,7 +1414,9 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
+  // The tray is the default view (#55723): the document shows once, in the tray, not in the text.
+  expect(container.querySelectorAll(".acpmux-attachments .acpmux-attachment").length).toBe(1);
+  expect(container.querySelector(".acpmux-md-inline-chip")).toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());
@@ -1926,7 +1999,9 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toHaveLength(1);
   const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
-  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  // In the default tray view (#55723) the text holds no mark; the attachment goes with the draft.
+  expect(attachment.id).toBeTruthy();
+  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 async function clickProjectOption(label: string) {

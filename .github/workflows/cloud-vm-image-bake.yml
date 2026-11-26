@@ -159,7 +159,7 @@ jobs:
   # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
   prod-gate:
     if: inputs.mode == 'prod-copy'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -181,7 +181,7 @@ jobs:
     needs: prod-gate
     # Every mode but prod-copy skips prod-gate and runs as before; prod-copy runs only after it passed.
     if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
@@ -356,6 +356,9 @@ jobs:
           # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; a full bake (the
           # weekly run, and a dev tree bake, which the Bake step always runs in full) keeps the two-minute sample.
           IDLE_SECONDS: ${{ (inputs.layered && !inputs.dev_tree) && '60' || '120' }}
+          # A roll judges the edge-rule clone against the live image (smoke.ts edgeRuleLiveControl): a failure the
+          # live image shares (the provider's TLS-rule resolver) warns on the live-failing issue instead of blocking.
+          EDGE_BASELINE: ${{ inputs.roll && 'live' || 'none' }}
         run: |
           set -euo pipefail
           # A layered bake left its builder for the SBOM and file manifest (inventory.ts); they run beside the
@@ -367,7 +370,7 @@ jobs:
           fi
           smoke_status=0
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out" || smoke_status=$?
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" --edge-baseline "$EDGE_BASELINE" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out" || smoke_status=$?
           if [ -n "$inventory_pid" ]; then
             inventory_status=0
             wait "$inventory_pid" || inventory_status=$?
@@ -427,7 +430,7 @@ jobs:
       # A check already failing on the live image warns and does not block (harness-gate.ts LIVE_FAILING_FILE); its
       # lines go on as the live_failing output, which the image roll's report job files on one issue.
       - name: Checks already failing on the live image
-        if: always() && steps.agent_tools_probe.outcome != 'skipped'
+        if: always() && (steps.agent_tools_probe.outcome != 'skipped' || steps.smoke.outcome == 'success')
         id: live_failing
         run: |
           set -euo pipefail
@@ -727,7 +730,7 @@ jobs:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -816,7 +819,7 @@ jobs:
   first-build-report:
     if: ${{ !cancelled() && inputs.mode == 'bake' && inputs.dev_tree }}
     needs: [bake, first-build-before]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
