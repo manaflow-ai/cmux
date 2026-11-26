@@ -189,6 +189,8 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         [d, id] if *d == super::prompt_images::BUNDLE_DIR && super::prompt_images::valid_id(id) => {
             Some(false)
         }
+        // A hook's state of the session (`hook_state.rs`): taken, never placed by a guarded import.
+        _ if super::hook_state::is_bundle_path(path) => Some(false),
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
         ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
         ["native", "claude-project", ".claude", "projects", dir, f]
@@ -533,6 +535,13 @@ mod durable_harness_tests {
         assert_eq!(optional_bundle_file(&image), Some(TRANSFER_IMAGES));
         assert_eq!(bundle_path_kind(composers), Some(false));
         assert_eq!(bundle_path_kind(&image), Some(false));
+        let hook_state = "hook-state/notes-first/01a2043e-aaaa.json";
+        assert_eq!(
+            optional_bundle_file(hook_state),
+            Some(crate::capabilities::TRANSFER_HOOK_STATE)
+        );
+        assert_eq!(bundle_path_kind(hook_state), Some(false));
+        assert_eq!(bundle_path_kind("hook-state/notes-first/../x.json"), None);
         for required in ["session.json", "manifest.json", "events/000001.ndjson"] {
             assert_eq!(optional_bundle_file(required), None, "{required}");
         }

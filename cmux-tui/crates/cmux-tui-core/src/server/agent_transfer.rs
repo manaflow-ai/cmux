@@ -128,7 +128,7 @@ pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-to
 /// one its `identify` does not list, so an older machine image takes the chat without it
 /// instead of refusing the whole move (`cmux link agent move`).
 pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
-    &["transfer-composers-v1", "transfer-images-v1"];
+    &["transfer-composers-v1", "transfer-images-v1", "transfer-hook-state-v1"];
 /// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
 /// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
 pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";
