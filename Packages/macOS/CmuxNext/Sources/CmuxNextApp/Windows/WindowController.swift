@@ -106,7 +106,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
+        DebugTimings.markLaunch("window.sidebar_made"); root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook) // startup-tti sub-marks
         services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -116,7 +116,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal, registry: services.registry)
-        let window = ShellWindow(
+        DebugTimings.markLaunch("window.root_made"); let window = ShellWindow(
             contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -130,14 +130,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        super.init(window: window)
+        super.init(window: window); DebugTimings.markLaunch("window.shell_made")
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope, activeLook: services.activeLook)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        window.delegate = self
+        window.delegate = self; DebugTimings.markLaunch("window.content_installed")
         let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
                                                       displayID: { [weak window] in
                                                           window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
@@ -152,7 +152,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 }
             }
         }
-        window.focus = focus
+        DebugTimings.markLaunch("window.backdrop_applied"); window.focus = focus
         window.focusLog = services.focusLog
         focus.applier = focusApplier
         focus.window = window
