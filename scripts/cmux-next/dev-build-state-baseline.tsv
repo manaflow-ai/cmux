@@ -98,7 +98,7 @@ cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs	1	text only (help, a description, an
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	3	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/cli/key_broker.rs	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	1	text only (help, a description, an error message), no path is read
-cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/link/access_cli.rs	1	not a read or write: a deny-list entry (SECRET_PATHS) that keeps ~/.config/cmux/auth.json from being shared out of a folder (base #40159)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
 cmux-tui/crates/cmux-tui/src/localization/app_control.rs	4	text only (help, a description, an error message), no path is read
+cmux-tui/crates/cmux-tui/src/machine_identity.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state

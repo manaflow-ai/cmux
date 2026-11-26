@@ -148,20 +148,37 @@ import Testing
         #expect(resets["another tab and back"] == 0)
     }
 
+    /// Leo, 2026-11-25, of Claude Code on the phone: "the layout calculations too". Projection
+    /// is the default and "Fit to Phone" is never automatic: Claude Code inline on the primary
+    /// screen leaves the Mac pane at its grid while the page claims it; the projection lays its
+    /// rules out at the phone's width (cmux-terminal-projection's
+    /// claude_codes_bare_rules_are_one_phone_row_each_at_the_macs_width).
+    @Test func claudeCodeInlineNeverResizesTheMac() {
+        let mac = MacPaneMockSession(columns: 120, rows: 40, program: "claude")
+        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "claude")
+        let page = Page()
+        page.phoneColumns = 54
+        session.setClaimsSize(true)
+        session.resize(columns: 54, rows: 38)
+        session.start { page.take($0) }
+        #expect(mac.ptyResizes == 0, "the Mac pane kept 120x40: \(mac.resizeLog)")
+        #expect(mac.ptyGrid.columns == 120 && mac.ptyGrid.rows == 40, "\(mac.resizeLog)")
+        session.setClaimsSize(false)
+        #expect(mac.ptyResizes == 0, "\(mac.resizeLog)")
+    }
+
     /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
     /// resize whatever needs exceptions when it comes / Fall back if need be".
     ///
     /// htop already running in a Mac pane of 120x40: the phone attaches into
     /// it, switches apps, locks, rotates and goes to another tab and back.
     /// None of it resizes the Mac: the page shows the Mac's grid (zoomed by
-    /// the screen). Typing text into htop fits it (exactly one resize); `q`
-    /// releases it; htop started again fits at once, before any frame of it
-    /// at the Mac's grid.
-    @Test func theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce() {
-        TerminalFitMemory.reset()
+    /// the screen). Typing into htop, quitting it and starting it again
+    /// resize nothing either (Leo, 2026-11-25: "do everything at parity on
+    /// the phone").
+    @Test func theAlternateScreenIsShownAtTheMacsGridAndNothingResizesTheMac() {
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
-        // Settings → Terminal → Zoom Full-Screen Apps on (off by default).
-        let session = TerminalProjectingSession(inner: mac, zooms: true)
+        let session = TerminalProjectingSession(inner: mac)
         var grids: [(columns: Int, alternate: Bool)] = []
         var alternate = false
         var claim = Debounce()
@@ -222,7 +239,7 @@ import Testing
         viewing["arrow keys"] = settle("arrow keys")
         session.send(Data("abc".utf8))
         let typed = settle("type abc into htop")
-        let fittedColumns = grids.last?.columns
+        let typedColumns = grids.last?.columns
         session.send(Data("q".utf8))
         let quit = settle("q (htop exits)")
         let before = grids.count
@@ -234,11 +251,12 @@ import Testing
         for (name, resizes) in viewing {
             #expect(resizes == 0, "\(name) resized the Mac: \(mac.resizeLog)")
         }
-        #expect(typed == 1, "typing text into htop fits it once: \(mac.resizeLog)")
-        #expect(fittedColumns == 54, "fitted at the phone's columns: \(grids)")
-        #expect(quit == 1, "htop exiting releases it: \(mac.resizeLog)")
-        #expect(again == 1, "htop again fits at once: \(mac.resizeLog)")
-        #expect(macGridFrames == 0, "no htop frame at the Mac's grid before the remembered fit: \(grids)")
+        #expect(typed == 0, "typing into htop resized the Mac: \(mac.resizeLog)")
+        #expect(typedColumns == 120, "htop stays at the Mac's columns, scaled: \(grids)")
+        #expect(quit == 0, "htop exiting resized the Mac: \(mac.resizeLog)")
+        #expect(again == 0, "htop again resized the Mac: \(mac.resizeLog)")
+        #expect(mac.ptyResizes == 0, "the Mac pane kept 120x40: \(mac.resizeLog)")
+        #expect(macGridFrames >= 1, "htop again shows at the Mac's grid: \(grids)")
     }
 
     /// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone
