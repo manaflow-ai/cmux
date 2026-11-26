@@ -2690,6 +2690,23 @@ case "$word" in
 esac
 '''
 
+# Slice 16 (ci-v2 step 11): router callees and the Linux test halves of deploy workflows.
+#
+# Was fleet-artifact-cdn.yml's test job (cmux-linux, 5 min, Node 24) on a pull request. Its pull_request trigger now
+# ignores feat-cmux-next; the workflow keeps its other pull requests, its main pushes and the dispatch deploy (whose
+# `needs: test` runs the job first). Its inputs are the workflow's own paths.
+[step.fleet-artifact-cdn-test]
+job = "linux"
+timeout = 300
+title = "Fleet artifact edge tests"
+about = "the fleet artifact edge Worker (workers/fleet-artifacts) passes its edge authentication and read-only deployment check tests (node --test)"
+needs = ["node"]
+inputs = ["workers/fleet-artifacts/**", ".github/workflows/fleet-artifact-cdn.yml"]
+run = '''
+cd workers/fleet-artifacts
+npm test
+'''
+
 [step.mac-fast-tier]
 job = "mac"
 timeout = 6600
