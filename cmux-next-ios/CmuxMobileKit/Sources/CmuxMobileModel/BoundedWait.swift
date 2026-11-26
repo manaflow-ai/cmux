@@ -13,13 +13,24 @@ public struct BoundedWait: Sendable {
 
     /// Returns true when the work finished within the limit.
     @discardableResult
-    public func run(_ work: @escaping @Sendable () async -> Void) async -> Bool {
-        await run(on: ContinuousClock(), work)
+    ///
+    /// The wait is also registered with ``MainThreadWaitRegistry/shared`` under `label`: if
+    /// the limit's own timer cannot run (a starved executor), the hang watchdog's thread ends
+    /// the wait at the same bound.
+    public func run(_ label: String = "BoundedWait", _ work: @escaping @Sendable () async -> Void) async -> Bool {
+        await run(on: ContinuousClock(), registry: .shared, label: label, work)
     }
 
     /// ``run(_:)`` with the limit timed on `clock` (tests pass one that moves only when told to).
     @discardableResult
     public func run<C: Clock<Duration>>(on clock: C, _ work: @escaping @Sendable () async -> Void) async -> Bool {
+        await run(on: clock, registry: nil, label: "", work)
+    }
+
+    /// ``run(on:_:)``, with the wait registered in `registry` (nil: none) for the hang watchdog.
+    @discardableResult
+    public func run<C: Clock<Duration>>(on clock: C, registry: MainThreadWaitRegistry?, label: String,
+                                        _ work: @escaping @Sendable () async -> Void) async -> Bool {
         let limit = limit
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let once = ResumeOnce(continuation)
@@ -27,9 +38,19 @@ public struct BoundedWait: Sendable {
                 await work()
                 once.resume(true)
             }
+            // The watchdog thread's cancel: thread-safe (ResumeOnce's lock, Task.cancel).
+            let registration = registry?.register(label, bound: limit) {
+                if once.resume(false) { worker.cancel() }
+            }
             Task {
                 try? await clock.sleep(for: limit)
                 if once.resume(false) { worker.cancel() }
+            }
+            if let registration {
+                Task {
+                    _ = await worker.value
+                    registration.finish()
+                }
             }
         }
     }
