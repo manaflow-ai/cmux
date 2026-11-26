@@ -1,27 +1,27 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 34,
  "sites": {
   "acpmux::happy_dial::http_client": {
-   "todo": true
+   "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
   "acpmux::hub::forum_hosted": {
    "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "acpmux::range_fetch": {
-   "todo": true
+   "none": "GETs with only a Range header and the acpmux user-agent: a public release archive (managed Codex install) or the URL the person typed (acpmux fetch URL); no auth, cookie or person data"
   },
   "chatmux_relay": {
-   "todo": true
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::pairing_start_sends_the_name_in_the_body_and_never_the_secret"
   },
   "chatmux_relay::journal_forwarder": {
-   "todo": true
+   "test": "cmux-tui/crates/chatmux-relay/src/journal_forwarder_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_body"
   },
   "chatmux_relay::pairing": {
-   "todo": true
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::ceremony_upgrade_carries_neither_the_secret_nor_the_name"
   },
   "chatmux_relay::session": {
-   "todo": true
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::session_upgrade_carries_no_token_owner_or_root"
   },
   "cmux_autocloud::login": {
    "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_secrets_ride_only_where_stack_needs_them"
@@ -36,7 +36,7 @@
    "test": "cmux-tui/crates/cmux-cloud-client/tests/seeded_secret.rs::the_bearer_rides_only_in_authorization"
   },
   "cmux_cloud_environment::client_config": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-cloud-environment/tests/seeded_secret.rs::the_client_config_fetch_carries_no_person_state"
   },
   "cmux_coderouter": {
    "todo": true
