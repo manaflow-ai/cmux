@@ -32,7 +32,7 @@ import Testing
         #expect(CEFPermissionPrompts.kind(of: 0) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.camera | 1 << 3) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.geolocation | CEFPermissionPrompts.camera) == nil)
-        #expect(CEFPermissionPrompts.kind(of: 1 << 15) == nil)
+        #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.notifications | CEFPermissionPrompts.geolocation) == nil)
     }
 }
 

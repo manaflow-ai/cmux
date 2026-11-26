@@ -132,6 +132,40 @@ class Payload(unittest.TestCase):
             channel.main(["x", "payload", "--manifest", "m", "--binaries-dir", "b", "--commit", COMMIT,
                           "--committed-at", "1", "--download-dir", "d", "--out", "o"])
 
+    def test_the_x86_64_point_signs_x86_64_alone_and_the_full_point_completes_it(self):
+        # LINUX_X86_64_FIRST: point-machine-channel-early signs the x86_64 leg's file before the aarch64
+        # leg is done; only x86_64 artifacts are downloaded.
+        (self.built / "cmux-tui-aarch64-unknown-linux-musl").unlink()
+        (self.built / "cmux-tui-hook-aarch64-unknown-linux-musl").unlink()
+        early = self.run_payload(["--binaries-dir", str(self.built), "--machine-path",
+                                  "--target", "x86_64-unknown-linux-musl"])
+        self.assertEqual(list(early["targets"]), ["x86_64-unknown-linux-musl"])
+        for name in ("cmux-tui-aarch64-unknown-linux-musl", "cmux-tui-hook-aarch64-unknown-linux-musl"):
+            data = f"{name} bytes".encode()
+            (self.built / name).write_bytes(data)
+        full = self.run_payload(["--binaries-dir", str(self.built), "--machine-path"])
+        late = self.run_payload(["--binaries-dir", str(self.built)])  # point-machine-channel: the fat path
+        for current in (early,):
+            current = {**current, "purpose": channel.PURPOSE}
+            for new in (full, late):
+                self.assertTrue(pointer.completes({**new, "purpose": channel.PURPOSE}, current))
+        purpose = {"purpose": channel.PURPOSE}
+        # Never backwards (fewer targets), never the same set, never another commit or other bytes.
+        self.assertFalse(pointer.completes({**early, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose, "commit": "b" * 40}, {**early, **purpose}))
+        other = json.loads(json.dumps(full))
+        other["targets"]["x86_64-unknown-linux-musl"]["cmux-tui"]["sha256"] = "0" * 64
+        self.assertFalse(pointer.completes({**other, **purpose}, {**early, **purpose}))
+        # Only the Cloud machine channel's files.
+        self.assertFalse(pointer.completes({**full, "purpose": "cmux-linux-release"}, {**early, **purpose}))
+
+    def test_the_target_flag_is_cloud_machine_only(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(["--binaries-dir", str(self.built), "--purpose", "linux-release", "--channel",
+                              "feat-cmux-next", "--target", "x86_64-unknown-linux-musl"])
+        self.assertIn("--target is for the cloud-machine payload", err.getvalue())
+
 
 sys.path.insert(0, str(ROOT / "tests"))
 import test_cmux_tui_republish_same_commit as republish  # noqa: E402
@@ -758,6 +792,18 @@ class MacLivePayload(unittest.TestCase):
             with self.subTest(daemon=str(daemon)[:60]), self.assertRaises(SystemExit):
                 self.run_payload()
 
+    def test_the_tree_key_is_named_for_the_team_signed_set(self):
+        # A Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/, bound to these bytes by
+        # each file's unsigned_sha256; the payload's urls stay the commit's ad-hoc files every older CLI reads.
+        self.assertNotIn("tree_key", self.run_payload())
+        value = self.run_payload("--tree-key", "c" * 40)
+        self.assertEqual(value["tree_key"], "c" * 40)
+        self.assertEqual(value["targets"]["aarch64-apple-darwin"]["cmux-tui"]["url"],
+                         f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
+        for bad in ("C" * 40, "c" * 39, "nope"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                self.run_payload("--tree-key", bad)
+
     def test_refusals(self):
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
         with self.assertRaises(SystemExit):
@@ -1002,6 +1048,18 @@ class MacLivePoint(LinuxReleasePoint):
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
 
+    def test_a_tree_key_is_signed_in_but_writes_no_tree_release_file(self):
+        path = self.payload()
+        value = json.loads(path.read_text())
+        value["tree_key"] = "c" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assert_ok(self.point(path))
+        self.assertEqual(self.verified(self.POINTER, "nightly-live", "cmux-mac-live-update")["tree_key"], "c" * 40)
+        self.assertIsNone(self.served(f"cmux-tui/tree/{'c' * 40}/release.json"))
+        value["tree_key"] = "C" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assertNotEqual(self.point(path, run_id="2").returncode, 0)
+
     def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
         # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.
         self.assert_ok(self.point(self.payload()))
@@ -1029,6 +1087,95 @@ class MacLivePoint(LinuxReleasePoint):
         self.assertIsNone(self.served(self.RELEASE))
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.POINTER)["purpose"], "cmux-mac-live-update")
+
+
+class MacAppPayload(unittest.TestCase):
+    """--purpose mac-app: cmux-tui/<sha>/mac-app.json, the full app build `cmux app try` installs in place."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.zip = self.tmp / "app.zip"
+        self.zip.write_bytes(b"app zip bytes")
+
+    def run_payload(self, **change):
+        args = {"commit": MAC_COMMIT, "zip": str(self.zip), "run_id": "12345",
+                "url": f"{channel.FILES}/{MAC_COMMIT}/mac-app-release.zip", **change}
+        out = self.tmp / "payload.json"
+        argv = ["cmux-machine-channel.py", "payload", "--purpose", "mac-app", "--out", str(out)]
+        for key, value in args.items():
+            argv += [f"--{key.replace('_', '-')}", value]
+        channel.main(argv)
+        return out.read_bytes()
+
+    def test_the_payload_is_the_contract_the_installer_reads(self):
+        raw = self.run_payload()
+        self.assertEqual(json.loads(raw), {
+            "schema": 1, "purpose": "cmux-mac-app-build", "commit": MAC_COMMIT, "configuration": "release",
+            "arch": "arm64", "run_id": "12345",
+            "app": {"url": f"https://files.cmux.com/cmux-tui/{MAC_COMMIT}/mac-app-release.zip",
+                    "sha256": hashlib.sha256(b"app zip bytes").hexdigest(), "size": len(b"app zip bytes")}})
+        self.assertEqual(raw, self.run_payload())  # no time field: two signings of a build are the same bytes
+
+    def test_refusals(self):
+        cases = [({"commit": "abc"}, "bad commit"), ({"run_id": "x1"}, "bad run id"),
+                 ({"url": "https://files.cmux.com/cmux-tui/other/mac-app-release.zip"}, "--url must be"),
+                 ({"zip": str(self.tmp / "missing.zip")}, "is not a file")]
+        for change, message in cases:
+            with self.subTest(change=change), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.run_payload(**change)
+            self.assertIn(message, err.getvalue())
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "payload", "--purpose", "mac-app", "--commit", MAC_COMMIT,
+                          "--out", str(self.tmp / "p.json")])
+        self.assertIn("needs --zip", err.getvalue())
+
+    def test_the_other_purposes_refuse_the_mac_app_flags(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "payload", "--manifest", "m.json", "--commit", MAC_COMMIT,
+                          "--committed-at", "1", "--download-dir", str(self.tmp), "--zip", "z", "--out", "o"])
+        self.assertIn("for --purpose mac-app", err.getvalue())
+
+
+class MacAppPoint(unittest.TestCase):
+    """cmux-machine-channel-point.sh with a Mac app build payload: its file is written once and no channel
+    is ever created or moved, with or without --commit-only."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    RELEASE = f"cmux-tui/{RELEASE_COMMIT}/mac-app.json"
+
+    def payload(self, commit=RELEASE_COMMIT, sha="d" * 64, purpose="cmux-mac-app-build", run_id="1"):
+        value = {"schema": 1, "purpose": purpose, "commit": commit, "configuration": "release", "arch": "arm64",
+                 "app": {"url": f"https://files.cmux.com/cmux-tui/{commit}/mac-app-release.zip",
+                         "sha256": sha, "size": 5}, "run_id": run_id}
+        path = self.tmp / f"payload-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def test_a_build_writes_its_file_once_and_no_channel(self):
+        self.assert_ok(self.point(self.payload()))
+        value = self.verified(self.RELEASE, None, "cmux-mac-app-build", False)
+        self.assertEqual((value["commit"], value["arch"], value["configuration"]), (RELEASE_COMMIT, "arm64", "release"))
+        for mode in ("--commit-only", None):
+            with self.subTest(mode=mode):
+                head = "e" * 40 if mode else "f" * 40
+                self.assert_ok(self.point(self.payload(commit=head), *([mode] if mode else []), run_id="2"))
+                self.assertEqual(self.verified(f"cmux-tui/{head}/mac-app.json", None, "cmux-mac-app-build",
+                                               False)["commit"], head)
+        self.assertEqual(sorted(p.name for p in (self.r2 / "cmux-tui").iterdir()),
+                         sorted([RELEASE_COMMIT, "e" * 40, "f" * 40]))  # no channels/ directory
+
+    def test_a_rerun_of_the_same_build_keeps_the_file_and_another_build_fails(self):
+        self.assert_ok(self.point(self.payload()))
+        before = self.served(self.RELEASE)
+        self.assert_ok(self.point(self.payload(), run_id="2"))
+        self.assertEqual(self.served(self.RELEASE), before)
+        result = self.point(self.payload(sha="e" * 64), run_id="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.served(self.RELEASE), before)
 
 
 # Stands in for scripts/ci/cmux_tui_tree_key.py: FAKE_TREE_KEYS maps a commit to its v2 tree key; a

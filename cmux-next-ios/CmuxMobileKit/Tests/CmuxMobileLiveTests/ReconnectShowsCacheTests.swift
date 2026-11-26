@@ -144,6 +144,7 @@ import UIKit
         let back = CACurrentMediaTime()
         inner.reconnect()
         try await waitUntil { inner.isAttached && model.coldFrame == nil }
+        #expect(inner.isAttached, "the link's return reattached: last error \(inner.lastError ?? "none")")
         numbers.timeToContentMs = model.coldFrame == nil ? (CACurrentMediaTime() - back) * 1000 : -1
         if let since = blankSince { numbers.blankMs += (CACurrentMediaTime() - since) * 1000 }
         numbers.transportBytes = session.bytesBeforeAttach

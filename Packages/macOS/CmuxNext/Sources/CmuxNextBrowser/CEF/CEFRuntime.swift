@@ -414,15 +414,18 @@ final class CEFRuntime {
             task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
+        CEFStartSteps.shared.point("start_called")
         let keychain = keychainTask ?? beginKeychainStep(environment: environment)
         let prep = beginLaunchPrep()
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        CEFStartSteps.shared.point("map_done")
         if let outcome = await keychain.value {
             keychainOutcome = outcome
             logger.notice("keychain item: \(String(describing: outcome), privacy: .public)")
         }
+        CEFStartSteps.shared.point("keychain_done")
         let read = await prep.value
         CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }

@@ -20,27 +20,34 @@ describe("the production journey copies the login on spare.ready, as the app's S
     // The copy happened on the spare, before create; none after it.
     expect(log.slice(0, create)).toContain("fs/write credential");
     expect(log.slice(create)).not.toContain("fs/write credential");
-    // The login step after the claim is the launcher check alone.
+    // The app reads the receipt from its ledger and runs no launcher check before the chat: the journey's check
+    // still runs, after the first text, so it is outside create_to_first_text_ms.
     expect(log.slice(create)).toContain("own-login check");
     const pre = steps.find((s) => s.step === "preclaim login (spare.ready)");
     expect(pre?.status).toBe("pass");
     const login = steps.find((s) => s.step === "pass Claude login");
     expect(login?.status).toBe("pass");
     expect(login?.detail).toContain("receipt installed");
+    const names = steps.map((s) => s.step);
+    const launcher = names.indexOf("login seen by the launcher");
+    expect(steps[launcher]?.status).toBe("pass");
+    expect(launcher).toBeGreaterThan(names.indexOf("reply"));
+    expect(names.indexOf("reply")).toBeGreaterThan(-1);
     expect(probe.login_path).toBe("receipt");
     expect(probe.outcome).toBe("ok");
     // Before create, so outside the first-text window.
     expect(pre?.fields?.create_marks_ms).toBeUndefined();
   });
 
-  test("without a receipt, the full copy runs after bind", () => {
+  // A miss no longer pays a post-bind login copy: the login goes with the agent's start (cmux#50935).
+  test("without a receipt, the login goes with the agent's start, never a copy after bind", () => {
     const { steps, probe, log } = runJourney({ preclaim: { receipt: false }, login: FIXTURE_LOGIN });
     const create = log.indexOf("create");
-    expect(log.slice(create)).toContain("fs/write credential");
+    expect(log.slice(create)).not.toContain("fs/write credential");
     const login = steps.find((s) => s.step === "pass Claude login");
     expect(login?.status).toBe("pass");
-    expect(login?.detail).toContain("written by the app's installer");
-    expect(probe.login_path).toBe("copy");
+    expect(login?.detail).toContain("given to the agent at its start");
+    expect(probe.login_path).toBe("launch");
   });
 
   test("the warm goes to client-config's platform_origin, never the API host (an empty 404 there)", () => {

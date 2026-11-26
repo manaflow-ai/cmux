@@ -76,8 +76,13 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var sendKeys = false
     /// `identify` lists send-expect-agent-v1 (`send` takes `submit` with `paste`).
     var pasteSubmit = false
-    /// `send` with `submit` is answered with an error (a daemon refusing the paste).
+    /// `identify` lists send-typed-submit-v1 (`send {text, submit}` waits before its Return).
+    var typedSubmit = false
+    /// `send` with `submit` is answered with an error that wrote nothing (a daemon refusing the paste).
     var refusesPasteSubmit = false
+    /// `send` with `submit` is answered with an error that may have typed it (the text went in,
+    /// its Return failed): no `error_delivery: known-not-delivered`.
+    var ambiguousPasteSubmit = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -113,10 +118,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         case "send" where lock.withLock({ unansweredSends }):
             return []
         case "send" where object["submit"] != nil && lock.withLock({ refusesPasteSubmit }):
-            return [Self.line(["id": id, "ok": false, "error": "send refused"])]
+            return [Self.line(["id": id, "ok": false, "error": "send refused", "error_delivery": "known-not-delivered"])]
+        case "send" where object["submit"] != nil && lock.withLock({ ambiguousPasteSubmit }):
+            return [Self.line(["id": id, "ok": false, "error": "submit failed after the text was written", "error_delivery": "ambiguous"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
-        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || lock.withLock({ advertisesHybrid }):
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || typedSubmit || lock.withLock({ advertisesHybrid }):
             // Built in steps: one long `+` chain is too slow for the type checker.
             var capabilities: [String] = []
             if initialSize { capabilities.append("attach-initial-size") }
@@ -128,6 +135,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if lock.withLock({ windowReplay }) { capabilities.append("attach-replay-history-window-v1") }
             if sendKeys { capabilities.append("send-key-v1") }
             if pasteSubmit { capabilities.append("send-expect-agent-v1") }
+            if typedSubmit { capabilities.append("send-typed-submit-v1") }
             return [reply(["capabilities": capabilities])]
         case "attach-surface" where object["replay_history_start"] != nil && lock.withLock({ laneRefusesHistoryStart }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_start from a phone"])]
@@ -270,7 +278,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { if case .failed = screenState { true } else { false } }
         #expect(!screenState.isAttached)
         #expect(!screenState.showsProgress)
-        #expect(screenState.label != nil)
+        #expect(screenState.quietLine != nil)
         #expect(session.connectionState == screenState)
         let attempts = daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count
         session.reconnect()
@@ -856,7 +864,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         session.setMacOffline(true)
         #expect(session.connectionState == .offline(mac: "mini"))
         #expect(events.last == .connection(.offline(mac: "mini")))
-        #expect(TerminalConnectionState.offline(mac: "mini").label == "mini is offline")
+        #expect(TerminalConnectionState.offline(mac: "mini").quietLine == "mini is offline")
 
         session.setMacOffline(false)
         #expect(events.last == .connection(.reattaching(mac: "mini")))
@@ -944,8 +952,45 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
     }
 
-    /// Past the hold the keys are dropped and the screen says so: a real outage, not a blip.
-    @Test func keysTypedDuringAnOutagePastTheHoldAreDroppedWithANotice() async throws {
+    /// Leo, 2026-11-24, back from another app: "I can't interact with anything at all". Keys
+    /// typed while the terminal reconnects wait for the attach however long it takes (past
+    /// the old 10 s drop), then go once, in order, and nothing says they were not sent.
+    @Test func keysTypedWhileReattachingOutlastTheOldHoldAndGoOnAttach() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "app in the background")
+        try await waitUntil { !session.isAttached }
+
+        session.send(Data("l".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit + 5
+        session.send(Data("s\r".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit
+        #expect(DaemonTerminalSession.inputHoldLimit * 2 + 5 < DaemonTerminalSession.inputHoldCeiling)
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let typed = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } }
+            .reduce(into: Data()) { $0.append($1) } }
+        try await waitUntil { typed() == Data("ls\r".utf8) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(typed() == Data("ls\r".utf8), "each key once, in order")
+        #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
+    }
+
+    /// The Mac offline past the hold: the reconnect gave up, so the keys are dropped and the
+    /// screen says so, never typed when it comes back.
+    @Test func keysTypedWhileTheMacStaysOfflinePastTheHoldAreDroppedWithANotice() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let channels = ChannelLog()
@@ -963,7 +1008,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { !session.isAttached }
 
         session.send(Data("ls\r".utf8))
+        session.setMacOffline(true)
         clock += DaemonTerminalSession.inputHoldLimit + 0.5
+        session.setMacOffline(false)
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { events.contains(.inputNotSent(bytes: 3)) }
@@ -1017,9 +1064,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         await channels.last?.close(code: "link_closed", reason: "link dropped")
         try await waitUntil { !session.isAttached }
 
+        session.setMacOffline(true)
         session.send(Data("ls -la /t".utf8))
         clock += DaemonTerminalSession.inputHoldLimit + 1
         session.send(Data("mp\r".utf8))
+        session.setMacOffline(false)
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { events.contains(.inputNotSent(bytes: 12)) }

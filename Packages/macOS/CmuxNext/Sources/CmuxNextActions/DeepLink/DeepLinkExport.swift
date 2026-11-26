@@ -33,6 +33,17 @@ public nonisolated struct DeepLinkExport: Sendable {
         self.schemes = schemes
     }
 
+    /// The schemes a links.json states (its `schemes` rows), for a build of the export that does not link
+    /// the app's `CloudConfiguration` (the Linux action exporter): the rest of the file is remade from `DeepLink`.
+    public init(schemesOf links: Data) throws {
+        let root = try JSONSerialization.jsonObject(with: links) as? [String: Any]
+        guard let rows = root?["schemes"] as? [[String: Any]] else { throw CocoaError(.fileReadCorruptFile) }
+        self.init(schemes: try rows.map { row in
+            guard let build = row["build"] as? String, let scheme = row["scheme"] as? String else { throw CocoaError(.fileReadCorruptFile) }
+            return Scheme(build: build, bundleID: row["bundle_id"] as? String, scheme: scheme, exampleTag: row["example_tag"] as? String)
+        })
+    }
+
     /// The scheme a client that is not a shipping cmux build writes: the
     /// release build's, so the link opens the user's installed cmux.
     public var targetScheme: String? { schemes.first { $0.build == "release" }?.scheme }

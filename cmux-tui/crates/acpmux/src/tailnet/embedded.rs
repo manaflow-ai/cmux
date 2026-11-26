@@ -170,7 +170,7 @@ enum LifecycleState {
 }
 
 #[cfg(test)]
-type NodeFactory = Box<dyn FnOnce() -> Result<Arc<Node>, String> + Send>;
+pub(crate) type NodeFactory = Box<dyn FnOnce() -> Result<Arc<Node>, String> + Send>;
 
 struct Inner {
     snapshot: Snapshot,
@@ -183,11 +183,21 @@ struct Inner {
     closed: bool,
 }
 
+/// A coordination server other than Tailscale's (a Headscale URL) for the embedded node.
+pub const CONTROL_URL_ENV: &str = "CMUX_TAILNET_CONTROL_URL";
+/// A file holding a pre-auth key, for a headless first sign-in (later starts reuse the login).
+pub const AUTH_KEY_FILE_ENV: &str = "CMUX_TAILNET_AUTHKEY_FILE";
+
 /// Owns one embedded node per daemon install. The controller is cheap to
 /// clone; all state and node handles remain shared and serialized.
 pub struct Controller {
     state_dir: PathBuf,
     hostname: String,
+    /// A join's one-time key, held in memory from `join` to the start that signs in with it.
+    /// Never written anywhere; taken (and so dropped) by that start.
+    pending_key: Mutex<Option<cmux_tailnet_join::Secret>>,
+    /// The saved join (server, name, tags), read at each start; none for the default sign-in.
+    profile: Mutex<Option<super::embedded_join::JoinProfile>>,
     inner: Mutex<Inner>,
     changes: broadcast::Sender<Snapshot>,
     /// Serializes starts, sign-outs and shutdown with failed-node retirement.
@@ -208,7 +218,10 @@ pub struct Controller {
     /// outlast the fence's bound.
     close_admission: Arc<Mutex<()>>,
     #[cfg(test)]
-    node_factory: Mutex<Option<NodeFactory>>,
+    pub(crate) node_factory: Mutex<Option<NodeFactory>>,
+    /// The configuration the last start built (tests read what reached the node).
+    #[cfg(test)]
+    pub(crate) seen_config: Arc<Mutex<Option<NodeConfig>>>,
     #[cfg(test)]
     before_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
@@ -226,6 +239,8 @@ impl Controller {
         Arc::new(Self {
             state_dir: state_dir.into(),
             hostname: hostname.into(),
+            pending_key: Mutex::new(None),
+            profile: Mutex::new(None),
             inner: Mutex::new(Inner {
                 snapshot: Snapshot { state: "not_started", ..Snapshot::default() },
                 state: LifecycleState::Stopped,
@@ -241,6 +256,8 @@ impl Controller {
             close_admission: Arc::new(Mutex::new(())),
             #[cfg(test)]
             node_factory: Mutex::new(None),
+            #[cfg(test)]
+            seen_config: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             before_close: Mutex::new(None),
             #[cfg(test)]
@@ -322,7 +339,10 @@ impl Controller {
                     self.note_resume_error_if_current(generation, error);
                 })?;
             if enabled {
+                tracing::info!("embedded tailnet: resuming the saved opt-in");
                 self.start_locked().await?;
+            } else {
+                tracing::info!("embedded tailnet: off (no opt-in marker in {:?})", self.state_dir);
             }
             return Ok(());
         }
@@ -503,6 +523,89 @@ impl Controller {
         detached(async move { this.login_detached().await }).await
     }
 
+    /// The saved join (server, name, tags), if the node joined the person's own tailnet.
+    pub fn join_profile(&self) -> Option<super::embedded_join::JoinProfile> {
+        self.profile.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Join the person's own tailnet with a one-time key (`_acpmux/tailnet/join`): refused while
+    /// the node is signed in to a tailnet unless `plan.switch`; otherwise any node is signed out
+    /// and closed, the join's profile saved, and the node started with the key. Waits up to
+    /// [`JOIN_WAIT`] for the sign-in to finish.
+    pub async fn join(
+        self: &Arc<Self>,
+        plan: super::embedded_join::JoinPlan,
+    ) -> Result<Snapshot, String> {
+        let this = Arc::clone(self);
+        detached(async move { this.join_detached(plan).await }).await
+    }
+
+    async fn join_detached(
+        self: Arc<Self>,
+        plan: super::embedded_join::JoinPlan,
+    ) -> Result<Snapshot, String> {
+        use super::embedded_join as join;
+        let state_dir = self.state_dir.clone();
+        let saved = tokio::task::spawn_blocking(move || {
+            (join::has_saved_login(&state_dir), join::read_profile(&state_dir))
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        let signed_in = saved.0 || self.snapshot().running();
+        if signed_in && !plan.switch {
+            return Err(join::other_tailnet_refusal(saved.1.as_ref()));
+        }
+        if signed_in || self.state_node().is_some() {
+            // Sign out of the old tailnet (or an unsigned node waiting on a browser sign-in),
+            // close it, and forget its identity: the new key makes a new device.
+            self.logout().await?;
+        }
+        let state_dir = self.state_dir.clone();
+        let profile = plan.profile.clone();
+        tokio::task::spawn_blocking(move || join::write_profile(&state_dir, &profile))
+            .await
+            .map_err(|error| error.to_string())??;
+        let mut changes = self.subscribe();
+        *self.pending_key.lock().unwrap_or_else(PoisonError::into_inner) = Some(plan.key);
+        let started = self.start().await;
+        // A start that found a node already up never took the key: drop it now.
+        self.pending_key.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let mut snapshot = started?;
+        let deadline = tokio::time::Instant::now() + JOIN_WAIT;
+        loop {
+            match snapshot.state {
+                "running" => return Ok(snapshot),
+                "needs_login" | "needs_machine_auth" if snapshot.ips.is_empty() => {
+                    if snapshot.state == "needs_machine_auth" {
+                        return Ok(snapshot); // the tailnet's admin approves the device
+                    }
+                    // A key that signed in never asks for a browser: it was refused.
+                    if snapshot.browse_to_url.is_some() {
+                        return Err(
+                            "the tailnet's server did not accept the key (expired, used, or for another server)"
+                                .into(),
+                        );
+                    }
+                }
+                // tsnet's IPN bus reports a passing `Stopped` before the key logs in; only a
+                // node that is gone (closed, failed) ends the wait.
+                "error" | "stopped" if snapshot.error.is_some() || self.state_node().is_none() => {
+                    return Err(snapshot.error.clone().unwrap_or_else(|| {
+                        format!("the node {} before it joined", snapshot.state)
+                    }));
+                }
+                _ => {}
+            }
+            match tokio::time::timeout_at(deadline, changes.recv()).await {
+                Ok(Ok(next)) => snapshot = next,
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => snapshot = self.snapshot(),
+                Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => {
+                    return Ok(self.snapshot());
+                }
+            }
+        }
+    }
+
     /// Sign out and close all ingress listeners that hold this node.
     pub async fn logout(self: &Arc<Self>) -> Result<Snapshot, String> {
         let this = Arc::clone(self);
@@ -588,8 +691,19 @@ impl Controller {
         let state_dir = self.state_dir.clone();
         let hostname = self.hostname.clone();
         let stopping = self.stopping.clone();
+        // A join's key signs in once; a later start resumes from the saved identity.
+        let auth_key = self.pending_key.lock().unwrap_or_else(PoisonError::into_inner).take();
         #[cfg(test)]
         let factory = self.node_factory.lock().unwrap_or_else(PoisonError::into_inner).take();
+        #[cfg(test)]
+        let seen_config = Arc::clone(&self.seen_config);
+        let profile_slot = tokio::task::spawn_blocking({
+            let state_dir = state_dir.clone();
+            move || super::embedded_join::read_profile(&state_dir)
+        })
+        .await
+        .unwrap_or(None);
+        *self.profile.lock().unwrap_or_else(PoisonError::into_inner) = profile_slot.clone();
         let node = match tokio::task::spawn_blocking(move || {
             if stopping.load(Ordering::Acquire) {
                 return Err("tailnet service is stopping".to_owned());
@@ -600,12 +714,33 @@ impl Controller {
             // relaunch can retry. Logout clears it under these same gates.
             crate::config::write_atomic(&state_dir.join("enabled"), b"1\n")
                 .map_err(|e| e.to_string())?;
-            #[cfg(test)]
-            if let Some(factory) = factory {
-                return factory();
+            let mut config = node_config(state_dir, hostname, profile_slot.as_ref(), auth_key);
+            // No saved join: a self-hosted coordination server (Headscale) and a headless
+            // first sign-in from the environment (the stable node's host sets these).
+            if config.control_url.is_none() {
+                config.control_url = std::env::var(CONTROL_URL_ENV).ok().filter(|v| !v.is_empty());
             }
-            let config = NodeConfig::new(state_dir, hostname);
+            if config.auth_key.is_none() {
+                config.auth_key = std::env::var_os(AUTH_KEY_FILE_ENV)
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .map(|key| key.trim().to_owned())
+                    .filter(|key| !key.is_empty());
+            }
+            tracing::info!(
+                hostname = %config.hostname,
+                control = config.control_url.as_deref().unwrap_or("default"),
+                auth_key = config.auth_key.is_some(),
+                "embedded tailnet: starting the node"
+            );
+            #[cfg(test)]
+            {
+                *seen_config.lock().unwrap_or_else(PoisonError::into_inner) = Some(config.clone());
+                if let Some(factory) = factory {
+                    return factory();
+                }
+            }
             let node = Node::new(&config).map_err(|error| error.0)?;
+            drop(config); // the key's last copy on this side
             node.start().map_err(|error| error.0)?;
             // Reconcile even when shutdown overtook startup: only the
             // controller knows whether a pending logout needs a receipt.
@@ -754,6 +889,9 @@ impl Controller {
             .map_err(|error| error.to_string())
             .and_then(|result| result);
         let result = signed_out.and(forgotten);
+        if result.is_ok() {
+            *self.profile.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        }
         self.clear_node(if result.is_ok() { "stopped" } else { "error" });
         if let Err(error) = &result {
             self.update(|snapshot| snapshot.error = Some(error.clone()));
@@ -1173,27 +1311,46 @@ impl Controller {
     }
 
     /// Daemon shutdown has begun: no start, resume or listener failure acts.
-    pub(super) fn stopping(&self) -> bool {
+    pub(crate) fn stopping(&self) -> bool {
         self.stopping.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
-    pub(super) fn set_running_for_test(&self, node: Arc<Node>, dns_name: &str) {
+    pub(crate) fn set_running_for_test(&self, node: Arc<Node>, dns_name: &str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         inner.state = LifecycleState::Running(node);
         inner.snapshot.state = "running";
         inner.snapshot.dns_name = Some(dns_name.to_owned());
     }
 
-    pub(super) fn retirement_pending(&self) -> bool {
+    pub(crate) fn retirement_pending(&self) -> bool {
         self.pending_retirement.load(Ordering::Acquire)
     }
 
     fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64, runtime: tokio::runtime::Handle) {
-        if let Ok(watch) = node.watch() {
-            for notify in watch {
+        match node.watch() {
+            Ok(watch) => {
+                for notify in watch {
+                    let mut snapshot = self.snapshot();
+                    let (was, had_error) = (snapshot.state, snapshot.error.clone());
+                    snapshot.apply_notify(&notify, Some(&node));
+                    if snapshot.state != was || snapshot.error != had_error {
+                        tracing::info!(
+                            state = snapshot.state,
+                            error = snapshot.error.as_deref().unwrap_or(""),
+                            "embedded tailnet: {was} -> {}",
+                            snapshot.state
+                        );
+                    }
+                    self.publish_if_current(generation, snapshot);
+                }
+            }
+            // Say why: a stream that never opened otherwise reads as a plain stop.
+            Err(error) => {
+                tracing::info!("embedded tailnet: cannot watch the node: {}", error.0);
                 let mut snapshot = self.snapshot();
-                snapshot.apply_notify(&notify, Some(&node));
+                snapshot.error =
+                    Some(format!("the tailnet state stream did not open: {}", error.0));
                 self.publish_if_current(generation, snapshot);
             }
         }
@@ -1308,6 +1465,10 @@ pub(crate) fn release_node(node: Arc<Node>) {
 /// shutdown. The fence takes effect at once either way.
 const FENCE_CLOSE_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// How long `join` waits for the node to sign in with its key (a Headscale behind a slow link
+/// included); past it the answer is the node's state then.
+pub const JOIN_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+
 pub fn state_dir(home: &Path) -> PathBuf {
     home.join("tailnet")
 }
@@ -1398,8 +1559,33 @@ fn open_logout_directory(state_dir: &Path) -> Result<Option<std::fs::File>, Stri
     Ok(Some(directory))
 }
 
-fn clear_saved_login(directory: Option<std::fs::File>) -> Result<(), String> {
-    unlink_saved_file(directory.as_ref(), "tailscaled.state")
+pub(crate) fn clear_saved_login(directory: Option<std::fs::File>) -> Result<(), String> {
+    unlink_saved_file(directory.as_ref(), "tailscaled.state")?;
+    unlink_saved_file(directory.as_ref(), super::embedded_join::PROFILE_FILE)
+}
+
+/// The node's configuration: the saved join's server, name and tags over the defaults, and a
+/// join's one-time key when this start signs in with one.
+pub(crate) fn node_config(
+    state_dir: PathBuf,
+    hostname: String,
+    profile: Option<&super::embedded_join::JoinProfile>,
+    auth_key: Option<cmux_tailnet_join::Secret>,
+) -> NodeConfig {
+    let mut config =
+        NodeConfig::new(state_dir, profile.and_then(|p| p.hostname.clone()).unwrap_or(hostname));
+    if let Some(profile) = profile {
+        config.control_url = profile.control_url.clone();
+        config.advertise_tags = profile.tags.clone();
+        config.ephemeral = profile.ephemeral;
+    }
+    config.auth_key = auth_key.map(|key| key.expose().to_owned());
+    // The live test (`testing/live-embedded-join.sh`) reads tsnet's own log on stderr.
+    #[cfg(test)]
+    if std::env::var_os("CMUX_LIVE_TSNET_LOG").is_some() {
+        config.log_fd = Some(2);
+    }
+    config
 }
 
 fn unlink_saved_file(directory: Option<&std::fs::File>, name: &str) -> Result<(), String> {
