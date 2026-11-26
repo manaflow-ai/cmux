@@ -11,6 +11,7 @@ use super::contrast::{TEXT, UI, chat};
 use super::*;
 use crate::schema::Schema;
 
+// affected-reads: Resources/cmux-themes Resources/ghostty/themes examples webviews/src/agent-session webviews/src/pages/shared/desktop.css
 fn repo() -> PathBuf {
     // affected-reads: Resources/cmux-themes Resources/ghostty/themes examples
     // affected-reads: webviews/src/agent-session webviews/src/pages/shared/desktop.css

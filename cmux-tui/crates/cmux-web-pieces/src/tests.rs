@@ -293,6 +293,7 @@ fn the_production_keys_refuse_a_test_signed_file() {
     assert_eq!(reply["pieces"]["pages"]["serve"], "live");
 }
 
+// affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json scripts/cmux-next/web-bundle-key.py
 fn repo(path: &str) -> String {
     // affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
     // affected-reads: scripts/cmux-next/web-bundle-key.py

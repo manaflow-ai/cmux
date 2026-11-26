@@ -492,10 +492,12 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
-    # #55067 gave the daemon tests next-cache-writer (feat-cmux-next's cache write credentials): no routing token.
+    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); neither job
+    # enters the routing environment.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("ci-routing-agent" not in str(all_jobs[name].get("environment", "")),
-               f"{name} has no unused routing environment")
+        environment = all_jobs[name].get("environment")
+        environment = environment.get("name") if isinstance(environment, dict) else environment
+        _check("ci-routing-agent" not in str(environment or ""), f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]

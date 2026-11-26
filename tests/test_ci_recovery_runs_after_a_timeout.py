@@ -35,17 +35,18 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 READS_FAILURE = re.compile(r"needs\.([\w-]+)\.result\s*==\s*'failure'")
 ANY_NEED_CANCELLED = re.compile(r"contains\(\s*needs\.\*\.result\s*,\s*'cancelled'\s*\)")
 
-# A head fail-fast cancels the PR head's other runs once a check judged the head red
-# (docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast); a job its timeout stopped judged nothing
-# (a stalled runner, not the head), and cancelling the head's runs on it would cost a full rerun.
-HEAD_FAIL_FAST = "a fail-fast cancels a head's runs on a red verdict; a timed-out job gave no verdict on the head"
-
 # (workflow, job, needed job): why a timeout of the needed job is no reason to run the job.
+HEAD_FAIL_FAST = ("head fail-fast (#54837) cancels a head's other runs once a job judged it red; a timeout is a busy fleet and judged nothing")
 FAILURE_ONLY = {
     ("auto-resume-nightly-notarization.yml", "poll-outer", "wait-and-staple"):
         "wait-and-staple's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
     ("auto-resume-nightly-notarization.yml", "poll-stapled", "staple-outer"):
         "staple-outer's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice names the new red tests from a finished kit job's log (ios_kit_base_red.py reads only "
+        "success or failure); a stopped kit job named no test",
+    ("nightly.yml", "report-nightly-shelf-red", "check-nightly-app-store-shelf"):
+        "the issue reports a shelf listing the check judged broken; a stopped check judged nothing and the next nightly reruns it",
     ("cmux-next-web.yml", "web-bisect", "web"):
         "a bisect needs the red files a finished run names; a stopped run named none",
     ("cmux-next.yml", "release-compile-revert", "release-compile"):
@@ -69,7 +70,7 @@ FAILURE_ONLY = {
     ("pr-router.yml", "pipeline-fail-fast", "pipeline"):
         HEAD_FAIL_FAST,
     ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
-        "the notice names the landings behind tests that failed (scripts/ci/ios_kit_base_red.py); a stopped kit run failed no test",
+        "the notice names the kit tests that failed (#55454); a stopped run named none",
 }
 
 # (workflow, job, needed job): the issue that tracks a condition that misses a timeout.

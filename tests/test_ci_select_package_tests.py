@@ -53,8 +53,9 @@ def job_scripts() -> set[str]:
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
     # The job's test steps run the lane script, which calls the rest by path.
     job += (ROOT / LANE).read_text(encoding="utf-8")
-    # A whole path: cmux-next-ios/rust/scripts/build-xcframework.sh is that file, not scripts/build-xcframework.sh.
-    found = set(re.findall(r"(?<![\w.-])(?:\./)?((?:cmux-next-ios/rust/)?scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
+    # Whole repo paths: "cmux-next-ios/rust/scripts/x.sh" is that path, not "scripts/x.sh";
+    # "$GITHUB_SHA/scripts/x.sh" (a variable, upper case) is "scripts/x.sh".
+    found = set(re.findall(r"(?<![A-Za-z0-9_.-])(?:\./)?((?:[a-z0-9][a-z0-9_-]*/)*scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
     pending = list(found)
     while pending:
         script = ROOT / pending.pop()
@@ -150,6 +151,7 @@ def main() -> int:
         check(root, ["vendor/splitter"], ["Splitter"], "a submodule revision bump is the bare directory path")
         check(root, ["Packages/macOS/Unlisted/Sources/A.swift"], [], "a package outside the list selects nothing")
         check(root, [".github/workflows/ci.yml"], PACKAGES, "the job's own workflow runs everything")
+        check(root, ["scripts/ci/package-test-lane/swift_suite_outcomes.py"], PACKAGES, "suite outcome changes run the package lane")
         check(root, [".github/workflows/nightly.yml", "scripts/reload.sh"], [], "other workflows and scripts run nothing")
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
         check(root, ["Loner.swift", "Resources/Info.plist"], PACKAGES, "an unknown path runs everything")

@@ -110,7 +110,7 @@ PROCESS_ID=""
 rm -rf "$ROOT"
 mkdir -m 700 -p "$ROOT/state"
 rpc() {
-  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
+  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1" | tee "$ROOT/last-response"
 }
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then
@@ -134,6 +134,10 @@ cleanup() {
   rm -rf "$ROOT"
 }
 trap cleanup EXIT
+# A bare \`test\` or \`jq -e\` that fails under set -e prints nothing; rebake
+# run 45875662667 failed this step with empty stdout and stderr. Name the
+# check that failed and the last RPC answer it judged.
+trap 'echo "cmux-tui websocket smoke: line $LINENO failed: $BASH_COMMAND (timeline:$TIMELINE); last rpc response: $(tail -c 600 "$ROOT/last-response" 2>/dev/null | tr "\\n" " ")" >&2' ERR
 
 "$BIN" remote enroll create --session "$SESSION" --ttl 300 --advertise "$ROUTE" --json >"$ROOT/create.json"
 jq -r '.. | strings | select(startswith("cmux://enroll/"))' "$ROOT/create.json" | head -1 >"$ROOT/invitation"

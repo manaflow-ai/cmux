@@ -54,25 +54,13 @@ publish = step("Publish nightly release assets")
 if "nightly-next" not in publish or "x86_64" not in publish:
     failures.append("'Publish nightly release assets' must publish only arm64 on nightly-next and all variants elsewhere")
 assemble = step("Assemble legacy nightly names")
-# Since #56983 every track but rc is arm64 only, so the step names no track: run its script on a
-# nightly-next output that holds only the arm64 DMG and appcast, which must pass and assemble no universal name.
-assemble_run = assemble.split("        run: |\n", 1)[1] if "        run: |\n" in assemble else ""
-if not assemble_run:
-    failures.append("'Assemble legacy nightly names' must have a run block")
-else:
-    with tempfile.TemporaryDirectory(prefix="nightly-assemble-") as directory:
-        out = Path(directory) / "nightly-out"
-        out.mkdir()
-        (out / "cmux-nightly-macos-arm64.dmg").write_text("arm64")
-        (out / "appcast-arm64.xml").write_text("<rss/>")
-        result = subprocess.run(
-            ["bash", "-c", textwrap.dedent(assemble_run)], cwd=directory, capture_output=True, text=True,
-            env={**os.environ, "NIGHTLY_TRACK": "nightly-next", "NIGHTLY_LEGACY_VARIANT": "universal",
-                 "CHANNEL_DMG_PREFIX": "cmux-nightly-macos"})
-        made = sorted(path.name for path in out.iterdir())
-        if result.returncode != 0 or made != ["appcast-arm64.xml", "cmux-nightly-macos-arm64.dmg"]:
-            failures.append("'Assemble legacy nightly names' must skip the universal legacy names on nightly-next "
-                            f"(exit {result.returncode}, files {made}: {result.stderr.strip()[-300:]})")
+# The step runs scripts/ci/nightly-steps/publish-assemble-legacy-names.sh; since #56983 every track but rc
+# (nightly-next with it) builds arm64 only and skips the universal legacy names.
+assemble_script = (Path(__file__).resolve().parents[1] / "scripts/ci/nightly-steps/publish-assemble-legacy-names.sh")
+if "publish-assemble-legacy-names.sh" in assemble:
+    assemble += assemble_script.read_text()
+if "nightly-next" not in assemble and 'if [ "$NIGHTLY_TRACK" != rc ]; then' not in assemble:
+    failures.append("'Assemble legacy nightly names' must skip the universal legacy names on nightly-next")
 notes = step("Prepare nightly release notes and appcast summaries")
 if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes:
     failures.append("the release notes step must pass --feeds $NIGHTLY_FEEDS")
