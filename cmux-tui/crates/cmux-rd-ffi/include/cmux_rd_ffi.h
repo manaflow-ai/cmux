@@ -534,6 +534,28 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
+/* ---- Viewer rules (CmuxNextRemoteView) ----
+   The remote desktop viewer's rules and state (cmux_rd_ffi::view): keyboard
+   routing, held keys and HID usages, the system shortcut tap, scroll
+   accumulation, text chunking, the pane state reducer and the latency hold,
+   and the remote-view tab record (URL) and open policy. A request is JSON
+   {"op": "...", ...camelCase fields}; ops are keyboard.*, hid.*, keys.*,
+   mouse.button, shortcuts.*, scroll.add, text.events, pane.reduce, pane.view,
+   latency.sample and tab.*. Every op is pure: state in, next state out.
+   Modifiers are NSEvent.ModifierFlags raw bits, phases NSEvent.Phase bits,
+   instants nanoseconds (int64). The result bytes stay valid until the next
+   call on the same handle. No I/O, no threads; a panic poisons the handle. */
+typedef struct CmuxRdView CmuxRdView;
+
+/* NULL only when allocation fails. */
+CmuxRdView *cmux_rd_view_new(void);
+/* NULL is ignored. */
+void cmux_rd_view_free(CmuxRdView *view);
+/* Runs one request. CMUX_RD_OK with *result and *result_len set (JSON);
+   CMUX_RD_ERR_INVALID when json is not a request. */
+int32_t cmux_rd_view_call(CmuxRdView *view, const uint8_t *json, size_t json_len,
+                          const uint8_t **result, size_t *result_len);
+
 #ifdef __cplusplus
 }
 #endif
