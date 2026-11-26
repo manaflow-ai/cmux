@@ -436,7 +436,7 @@ pub struct Session {
     /// The person's Stop's hold, by its number (`Hub::stop_hold_number`); 0: none.
     pub(super) stop_hold: AtomicU64,
     /// `stop_hold` when the running turn started: only a turn started under the hold ends it
-    /// (`turns.rs` `finish_turn`), never one that was ending as the Stop came.
+    /// (`turns/finish.rs` `finish_turn`), never one that was ending as the Stop came.
     pub(super) turn_hold: AtomicU64,
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.

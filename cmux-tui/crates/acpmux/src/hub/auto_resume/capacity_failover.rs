@@ -23,7 +23,7 @@
 //!   own 503s cut on every turn, so none ended well: cmux#57784) gets its own model back before
 //!   its next capacity attempt fires, instead of staying on the fallback for good, and before
 //!   any other prompt goes in ([`Hub::restore_capacity_fallback_if_off`], called from
-//!   `turns.rs` `prompt_with`): nobody runs a turn on a model they did not pick.
+//!   `turns/prompt_entry.rs` `prompt_with`): nobody runs a turn on a model they did not pick.
 //! - One line says each switch, in the daemon's log and as a notice row in the transcript:
 //!   `capacity_failover` `{from, to, attempt, promptId, text}` and `capacity_restored`
 //!   `{from, to, text}`.
