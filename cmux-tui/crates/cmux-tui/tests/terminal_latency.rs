@@ -34,7 +34,7 @@
 //!   syscalls and the bytes it printed (`CMUX_LATENCY_TUI=0` skips it).
 //!
 //! Run (ignored in the normal test run):
-//! `cargo test --release -p cmux-tui --test terminal_latency -- --ignored --nocapture`.
+//! `cargo test --release -p cmux-tui --test it -- terminal_latency:: --ignored --nocapture`.
 //! `CMUX_LATENCY_COUNTS` (default `1,10,50`), `CMUX_LATENCY_RTTS_MS` (default
 //! `0,40`), `CMUX_LATENCY_KEYS` (default 60) pick the matrix. With
 //! `FAST_CHECKS_OUT` set it also writes `terminal-latency.json` there.

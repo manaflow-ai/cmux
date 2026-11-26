@@ -23,6 +23,6 @@ for p in AppleTVOS AppleTVSimulator WatchOS WatchSimulator XROS XRSimulator Driv
   excl+=(--exclude "${app#/Applications/}/$plat/$p.platform")
 done
 start=$(date +%s)
-bytes=$(tar -C /Applications ${excl[@]+"${excl[@]}"} -cf - "${app#/Applications/}" | gzip -1 | tee >(nc -w 60 "$host" "$port") | wc -c)
+bytes=$(tar -C /Applications "${excl[@]+"${excl[@]}"}" -cf - "${app#/Applications/}" | gzip -1 | tee >(nc -w 60 "$host" "$port") | wc -c)
 secs=$(( $(date +%s) - start ))
 echo "XCODE_STREAM bytes=$bytes seconds=$secs mbps=$(( bytes / 1048576 / (secs > 0 ? secs : 1) ))"

@@ -53,6 +53,7 @@ def driver_env():
     return env
 
 
+ONBOARDING_STEPS = 8  # welcome steps a fresh launch shows before the agents step, at most
 CUA_CANDIDATES = (os.path.join(account_home(), ".local/bin/cua-driver"),
                   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 CUA = next((p for p in CUA_CANDIDATES if os.access(p, os.X_OK)), None)
@@ -329,7 +330,17 @@ class Journey:
                 self.mark("settings.open replied", ms=round((time.monotonic() - started) * 1000, 1), reply=str(reply)[:200])
                 anchor, label = "ChatGPT and Codex", "Add Account"
             else:
-                anchor, label = "ChatGPT", "Sign in"
+                # First-run sign-in now sits on Home's setup card: its agents row reads "Sign In to Codex"
+                # (home.setup.signInTo), a quieter button when Claude Code leads. A fresh launch opens the
+                # onboarding window first, so walk Continue, then Start chatting, until that button is there.
+                anchor, label = "", "Sign In to Codex"
+                for step in range(ONBOARDING_STEPS):
+                    if self.ax("has", label)[0] == 0:
+                        break
+                    forward = "Continue" if self.ax("has", "Continue")[0] == 0 else "Start chatting"
+                    code, text = self.ax("press", "", forward)
+                    self.mark("onboarding forward", step=step + 1, button=forward, code=code, out=text[:200])
+                    time.sleep(1.5)  # sleep-ok: let the next onboarding step render before reading the tree
             pressed = self.wait_for("sign-in button found",
                                     lambda: self.ax("has", label)[0] == 0, 40)
             self.dump("before-press")

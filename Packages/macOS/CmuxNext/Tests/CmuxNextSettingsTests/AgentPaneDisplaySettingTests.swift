@@ -22,6 +22,9 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.number(480), .number(1200), .number(4000), .string("narrow"), .string("medium"), .string("wide")],
             refused: [.number(100), .number(5000), .string("wider")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        // The model picker's harness tabs, first to last (webviews modelPickerOrder.ts): empty is the default order.
+        Row(key: "agentPane.display.modelPickerOrder", fallback: .array([]),
+            accepted: [.array([.string("gemini"), .string("claude")])], refused: [.string("gemini")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
@@ -30,8 +33,6 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.headerBreadcrumb", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // "Subagent of <chat>" beside a subagent's name in its own pane's header: off, the name alone.
         Row(key: "agentPane.display.subagentOf", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
-        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
-        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
         Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.

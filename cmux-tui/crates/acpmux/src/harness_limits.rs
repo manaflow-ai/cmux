@@ -128,9 +128,9 @@ pub const CODEX_CONFIG: &[(&str, &str)] = &[
     ("agents.max_concurrent_threads_per_session", "1000"),
     // How deep agent threads may nest (default 1).
     ("agents.max_depth", "16"),
-    // The plan tool (`update_plan`, off by default in 0.164): the turn's task
-    // list, which the bridge sends as the ACP `plan` the agent pane pins.
-    ("tools.update_plan.enabled", "true"),
+    // The plan tool (`update_plan`, off by default in 0.164): kept off, as cmux
+    // shows no agent to-do list (`todo_tools.rs`).
+    ("tools.update_plan.enabled", "false"),
 ];
 
 /// A session's Claude Code (`agent::harness_command`) gets each knob its env
@@ -430,7 +430,7 @@ fn toml_has(table: &toml::Table, key: &str) -> bool {
 
 /// Whether `args` sets `key` with `-c key=…`, `-ckey=…`, `--config key=…` or
 /// `--config=key=…`.
-fn sets_codex_key(args: &[String], key: &str) -> bool {
+pub(crate) fn sets_codex_key(args: &[String], key: &str) -> bool {
     let sets = |value: &str| value.split_once('=').is_some_and(|(k, _)| k.trim() == key);
     args.iter().enumerate().any(|(i, a)| match a.as_str() {
         "-c" | "--config" => args.get(i + 1).is_some_and(|v| sets(v)),
