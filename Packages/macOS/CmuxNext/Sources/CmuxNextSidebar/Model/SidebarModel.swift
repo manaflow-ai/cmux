@@ -859,6 +859,7 @@ public final class SidebarModel {
                                                 background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
+        grouping.folderlessUngrouped = preferences.folderlessUngrouped
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
