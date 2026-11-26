@@ -338,7 +338,7 @@ pub fn pass(
             }
             continue;
         }
-        let cloud = cloud.expect("a cloud outside a dry run");
+        let Some(cloud) = cloud else { bail!("cloud history is off: no session-cloud.json") };
         let entry = match current {
             Some(entry) => {
                 report.unchanged += 1;
