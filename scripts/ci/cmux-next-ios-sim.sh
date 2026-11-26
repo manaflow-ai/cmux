@@ -787,22 +787,44 @@ sim_boot_reduce_motion() {
   note "- reduce motion ($2 simulator): on, ReduceMotionEnabled read back in the simulator: $value"
 }
 
-# xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
-# own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
-# provisioned by hand). Bump the version and the zip's sha256 together.
+# xcodegen: a pinned release. Use a copy this host already has (the fleet's tool
+# cache, $CMUX_CI_TOOL_CACHE or ~/.cache/cmux-tools, or an xcodegen on PATH that
+# reports the pinned version) before downloading: the office's shared IP gets
+# HTTP 403 from github.com on and off, and a cached copy needs no network. A
+# download is retried on any failure (403 included), checksum-verified, in a
+# temp dir of this step's own. Bump the version and the zip's sha256 together.
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
-xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
-curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
-  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
-got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
-[[ "$got" == "$xcodegen_sha256" ]] ||
-  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
-unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
-# The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
-xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
-[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary in the $xcodegen_version zip" >&2; exit 3; }
+xcodegen=""
+xcodegen_source=""
+xcodegen_cached="${CMUX_CI_TOOL_CACHE:-$HOME/.cache/cmux-tools}/xcodegen-$xcodegen_version/xcodegen/bin/xcodegen"
+if [[ -x "$xcodegen_cached" ]] && "$xcodegen_cached" --version 2>/dev/null | grep -qF "$xcodegen_version"; then
+  xcodegen="$xcodegen_cached"; xcodegen_source="tool cache"
+elif path_xcodegen="$(command -v xcodegen 2>/dev/null)" && [[ -n "$path_xcodegen" ]] &&
+  "$path_xcodegen" --version 2>/dev/null | grep -qF "$xcodegen_version"; then
+  xcodegen="$path_xcodegen"; xcodegen_source="PATH"
+fi
+if [[ -z "$xcodegen" ]]; then
+  xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
+  downloaded=0
+  for attempt in 1 2 3 4 5; do
+    if curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors -o "$xcodegen_dir/xcodegen.zip" \
+      "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip"; then
+      downloaded=1; break
+    fi
+    sleep $((attempt * 5))
+  done
+  [[ "$downloaded" == 1 ]] ||
+    { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
+  got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
+  [[ "$got" == "$xcodegen_sha256" ]] ||
+    { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
+  unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
+  # The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
+  xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
+  xcodegen_source="download"
+fi
+[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary for $xcodegen_version" >&2; exit 3; }
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
@@ -839,7 +861,7 @@ note ""
 note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
-note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
+note "- xcodegen: $xcodegen_version ($xcodegen_source)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
