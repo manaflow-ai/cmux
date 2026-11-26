@@ -108,6 +108,10 @@ private struct Timeline {
                     ? .dialSucceeded(generation: generation, path: .direct)
                     : .dialFailed(generation: generation, reason: outcome.reason)
                 pending.append((now + outcome.after, result))
+                // LinkController's overdue check of a dial in front.
+                if !machine.isBackgrounded, machine.dialPatience < .seconds(25) {
+                    pending.append((now + machine.dialPatience, .dialOverdue(generation: generation)))
+                }
             case .scheduleRetry(let generation, let after):
                 pending.append((now + after, .retryDue(generation: generation)))
             case .keepStandby:
@@ -193,7 +197,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             #expect(reconnected != nil && reconnected! <= .seconds(2), "\(variant): reconnected \(String(describing: reconnected)) after the network came back")
             #expect(timeline.statusLines(from: lost, to: back).isEmpty, "\(variant): \(timeline.statusLines(from: lost, to: back))")
             // Retries back off: an 8 h outage is not a dial every second.
-            #expect(Double(timeline.dials) <= outage.seconds / 15 + 10, "\(variant): \(timeline.dials) dials")
+            #expect(Double(timeline.dials) <= LinkMachine.dialBudget(outageSeconds: outage.seconds), "\(variant): \(timeline.dials) dials")
             results.append(reconnected ?? .seconds(3600))
         }
         #expect(withinGodBound(small: results[0], god: results[1]), "8 h outage \(results[1]) vs 10 s \(results[0])")
@@ -227,6 +231,29 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         #expect(withinGodBound(small: results[0], god: results[1]), "god \(results[1]) vs small \(results[0])")
     }
 
+    /// An elevator: the path goes dark with no path event, so the redial hangs until its 25 s
+    /// timeout, and comes back with no path event either. Only the overdue check (a redial
+    /// beside a dial that hangs past its patience) finds the network in time.
+    @Test func cellNetworkBackWithoutPathChangeDuringHungDial() {
+        for (variant, outage) in [("small-10s", Duration.seconds(10)), ("medium-30s", Duration.seconds(30))] {
+            let lost: Duration = .seconds(5)
+            let back = lost + outage
+            let world = World { t in
+                t >= lost && t < back ? (false, .seconds(25), timeoutReason) : (true, dialTime, "")
+            }
+            var timeline = Timeline()
+            timeline.run(world: world, external: [
+                (.zero, .target(studio)),
+                (lost, .linkDropped(generation: 1, reason: "network lost")),
+            ], until: back + .seconds(120))
+            let reconnected = timeline.connected(after: back).map { $0 - back }
+            report("network_back_without_path_change_hung_dial", variant, [
+                "outage_s": outage.seconds, "reconnect_ms": (reconnected?.seconds ?? -1) * 1000, "dials": timeline.dials,
+            ])
+            #expect(reconnected != nil && reconnected! <= .seconds(13), "\(variant): \(String(describing: reconnected))")
+        }
+    }
+
     /// The network comes back without a path change (a captive portal the
     /// person logs into, a VPN that comes up): only the retry timer redials.
     /// Bounded by the longest backoff step plus a dial.
@@ -244,7 +271,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                 (lost, .linkDropped(generation: 1, reason: "network lost")),
             ], until: back + .seconds(120))
             let reconnected = timeline.connected(after: back).map { $0 - back }
-            let bound = Duration.seconds(LinkMachine(transport: .wireGuard).backoff.max() ?? 30) + dialTime
+            let bound = (variant == "god-8h" ? LinkMachine(transport: .wireGuard).longestForegroundWait : .seconds(5)) + dialTime
             report("network_back_without_path_change", variant, [
                 "outage_s": outage.seconds, "reconnect_ms": (reconnected?.seconds ?? -1) * 1000, "bound_ms": bound.seconds * 1000,
             ])
