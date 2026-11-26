@@ -79,8 +79,10 @@
 #     id). iPhone connections (`mobile.allowIPhoneConnections`, on by default) live in the shared
 #     ~/.config/cmux/cmux-next.json that every build reads, so a fresh tag has the person's choice;
 #     when they turned it off this reports it and never turns it on.
-#  3. Every connected, paired iPhone (scripts/lib/iphone-review-targets.sh; a new phone is
-#     registered in ~/.config/cmux/iphone-device-ids; a --device-id phone that is missing is a
+#  3. Every connected, paired iPhone of this Mac's person (scripts/lib/iphone-review-targets.sh: a
+#     phone this Mac does not know that it reaches only over Wi-Fi, such as a teammate's test phone
+#     in the room, is skipped; a new phone plugged in by USB is registered in
+#     ~/.config/cmux/iphone-device-ids; a --device-id phone that is missing is a
 #     blocker, a missing default a notice): signs a copy of the app with this Mac's Apple
 #     Development identity and, per bundle, a development profile naming the phone
 #     (sign_device_app.py), installs it through the sanctioned install
