@@ -129,7 +129,6 @@
         "agent-pane-real-acpmux": "Agent pane on real acpmux",
         "web-instant-navigation": "web-instant-navigation",
         "react-apps-check-shard": "react-apps-check",
-        "react-doctor": "react-doctor",
         "diff-sidecar-check": "diff-sidecar-check",
         "web-db-migrations": "web-db-migrations"
       }
@@ -163,6 +162,11 @@
       "workflow": "cmux-next-tooling-tests-batch.yml",
       "paths": [],
       "jobs": {"tooling-tests": "tooling-tests"}
+    },
+    "pr-pipeline-linux": {
+      "workflow": "cmux-next-pr-pipeline-linux-batch.yml",
+      "paths": [],
+      "jobs": {"linux": "linux"}
     },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
