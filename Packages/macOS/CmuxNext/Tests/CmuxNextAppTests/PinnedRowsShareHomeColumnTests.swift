@@ -122,7 +122,7 @@ import Testing
     func aPinnedGroupsPinCentersUnderHomes(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale, pinnedGroup: true)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
@@ -153,7 +153,7 @@ import Testing
     func everyPinnedRowShowsItsPinThenItsOwnIcon(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (list, window) = Self.list(scale: c.scale)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
@@ -208,7 +208,7 @@ import Testing
     func aPinnedGroupWithAnIconKeepsItsPin(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
             let (plain, icon, list, window) = try Self.pinnedGroups(scale: c.scale)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             let plainPin = list.convert(try #require(plain.pinInkFrame, "the iconless pinned group draws no pin"), from: plain)
             let iconPin = list.convert(try #require(icon.pinInkFrame, "\(c.testDescription): the pinned group with an icon draws no pin"), from: icon)
             #expect(abs(iconPin.midX - plainPin.midX) <= 1 / c.scale,
@@ -235,7 +235,7 @@ import Testing
             defer { TunableStore.shared.set(key, nil) }
             try #require(TunableStore.shared.set(key, SidebarPinnedRowLeading.ownIcon.tunableValue) == SidebarPinnedRowLeading.ownIcon.tunableValue)
             let (list, window) = Self.list(scale: c.scale)
-            defer { window.close() }
+            defer { window.contentView = nil; window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let homeInk = list.convert(try #require(home.glyphInkFrame), from: home)
             // Home's house starts on its glyph square's leading edge and runs past its trailing edge (wider than tall,
@@ -252,7 +252,7 @@ import Testing
                 #expect(abs(x - homeX) <= 0.5, "\(c.testDescription): \(item.id.rawValue)'s title starts at \(x), Home's label at \(homeX)")
             }
             let (plain, icon, groups, groupWindow) = try Self.pinnedGroups(scale: c.scale)
-            defer { groupWindow.close() }
+            defer { groupWindow.contentView = nil; groupWindow.close() }
             #expect(icon.pinSquareFrame == nil, "\(c.testDescription): the pinned group with an icon still draws its pin")
             let plainName = groups.convert(plain.name.frame, from: plain).minX, iconName = groups.convert(icon.name.frame, from: icon).minX
             #expect(abs(plainName - iconName) <= 0.5, "\(c.testDescription): the group's name starts at \(iconName) with an icon, \(plainName) without one")
@@ -286,6 +286,7 @@ import Testing
         list.rowViews.values.forEach { $0.needsLayout = true; $0.layoutSubtreeIfNeeded() }
         guard let plain = list.rowViews[.group(plainID)] as? GroupHeaderRowView,
               let icon = list.rowViews[.group(iconID)] as? GroupHeaderRowView else {
+            window.contentView = nil
             window.close()
             throw PinnedGroupsMissing()
         }
