@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextWindowRules
 import Foundation
 
 extension AppActionContext {
@@ -15,12 +16,9 @@ extension AppActionContext {
         } else {
             paneFolder = services.windows.active.flatMap { services.fileExplorers.folder(focusedIn: $0) }
         }
-        guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
-            return .some(paneFolder)
-        }
-        let expanded = (path as NSString).expandingTildeInPath
-        if expanded.hasPrefix("/") { return .some(URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL) }
-        let base = paneFolder ?? FileManager.default.homeDirectoryForCurrentUser
-        return .some(base.appendingPathComponent(expanded, isDirectory: true).standardizedFileURL)
+        // Rust's `handlers_verbs::pane_folder`; `~user` is NSString's to expand.
+        let path = invocation["path"]?.stringValue.map { $0.hasPrefix("~") && !$0.hasPrefix("~/") && $0 != "~" ? ($0 as NSString).expandingTildeInPath : $0 }
+        let folder = WindowRules().paneFolder(path: path, paneFolder: paneFolder?.path, home: FileManager.default.homeDirectoryForCurrentUser.path)
+        return .some(folder.map { URL(fileURLWithPath: $0, isDirectory: true) })
     }
 }

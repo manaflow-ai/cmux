@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
 /// (create, rename, color x9, collapse, move, ungroup, close, delete). Group
@@ -310,7 +311,7 @@ enum WorkspaceGroupHandlers {
             guard let section = sections.dropFirst(s).first, let first = SidebarEdits.treeOrder(ids, in: sections).first,
                   let at = SidebarEdits.locate(first, in: sections) else { continue }
             let firstUnpinnedGroup = section.nodes.firstIndex { if case let .group(group) = $0 { !group.isPinned } else { false } }
-            let index = sidebar.model.ungroupedFirst ? firstUnpinnedGroup ?? section.nodes.count : at.node + 1
+            guard let index = WindowRules().ungroupIndex(ungroupedFirst: sidebar.model.ungroupedFirst, firstUnpinnedGroup: firstUnpinnedGroup, nodeCount: section.nodes.count, groupNode: at.node) else { continue }
             sidebar.handle(.reorder(ids, to: DropPosition(section: section.id, index: index)))
         }
     }
@@ -338,9 +339,8 @@ enum WorkspaceGroupHandlers {
         guard !groups.isEmpty else { throw ActionFailure.noTarget(RefusalStrings.noWorkspaceGroups) }
         // By personal id: on the sidebar document the group lists as its item (`itm_g_<id>`).
         let activeGroupIndex = sidebar.model.activeGroupPersonalID.flatMap { current in groups.firstIndex { $0.id.rawValue == current } }
-        let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
-        for step in 1...groups.count {
-            let index = (start + offset * step + groups.count * 2) % groups.count
+        // Rust's `handlers_verbs::group_walk`: each group once from the active one, wrapping.
+        for index in WindowRules().groupWalk(count: groups.count, active: activeGroupIndex, offset: offset) where groups.indices.contains(index) {
             let target = groups[index]
             if let workspace = sidebar.model.group(sidebar.model.groupID(personal: target.id.rawValue)).flatMap(WorkspaceGroupFocus.firstWorkspace) {
                 context.services.windows.show(workspaceID: workspace.rawValue, in: window.state)
