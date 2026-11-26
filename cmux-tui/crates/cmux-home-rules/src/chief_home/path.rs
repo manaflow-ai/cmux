@@ -38,7 +38,7 @@ pub(crate) fn parent(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     match trimmed.rfind('/') {
         Some(0) => "/".to_owned(),
-        Some(index) => trimmed[..index].to_owned(),
+        Some(index) => trimmed.get(..index).unwrap_or_default().to_owned(),
         None => String::new(),
     }
 }
@@ -46,8 +46,5 @@ pub(crate) fn parent(path: &str) -> String {
 /// `lastPathComponent`.
 pub(crate) fn last_component(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(index) => &trimmed[index + 1..],
-        None => trimmed,
-    }
+    trimmed.rsplit('/').next().unwrap_or(trimmed)
 }

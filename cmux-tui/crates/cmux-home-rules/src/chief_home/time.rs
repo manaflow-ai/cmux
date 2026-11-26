@@ -44,11 +44,12 @@ fn parse_with(text: &str, fractional: bool) -> Option<f64> {
     let hour = digits(b.get(11..)?, 2)?;
     let minute = digits(b.get(14..)?, 2)?;
     let second = digits(b.get(17..)?, 2)?;
-    if b[4] != b'-'
-        || b[7] != b'-'
-        || !matches!(b[10], b'T' | b't')
-        || b[13] != b':'
-        || b[16] != b':'
+    let at = |index: usize| b.get(index).copied();
+    if at(4) != Some(b'-')
+        || at(7) != Some(b'-')
+        || !matches!(at(10), Some(b'T' | b't'))
+        || at(13) != Some(b':')
+        || at(16) != Some(b':')
     {
         return None;
     }
@@ -60,19 +61,18 @@ fn parse_with(text: &str, fractional: bool) -> Option<f64> {
     {
         return None;
     }
-    let mut rest = &b[19..];
+    let mut rest = b.get(19..)?;
     let mut fraction = 0.0;
     if fractional {
-        if rest.first() != Some(&b'.') {
-            return None;
-        }
-        let count = rest[1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        let digits = rest.strip_prefix(b".")?;
+        let count = digits.iter().take_while(|c| c.is_ascii_digit()).count();
         if count == 0 {
             return None;
         }
-        let text = std::str::from_utf8(&rest[..=count]).ok()?;
-        fraction = format!("0{text}").parse::<f64>().ok()?;
-        rest = &rest[count + 1..];
+        let (whole, after) = digits.split_at_checked(count)?;
+        let text = std::str::from_utf8(whole).ok()?;
+        fraction = format!("0.{text}").parse::<f64>().ok()?;
+        rest = after;
     }
     let offset = match rest {
         [b'Z' | b'z'] => 0,

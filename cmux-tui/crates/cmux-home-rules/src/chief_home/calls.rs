@@ -462,7 +462,9 @@ pub(super) fn call(name: &str, request: &Value) -> Result<Value, OpError> {
             let plan = migration::plan(&request.sources);
             let mut value =
                 serde_json::to_value(&plan).map_err(|error| OpError::Invalid(error.to_string()))?;
-            value["imports"] = Value::Array(migration::imports(&plan));
+            if let Some(fields) = value.as_object_mut() {
+                fields.insert("imports".to_owned(), Value::Array(migration::imports(&plan)));
+            }
             Ok(value)
         }
         "migration_memory" => {

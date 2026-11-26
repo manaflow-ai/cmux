@@ -182,13 +182,15 @@ pub struct Plan {
     pub moved: usize,
 }
 
+fn logged(sources: &[Source], item: &Item) -> bool {
+    sources.get(item.source).is_some_and(|source| source.is_logged(&item.message))
+}
+
 fn in_memory(memory: Memory, sources: &[Source], item: &Item) -> bool {
     match memory {
         Memory::None => false,
-        Memory::Copy { source } => {
-            item.source == source && sources[source].is_logged(&item.message)
-        }
-        Memory::Interleave => sources[item.source].is_logged(&item.message),
+        Memory::Copy { source } => item.source == source && logged(sources, item),
+        Memory::Interleave => logged(sources, item),
     }
 }
 
@@ -220,11 +222,15 @@ pub fn plan(sources: &[Source]) -> Plan {
         seen_keys.insert(key);
         items.push(item);
     }
-    let with_memory: Vec<usize> =
-        (0..sources.len()).filter(|&i| !sources[i].log.is_empty()).collect();
-    let memory = match with_memory.len() {
-        0 => Memory::None,
-        1 => Memory::Copy { source: with_memory[0] },
+    let with_memory: Vec<usize> = sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| !source.log.is_empty())
+        .map(|(index, _)| index)
+        .collect();
+    let memory = match with_memory.as_slice() {
+        [] => Memory::None,
+        [source] => Memory::Copy { source: *source },
         _ => Memory::Interleave,
     };
     let mut moved = 0;
@@ -337,8 +343,9 @@ pub fn memory_lines(sources: &[Source], utc_offset: i64) -> MemoryLines {
     let count = match plan.memory {
         Memory::None => 0,
         Memory::Copy { source } => {
-            copy_from = Some(sources[source].name.clone());
-            sources[source].log.len()
+            let source = sources.get(source);
+            copy_from = source.map(|source| source.name.clone());
+            source.map_or(0, |source| source.log.len())
         }
         Memory::Interleave => {
             let mut all: Vec<&LogEntry> = sources.iter().flat_map(|source| &source.log).collect();

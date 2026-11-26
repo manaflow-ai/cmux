@@ -195,8 +195,8 @@ pub fn describe(home: &Home, own_acpmux: bool) -> Described {
 /// `ChiefHome.brainHome(muxHome:chief:)`: a named Chief's brain lives in `c/<last 8 of its id>`.
 pub fn brain_home(mux_home: &str, chief: Option<&str>) -> String {
     let Some(chief) = chief else { return mux_home.to_owned() };
-    let chars: Vec<char> = chief.chars().collect();
-    let tail: String = chars[chars.len().saturating_sub(8)..].iter().collect();
+    let skip = chief.chars().count().saturating_sub(8);
+    let tail: String = chief.chars().skip(skip).collect();
     join(&join(mux_home, "c"), &tail.to_lowercase())
 }
 

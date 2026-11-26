@@ -78,7 +78,7 @@ impl Identity {
             if id == prefix {
                 return bare;
             }
-            id.len() > prefix.len() && id.starts_with(prefix) && id.as_bytes()[prefix.len()] == b'.'
+            id.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('.'))
         };
         within("com.cmuxterm.app.debug", true) || within("com.cmuxterm.app.staging", false)
     }
