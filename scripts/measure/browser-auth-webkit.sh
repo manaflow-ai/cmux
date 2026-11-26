@@ -104,7 +104,12 @@ sock=""
 for _ in $(seq 1 60); do sock="$("$side" socket "$name" 2>/dev/null)"; [[ -S "$sock" ]] && break; sleep 2; done
 [[ -S "$sock" ]] || { echo "AUTHFLOWS the side copy gave no control socket" >&2; exit 3; }
 sleep 5
-python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" 2>&1 | tee "$out/run.log"
+# The app's own CLI first on PATH, as browser-auth-chromium.sh does: the harness's `cmux --app-socket`
+# calls (tabs, downloads) must reach this side copy, not a host cmux on the default socket.
+cli="$app/Contents/Resources/bin/cmux"
+[[ -x "$cli" ]] || cli="$(command -v cmux || true)"
+mkdir -p "$work/bin" && ln -sf "$cli" "$work/bin/cmux"
+PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . || exit 3

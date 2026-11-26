@@ -46,7 +46,7 @@
 //! numbers are the wire, the daemon and the parse; the draw comes on top.
 //!
 //! Run (ignored in the normal test run):
-//! `cargo test --release -p cmux-tui --test terminal_restart_settled -- --ignored --nocapture`.
+//! `cargo test --release -p cmux-tui --test it -- terminal_restart_settled:: --ignored --nocapture`.
 //! `ROUNDS` (default 5) sets the reattaches per profile; `LINK_PROFILES` a
 //! profiles file other than webviews/bench/link-profiles.json;
 //! `RESTART_ATTACH` = `snapshot`, `bytes` or `both` (default).
@@ -72,8 +72,7 @@ use ghostty_vt::{Callbacks, Terminal};
 use ghostty_vt_sys as sys;
 use serde_json::{Value, json};
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 const SESSION: &str = "restart-settled";
 const COLS: u16 = 120;
@@ -921,7 +920,7 @@ fn fixture_in_place(shown: &Shown) -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "measurement: cargo test --release -p cmux-tui --test terminal_restart_settled -- --ignored --nocapture"]
+#[ignore = "measurement: cargo test --release -p cmux-tui --test it -- terminal_restart_settled:: --ignored --nocapture"]
 fn terminal_restart_to_settled_per_link() {
     let rounds: usize =
         std::env::var("ROUNDS").ok().and_then(|value| value.parse().ok()).unwrap_or(5).max(1);

@@ -948,7 +948,7 @@ impl Hub {
         // The last turn's text, and the running turn's again (a turn that changed between the
         // two reads above): a parent may have pasted a key into it, and what it does now is a
         // tool call's title, often a command with its arguments.
-        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        let turn_text = ["/turn/prompt", "/turn/activity"];
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
