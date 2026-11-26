@@ -982,6 +982,7 @@ pub mod sidebar_hover_card_rules;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
+pub mod sidebar_list_rules;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod workspace_port_links;
