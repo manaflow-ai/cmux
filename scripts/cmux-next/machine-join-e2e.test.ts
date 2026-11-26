@@ -3,6 +3,7 @@ import {
   BENCH_LIMIT_MS,
   CANCEL_BUDGET_MS,
   CHILD_PATH,
+  scenarioEnv,
   KILL_GRACE_MS,
   REVOKE_RESERVE_MS,
   STALE_MS,
@@ -1843,5 +1844,12 @@ describe("share mode's wait", () => {
     const bound = /ENABLE_WAIT: Duration = Duration::from_secs\((\d+)\)/.exec(linux)
     expect(bound).not.toBeNull()
     expect(SHARE_ONLINE_LIMIT_MS).toBeGreaterThan(Number(bound![1]) * 1000)
+  })
+})
+
+describe("scenarioEnv", () => {
+  test("a scenario child gets the acpmux home the job names, and nothing else beyond PATH and HOME", () => {
+    expect(scenarioEnv({ PATH: "/p", HOME: "/h", ACPMUX_HOME: "/a", SECRET: "x" })).toEqual({ PATH: "/p", HOME: "/h", ACPMUX_HOME: "/a" })
+    expect(scenarioEnv({})).toEqual({ PATH: CHILD_PATH, HOME: "/" })
   })
 })

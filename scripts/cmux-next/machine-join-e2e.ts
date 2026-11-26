@@ -106,6 +106,12 @@ export const REVOKE_RESERVE_MS = 2_500
 /** After a SIGKILL, a child's result comes at most this much later, even if a descendant holds its pipes open. */
 export const KILL_GRACE_MS = 500
 export const CHILD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+/** A scenario child's fixed environment: PATH, HOME and, when set, the acpmux home the job names (no secret). */
+export const scenarioEnv = (env: Record<string, string | undefined>): Record<string, string> => ({
+  PATH: env.PATH ?? CHILD_PATH,
+  HOME: env.HOME ?? "/",
+  ...(env.ACPMUX_HOME ? { ACPMUX_HOME: env.ACPMUX_HOME } : {})
+})
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
 /** An id from the platform or acpmux (machine, join token, team, label): plain, short, and never token-shaped,
@@ -1524,7 +1530,10 @@ if (import.meta.main && process.argv.includes("--scenario")) {
   }
   const real = realDeps()
   const deps: import("./own-machine-parity").Deps = {
-    exec: (argv, timeoutMs) => real.run(argv, { env: { PATH: process.env.PATH ?? CHILD_PATH, HOME: process.env.HOME ?? "/" }, timeoutMs }),
+    // ACPMUX_HOME, when the job names A's own (own_machine_parity_vm.py), reaches `cmux`: without it the CLI
+    // takes the build home under this step's HOME, a second, unjoined daemon (run 45391595412: "mesh relay is not
+    // configured" behind every start on B).
+    exec: (argv, timeoutMs) => real.run(argv, { env: scenarioEnv(process.env), timeoutMs }),
     now: real.now,
     sleep: (ms) => real.sleep(ms),
     write: real.write,
