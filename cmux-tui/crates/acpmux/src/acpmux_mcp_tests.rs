@@ -104,7 +104,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "cancel",
             "machine_read",
             "machine_edit",
-            "machine_exec"
+            "machine_exec",
+            "machine_request"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();

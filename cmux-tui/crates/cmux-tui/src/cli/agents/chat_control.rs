@@ -37,8 +37,7 @@ pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "d
 pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 
 /// Codex agent chats must keep working until they can report a result or a blocker.
-pub(in crate::cli) const CODEX_AGENT_CHAT_STOP_CONDITION: &str =
-    "Keep working until the requested task is complete. Report the verified result to Chief, or state what blocks it; a progress update alone is not completion.";
+pub(in crate::cli) const CODEX_AGENT_CHAT_STOP_CONDITION: &str = "Keep working until the requested task is complete. Report the verified result to Chief, or state what blocks it; a progress update alone is not completion.";
 
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -657,10 +656,7 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
         meta.insert("ifNameTaken".into(), json!("suffix"));
     }
     if chat.harness.as_deref().is_some_and(is_codex_harness) && chat.prompt.is_some() {
-        meta.insert(
-            "stopCondition".into(),
-            json!(CODEX_AGENT_CHAT_STOP_CONDITION),
-        );
+        meta.insert("stopCondition".into(), json!(CODEX_AGENT_CHAT_STOP_CONDITION));
     }
     meta
 }
