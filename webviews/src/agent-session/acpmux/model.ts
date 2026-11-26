@@ -521,6 +521,13 @@ export type AcpmuxRow = {
   text?: string;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
+  /// The message's text is whole: no further delta will grow it, though the row can still be
+  /// `streaming` until its turn ends. Codex says so by stamping a message's phase a second time, on
+  /// `item/completed` (direct.ts; acpmux codex_app_server/message_phases.rs), and a reply that
+  /// arrives in one chunk with its phase (a watched rollout, replayed history) is whole as it comes.
+  /// What a final answer says is read out of it only then: a half-written tagged ask parses
+  /// differently with every delta (turns.ts `answerComplete`).
+  textComplete?: boolean;
   /// A reply or summary's actual turn start, retained after the snapshot's live clock clears.
   turnStartedAtMs?: number;
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
@@ -740,6 +747,9 @@ export type AcpmuxRow = {
   /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
   /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
   retry?: AcpmuxTurnRetry;
+  /// On the live line while it retries: when the retries began, on this computer's clock, so "Can't
+  /// reach the model" waits out the shared bound from then, not from when the line was drawn.
+  retryAt?: number;
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
@@ -1979,15 +1989,20 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are one row apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS).
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
-/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
+/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS), the
+/// shared row metric's height (rowMetric.ts ROW_METRIC).
+/// The room around "Worked for"'s rule (rowMetric.ts: `ruleAbove` under its words, `ruleBelow` over
+/// the next row; Leo, 2026-11-17: "these are too big"), conversation.css `.cv-worked.has-divider.is-toggle`;
+/// no stack gap follows (MARK_WORKED).
+const WORKED_GAP_PT = ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow;
 /// Read once per layout pass (layoutConversation). `--cv-tool-row-height` is 22px plus the row air at every
 /// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
 /// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
 const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// A call in an opened run, the estimate for a call whose drawn height is not yet known: one row, as a
+/// run's calls stack flush (`.cv-tools` gap 0, transcriptSpacing.ts call-pitch).
+const callRow = () => toolRowHeight();
 /// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
 /// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
 /// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
@@ -2043,7 +2058,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
       const open = state.thought !== undefined && thoughtChoices.get(state.thought) === true;
       return toolRowHeight() + (open ? openThoughtBody(item.text, width) : 0);
     }
-    return 26;
+    return callRow();
   }
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is; opened, an `acpmux
@@ -2053,7 +2068,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
-    if (!subsession) return 26;
+    if (!subsession) return callRow();
     // Each card (cardHeight), a finished one's reply under it (replyHeight), and the Raw toggle's row.
     if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
       return Math.max(
@@ -2088,7 +2103,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
     case "fetch":
       return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
-      return 26;
+      return callRow();
   }
 }
 /// The steps of a run's `items`, each as `activityStepHeight` estimates it, with its thoughts numbered
@@ -3560,7 +3575,7 @@ function measuredRowHeight(
           : member.id;
       if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
-        height += 22;
+        height += toolRowHeight();
       }
       // A Stop-held queued message's lead note sits above its received line. Keep the
       // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
@@ -3605,7 +3620,8 @@ function measuredRowHeight(
     const whole = shown ? textHeight(shown, Math.max(80, width - 44), receivedPrepared) : lineHeight;
     const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
     const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
-    const details = opened && message.raw.trim() !== text ? 24 : 0;
+    // Opened, Details' 24px line, and where it was sent from (SentFromLine.tsx) on one row over it.
+    const details = (opened && message.raw.trim() !== text ? 24 : 0) + (opened && row.sentFrom ? toolRowHeight() : 0);
     return finish(line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
@@ -3925,7 +3941,12 @@ function attachmentBox(
   // `SentLinkedImage`) until it is read.
   if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(shownFileSize(part), "en");
+  // The Transcript Work Log's chip says "added to context" in place of the size (PromptFile).
+  const size = experimentSwitchOn("transcriptWorkLog")
+    ? translate("worklog.addedToContext")
+    : part.name.endsWith("/")
+      ? undefined
+      : fileSizeLabel(shownFileSize(part), "en");
   const content =
     2 * chip.side +
     chip.glyph +
@@ -4797,6 +4818,7 @@ import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
+import { ROW_METRIC } from "./rowMetric";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 

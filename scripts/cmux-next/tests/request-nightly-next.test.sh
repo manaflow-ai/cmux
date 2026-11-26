@@ -143,6 +143,11 @@ if [[ "\$1 \$2" == "run list" ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
+# The backfill's last-dispatch read: $TMP/gh-last-dispatch (a created_at), else no dispatch yet.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?branch=feat-cmux-next\&event=workflow_dispatch\&per_page=1 ]]; then
+  [[ -f "$TMP/gh-last-dispatch" ]] && cat "$TMP/gh-last-dispatch"
+  exit 0
+fi
 # The starved-run read (queued runs of one event for one commit): the ids of the
 # "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
 # run's jobs: $TMP/gh-jobs-<id> (the first job's created_at when it waits with no
@@ -287,11 +292,42 @@ echo down > "$TMP/precheck/$changed"
 RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+grep -q "answered HTTP 000 (curl exit 7)" <<<"$out" || fail "the outage warning must name the HTTP code and curl exit:" "$out"
 
 echo fail > "$TMP/precheck/$changed"
 RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "the explicit precheck opt-out must preserve promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "precheck is off" <<<"$out" || fail "the opt-out reason must be visible:" "$out"
+
+# A superseded record (the controller checked a newer push tip instead, and that check covers this
+# push's commits) is covered by the first checked tip after it on feat-cmux-next when that tip passed.
+# Most feat-cmux-next commits are superseded and the tree publisher keeps one push per window, so
+# requiring both on one commit left the dedicated Macs idle for hours (11-25). Here the covering tip's
+# own tree is not published, so only the superseded commit can be promoted.
+echo superseded-app > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change superseded by a later push tip"
+covered=$(git -C "$src" rev-parse HEAD)
+publish "$covered"
+echo superseded > "$TMP/precheck/$covered"
+echo three > "$src/cmux-tui/a"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "the push tip the controller checked"
+checked=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/feat-cmux-next "$checked"
+git_q -C "$src" checkout -q --detach "$covered"
+RUN_ID=9 request --sha "$covered" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$covered" || fail "a superseded commit whose covering tip passed must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "superseded by ${checked:0:12}" <<<"$out" || fail "the covering tip must be named in the precheck reason:" "$out"
+run_id=10
+for word in fail running; do
+  echo "$word" > "$TMP/precheck/$checked"
+  RUN_ID=$run_id request --sha "$covered" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$covered" || fail "a superseded commit whose covering tip is $word must wait:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "${covered:0:12}: not prechecked yet" <<<"$out" || fail "the $word covering tip must leave it pending:" "$out"
+  run_id=$((run_id + 1))
+done
+git_q -C "$src" update-ref -d refs/heads/feat-cmux-next
 git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
@@ -595,6 +631,17 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
+# At most one backfill an hour: every tick and Release compile calls it from its own job, so the
+# per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=13 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 60 min)" <<<"$out" \
+  || fail "no backfill within an hour of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=14 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "a backfill an hour after the last dispatch must dispatch:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-last-dispatch"
 echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
@@ -1055,11 +1102,16 @@ request --sha "$head"
 # making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
 real_git="$(command -v git)"
 mkdir -p "$TMP/gitlog"
+# A wrapper that is itself named git (a lane VM's ~/.local/bin/git guard) takes the first other git
+# on PATH as the real one, which is this stub again: log a call once, on its first pass only.
 cat > "$TMP/gitlog/git" <<STUB
 #!/usr/bin/env bash
-for a in "\$@"; do
-  case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
-done
+if [[ -z "\${GITLOG_SEEN:-}" ]]; then
+  for a in "\$@"; do
+    case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+  done
+fi
+export GITLOG_SEEN=1
 exec "$real_git" "\$@"
 STUB
 chmod +x "$TMP/gitlog/git"
