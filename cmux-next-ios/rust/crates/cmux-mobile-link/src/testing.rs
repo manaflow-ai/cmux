@@ -70,6 +70,12 @@ pub struct FakeOptions {
     /// device, or meant for it while it had no socket, goes out again on its next join.
     /// Off here by default, as before the Worker kept a tail.
     pub relay_tail: bool,
+    /// An older hub: never answer a `wg-init`'s `ticketEarly` with a `wg-ticket`
+    /// (PROTOCOL.md "Early relay ticket").
+    pub no_early_ticket: bool,
+    /// Forward each `wg-resp` this much later (a Mac that gathers slowly), so
+    /// a join on the early ticket can be seen to run before the answer.
+    pub answer_delay: std::time::Duration,
 }
 
 /// One relay-held item (link-relay.ts / relay-hold.ts `HeldItem`).
@@ -431,6 +437,12 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 {
                     payload.remove("version");
                 }
+                if !options.answer_delay.is_zero() && value["payload"]["kind"] == "wg-resp" {
+                    tokio::time::sleep(options.answer_delay).await;
+                }
+                let early_ticket = !options.no_early_ticket
+                    && value["payload"]["kind"] == "wg-init"
+                    && value["payload"]["ticketEarly"] == Value::Bool(true);
                 if options.strip_direct_endpoints
                     && matches!(value["payload"]["kind"].as_str(), Some("wg-init" | "wg-resp"))
                 {
@@ -458,12 +470,26 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                         if kind.starts_with("wg-") {
                             let ticket = state
                                 .tickets
-                                .entry((session, to))
+                                .entry((session.clone(), to.clone()))
                                 .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
                                 .clone();
                             value["relayTicket"] = Value::String(ticket);
                         }
                         let _ = target.send(Message::Text(value.to_string().into()));
+                        // team-hub.ts: the dialer's own ticket, back at once.
+                        if early_ticket {
+                            let ticket = state
+                                .tickets
+                                .entry((session.clone(), device.clone()))
+                                .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
+                                .clone();
+                            let _ = out_tx.send(Message::Text(
+                                json!({"type":"signal","to":device,"from":to,"fromUserId":user,"sessionId":session,
+                                    "payload":{"kind":"wg-ticket"},"relayTicket":ticket})
+                                .to_string()
+                                .into(),
+                            ));
+                        }
                     }
                     (true, None) => {
                         let _ = out_tx.send(Message::Text(

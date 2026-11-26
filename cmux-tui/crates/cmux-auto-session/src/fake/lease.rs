@@ -24,11 +24,11 @@ impl Store {
         self.admitted(caller, id, true)?;
         let (role, session) =
             self.apply(id, |chat, now| rules::renew(&chat.rec, caller, request, now))?;
-        // The holder learns here that the person asked to move the chat: it stops, stores its
-        // copy and gives.
+        // The holder learns here that the person asked to move the chat, and when: it stops,
+        // stores its copy and gives.
         let wish = session.moving.as_ref().filter(|_| role == Role::Holder);
-        let move_to = wish.map(|wish| wish.to);
-        Ok(LeaseAnswer { session, role, lease_ms: LEASE_MS, move_to })
+        let (move_to, move_at) = (wish.map(|wish| wish.to), wish.map(|wish| wish.at));
+        Ok(LeaseAnswer { session, role, lease_ms: LEASE_MS, move_to, move_at })
     }
 
     /// The holder hands the chat over as the person asked (`moves::give`).
