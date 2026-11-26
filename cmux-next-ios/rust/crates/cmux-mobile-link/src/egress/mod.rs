@@ -43,7 +43,9 @@ pub enum EgressError {
          without sign-in"
     )]
     ProxyAuthUnsupported { proxy: String, target: String, schemes: String },
-    #[error("the proxy {proxy} asks for a user name and password, and the system's proxy settings have none")]
+    #[error(
+        "the proxy {proxy} asks for a user name and password, and the system's proxy settings give none (or a user name without its password)"
+    )]
     ProxyAuthMissing { proxy: String },
     #[error("the proxy {proxy} refused the user name and password in the system's proxy settings")]
     ProxyAuthRefused { proxy: String },
@@ -70,6 +72,39 @@ impl EgressError {
             | Self::ProxyAuthRefused { .. }
             | Self::ProxyAuthUnsupported { .. } => 2,
         }
+    }
+}
+
+/// The network changed: the next connection asks the system for its proxy
+/// again (not the 30 s cached answer of the old network), and what was
+/// learned about TLS inspection on the old network is dropped.
+pub fn network_changed() {
+    proxy::forget();
+    tls::forget_inspected();
+    SEEN.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The most telling path a link connection took on this network: 0 none or
+/// direct, 1 a proxy, 2 an inspecting proxy.
+static SEEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// A link connection (signaling, the relay, TURN over TLS) went out on `path`.
+pub fn note(path: PathKind) {
+    let rank = match path {
+        PathKind::Direct => 0,
+        PathKind::Proxy => 1,
+        PathKind::Inspected => 2,
+    };
+    SEEN.fetch_max(rank, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The way out this network makes the link take, for `link_stat`: `None`
+/// when every connection went direct.
+pub fn seen() -> Option<PathKind> {
+    match SEEN.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        1 => Some(PathKind::Proxy),
+        _ => Some(PathKind::Inspected),
     }
 }
 
@@ -194,14 +229,98 @@ pub async fn connect_tls(
         .connect(name, tcp)
         .await
         .map_err(|error| EgressError::Io(format!("TLS to {host}: {error}")))?;
+    note(PathKind::of(&via, host));
     Ok((stream, via))
+}
+
+/// A WebSocket from [`connect_websocket`].
+pub type WebSocket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
+
+/// Why [`connect_websocket`] failed: before the upgrade (the way out) or in
+/// it (TLS, HTTP), so each caller can say which.
+#[derive(Debug)]
+pub enum WebSocketError {
+    BadUrl(String),
+    Egress(EgressError),
+    Tls(String),
+    Upgrade(tokio_tungstenite::tungstenite::Error),
+}
+
+impl std::fmt::Display for WebSocketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadUrl(url) => write!(f, "not a WebSocket URL: {url}"),
+            Self::Egress(error) => error.fmt(f),
+            Self::Tls(error) => write!(f, "TLS: {error}"),
+            Self::Upgrade(error) => error.fmt(f),
+        }
+    }
+}
+
+/// How a connection's path looks from here, for telemetry: direct, through
+/// a proxy, or through a proxy (or middlebox) that inspects TLS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathKind {
+    Direct,
+    Proxy,
+    Inspected,
+}
+
+impl PathKind {
+    /// The path a connection to `host` that went out `via` took.
+    pub fn of(via: &Via, host: &str) -> Self {
+        if tls::inspected(host) {
+            Self::Inspected
+        } else if matches!(via, Via::Proxy(_)) {
+            Self::Proxy
+        } else {
+            Self::Direct
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Proxy => "proxy",
+            Self::Inspected => "inspected",
+        }
+    }
+}
+
+/// A WebSocket upgrade of `request` on a TCP stream that left the way `egress`
+/// says (the system's proxy with `CONNECT`, PAC included), with TLS verified
+/// against its trust: the signaling socket and the relay share it, so a network
+/// whose only way out is its proxy, or that inspects TLS, reaches both.
+pub async fn connect_websocket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    egress: &Egress,
+) -> Result<(WebSocket, Via), WebSocketError> {
+    let uri = request.uri().clone();
+    let secure = uri.scheme_str() == Some("wss");
+    let host = uri.host().ok_or_else(|| WebSocketError::BadUrl(uri.to_string()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
+    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    let (tcp, via) = connect_tcp(&host, port, secure, egress).await.map_err(WebSocketError::Egress)?;
+    let connector = if secure {
+        tokio_tungstenite::Connector::Rustls(tls::client_config(&egress.trust).map_err(WebSocketError::Tls)?)
+    } else {
+        tokio_tungstenite::Connector::Plain
+    };
+    let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+        .await
+        .map_err(WebSocketError::Upgrade)?;
+    note(PathKind::of(&via, &host));
+    Ok((socket, via))
 }
 
 /// The HTTP client of the link's API calls: the OS trust store, and the
 /// system's proxy for each request (the cached answer; [`proxy::warm`]
-/// asks ahead of time).
-pub fn http_client_builder() -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().proxy(reqwest::Proxy::custom(|url| {
+/// asks ahead of time). Every connection passes the egress gate
+/// (`cmux_egress`, docs/privacy.md) as `site`; with a proxy set, the proxy's
+/// host is the one checked.
+pub fn http_client_builder(site: &'static str) -> reqwest::ClientBuilder {
+    let builder = cmux_egress::client_builder(site).proxy(reqwest::Proxy::custom(|url| {
         let host = url.host_str()?.trim_start_matches('[').trim_end_matches(']').to_owned();
         let secure = url.scheme() == "https";
         let port = url.port_or_known_default()?;
@@ -216,6 +335,11 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
         }
         None
     }));
+    // The seeded-secret capture trusts its own CA (set by the gate's builder);
+    // the OS store would replace it.
+    if cmux_egress::capturing() {
+        return builder;
+    }
     match tls::client_config(&TlsTrust::System) {
         Ok(config) => builder.use_preconfigured_tls((*config).clone()),
         Err(error) => {

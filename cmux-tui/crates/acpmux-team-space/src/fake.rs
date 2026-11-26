@@ -105,7 +105,7 @@ impl TeamSpaceStore for FakeClient {
         if state.unavailable {
             return Err(StoreError::Unavailable("fake store is down".to_owned()));
         }
-        let next_post = state.next_post + 1;
+        let next_post = state.next_post.saturating_add(1);
         let space = state
             .spaces
             .get_mut(&post.space)
@@ -117,7 +117,7 @@ impl TeamSpaceStore for FakeClient {
             return Ok(first.clone());
         }
         let post_id = format!("p{next_post}");
-        let seq = space.head + 1;
+        let seq = space.head.saturating_add(1);
         space.head = seq;
         let mut author = self.author.clone();
         // Session and host are the caller's report, kept as reported.
@@ -143,7 +143,7 @@ impl TeamSpaceStore for FakeClient {
 
     fn feed(&self, space: &str, after: u64, limit: usize) -> Result<FeedPage, StoreError> {
         let mut state = self.store.lock();
-        state.feed_calls += 1;
+        state.feed_calls = state.feed_calls.saturating_add(1);
         if state.unavailable {
             return Err(StoreError::Unavailable("fake store is down".to_owned()));
         }

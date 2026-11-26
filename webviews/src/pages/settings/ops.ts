@@ -804,11 +804,28 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** Connect Claude's one-click run (`connectClaudeToken`): the app runs `claude setup-token` itself,
+   * opens the sign-in page in cmux's browser and saves the token it prints, which the page never sees.
+   * `attempt`: the run in flight; `phase`: where it is; `error`: the last run's failure, as the host
+   * words it. Older hosts omit it. */
+  claudeToken?: ClaudeTokenState;
+};
+
+/** Where Connect Claude's run is: opening the sign-in page, waiting on the person, saving the token. */
+export type ClaudeTokenPhase = "starting" | "signing_in" | "saving";
+/** `saved`: the last run ended with its token saved (a Cancel ends with neither it nor an error); older hosts omit it. */
+export type ClaudeTokenState = {
+  attempt: string | null;
+  phase: ClaudeTokenPhase | null;
+  error: string | null;
+  saved?: boolean;
 };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+ * `connectClaudeToken` is Connect Claude's one click (`claudeToken`); `cancelClaudeToken` stops it.
+ * `claudeSetupToken` runs the same on a host that has it, else opens a terminal tab running
+ * `claude setup-token`. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -817,6 +834,8 @@ export type ModelsRun =
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
+  | { action: "connectClaudeToken"; label?: string }
+  | { action: "cancelClaudeToken" }
   | { action: "claudeSetupToken" }
   | { action: "addClaudeToken"; token: string; label?: string }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
@@ -1172,11 +1191,17 @@ export type LibraryEntry = {
   code?: LibraryCode;
 };
 
-/** A pull request's code as a library entry: its web part is served on this app while it is on and
- * the highest such entry; what it cannot carry needs a build. */
+/** Code not in this build as a library entry (cmux-customize `CodeLayer`): a pull request, a branch, a
+ * commit, a local folder or a fork. Its web part is served on this app while it is on and the highest
+ * such entry; what it cannot carry needs a build. */
 export type LibraryCode = {
+  /** Where the code comes from; absent for a PR (older entries, and the wire skips `pr`). */
+  kind?: "pr" | "branch" | "sha" | "dir" | "fork";
+  /** The branch, the full commit, the folder's path or `OWNER/REPO@REF`; absent for a PR. */
+  source?: string;
   /** `owner/name`. */
   repo: string;
+  /** The pull request; 0 for every other kind. */
   pr: number;
   title: string;
   /** The PR head the layer was built from. */
@@ -1313,6 +1338,77 @@ export type LibraryAnswer = {
   code?: string;
   message?: string;
 };
+
+/** One installed setup, a layer of the person's stack (`cmux --json setup gallery`'s `stack`, top
+ * first). `catalog: false`: installed from a repo the gallery does not list. */
+export type LookLayer = {
+  id: string;
+  name: string;
+  on: boolean;
+  /** 1 is the top: where two looks that are on set the same thing, it wins. */
+  position: number;
+  /** The repo it was installed from (`github.com/OWNER/NAME`), or a folder. */
+  source: string;
+  commit: string;
+  catalog: boolean;
+};
+
+/** One look of the reviewed catalog (cmux-customize `setup/looks.json`). */
+export type Look = {
+  id: string;
+  name: string;
+  tagline: string;
+  repo: string;
+  tags: string[];
+  /** Its `stack` row when installed, else null. */
+  installed: LookLayer | null;
+};
+
+/** `cmux --json setup gallery`: the catalog and every installed setup, top first (no network). */
+export type LooksGallery = { looks: Look[]; stack: LookLayer[] };
+
+/** `cmux --json setup preview ID --scheme S`: the look's golden-sample image, fetched once and
+ * cached by the CLI. */
+export type LookPreview = { id: string; scheme: "light" | "dark"; path: string; dataUrl: string; cached: boolean };
+
+/** What an install would change: the `details` of `setup.needs_consent` (cmux-tui
+ * `cli/setup/repo.rs` `card`, cmux-customize `setup.rs` `Plan`). Every text in it comes from the
+ * look's repo, so the page draws it as text only. */
+export type LookConsentCard = {
+  setup: {
+    id: string;
+    name: string;
+    description?: string;
+    version?: string;
+    /** The theme file it selects (`appearance.themeFile`). */
+    theme?: string;
+    settings: Array<{ key: string; value: unknown; replaces?: unknown }>;
+    /** `part`: settings, keybindings, themes, views, styles, automations. */
+    files: Array<{ path: string; part: string; replaces: boolean }>;
+    /** How many shortcuts it adds (merged into the person's). */
+    keybindings: number;
+    actions: Array<{ name: string; kind: string; runs: string; replaces: boolean }>;
+    extensions: string[];
+    requires?: string;
+    /** The app its views install as, in a layer of its own. */
+    layer?: string;
+  };
+  source: { reference: string; repository?: string | null; commit: string; page?: string | null; local: boolean };
+  reviewed: boolean;
+  /** `scopes` null: the extension's own card shows them. */
+  extensions: Array<{ reference: string; app?: string | null; installed: boolean; scopes: string[] | null }>;
+  undo: string;
+};
+
+/** One `cmux setup` verb the Looks card runs (`cmux.settings.looks`). `install` without `yes`
+ * answers the consent card; with `yes` it installs the `REPO@COMMIT` the card pinned. `order` sends
+ * every installed id, top first. */
+export type LooksRun =
+  | { verb: "gallery" }
+  | { verb: "preview"; id: string; scheme: "light" | "dark" }
+  | { verb: "install"; reference: string; yes?: boolean }
+  | { verb: "remove" | "on" | "off"; id: string }
+  | { verb: "order"; ids: string[] };
 
 /** A connection the page reports to the checklist (`cmux customize checklist --has NAME`): the
  * steps Rust cannot read from a file. */
@@ -1994,6 +2090,9 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
+   * absent when the platform does not say. The card offers Reconnect a few days before. */
+  expiresAt?: string | null;
   /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
    * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
   loopback: boolean;
@@ -2497,6 +2596,10 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: one `cmux setup` verb through the bundled CLI (Settings > Appearance > Looks): its JSON,
+   * or its error envelope (`code`, `message`, `details`). install, remove, on, off and order run only
+   * on the person's click or key in the page. */
+  "cmux.settings.looks": [LooksRun, unknown];
   /** Native: the Customize cmux checklist through the bundled CLI (`cmux --json customize checklist
    * --has NAME...`), read-only (Settings > General). */
   "cmux.settings.customize.checklist": [
