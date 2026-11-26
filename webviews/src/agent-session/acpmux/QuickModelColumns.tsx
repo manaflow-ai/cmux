@@ -12,7 +12,7 @@
 // columns, Up and Down within one: the arrows only move the highlight.
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -1754,7 +1754,7 @@ function Columns({
               {setup && (
                 <>
                   <output className="acpmux-cols-setup" data-busy={setup.busy ? "" : undefined}>
-                    {setup.busy && <Spinner size={12} className="acpmux-cols-setup-spinner" loading />}
+                    {setup.busy && <WaitSpinner size={12} className="acpmux-cols-setup-spinner" loading />}
                     <span className="acpmux-cols-setup-text">
                       <span>{setup.text}</span>
                       {setup.detail && (
