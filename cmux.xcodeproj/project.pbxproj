@@ -86,7 +86,6 @@
 				cmux-cli-path/zsh-agent/.zshrc,
 				cmux-themes,
 				cmux.entitlements,
-				coderouter-cli.json,
 				feed-tui,
 				ghostty,
 				ghostty/terminfo/78/xterm-ghostty,
@@ -116,6 +115,7 @@
 			);
 			explicitFolders = (
 				"markdown-viewer",
+				"sidebar-looks",
 				"theme-files",
 			);
 			path = Resources;
@@ -182,6 +182,7 @@
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
+				CE7A0000000000000000004A /* Pack webviews-app chunks */,
 			);
 			buildRules = (
 			);
@@ -277,6 +278,8 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-cli-resources.sh",
 				"$(SRCROOT)/scripts/cmux-next/compact-json.py",
+				"$(SRCROOT)/scripts/cmux-next/pack-code-mode.py",
+				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-unpack",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-macos-profile",
 				"$(SRCROOT)/scripts/lib/cmux-dev-shim-install",
@@ -301,7 +304,8 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-open-url",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/open",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/xdg-open",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-unpack",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/toolchain-licenses",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -578,7 +582,9 @@
 				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-host",
 				"$(SRCROOT)/cmux-tui/crates/cmux-codecs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-computer-use",
 				"$(SRCROOT)/cmux-tui/crates/cmux-encode",
+				"$(SRCROOT)/cmux-tui/crates/cmux-file-lock",
 				"$(SRCROOT)/cmux-tui/crates/cmux-hub-host",
 				"$(SRCROOT)/cmux-tui/crates/cmux-process",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-core",
@@ -586,6 +592,7 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-link",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-proto",
 				"$(SRCROOT)/cmux-tui/crates/cmux-transport",
+				"$(SRCROOT)/cmux-tui/crates/cmux-wg",
 				"$(SRCROOT)/cmux-tui/vendor",
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",
@@ -749,6 +756,8 @@
 
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/embed-cmux-remote-dev.sh",
+				"$(SRCROOT)/scripts/cmux-next/embed-files-host-dev.sh",
+				"$(SRCROOT)/scripts/cmux-next/files-host-dev.pin.json",
 				"$(SRCROOT)/scripts/cmux-next/cmux-remote-dev.pin.json",
 				"$(SRCROOT)/scripts/cmux-next/ensure-signed-pinned-asset.sh",
 				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
@@ -758,6 +767,8 @@
 				"$(CMUX_NEXT_REQUIRE_CMUX_REMOTE)",
 				"$(CMUX_NEXT_ALLOW_NO_CMUX_REMOTE)",
 				"$(CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE)",
+				"$(CMUX_NEXT_SKIP_FILES_HOST)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
@@ -770,10 +781,12 @@
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Remote (dev).app",
 				"$(TARGET_TEMP_DIR)/embed-cmux-remote-dev.stamp",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Files (dev).app",
+				"$(TARGET_TEMP_DIR)/embed-files-host-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cmux-remote-dev.sh\"\n";
+			shellScript = "\"${SRCROOT}/scripts/cmux-next/embed-files-host-dev.sh\" || exit $?\nexec \"${SRCROOT}/scripts/cmux-next/embed-cmux-remote-dev.sh\"\n";
 		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -841,6 +854,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
+		};
+		CE7A0000000000000000004A /* Pack webviews-app chunks */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/pack-webviews-chunks.py",
+			);
+			name = "Pack webviews-app chunks";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The viewers' lazy chunks stored raw-deflated in the app, inflated in memory when a page asks (CMUX-570).\n# After Resources: Xcode copies webviews-app whole, then this replaces each chunk with <name>.deflate\n# (CEFShim cmux_page_packed.h for Chromium, CmuxNextPages PagePackedFile.swift for WebKit and the live loop).\nexec /usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/markdown-viewer/webviews-app\"\n";
 		};
 		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
 			isa = PBXShellScriptBuildPhase;

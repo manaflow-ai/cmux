@@ -32,6 +32,7 @@ import argparse
 import datetime
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -72,12 +73,14 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     # Generated (scripts/cmux-next/generated_outputs.py OUTPUTS): cmux-next-pr-autofix's drift check reads a hand edit.
     "plans/cmux-next/actions.md",
     "docs/mdm/managed-preferences.md",
+    "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md",
     # Read by a ci-guards group test (test_no_guard_group_test_reads_docs lists any new one).
     "docs/ci/health-report.md",  # tests/test_ci_health_report.py
     "docs/privacy.md",  # tests/test_outbound_hosts.py
+    "docs/network-requirements.md",  # tests/test_network_allowlist.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
-    "cmux-tui/README.md",  # tests/test_testbox_demo_cleanup.sh -> scripts/blacksmith-testbox-demo.sh
+    "cmux-tui/README.md",  # the Testbox tour named its public fallback here
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
@@ -87,6 +90,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "cmux-tui/crates/cmux-extension-sdk/README.md",
     "cmux-tui/vendor/terminput-crossterm/README.md",
     "mux/packages/brain/conformance/README.md",
+    "Native/OptChat/chief-kernel/src/turn_checks.md",
 )
 
 # The workflows whose pull_request trigger carries DOCS_ONLY_PATHS. None is a required check: a required check that
@@ -95,10 +99,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
 WORKFLOWS: tuple[str, ...] = (
     ".github/workflows/ci.yml",
     ".github/workflows/cmux-next-guards.yml",
-    ".github/workflows/cmux-next-hot-verify.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",
-    ".github/workflows/cmux-next-size-budget.yml",
-    ".github/workflows/cmux-next-tab-switch.yml",
     ".github/workflows/pr-checks.yml",
     ".github/workflows/rust-workspaces.yml",
     ".github/workflows/web-validation.yml",
@@ -106,6 +107,20 @@ WORKFLOWS: tuple[str, ...] = (
 
 BEGIN = "# docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)"
 END = "# docs-only paths: END"
+
+
+TRIGGER_PATHS = "scripts/ci/pr-trigger-paths.json"
+
+
+def block_workflows(root: Path) -> list[str]:
+    """WORKFLOWS that carry the block. A workflow whose trigger `paths:` scripts/ci/pr_trigger_paths.py derives from
+    its own decider (TRIGGER_PATHS `derived`) starts on its inputs alone, already fewer paths than the block; it
+    keeps those, and FALLBACK still calls it."""
+    try:
+        derived = set(json.loads((root / TRIGGER_PATHS).read_text(encoding="utf-8")).get("derived", {}))
+    except FileNotFoundError:
+        derived = set()
+    return [name for name in WORKFLOWS if name not in derived]
 
 
 def is_docs(path: str) -> bool:
@@ -151,7 +166,7 @@ FILES_API_LIMIT = 3000  # pulls/{n}/files lists at most this many
 LABEL_OPT_INS = ("full-ci", "dev-build")  # ci.yml's labels that ask for CI on a pull request nothing else starts
 DEFAULT_TYPES = ("opened", "synchronize", "reopened")
 LABEL_ACTIONS = ("labeled", "unlabeled")
-# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' size, the size
+# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' PR size, the size
 # budget's `size:` line) at a head its push already covered; listening would start a run for every title or HOLD-line
 # edit of every pull request (tests/test_ci_pr_runs_cancel_superseded.py, pattern pr-edit-fans-out-ci).
 UNCOVERED_TYPES = ("edited",)
@@ -182,9 +197,15 @@ def job_id(name: str) -> str:
     return Path(name).stem
 
 
-def label_guard() -> str:
-    """ci.yml's guard: into feat-cmux-next, a label event for any other label skips (test_ci_label_events_skip_full_ci)."""
-    labels = json.dumps(list(LABEL_OPT_INS), separators=(",", ":"))
+# ci.yml's labels: the opt-ins plus the land handoff (scripts/ci/head_tier.py land rule). A docs-only pull request
+# runs no CI tier, so the fallback does not start ci.yml on `ready-to-land`.
+CI_LABELS = LABEL_OPT_INS + ("ready-to-land",)
+
+
+def label_guard(labels_read: tuple[str, ...] = LABEL_OPT_INS) -> str:
+    """A label guard: into feat-cmux-next, a label event for any label not in LABELS_READ skips
+    (test_ci_label_events_skip_full_ci). The fallback's reads LABEL_OPT_INS, ci.yml's CI_LABELS."""
+    labels = json.dumps(list(labels_read), separators=(",", ":"))
     return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
             "(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
             f"!contains(fromJSON('{labels}'), github.event.label.name))")
@@ -238,7 +259,7 @@ jobs:
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
     if: {gate_condition()}
-    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}}}
+    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}}}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -251,6 +272,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit's parent too: merge_commit_files lists the changed paths with git when the REST reads fail.
+          fetch-depth: 2
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -326,6 +349,22 @@ def _epoch(stamp: str) -> float:
     return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
 
+def merge_commit_files(total: int) -> list[str] | None:
+    """Every path the checked-out merge commit changes against its first parent (the base tip), both sides of a rename,
+    from git alone: the gate checks out the pull request's merge commit with its parent (fetch-depth 2). It answers
+    when the REST budget is spent. On 2026-11-25 19:14Z the files and runs reads both got 403, the gate failed open
+    and called ci.yml on a 2-file pull request that ci.yml was already running (run 45682654194): about 300 runner-min
+    for one label. ci.yml's fallback calls were 8,083 runner-min over 11-24 22Z..11-25 22Z. None when git cannot say,
+    or lists fewer paths than the pull request's changed_files (TOTAL), which the caller treats as unread."""
+    try:
+        done = subprocess.run(["git", "diff", "--name-only", "--no-renames", "-z", "HEAD^1", "HEAD"],
+                              capture_output=True, text=True, timeout=60, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    names = [name for name in done.stdout.split("\0") if name]
+    return names if names and len(set(names)) >= total else None
+
+
 def fallback_main() -> int:
     """--fallback-plan, in the gate job: writes missing=<JSON list> to $GITHUB_OUTPUT. Any read that fails counts as
     unread, which calls more, never fewer."""
@@ -350,7 +389,11 @@ def fallback_main() -> int:
             if len(set(names)) >= total:
                 files = names + renamed_from
     except Exception as error:  # noqa: BLE001 - fail open
-        print(f"could not list the changed files ({error}): calling every due workflow", file=sys.stderr)
+        print(f"could not list the changed files ({error}): reading them from the merge commit", file=sys.stderr)
+    if files is None and 0 < total <= FILES_API_LIMIT:
+        files = merge_commit_files(total)
+        if files is None:
+            print("could not read the merge commit's files either: calling every due workflow", file=sys.stderr)
     try:
         sha = pr["head"]["sha"]
         found: list[dict] = []
@@ -395,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rewrote {FALLBACK}")
         else:
             drifted.append(FALLBACK)
-    for name in WORKFLOWS:
+    for name in block_workflows(args.root):
         path = args.root / name
         text = path.read_text()
         try:

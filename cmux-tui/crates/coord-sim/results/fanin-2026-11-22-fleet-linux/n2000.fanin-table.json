@@ -1,0 +1,109 @@
+{
+  "agent_hosts": false,
+  "attach_failed": 0,
+  "attach_ms": {
+    "max": 12.264,
+    "n": 2000,
+    "p50": 5.372,
+    "p95": 7.898,
+    "p99": 9.164
+  },
+  "attach_one_ms": {
+    "max": 4046.709,
+    "n": 60,
+    "p50": 7.451,
+    "p95": 47.255,
+    "p99": 3113.974
+  },
+  "client_methods": {
+    "_acpmux/event": 50000,
+    "_acpmux/prompt_accepted": 2133,
+    "catalog.changed": 1,
+    "session/update": 205872
+  },
+  "controller": {
+    "cpu_basis": "whole life",
+    "cpu_pct": 13.651,
+    "cpu_pct_per_session": 0.007,
+    "cpu_s_life": 43.88,
+    "hosts_cpu_s_life": 135.01,
+    "life_s": 321.437,
+    "rss_kb": 694316,
+    "rss_kb_baseline": 47796,
+    "rss_kb_peak": 688688,
+    "rss_kb_per_session": 323.26,
+    "rss_kb_window_max": 694316
+  },
+  "create_failed": 0,
+  "events": {
+    "client_lagged": 0,
+    "dup": 0,
+    "emitted": 193507,
+    "fanout_dup": 0,
+    "fanout_lost": 0,
+    "fanout_sent": 6000,
+    "lost": 0
+  },
+  "fanin_ms": {
+    "max": 4139.807,
+    "n": 193507,
+    "p50": 0.35,
+    "p95": 333.198,
+    "p99": 2535.213
+  },
+  "fanout_back_ms": {
+    "max": 5303.957,
+    "n": 6000,
+    "p50": 2576.821,
+    "p95": 4582.761,
+    "p99": 5089.5
+  },
+  "fanout_ms": {
+    "max": 2504.833,
+    "n": 6000,
+    "p50": 590.76,
+    "p95": 1964.686,
+    "p99": 2275.349
+  },
+  "gaps": [],
+  "gauges": {
+    "attach_p95_ms": 8.032,
+    "fanout_p95_ms": 0.133
+  },
+  "hosts": 10,
+  "hosts_rss_kb": {
+    "max": 181072.0,
+    "mean": 172878.4
+  },
+  "latency_ms": 0,
+  "list": {
+    "paged_ms_at_rest": 48.201,
+    "pages": 20,
+    "rows": 2000,
+    "whole_ms_at_rest": 12.315,
+    "whole_ms_window": {
+      "max": 44.771,
+      "n": 19,
+      "p50": 11.498,
+      "p95": 21.187,
+      "p99": 44.771
+    }
+  },
+  "n": 2000,
+  "prompt_ms": {
+    "max": 4632.83,
+    "n": 6000,
+    "p50": 3541.588,
+    "p95": 4368.797,
+    "p99": 4596.557
+  },
+  "rate_per_session": 0.333,
+  "schema": "fanin-table.v1",
+  "setup_ms": {
+    "attach_all": 350,
+    "controller_ready": 793,
+    "create": 3024,
+    "hosts": 74
+  },
+  "window_s": 300.055
+}

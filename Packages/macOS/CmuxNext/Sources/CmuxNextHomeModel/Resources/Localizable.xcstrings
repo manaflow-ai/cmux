@@ -2105,127 +2105,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home has two views: messages and channels."
+            "value": "Chief has two views: messages and channels."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "للصفحة الرئيسية عرضان: الرسائل والقنوات."
+            "value": "لـ Chief عرضان: الرسائل والقنوات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna ima dva prikaza: poruke i kanale."
+            "value": "Chief ima dva prikaza: poruke i kanale."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem har to visninger: beskeder og kanaler."
+            "value": "Chief har to visninger: beskeder og kanaler."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home hat zwei Ansichten: Nachrichten und Kanäle."
+            "value": "Chief hat zwei Ansichten: Nachrichten und Kanäle."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicio tiene dos vistas: mensajes y canales."
+            "value": "Chief tiene dos vistas: mensajes y canales."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accueil a deux vues : messages et canaux."
+            "value": "Chief a deux vues : messages et canaux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home ha due viste: messaggi e canali."
+            "value": "Chief ha due viste: messaggi e canali."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホームの表示はメッセージとチャンネルの2つです。"
+            "value": "Chief の表示はメッセージとチャンネルの2つです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើមមានទិដ្ឋភាពពីរ៖ សារ និងឆានែល។"
+            "value": "Chief មានទិដ្ឋភាពពីរ៖ សារ និងឆានែល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "홈 보기는 메시지와 채널 두 가지입니다."
+            "value": "Chief 보기는 메시지와 채널 두 가지입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem har to visninger: meldinger og kanaler."
+            "value": "Chief har to visninger: meldinger og kanaler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna ma dwa widoki: wiadomości i kanały."
+            "value": "Chief ma dwa widoki: wiadomości i kanały."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Início tem duas visualizações: mensagens e canais."
+            "value": "O Chief tem duas visualizações: mensagens e canais."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У главной два вида: сообщения и каналы."
+            "value": "У Chief два вида: сообщения и каналы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรกมีสองมุมมอง: ข้อความและช่อง"
+            "value": "Chief มีสองมุมมอง: ข้อความและช่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana sayfanın iki görünümü vardır: mesajlar ve kanallar."
+            "value": "Chief’in iki görünümü vardır: mesajlar ve kanallar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна має два види: повідомлення та канали."
+            "value": "Chief має два види: повідомлення та канали."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ có hai chế độ xem: tin nhắn và kênh."
+            "value": "Chief có hai chế độ xem: tin nhắn và kênh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "主页有两种视图：消息和频道。"
+            "value": "Chief 有两种视图：消息和频道。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "首頁有兩種檢視：訊息和頻道。"
+            "value": "Chief 有兩種檢視：訊息和頻道。"
           }
         }
       }

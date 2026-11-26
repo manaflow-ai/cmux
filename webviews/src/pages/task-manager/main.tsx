@@ -6,7 +6,7 @@ import "../shared/desktop";
 import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { appPopupHost } from "../shared/pagePopupHost";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import table from "./generated/strings.json";
@@ -19,13 +19,15 @@ import "./styles.css";
 
 export function mountTaskManagerPage(root: HTMLElement, client: PageClient | null = defaultClient()): TaskManagerStore {
   const store = new TaskManagerStore(client);
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("taskManager.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <TaskManagerRoot store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <TaskManagerRoot store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("taskManager.title"),
   );
   void store.start();
   return store;

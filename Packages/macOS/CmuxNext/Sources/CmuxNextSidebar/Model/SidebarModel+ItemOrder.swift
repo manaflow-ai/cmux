@@ -12,7 +12,7 @@ extension SidebarModel {
     ///
     /// Made once per change of what it reads (`SidebarItemOrderInputs`), so
     /// a Cmd-1…9 or Cmd-Ctrl-[ / ] press costs a key compare, not a layout
-    /// of every row. The selection is not an input: the order never depends on it.
+    /// of every row. The selected hidden agent session is part of the drawn order.
     public var itemOrder: SidebarItemOrder {
         let inputs = SidebarItemOrderInputs(self)
         if let cached = itemOrderCache, cached.inputs == inputs { return cached.order }
@@ -79,7 +79,7 @@ extension SidebarModel {
         // Every project is a stop, past the first five too: the order ignores the projects list's Show more.
         options.openShowMore.insert(.projects)
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
-        options.sessionTree = SidebarSessionTree.shared.drawn?.shape
+        options.sessionTree = SidebarSessionTree.shared.drawn(keeping: selection)?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
         let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
         // A client item belongs to the section it is placed in (a remote chat under Home), not to no section:
@@ -132,6 +132,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
     var rowLimit: Int
+    var settlesFinished: Bool
     var openDoneFolds: Set<SidebarDoneFoldID>
     var openShowMore: Set<SidebarDoneFoldID>
     var treeShape: SidebarSessionTreeState?
@@ -147,7 +148,8 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
         rowLimit = SidebarTunables.rowLimit
+        settlesFinished = model.settlesFinished
         (openDoneFolds, openShowMore) = (model.openDoneFolds, model.openShowMore)
-        treeShape = SidebarSessionTree.shared.drawn?.shape
+        treeShape = SidebarSessionTree.shared.drawn(keeping: model.selection)?.shape
     }
 }

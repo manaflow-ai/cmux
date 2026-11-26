@@ -19,6 +19,7 @@ import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, InstantPreview, PendingChip, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
+import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
@@ -26,9 +27,12 @@ import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { TILE_SHAPE_EVENT } from "./fieldGrowthEvent";
 import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
@@ -354,6 +358,30 @@ export function useInlineAttachments(options: Options) {
     if (now) api.ready();
   });
 
+  // Each tile's shape as its render draws it: one that changed (or is new) tells the field to move to
+  // its new height in this commit (fieldGrowth.ts TILE_SHAPE_EVENT), before the frame lays out.
+  const shapes = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    let changed: HTMLElement | undefined;
+    const next = new Map<string, string>();
+    for (const [id, dom] of views) {
+      const pending = options.pending.find((chip) => chip.id === id);
+      const ready = options.attachments.some((attachment) => attachment.id === id);
+      const size = pending?.size ? `${pending.size.width}x${pending.size.height}` : "";
+      const shape = `${ready}|${pending ? `${pending.sizing ?? false}|${pending.failed ?? ""}|${size}` : "none"}`;
+      next.set(id, shape);
+      const before = shapes.current.get(id);
+      // A tile new to this render counts too: an edit that swaps a node (a placeholder's for its
+      // attachment's) has the field follow before this render draws the new tile.
+      if (before !== shape) changed = dom;
+    }
+    shapes.current = next;
+    if (!changed) return;
+    // The tile's own window builds the event, so a tile in another document (a test's DOM) can carry it.
+    const Custom = changed.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+    changed.dispatchEvent(new Custom(TILE_SHAPE_EVENT, { bubbles: true }));
+  }, [views, options.pending, options.attachments]);
+
   const chips = [...views].map(([id, dom]) =>
     createPortal(
       <InlineChip
@@ -405,20 +433,22 @@ const InlineChip = memo(function InlineChip({
   const t = useT();
   const language = usePaneLanguage();
   const look = usePasteLoadingLook();
+  const ratio = useDraftRatio(attachment?.[localDraftShape] ?? pending?.[localDraftShape]);
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
   // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
   const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (!loaded && pending && !pending.failed && !pending.sizing) setLoaded(true);
+  if (!loaded && pending && !pending.resolvingPath && !pending.failed && !pending.sizing && ratio !== 0)
+    setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
   const [pictured, setPictured] = useState(false);
   if (!pictured && pending?.preview && pending.image && !pending.failed) setPictured(true);
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
-  if (!attachment && !pending) return null;
-  if (!attachment && pending && !pending.image && !pending.video)
+  if ((!attachment && !pending) || ratio === 0) return null;
+  if (!attachment && pending && ((!pending.image && !pending.video) || pending.resolvingPath))
     return (
       <span className="acpmux-md-inline-chip" data-chip="strip">
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
@@ -443,11 +473,11 @@ const InlineChip = memo(function InlineChip({
         {...(pending!.failed ? {} : { "data-paste-look": look })}
         // A loading image is the shape its thumbnail will be (its header's size), so the picture
         // arriving moves nothing.
-        {...(!pending!.failed && pending!.image && pending!.size
-          ? { "data-sized": "", style: imageShape(pending!.size) }
+        {...(!pending!.failed && pending!.image && (ratio || pending!.size)
+          ? { "data-sized": "", style: imageShape(ratio ? { width: ratio, height: 1 } : pending!.size) }
           : {})}
         // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
-        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(pending!.videoShape) } : {})}
+        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(ratio ?? pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
@@ -518,6 +548,16 @@ const InlineChip = memo(function InlineChip({
       </ContextMenu>
     );
   }
+  // A browser pick: its number and comment, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return (
+      <ContextMenu
+        className="acpmux-attachment-menu"
+        items={[{ id: "remove", label: t("composer.removeAttachment", { name }), onSelect: () => onRemove(id) }]}
+      >
+        <BrowserPickChip host="inline" name={attachment.name} text={attachment.text} remove={remove} />
+      </ContextMenu>
+    );
   // An inspector pick: the element and a snippet of its text, opening its whole report in place
   // (UIPickChip.tsx). Its right-click menu removes it, as the strip's does.
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))

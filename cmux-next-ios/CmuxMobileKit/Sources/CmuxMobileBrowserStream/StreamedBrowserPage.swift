@@ -11,6 +11,10 @@ public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
+    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown at full
+    /// strength, with no waiting words over it, until the first frame decodes; never once it is
+    /// live (Leo, 2026-11-24: no greying, no "suspended in a state of connection limbo").
+    var lastKnown: CGImage?
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
     @State private var raisedForField = false
@@ -21,10 +25,17 @@ public struct StreamedBrowserPage: View {
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
-    public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+    public init(model: StreamedBrowserModel, insets: EdgeInsets, lastKnown: CGImage? = nil,
+                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
         self.insets = insets
+        self.lastKnown = lastKnown
         self.reportScroll = reportScroll
+    }
+
+    /// Whether the page draws the last-known picture: only while connecting.
+    static func showsLastKnown(phase: StreamedBrowserModel.Phase, hasLastKnown: Bool) -> Bool {
+        phase == .connecting && hasLastKnown
     }
 
     public var body: some View {
@@ -36,11 +47,31 @@ public struct StreamedBrowserPage: View {
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     reopen(reason)
+                } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
+                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
+                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
+                    linkChip(chip)
                 } else {
                     status(reason)
                 }
             } else if model.phase == .connecting {
-                status(String(localized: "Loading browser session…"))
+                if Self.showsLastKnown(phase: model.phase, hasLastKnown: lastKnown != nil), let lastKnown {
+                    GeometryReader { geo in
+                        Image(decorative: lastKnown, scale: 1).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width,
+                                   height: geo.size.width * CGFloat(lastKnown.height) / CGFloat(max(1, lastKnown.width)))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    }
+                    .background(Color(uiColor: .systemBackground))
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                } else {
+                    status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
+                }
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -54,7 +85,7 @@ public struct StreamedBrowserPage: View {
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .accessibilityLabel(Text("Keyboard"))
@@ -164,7 +195,7 @@ public struct StreamedBrowserPage: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 16).padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -179,6 +210,24 @@ public struct StreamedBrowserPage: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func linkChip(_ chip: ConnectionChip.Content) -> some View {
+        ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityIdentifier("browser.reconnecting")
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
+    }
+}
+
+extension StreamedBrowserModel {
+    /// A `.waiting` reason that is the link coming back, as one or two words for
+    /// ``ConnectionChip`` (the sentence stays its VoiceOver label); nil for any other reason
+    /// (the Mac ended the page, reopening), which keeps its words.
+    static func linkChip(for reason: String) -> ConnectionChip.Content? {
+        guard reason == reconnectingText || reason == linkReconnectingText else { return nil }
+        return ConnectionChip.Content(.reconnecting, sentence: reason)
     }
 }
 
@@ -222,37 +271,47 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
+/// The grid card: the last frame, else the tab's last-known picture, else the page's background.
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
-    let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
+    /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
+    /// page draws it, so the card can stand in for an opening page and the
+    /// live picture replaces it in place. Nil: the picture starts at the top.
+    let insets: EdgeInsets?
+    /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
+    let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+    public init(model: StreamedBrowserModel, fit: Bool = false,
+                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
         self.model = model
-        self.placeholder = placeholder
         self.fit = fit
+        self.insets = insets
+        self.lastKnown = lastKnown
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if fit, let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-            } else if let image = model.snapshot?.image {
+            } else if let image = model.snapshot?.image ?? lastKnown, let insets {
+                // The page's layer: the picture fitted in the area between the insets, on black.
+                Color.black
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+            } else if let image = model.snapshot?.image ?? lastKnown {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
-            } else {
-                Image(systemName: placeholder)
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // No frame yet: the page's background, never a stand-in glyph.
         }
     }
 }

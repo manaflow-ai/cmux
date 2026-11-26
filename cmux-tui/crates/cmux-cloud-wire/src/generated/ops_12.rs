@@ -5,6 +5,199 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes team_vm.rebuild declares.
+    TeamVmRebuildError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited.
+    TeamVmRetiredDeleteOp {
+        name: "team_vm.retired.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmRetiredDeleteParams,
+        result: TeamVmRetiredDeleteResult,
+        error: TeamVmRetiredDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetiredDeleteParams {
+    pub vm: String,
+    pub files_copied: BoolLit<true>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetiredDeleteResult {
+    pub vm: String,
+    pub deleted: bool,
+}
+
+wire_errors! {
+    /// The error codes team_vm.retired.delete declares.
+    TeamVmRetiredDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmRetiredFilesUnconfirmed = "team_vm.retired_files_unconfirmed",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.
+    TeamVmRetiredExportOp {
+        name: "team_vm.retired.export",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: TeamVmRetiredExportParams,
+        result: TeamVmRetiredExportResult,
+        error: TeamVmRetiredExportError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetiredExportParams {
+    pub vm: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetiredExportResult {
+    pub vm: String,
+    pub path: String,
+    pub expires_at: i64,
+    pub files: i64,
+    pub bytes: i64,
+    pub archive_bytes: i64,
+    pub skipped: Vec<String>,
+    pub skipped_count: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.retired.export declares.
+    TeamVmRetiredExportError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmExportNoFiles = "team_vm.export_no_files",
+        TeamVmExportTimeout = "team_vm.export_timeout",
+        TeamVmExportTooLarge = "team_vm.export_too_large",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmProviderFailed = "team_vm.provider_failed",
+        TeamVmProviderRefused = "team_vm.provider_refused",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmRetiredNotFenced = "team_vm.retired_not_fenced",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        TeamVmVmMissing = "team_vm.vm_missing",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.
+    TeamVmSshCaOp {
+        name: "team_vm.ssh_ca",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmSshCaParams,
+        result: TeamVmSshCaResult,
+        error: TeamVmSshCaError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaResult {
+    pub team: TeamId,
+    pub generation: i64,
+    pub trusted_ca_keys: Vec<String>,
+    pub krl: String,
+    pub krl_version: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_ca declares.
+    TeamVmSshCaError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).
+    TeamVmSshCaRotateOp {
+        name: "team_vm.ssh_ca.rotate",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmSshCaRotateParams,
+        result: TeamVmSshCaRotateResult,
+        error: TeamVmSshCaRotateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compromised: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateResult {
+    pub generation: i64,
+    pub ca_public_key: String,
+    pub previous_trusted_until: Option<i64>,
+}
+
+wire_errors! {
     /// The error codes team_vm.ssh_ca.rotate declares.
     TeamVmSshCaRotateError {
         AuthForbidden = "auth.forbidden",
@@ -688,80 +881,6 @@ pub struct UserTextConfirmLevelSetResult {
 wire_errors! {
     /// The error codes user.text_confirm.level.set declares.
     UserTextConfirmLevelSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code.
-    UserTextConfirmLowerOp {
-        name: "user.text_confirm.lower",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: UserTextConfirmLowerParams,
-        result: Value,
-        error: UserTextConfirmLowerError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTextConfirmLowerParams {
-    pub level: ConfirmLevel,
-    pub nonce: String,
-    pub presence_sig: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app_attest: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes user.text_confirm.lower declares.
-    UserTextConfirmLowerError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install).
-    UserTextConfirmLowerChallengeOp {
-        name: "user.text_confirm.lower.challenge",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: UserTextConfirmLowerChallengeParams,
-        result: Value,
-        error: UserTextConfirmLowerChallengeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTextConfirmLowerChallengeParams {
-    pub level: ConfirmLevel,
-}
-
-wire_errors! {
-    /// The error codes user.text_confirm.lower.challenge declares.
-    UserTextConfirmLowerChallengeError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         Forbidden = "forbidden",

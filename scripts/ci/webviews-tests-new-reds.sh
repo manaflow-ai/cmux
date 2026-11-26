@@ -88,7 +88,7 @@ if [ -s "$work/files" ] && git worktree add -q --detach "$base_tree" "$base_ref"
   # them unscoped, must not turn the same test red there and pass the change's off as old.
   (cd "$base_tree/$prefix" && CMUX_WEB_TEST_FILES="$(cat "$work/files")" CMUX_WEB_TEST_RESULTS="$work/base.json" CMUX_WEB_TEST_JOBS=1 CMUX_WEB_TEST_RETRIES=0 \
     env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_WEB_TEST_DEV_JOBS -u CMUX_WEB_TEST_BROWSER_JOBS \
-      -u CMUX_PR_CHANGED_FILES CMUX_NEXT_STYLE_GUARDS=warn \
+      -u CMUX_PR_CHANGED_FILES -u CMUX_WEB_TEST_REUSED -u CMUX_WEB_TEST_PASSED_OUT CMUX_NEXT_STYLE_GUARDS=warn \
     bash "$here/run-webviews-tests.sh" > "$work/base.log" 2>&1) || true
   sed -n '/^### webviews tests:/,$p' "$work/base.log"
 elif [ -s "$work/files" ]; then
