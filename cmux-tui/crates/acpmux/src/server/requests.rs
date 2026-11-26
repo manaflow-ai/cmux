@@ -1447,15 +1447,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
-            let mut answer =
-                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
@@ -1997,6 +1996,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2124,10 +2125,17 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            // Take ownership only after the lookup finishes in time. A retry after a timeout
+            // can still name these uploads even if the background lookup finishes later.
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2532,7 +2540,8 @@ async fn dispatch_request_with_identity(
                         supersede_set,
                         flag("steerOnly") == Some(true),
                         given_provenance,
-                    ),
+                    )
+                    && !crate::hub::inbox::watch_wake(&params),
             };
             // An unverified prompt names no other sender: its activity is counted as an
             // unnamed prompt's was (`prompt_provenance::is_unverified`).
@@ -3927,6 +3936,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_ROOMS => view::rooms(hub, conn, &params),
+        method::MUX_FOLLOW => view::follow(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).
