@@ -1291,7 +1291,7 @@ pub(super) async fn handle_request(
     // was in the receiver's log 186 s after it arrived). A refusal after this is its own line.
     let crossing = cross_host_prompt(conn.origin, m, &params);
     if let Some(fields) = &crossing {
-        crate::xhost_audit::record("received", fields.clone());
+        crate::xhost_audit::record_queued("received", fields.clone());
     }
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the
@@ -1313,7 +1313,7 @@ pub(super) async fn handle_request(
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
         fields.set("error", json!(e.code));
-        crate::xhost_audit::record("refused", fields);
+        crate::xhost_audit::record_queued("refused", fields);
     }
     reply
 }
