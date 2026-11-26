@@ -83,7 +83,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: WORKSPACE_ROW,
         surface: "sidebar",
         menus: &["workspaceRow"],
-        settings: &["sidebar.workspaceRow.branch", "sidebar.workspaceRow.directory", "sidebar.workspaceRow.ports", "sidebar.workspaceRow.pullRequest", "sidebar.workspaceRow.lastActivity", "sidebar.showTimestamps", "sidebar.showColors", "appearance.metrics.sidebarRowHeight"],
+        settings: &["sidebar.workspaceRow.branch", "sidebar.workspaceRow.directory", "sidebar.workspaceRow.ports", "sidebar.workspaceRow.pullRequest", "sidebar.workspaceRow.lastActivity", "sidebar.showTimestamps", "sidebar.showColors", "appearance.metrics.sidebarRowHeight", "appearance.metrics.sidebarRowInset", "appearance.metrics.sidebarRowPadding", "appearance.metrics.sidebarRowGap", "appearance.metrics.sidebarRowHeightWithSubtitle"],
         tokens: &["selectionFill", "hoverFill", "textPrimary", "textSecondary", "badgeFill", "attention"],
     },
     CustomizeElement {
@@ -91,7 +91,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: TITLEBAR,
         surface: "titlebar",
         menus: &[],
-        settings: &["window.titlebar", "window.titlebarButtons", "tabs.toolbarButtons", "appearance.metrics.titlebarHeight"],
+        settings: &["window.titlebar", "window.titlebarButtons", "tabs.toolbarButtons", "appearance.metrics.titlebarHeight", "appearance.metrics.toolbarButtonSize", "appearance.metrics.toolbarButtonGap", "appearance.metrics.toolbarButtonCornerRadius", "appearance.metrics.toolbarButtonActiveFill", "appearance.metrics.headerDivider"],
         tokens: &["chromeBackground", "textSecondary", "separator"],
     },
     CustomizeElement {
@@ -123,7 +123,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: COMPOSER,
         surface: "chatComposer",
         menus: &[],
-        settings: &["agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking", "agentPane.composerVimKeys", "agentPane.showContextUsage", "agentPane.attachmentView"],
+        settings: &["agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking", "agentPane.composerVimKeys", "agentPane.showContextUsage", "agentPane.attachmentView", "appearance.metrics.composerPadding", "appearance.metrics.composerMinHeight"],
         tokens: &["elevatedBackground", "textPrimary", "textPlaceholder", "focusRing", "accent"],
     },
     CustomizeElement {
@@ -131,7 +131,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: CHAT,
         surface: "chatMessages",
         menus: &["agentChat"],
-        settings: &["agentPane.display.font.size", "agentPane.display.font.preset", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.transcriptView", "agentPane.display.senderIcon.lead", "agentPane.zoom"],
+        settings: &["agentPane.display.font.size", "agentPane.display.font.preset", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.detail", "agentPane.display.senderIcon.lead", "agentPane.zoom"],
         tokens: &["contentBackground", "textPrimary", "textSecondary", "highlight", "textSelection"],
     },
     CustomizeElement {
