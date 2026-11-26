@@ -1,9 +1,11 @@
 name: PR red checks comment
 
 # The `checks` line of the status comment on a pull request into feat-cmux-next lists its red
-# web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py). The checks
+# web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py), and its `ran`
+# line says which workflows the diff started and why (scripts/ci/pr_ran_line.py). The checks
 # stay advisory (chief 2026-10-12); this makes a red one impossible to miss. Each workflow that runs tracked checks calls this after them; every
-# call recomputes from all check runs of the head commit, and the per-PR group orders the calls.
+# call recomputes from all check runs of the head commit, and the per-PR group orders the calls. ci.yml's call is the
+# head's writer (input `writer`): the others start a runner only when their own checks are red or on a rerun.
 # The script comes from the base commit, never the pull request's code.
 on:
   workflow_call:
@@ -13,17 +15,27 @@ on:
         # names no red has nothing for this call to change, and the script reads no check runs.
         type: boolean
         default: false
+      writer:
+        # The one call per head that always runs (ci.yml's, which starts on every pull request that changes more
+        # than prose). Every other call starts no runner while its own checks are green on a first attempt: a
+        # green call can only clear a red line, and the writer's call clears any red its head no longer has
+        # (the script recomputes from every check run of the head when the line names a red). A red call, and
+        # any call on a rerun (the red it fixes was written after the event), still runs.
+        # 2026-11-25 13Z..23Z: about 7,800 calls, 10.7k runner-min, 0 real catches (cmuxterm-hq
+        # docs/findings/2026-11-25-ci-value.md).
+        type: boolean
+        default: false
 
 permissions: {}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   comment:
-    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (inputs.writer || !inputs.own_checks_green || github.run_attempt != '1') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     concurrency:
@@ -44,6 +56,12 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
             scripts/ci/pr_status.py
+            scripts/ci/pr_ran_line.py
+            scripts/ci/ci_process_tree.py
+            scripts/ci/workflow_paths_cover_inputs.py
+            scripts/ci/gh_expressions.py
+            .github/workflows/
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Update the red checks line
@@ -54,4 +72,6 @@ jobs:
           # Each red check is compared with this commit's run of it: new reds block, base reds do not.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           OWN_CHECKS_GREEN: ${{ inputs.own_checks_green }}
+          # The `ran` line judges each workflow's branch filter against this base.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python3 scripts/ci/pr_red_checks_comment.py

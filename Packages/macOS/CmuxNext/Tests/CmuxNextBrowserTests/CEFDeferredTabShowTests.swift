@@ -239,12 +239,11 @@ import Testing
         #expect(!TabSpyShim.resizeSyncs.contains { $0.timeoutMs > 0 }, "a page waited at the drag's end: \(TabSpyShim.resizeSyncs)")
     }
 
-    /// A zoom of the pane shows in one commit: the shown page takes part in it (``PaneCommitSurface``), so the resize
-    /// that shows the zoom joins the window's resize fence and the frame that shows it has the page's frame at the
-    /// zoomed size. It is ready for the layout in the call: the fence waits in the render server, not the layout.
-    /// Before, the page took no part and showed its old frame at the old size beside its white backdrop for two
-    /// frames, then laid out again (Lawrence 2026-11-20, the AWS console in a zoom).
-    @Test func theShownPageTakesPartInItsPanesCommitAndIsReadyAtOnce() throws {
+    /// A zoom of the pane shows in one commit: the shown page takes part in it (``PaneCommitSurface``), so the frame
+    /// that shows the zoom has the page laid out at the zoomed size (the tests below). Before, the page took no part
+    /// and showed its old frame at the old size beside its white backdrop for two frames, then laid out again
+    /// (Lawrence 2026-11-20, the AWS console in a zoom).
+    @Test func theShownPageTakesPartInItsPanesCommit() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (_, first, container) = try Self.liveHost(runtime)
@@ -255,9 +254,164 @@ import Testing
 
         let surfaces = (first.container as NSView).paneCommitSurfaces()
         #expect(surfaces.count == 1 && surfaces.first === first.container, "the shown page takes no part in its pane's commit: \(surfaces)")
+    }
+
+    /// A zoom of the page's pane on today's engine (fork API 33: no resize fence). The pane's commit tells the page its
+    /// zoomed size ahead: the page takes it now, while the pane still shows the old layout (the pane clips it and its
+    /// old frame stays at its top-left corner), and the page is ready for the commit only once it laid out at that size.
+    /// So the frame that shows the zoom shows the page laid out at the zoomed size. Before, the page took the size only
+    /// in the frame that showed the zoom and was ready at once: the zoom showed the page's old, narrower frame beside
+    /// its white backdrop for two to four frames, then the page laid out again (Lawrence 2026-11-20, the AWS console).
+    @Test(.timeLimit(.minutes(1)))
+    func aGrowingCommitWithoutAFenceSizesThePageAheadAndIsReadyOnceItLaidOut() async throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, window, answers, frames) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+        let page = first.container
+        let scale = window.backingScaleFactor
+
+        let before = CEFHostView.trackerStats
         var ready = 0
-        for surface in surfaces { surface.commitWillResize(by: CGSize(width: 480, height: 0)) { ready += 1 } }
-        #expect(ready == surfaces.count, "the page is not ready for the layout in the call: \(ready) of \(surfaces.count) reports")
+        var readyCame: CheckedContinuation<Void, Never>?
+        page.commitWillResize(by: CGSize(width: 480, height: 0)) {
+            ready += 1
+            readyCame?.resume()
+            readyCame = nil
+        }
+        #expect(host.hostView.frame.size == CGSize(width: 880, height: 300), "the page did not take the zoomed size ahead: \(host.hostView.frame)")
+        #expect(page.bounds.size == CGSize(width: 400, height: 300), "the page's container took the zoomed size before the commit")
+        #expect(page.layer?.masksToBounds == true, "the page drawn ahead is not clipped to its pane's old size")
+        #expect(ready == 0, "the page is ready for the zoom before it laid out at the zoomed size")
+        frames.tick()
+        #expect(ready == 0, "the page is ready for the zoom one frame after the change with no layout")
+
+        // The page's ask runs once this test yields; the answer waits for it.
+        if ready == 0 {
+            await withCheckedContinuation { done in
+                readyCame = done
+                answers.answer(true)
+            }
+        }
+        #expect(ready == 1)
+        #expect(answers.asked == [CGSize(width: 880 * scale, height: 300 * scale)], "the page was not asked for its layout at the zoomed size")
+        // An answer ends the wait at once: no longer bound is asked for, and the wait counts as answered.
+        #expect(page.commitWaitTicks == nil, "a page that answered still asks its commit to wait")
+        #expect(CEFHostView.trackerStats.commitWaitsAnswered == before.commitWaitsAnswered + 1, "an answered wait is not counted")
+        #expect(CEFHostView.trackerStats.commitWaitsAtBound == before.commitWaitsAtBound, "an answered wait is counted at its bound")
+
+        // The frame tick shows the zoom: the container takes the size the page already has.
+        page.setFrameSize(CGSize(width: 880, height: 300))
+        page.layoutSubtreeIfNeeded()
+        #expect(page.heldPageSize == nil, "the page still holds the size it took ahead after the zoom showed")
+        #expect(host.hostView.frame == page.bounds)
+        #expect(page.layer?.masksToBounds == false)
+        for _ in 0..<8 { frames.tick() }
+        #expect(ready == 1, "the page reported twice for one commit")
+    }
+
+    /// A page that does not lay out at the zoomed size in time asks its commit to wait for it longer than the commit's
+    /// own bound (``CEFCommitPageWait/commitTicks``), and is ready at its own bound, one frame under that: it is never
+    /// late, so its pane never shows its ground instead of the page. Once it reported it asks for no more.
+    @Test func aGrowingCommitWithoutAFenceIsReadyAtItsBoundWhenThePageIsSlow() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, first, window, answers, frames) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+        defer { answers.answer(false) }
+        let page = first.container
+        #expect(page.commitWaitTicks == nil, "a page with no commit asks one to wait")
+
+        let before = CEFHostView.trackerStats
+        var ready = 0
+        page.commitWillResize(by: CGSize(width: 480, height: 120)) { ready += 1 }
+        #expect(page.commitWaitTicks == CEFCommitPageWait.commitTicks, "a page laying out ahead does not ask its commit to wait for it")
+        #expect(CEFCommitPageWait.readyFrames == CEFCommitPageWait.commitTicks - 1, "the page's bound is not one frame under the ticks it asks for")
+        for frame in 1..<CEFCommitPageWait.readyFrames {
+            frames.tick()
+            #expect(ready == 0, "frame \(frame): a slow page is ready before its bound")
+        }
+        frames.tick()
+        #expect(ready == 1, "a slow page is not ready at its bound: its pane would show its ground")
+        #expect(page.commitWaitTicks == nil, "a page that reported still asks its commit to wait")
+        let after = CEFHostView.trackerStats
+        #expect(after.commitWaitsAtBound == before.commitWaitsAtBound + 1, "a wait that reached its bound is not counted at its bound")
+        #expect(after.commitWaitsAnswered == before.commitWaitsAnswered, "a wait that reached its bound is counted as answered")
+    }
+
+    /// A change taken back before it showed (`commitWillResize(by: .zero)`) gives the page its pane's size again at
+    /// once, and a commit that never showed lets the size go after a few frames: the page is never left laid out
+    /// larger than its pane.
+    @Test func aPageDrawnAheadForACommitThatDoesNotShowTakesItsPanesSizeAgain() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, window, answers, frames) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+        defer { answers.answer(false) }
+        let page = first.container
+
+        var taken = 0
+        page.commitWillResize(by: CGSize(width: 480, height: 0)) {}
+        page.commitWillResize(by: .zero) { taken += 1 }
+        #expect(taken == 1, "a change taken back is not ready at once")
+        #expect(host.hostView.frame.size == CGSize(width: 400, height: 300), "a change taken back left the page at the zoomed size")
+        #expect(page.heldPageSize == nil)
+
+        page.commitWillResize(by: CGSize(width: 480, height: 0)) {}
+        #expect(host.hostView.frame.size == CGSize(width: 880, height: 300))
+        for _ in 0..<8 { frames.tick() }
+        #expect(host.hostView.frame.size == CGSize(width: 400, height: 300), "a commit that never showed left the page at the zoomed size")
+        #expect(page.heldPageSize == nil)
+    }
+
+    /// A pane that gets smaller keeps its own picture through its motion and takes its size at the end, so its page is
+    /// not drawn ahead: it is ready at once and keeps its size, as before.
+    @Test func aShrinkingCommitDrawsNothingAhead() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, window, answers, _) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+
+        var ready = 0
+        first.container.commitWillResize(by: CGSize(width: -200, height: 0)) { ready += 1 }
+        #expect(ready == 1)
+        #expect(host.hostView.frame.size == CGSize(width: 400, height: 300))
+        #expect(answers.asked.isEmpty)
+        #expect(first.container.commitWaitTicks == nil, "a shrinking page asks its commit to wait for it")
+    }
+
+    /// A swap of the halves of an odd width (683 and 684 points) makes one page one point wider. Its old picture covers
+    /// all but that point, so it draws nothing ahead and its commit waits for nothing: the swap shows in the frame of
+    /// its change. Drawn ahead, the page showed its wider layout cut to its old pane for two to three frames before the
+    /// swap, and the swap came those frames late (cmuxterm-hq#19032 cause 2, half-browser swap, fleet job 9c35cd0a).
+    @Test func aOnePointGrowingCommitDrawsNothingAhead() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, window, answers, _) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+
+        for change in [CGSize(width: 1, height: 0), CGSize(width: 0, height: 1), CGSize(width: 1, height: 1)] {
+            var ready = 0
+            first.container.commitWillResize(by: change) { ready += 1 }
+            #expect(ready == 1, "a page one point short of its pane is not ready at once (\(change))")
+            #expect(host.hostView.frame.size == CGSize(width: 400, height: 300), "a one-point grow drew the page ahead (\(change))")
+            #expect(first.container.heldPageSize == nil, "a one-point grow holds the page at a size (\(change))")
+            #expect(first.container.commitWaitTicks == nil, "a one-point grow asks its commit to wait (\(change))")
+        }
+        #expect(answers.asked.isEmpty, "a one-point grow asked the page for its layout")
+    }
+
+    /// Which changes draw a page ahead: a grow of more than a point on a side, with no side smaller.
+    @Test func onlyAGrowOfMoreThanAPointDrawsAhead() {
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 480, height: 0)))
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 120)))
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 2, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: .zero))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 1)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 0.5, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: -200, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 480, height: -1)))
     }
 
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
@@ -335,6 +489,24 @@ import Testing
 
     private static func host(_ runtime: CEFRuntime) -> CEFPaneHost {
         CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+    }
+
+    /// A pane's shown page (400 x 300 points) in a window, with the page's layout answers and display frames in the
+    /// test's hands (``CEFCommitLayoutWait``).
+    private static func zoomablePage(_ runtime: CEFRuntime) throws
+        -> (CEFPaneHost, CEFTab, NSWindow, LayoutAnswers, ManualFrames) {
+        let (host, first, _) = try liveHost(runtime)
+        let answers = LayoutAnswers(), frames = ManualFrames()
+        host.commitLayoutWait = CEFCommitLayoutWait(laidOut: answers.laidOut, frames: frames.frames)
+        let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(first.container)
+        first.container.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        first.container.layoutSubtreeIfNeeded()
+        #expect(host.hostView.superview === first.container, "the page's host view is not in its container")
+        #expect(host.hostView.frame.size == CGSize(width: 400, height: 300))
+        return (host, first, window, answers, frames)
     }
 
     /// A pane showing a Chromium page in its live window (browser 10).
@@ -431,6 +603,53 @@ private nonisolated enum TabSpyShim {
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
+        }
+    }
+}
+
+/// The page's layout answers of ``CEFCommitLayoutWait``: each ask is kept, and waits until the test answers. An ask
+/// runs in a task that starts only when the test yields, so an answer given before it stays for it, and for every
+/// later ask.
+@MainActor private final class LayoutAnswers {
+    private(set) var asked: [CGSize] = []
+    private var waiting: [CheckedContinuation<Bool, Never>] = []
+    private var given: Bool?
+
+    var laidOut: CEFCommitLayoutWait.LaidOut {
+        { [self] _, pixels in
+            asked.append(pixels)
+            if let given { return given }
+            return await withCheckedContinuation { waiting.append($0) }
+        }
+    }
+
+    /// Answers every ask still waiting, and every ask from now on.
+    func answer(_ laidOut: Bool) {
+        given = laidOut
+        let all = waiting
+        waiting = []
+        for ask in all { ask.resume(returning: laidOut) }
+    }
+}
+
+/// The display frames of ``CEFCommitLayoutWait``, one per ``tick(last:)``.
+@MainActor private final class ManualFrames {
+    private var clients: [(id: Int, tick: @MainActor (Bool) -> Bool)] = []
+    private var next = 0
+
+    var frames: CEFCommitLayoutWait.Frames {
+        { [self] _, tick in
+            next += 1
+            let id = next
+            clients.append((id, tick))
+            return { [weak self] in self?.clients.removeAll { $0.id == id } }
+        }
+    }
+
+    /// One display frame for every client still ticking.
+    func tick(last: Bool = false) {
+        for client in clients where clients.contains(where: { $0.id == client.id }) {
+            if !client.tick(last) { clients.removeAll { $0.id == client.id } }
         }
     }
 }

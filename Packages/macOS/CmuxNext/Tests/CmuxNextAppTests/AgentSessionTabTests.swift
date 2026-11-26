@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -30,7 +31,7 @@ struct AgentSessionTabTests {
     /// Services with one connected workspace whose store takes agent tabs; `create` records each one.
     private static func services(_ made: Made) throws -> AppServices {
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: AgentChatActionFixture.environment)
         let store = services.daemon.store
         store.connectionState = .connected(try connected())
         store.apply(snapshot: tree())
@@ -62,6 +63,50 @@ struct AgentSessionTabTests {
         #expect(made.tabs.count == 1)
         #expect(made.tabs.first?.0 == pane.handle, "the tab went to another pane")
         #expect(made.tabs.first?.1.session == "s-child", "the tab is not bound to the session")
+    }
+
+    @Test(arguments: [true, false])
+    func peerOpenWhenCreateRepliesBeforeTheTabIsListed(focus: Bool) async throws {
+        let made = Made()
+        let services = try Self.services(made)
+        let store = services.daemon.store
+        let workspace = try #require(store.workspaces.first)
+        services.windows.ordersWindowsIn = false
+        let windowID = "open-peer-window"
+        _ = services.windows.registry.apply { $0.openWindow(id: windowID, workspaceIDs: [workspace.id]) }
+        let window = services.windows.makeController(for: try #require(services.windows.registry.value.window(windowID)))
+        defer { window.teardown(); window.window?.close() }
+        window.state.showWorkspace(workspace.id)
+        window.showWorkspace(requested: workspace.id)
+        let pane = try #require(window.focusedPane)
+        let original = try #require(pane.stripModel.selectedID?.rawValue)
+
+        let session = UUID().uuidString
+        let peer = "peer-\(session)"
+        services.agentLanes.set(session, AgentActivityLane(id: session, name: "\(peer)/chat", title: "Chat", peer: peer,
+                                                         parent: nil, state: .idle, since: nil, error: nil))
+        defer { services.agentLanes.set(session, nil) }
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.pane.id),
+                                          arguments: ["session": .string("chat"), "host": .string(peer)], origin: .cli, focusRequested: focus)
+        let run = services.registry.capturingRun {
+            #expect(services.registry.perform("agent.openSessionTab", invocation: invocation))
+        }
+        let result = try #require(run.results.first)
+        let fields = try await result.value.get()
+        let key = "tab-\(session)"
+        #expect(fields["tab"] == .string(key))
+        #expect(store.tab(id: key) == nil)
+        let standIn = try #require(pane.pane.tabs.first { ProvisionalTab.isProvisional($0.id) })
+        #expect(pane.stripModel.selectedID?.rawValue == (focus ? standIn.id : original))
+
+        // Deliver the daemon tree only after the action has returned the durable tab id.
+        var tree = Self.tree()
+        var chat = TabSnapshot(surface: 9, tabResourceID: ResourceID(rawValue: key), kind: .conversation)
+        chat.conversation = ConversationTabRef(agentSession: try #require(made.tabs.first?.1))
+        tree.workspaces[0].screens[0].panes[0].tabs.append(chat)
+        store.apply(snapshot: tree)
+        pane.syncStripFromStore()
+        #expect(pane.stripModel.selectedID?.rawValue == (focus ? key : original))
     }
 
     @Test func noSessionIsRefusedAndOpensNothing() throws {

@@ -89,9 +89,9 @@ where
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    // Before the managed unit too: starting it would make a removed home again.
+    // Starting the managed unit can recreate a removed home, just like a detached start.
     if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
-        check_autostart(path)?;
+        check_autostart(current_home, path)?;
     }
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
@@ -111,7 +111,7 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
-        check_autostart(path)?;
+        check_autostart(&home(), path)?;
     }
     exe_path::check_start()?;
     // A config.json the daemon would refuse (a network listen without its opt-in, WireGuard
@@ -157,17 +157,16 @@ pub fn mark_explicit_start() {
 
 /// Refuses a start whose home or socket cannot be this command's daemon's
 /// ([`crate::config::autostart_refusal`]).
-pub(super) fn check_autostart(path: &std::path::Path) -> Result<()> {
-    let home = home();
+pub(super) fn check_autostart(home: &std::path::Path, path: &std::path::Path) -> Result<()> {
     let configured =
         std::env::var_os("ACPMUX_SOCKET").filter(|v| !v.is_empty()).map(|_| path.to_path_buf());
     #[cfg(unix)]
-    let own = crate::config::socket_path_for(&home, None);
+    let own = crate::config::socket_path_for(home, None);
     // Windows derives its pipe path its own way; only the missing-home rule applies there.
     #[cfg(not(unix))]
     let own = path.to_path_buf();
     match crate::config::autostart_refusal(
-        &home,
+        home,
         std::env::var_os("ACPMUX_HOME").is_some(),
         configured.as_deref(),
         &own,
@@ -264,18 +263,24 @@ pub(super) async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -
     // keyed start (the app's restart over ssh) stays here and says so.
     #[cfg(target_os = "macos")]
     {
-        let this = crate::self_command::SelfCommand::current()?;
+        let choice = super::start_exe::current(&home())?;
         crate::config::private_state_dir(&home())?;
         let log = home().join("daemon.log");
         drop(open_daemon_log(&log)?);
-        let (home, keyed) = (home(), key.is_some());
+        let this = choice.this.clone();
+        let (home_dir, keyed) = (home(), key.is_some());
         let placed = tokio::task::spawn_blocking(move || {
-            login_session::start_in_login_session(&this, &home, &log, keyed)
+            login_session::start_in_login_session(&this, &home_dir, &log, keyed)
         })
         .await
         .map_err(|e| anyhow!("{e}"))?;
         match placed {
-            Ok(login_session::Started::Job(job)) => return wait_for_job(&path, job).await,
+            Ok(login_session::Started::Job(job)) => {
+                if let Ok(mut log) = open_daemon_log(&crate::config::home().join("daemon.log")) {
+                    super::log_start_choice(&mut log, &choice);
+                }
+                return wait_for_job(&path, job).await;
+            }
             Ok(login_session::Started::Running) => return Ok(LOCK_HELD_LINE.to_owned()),
             Ok(login_session::Started::No) => {}
             Ok(login_session::Started::NoGuiLogin) => {

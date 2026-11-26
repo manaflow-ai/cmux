@@ -159,7 +159,7 @@ fn a_newer_attempts_write_blocks_an_older_ones_rollback() {
     d.send(Event::TokenWorkQuiesced { flow: old, result: Ok(()) });
     d.send(Event::OnlineChecked { flow: old, online: true });
     d.send(Event::SignOutRequested);
-    d.send(Event::SignOutLocalCleared);
+    d.local_cleared();
     // A newer attempt writes the store first.
     let (newer, _) = d.sign_in_through_exchange(SignInKind::Password);
     assert!(newer.attempt > old.attempt);

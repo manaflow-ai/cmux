@@ -24,7 +24,11 @@ async function elapse(ms: number, run: () => void) {
 }
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
-  page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
+  page.provider.log
+    .filter((entry) => entry.op === op)
+    .map((entry) => entry.params)
+    // What a background mode last showed is kept beside each change (wallpaperSwitch.test.tsx covers it).
+    .filter((params) => (params as { key?: string }).key !== "appearance.backgroundMemory");
 
 test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({

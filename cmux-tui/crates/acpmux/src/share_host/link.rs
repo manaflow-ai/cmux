@@ -297,7 +297,82 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
             refresh_devices(shared);
             shared.relay(text);
         }
+        // Not relayed to the app: the approval is this daemon's to admit.
+        super::approval::PUSH => receive_approval(shared, push.clone()),
+        super::approval::CONTROL_PUSH => receive_control_approval(shared, push.clone()),
         _ => shared.relay(text),
+    }
+}
+
+/// A control approval the hub carried here (`approval.rs`): the owner's tap on their own
+/// device grants this Mac's "control for my other signed-in machines", so nobody has to be at
+/// the Mac to answer its one ask. Off unless the person turned on
+/// `devices.allowControlFromMyDevices` on this Mac; off, every one is refused. Admitted or refused, audited either way, off the socket
+/// thread. The grant is written by the same consent writer the Mac's own Allow click uses, for
+/// the account the approval was admitted for, and only while this Mac is joined as that account.
+fn receive_control_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-control".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive_control(
+                &*hub,
+                &push,
+                approval::now_secs(),
+                seen,
+                approval::control_allowed(),
+                |entry| approval::append_audit(&dir, entry),
+                crate::cli::cloud_join::grant_signed_in_machines_for,
+            )
+        });
+        match decision {
+            Ok(()) => {
+                tracing::info!("{LOG}: the owner's device allowed control from their machines")
+            }
+            Err(refused) => tracing::info!(
+                "{LOG}: control approval refused: {} {}",
+                refused.code,
+                refused.message
+            ),
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the control approval was not read: {e}");
+    }
+}
+
+/// A share approval the hub carried here (`approval.rs`): admitted (and sharing turned on) or
+/// refused, audited either way, off the socket thread (it reads the hub's device list and may
+/// turn sharing on). Approvals are decided one at a time, so a nonce is taken once.
+fn receive_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-approval".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive(&*hub, &push, approval::now_secs(), seen, |entry| {
+                approval::append_audit(&dir, entry);
+            })
+        });
+        match decision {
+            Ok(()) => {
+                shared.update_link(|link| link.sharing = Some(true));
+                tracing::info!("{LOG}: the owner's device turned sharing on");
+            }
+            Err(refused) => {
+                tracing::info!(
+                    "{LOG}: share approval refused: {} {}",
+                    refused.code,
+                    refused.message
+                );
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the share approval was not read: {e}");
     }
 }
 
@@ -343,7 +418,7 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         ),
         Route::End(reason) => Decided::End(
             reason,
-            format!("no app is attached to serve {}", printable(&ticket.peer_name)),
+            format!("{} is not served: {reason}", printable(&ticket.peer_name)),
         ),
     }
 }

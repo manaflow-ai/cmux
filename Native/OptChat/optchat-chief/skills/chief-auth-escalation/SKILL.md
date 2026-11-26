@@ -103,8 +103,10 @@ the line is `Needs you: sign in to SITE in the right pane` instead.
   without that entitlement, so its WebKit panes cannot offer the user's
   passkeys; use the NIGHTLY app or a CEF pane.
 - CEF (Chromium) panes use Chromium's own macOS WebAuthn (security keys, iCloud Keychain, phone QR).
-  A tab any agent call touched refuses WebAuthn (NotAllowedError) until the user clicks or types in
-  the page themselves, or until the `passkey` verb hands it over; your next call refuses again. So a
+  A tab an agent acted in (click, fill, press, eval, navigate) refuses WebAuthn (NotAllowedError) until
+  the user clicks or types in the page themselves, or until the `passkey` verb hands it over; your next
+  action refuses again. Reads (`state`, `snapshot`, `text`, `value`, `screenshot`, `wait` without
+  `--function`) never refuse, so watching the tab while the user signs in is safe. So a
   request the page started on its own failed (Cloudflare's 2FA: "Security key verification did not
   finish"): raise `passkey` with the page's "try again" or "Use security key" control as REF, or ask
   the user to click it.

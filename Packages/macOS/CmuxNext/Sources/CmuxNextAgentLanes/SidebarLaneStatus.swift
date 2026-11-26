@@ -42,6 +42,8 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
                 row.usageWarnings = usageWarnings(local)
+                // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
+                if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,
@@ -55,6 +57,12 @@ enum SidebarLaneStatus {
                         return nil
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
+                }
+                // `experiments.agentBadges`' Done pill: a chat's finished turn nobody has seen, as the Priority view ranks it.
+                row.agentDone = local.contains { lane in
+                    let read = marks.state.read[lane.id] == AgentPriorityMarks.stamp(lane)
+                    if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
+                    return false
                 }
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)
@@ -140,14 +148,14 @@ enum SidebarLaneStatus {
     /// Activity from the most recently started working lane that has any. acpmux derives
     /// lane.step from turn.prompt whenever it exists, then masks, folds and truncates it:
     /// comparing the strings would leak long prompts. Keep the opt-in Now line, using the
-    /// turn's activity/plan instead, or the lane step only when it has no prompt source.
+    /// turn's activity instead, or the lane step only when it has no prompt source.
     static func step(_ lanes: [AgentActivityLane]) -> String? {
         func firstLine(_ text: String?) -> String? {
             text?.split(whereSeparator: \.isNewline).first
                 .map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
         }
         return lanes.filter { $0.state == .working }.compactMap { lane -> (Date, String)? in
-            guard let text = firstLine(lane.turnActivity) ?? firstLine(lane.turnPlanStep)
+            guard let text = firstLine(lane.turnActivity)
                 ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
             return (lane.since ?? .distantPast, text)
         }.max { $0.0 < $1.0 }?.1

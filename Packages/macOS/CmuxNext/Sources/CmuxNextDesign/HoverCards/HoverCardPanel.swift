@@ -44,6 +44,9 @@ final class HoverCardPanel: NSPanel {
 
     /// The card's material; its `contentView` holds the body.
     let glass: OverlaySurfaceView
+    /// The shared hover surface's look the glass draws (``HoverSurfaceLook``): set at init, and again on a
+    /// show after the setting changed (a test or the material gallery may pin the material between).
+    private var hoverLook: HoverSurfaceLook
     /// The window's content: the card and its shadow, which the slide translates.
     var host: PopupHostView? { contentView as? PopupHostView }
     /// How far a slide carries the card inside its window: the clear room kept around the
@@ -109,14 +112,18 @@ final class HoverCardPanel: NSPanel {
     /// `HoverCardTiming.sweepInterval` is part of a sweep.
     private var lastPresentAt: CFTimeInterval?
 
-    init() {
+    /// `deferred` false makes the window-server window now (``HoverCardCoordinator/warm()``), not on the first show.
+    init(deferred: Bool = true) {
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
         // Bare themed glass, no solid card fill (`Glass.makeOverlayPanel`'s `cardFill`).
         glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, tone: .neutralGlass(.transient))
         // The card is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        // The shared hover surface: solid by default, the glass above when the setting says so.
+        hoverLook = HoverSurfaceLook.current
+        hoverLook.apply(to: glass)
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: deferred)
         Self.liveInstances += 1
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
@@ -177,6 +184,10 @@ final class HoverCardPanel: NSPanel {
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
                  entrance: HoverCardEntrance = .slide, retarget: HoverCardRetarget = .jump,
                  applyTheme: @escaping () -> Void) {
+        if HoverSurfaceLook.current != hoverLook {
+            hoverLook = HoverSurfaceLook.current
+            hoverLook.apply(to: glass)
+        }
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -215,54 +226,14 @@ final class HoverCardPanel: NSPanel {
             // SPINNER VIEW"). Another target's content (`sliding`) still fades over the last.
             crossfadeContent()
         }
-        if body !== newBody { MotionTrace.measure("hoverCard.swap") {
-            if newBody === leavingBody { endLeaving() }
-            if fadesBodies, let body { leave(body) } else { body?.removeFromSuperview() }
-            let container = glass.contentView
-            if newBody === parkedBody {
-                parkedBody = nil
-                newBody.isHidden = false
-            }
-            newBody.translatesAutoresizingMaskIntoConstraints = false
-            if newBody.superview !== container { container.addSubview(newBody) }
-            // Bottom and trailing just below required: `place()` lays the glass out at the last
-            // card's size before it measures and resizes, and a required pair there conflicted
-            // with the new body's fixed rows and width limits on every hover retarget (about 650
-            // of 1564 "Unable to simultaneously satisfy constraints" in 3 h of NIGHTLY logs, up
-            // to 39 a second, each solved and logged on the main thread). 999 still beats the
-            // fitting-size compression, so `fittingSize` and the resting layout are the same.
-            let bottom = newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-            bottom.priority = .init(999)
-            let trailing = newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor)
-            trailing.priority = .init(999)
-            edgeConstraints = [
-                newBody.topAnchor.constraint(equalTo: container.topAnchor),
-                bottom,
-                newBody.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                trailing,
-            ]
-            sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
-            NSLayoutConstraint.activate(edgeConstraints)
-            body = newBody
-            // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
-            if fadesBodies { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
-        } }
+        install(newBody, fades: fadesBodies)
         isInteractive = interactive
         ignoresMouseEvents = !interactive
         acceptsMouseMovedEvents = interactive
         // The card draws in the theme scope of the view it describes and
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.
-        let scope = (themeAnchor?.themeScope ?? parent.themeScope).fullStrength
-        self.applyTheme = applyTheme
-        if adoptedScope !== scope {
-            scope.adopt(self)
-            scope.addResponder(self)
-            adoptedScope = scope
-            themeDidChange()
-        } else {
-            applyTheme()
-        }
+        adoptTheme(of: themeAnchor, parent: parent, applyTheme: applyTheme)
         if parentWindowRef !== parent {
             parentWindowRef?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -313,6 +284,78 @@ final class HoverCardPanel: NSPanel {
         }
     }
 
+    /// Puts `newBody` in the card, its edges pinned to the card's (no-op when it already is there).
+    /// Puts `newBody` in the card in place of the last body: the last fades out at its own size while
+    /// `newBody` fades in when `fades`, else the swap is at once (a first show, ``warm(_:parent:)``).
+    private func install(_ newBody: NSView, fades: Bool = false) {
+        guard body !== newBody else { return }
+        MotionTrace.measure("hoverCard.swap") {
+            if newBody === leavingBody { endLeaving() }
+            if fades, let body { leave(body) } else { body?.removeFromSuperview() }
+            let container = glass.contentView
+            if newBody === parkedBody {
+                parkedBody = nil
+                newBody.isHidden = false
+            }
+            newBody.translatesAutoresizingMaskIntoConstraints = false
+            if newBody.superview !== container { container.addSubview(newBody) }
+            // Bottom and trailing just below required: `place()` lays the glass out at the last
+            // card's size before it measures and resizes, and a required pair there conflicted
+            // with the new body's fixed rows and width limits on every hover retarget (about 650
+            // of 1564 "Unable to simultaneously satisfy constraints" in 3 h of NIGHTLY logs, up
+            // to 39 a second, each solved and logged on the main thread). 999 still beats the
+            // fitting-size compression, so `fittingSize` and the resting layout are the same.
+            let bottom = newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            bottom.priority = .init(999)
+            let trailing = newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            trailing.priority = .init(999)
+            edgeConstraints = [
+                newBody.topAnchor.constraint(equalTo: container.topAnchor),
+                bottom,
+                newBody.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                trailing,
+            ]
+            sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
+            NSLayoutConstraint.activate(edgeConstraints)
+            body = newBody
+            // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
+            if fades { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
+        }
+    }
+
+    /// The card draws in the theme scope of `themeAnchor` (else `parent`'s), at full strength, and follows its changes.
+    private func adoptTheme(of themeAnchor: NSView?, parent: NSWindow, applyTheme: @escaping () -> Void) {
+        let scope = (themeAnchor?.themeScope ?? parent.themeScope).fullStrength
+        self.applyTheme = applyTheme
+        if adoptedScope !== scope {
+            scope.adopt(self)
+            scope.addResponder(self)
+            adoptedScope = scope
+            themeDidChange()
+        } else {
+            applyTheme()
+        }
+    }
+
+    /// Does a first show's one-time work with nothing on screen (``HoverCardCoordinator/warm()``): puts `card`'s
+    /// body in the card, adopts its theme, lays the card out at its size and draws it once off screen (text layout,
+    /// glyph and image caches). The first `present` of that body then only configures, places and orders it in.
+    func warm(_ card: HoverCardBody, parent: NSWindow) {
+        guard !isVisible else { return }
+        install(card.view)
+        adoptTheme(of: card.themeAnchor, parent: parent, applyTheme: card.applyTheme)
+        host?.cornerRadius = card.cornerRadius ?? Self.cornerRadius
+        glass.layoutSubtreeIfNeeded()
+        let size = glass.fittingSize
+        guard size.width > 0, size.height > 0 else { return }
+        setFrame(CGRect(origin: frame.origin, size: size).insetBy(dx: -Self.windowMargin, dy: -Self.windowMargin), display: false)
+        guard let content = contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+        }
+    }
+
     /// Slides the card from `offset` (points from its rest place) back to rest on the panel
     /// spring, starting from what is on screen. Reduce Motion or speed off: at rest at once.
     func slide(from offset: CGVector) {
@@ -344,8 +387,10 @@ final class HoverCardPanel: NSPanel {
         motion.entryVector(for: placement)
     }
 
-    /// The key the content crossfade runs under.
-    static let crossfadeKey = "hoverCard.crossfade"
+    /// The key the content crossfade runs under: `kCATransition`, where Core Animation files every
+    /// transition whatever key it is added with. Under its own key ("hoverCard.crossfade") a sweep's
+    /// `removeAnimation(forKey:)` found nothing and the last move's crossfade ran on under the next card.
+    static let crossfadeKey = kCATransition
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
     /// thumbnail and size change in place this turn). Only the content crossfades: the glass,

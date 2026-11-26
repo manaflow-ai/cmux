@@ -2,8 +2,11 @@
 //!
 //! - `cmux inference gateway status [--personal]`: the team's (or the person's own) gateway: mode, named machine,
 //!   whether a gateway is online, its kind and since when (`GET /v1/cloud/inference-gateway[/personal]`).
-//! - `cmux inference gateway mode gateway|off [--personal] [--gateway-machine vm_… | --no-gateway-machine]`: sets it
-//!   (`PUT`). The person's own gateway serves every machine they created, in any team; the team's serves the team.
+//! - `cmux inference gateway mode gateway|off|joined [--personal] [--gateway-machine vm_…|machine_<uuid> |
+//!   --no-gateway-machine]`: sets it (`PUT`). The person's own gateway serves every machine they created, in any team;
+//!   the team's serves the team. `joined` serves only the team's hub-joined machines (`acpmux machine join`, their
+//!   `cmm_` credential): its Cloud machines get no edge rule, as in `off`. A joined machine named as the gateway
+//!   machine (`machine_<uuid>`) holds the socket with its own credential (`cmux inference gateway --token-command`).
 //! - `cmux inference route --machine vm_… [--agent claude|codex]`: which route that machine's next model call takes,
 //!   asked FROM the machine through its edge (`GET https://coderouter.cmux.internal/v1/cmux/route`), so it proves the
 //!   edge rule too. No model call is made and nothing secret is printed.
@@ -17,7 +20,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::cloud_client_session::secure_origin;
-use super::inference_gateway::{TokenSource, backend_token};
+use super::inference_gateway::{TokenSource, backend_credential};
 use cmux_cloud_api::machine_io::{Op, Request, RouteChoice, perform};
 use cmux_cloud_api::session::valid_machine;
 
@@ -35,13 +38,15 @@ edge does not reach the gateway service: the team and the owner have no gateway 
 ";
 pub(super) const ADMIN_HELP: &str = "\
   cmux inference gateway status [--personal] [--json]
-  cmux inference gateway mode gateway|off [--personal]
-                         [--gateway-machine vm_... | --no-gateway-machine] [--json]
+  cmux inference gateway mode gateway|off|joined [--personal]
+                         [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine] [--json]
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Common {
-    pub api: String,
+    /// The cmux API origin; `None` when nothing names one and the token is the app's: the API that issued the app's
+    /// token (`cmux auth token --json`'s `api_origin`), as the app runs `inference gateway status` with no `--api`.
+    pub api: Option<String>,
     pub team: Option<String>,
     pub token: TokenSource,
 }
@@ -98,28 +103,36 @@ pub(super) fn parse(
             "--agent" if kind == "route" => agent = Some(value()?),
             "--gateway-machine" if kind == "mode" => gateway_machine = Some(Some(value()?)),
             "--no-gateway-machine" if kind == "mode" => gateway_machine = Some(None),
-            "gateway" | "off" if kind == "mode" && mode.is_none() => mode = Some(arg.clone()),
+            "gateway" | "off" | "joined" if kind == "mode" && mode.is_none() => {
+                mode = Some(arg.clone());
+            }
             _ => return Err(format!("unexpected argument {arg}")),
         }
     }
-    let api = api
-        .or_else(|| env("CMUX_CLOUD_API_URL"))
-        .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
-    let api = secure_origin(&api)?;
     let token = token.unwrap_or_else(|| {
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
+    // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
+    let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
+        Some(api) => Some(secure_origin(&api)?),
+        None if token == TokenSource::App => None,
+        None => return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into()),
+    };
     let verb = match kind {
         "status" => Verb::Status { personal },
         "mode" => {
             if let Some(Some(m)) = &gateway_machine
                 && !valid_machine(m)
+                && !joined_machine(m)
             {
-                return Err("--gateway-machine takes a machine id (vm_...)".into());
+                return Err(
+                    "--gateway-machine takes a machine id (vm_..., or a joined machine's machine_<uuid>)"
+                        .into(),
+                );
             }
             Verb::Mode {
                 personal,
-                mode: mode.ok_or("mode takes gateway or off")?,
+                mode: mode.ok_or("mode takes gateway, off or joined")?,
                 machine: gateway_machine,
             }
         }
@@ -138,18 +151,44 @@ pub(super) fn parse(
     Ok((Common { api, team, token }, verb))
 }
 
+/// A hub-joined machine's id, as the join registry names it: `machine_` and a lowercase UUID.
+pub(super) fn joined_machine(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("machine_") else { return false };
+    let groups: Vec<&str> = uuid.split('-').collect();
+    groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12])
+        && groups
+            .iter()
+            .all(|g| g.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
 /// The admin path for `personal`.
 pub(super) fn route_path(personal: bool) -> &'static str {
     if personal { "/v1/cloud/inference-gateway/personal" } else { "/v1/cloud/inference-gateway" }
 }
 
+/// The API a verb asks: the one named (`--api`, `CMUX_CLOUD_API_URL`), else the one that issued the app's token.
+pub(super) fn api_origin(named: Option<&str>, issued_by: Option<&str>) -> Result<String, String> {
+    match (named, issued_by) {
+        (Some(api), _) => Ok(api.to_owned()),
+        (None, Some(issued)) => secure_origin(issued),
+        (None, None) => {
+            Err("--api (or CMUX_CLOUD_API_URL) names the cmux API; the app's token named none"
+                .into())
+        }
+    }
+}
+
 /// The verb's JSON answer and exit code (0 ok, 1 refused or failed).
 pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
-    let token = match backend_token(&common.token, common.team.as_deref()).await {
+    let (token, issued_by) = match backend_credential(&common.token, common.team.as_deref()).await {
         Ok(t) => t,
         Err(e) => return (error_json("auth.no_token", &e), 1),
     };
-    let http = match reqwest::Client::builder()
+    let api = match api_origin(common.api.as_deref(), issued_by.as_deref()) {
+        Ok(api) => api,
+        Err(e) => return (error_json("cli.invalid_args", &e), 2),
+    };
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway_admin")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
@@ -160,7 +199,7 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
     };
     let answer = match verb {
         Verb::Status { personal } | Verb::Mode { personal, .. } => {
-            let url = format!("{}{}", common.api, route_path(*personal));
+            let url = format!("{}{}", api, route_path(*personal));
             let mut request = match verb {
                 Verb::Mode { mode, machine, .. } => {
                     let mut body = serde_json::Map::new();
@@ -189,17 +228,27 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
                 },
             }
         }
-        Verb::Route { machine, agent } => route(&http, common, &token, machine, agent).await,
+        Verb::Route { machine, agent } => route(&http, &api, common, &token, machine, agent).await,
     };
     let ok = answer.get("ok").and_then(Value::as_bool) == Some(true);
     (answer, if ok { 0 } else { 1 })
 }
 
-/// The status or mode answer, scoped: `{ok, scope, gateway}` or the API's error object.
+/// The agents a gateway in mode `gateway` that is online serves now: Claude and Codex (the agents the edge routes
+/// through it, `cmux inference route`'s `team_gateway` / `owner_gateway`); none for any other state. `joined` serves
+/// none here: it takes only hub-joined machines' calls, never a Cloud chat's.
+pub(super) const GATEWAY_SERVES: [&str; 2] = ["claude", "codex"];
+
+/// The status or mode answer, scoped: `{ok, scope, gateway, serves}` or the API's error object. `serves` is what the
+/// app's Cloud start gate counts (CmuxNextCloud `CloudSetup`, hq#15762): a team in gateway mode whose gateway is
+/// online serves its members' Cloud chats with no connection of their own.
 pub(super) fn status_answer(personal: bool, body: &Value) -> Value {
     match body.get("gateway") {
         Some(gateway) if body.get("ok").and_then(Value::as_bool) == Some(true) => {
-            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway})
+            let up = gateway.get("mode").and_then(Value::as_str) == Some("gateway")
+                && gateway.get("online").and_then(Value::as_bool) == Some(true);
+            let serves: &[&str] = if up { &GATEWAY_SERVES } else { &[] };
+            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway, "serves": serves})
         }
         _ => api_error(body),
     }
@@ -246,13 +295,14 @@ pub(super) fn probe_answer(machine: &str, agent: &str, stdout: &str) -> Value {
 
 async fn route(
     http: &reqwest::Client,
+    api: &str,
     common: &Common,
     token: &str,
     machine: &str,
     agent: &str,
 ) -> Value {
     let request = Request {
-        api: common.api.clone(),
+        api: api.to_owned(),
         credential: token.to_owned(),
         team: common.team.clone(),
         machine: machine.to_owned(),

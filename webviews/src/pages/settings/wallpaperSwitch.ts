@@ -30,6 +30,8 @@ export type WallpaperValues = {
   schedule: Record<string, string> | null;
   /** `appearance` (the light or dark frame) or `time` (frames follow the sun). */
   dynamic: string;
+  /** What each mode last showed (appearance.backgroundMemory); none when absent. */
+  memory?: WallpaperMemory;
 };
 
 /** A picture the background can show; `dynamic`: a macOS dynamic wallpaper (frames by sun or clock). */
@@ -60,88 +62,45 @@ export function isShuffle(id: string): boolean {
 // What each mode last showed, kept while another mode is on (Leo, 2026-11-19: "switched around from
 // the rotating to day/night/whatever but it lost the folder ... i couldn't get back into it"). Light &
 // Dark and Time of Day keep theirs in their own keys; Rotate's folder and Off's picture live only in
-// appearance.background, which the next mode writes over, so the page keeps them: for the life of
-// the page, and in its web view's storage while that store lives. A new Settings web view may start with an
-// empty store (nothing is kept on disk); keeping these in a host-backed key is the follow-up.
-const MEMORY_KEY = "cmux.settings.wallpaperSwitch.memory";
-/** shuffle: what Rotate last showed; folder: the last folder it shuffled (kept while it shows the
- * paintings, so the folder stays one click away); fixed: the picture Off last showed. */
-type WallpaperMemory = { shuffle: string | null; folder: string | null; fixed: string | null };
-const EMPTY: WallpaperMemory = { shuffle: null, folder: null, fixed: null };
+// appearance.background, which the next mode writes over, so they are kept in a settings key of their
+// own, appearance.backgroundMemory. It is in the settings file, so a new Settings web view and cmux
+// after a restart read it back.
+export const MEMORY_KEY = "appearance.backgroundMemory";
+/** rotate: what Rotate last showed; folder: the last folder it shuffled (kept while it shows the
+ * paintings, so the folder stays one click away); off: the picture Off last showed. */
+export type WallpaperMemory = { rotate: string | null; folder: string | null; off: string | null };
+export const NO_MEMORY: WallpaperMemory = { rotate: null, folder: null, off: null };
 
-function storage(): Storage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
+/** The memory a stored value holds; a member of the wrong shape is none. */
+export function readMemory(value: unknown): WallpaperMemory {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return NO_MEMORY;
+  const stored = value as Record<string, unknown>;
+  const text = (key: string) => (typeof stored[key] === "string" ? (stored[key] as string) : null);
+  const rotate = text("rotate");
+  const folder = text("folder");
+  const off = text("off");
+  return {
+    rotate: rotate !== null && isShuffle(rotate) ? rotate : null,
+    folder: folder !== null && folder.startsWith(FOLDER_PREFIX) ? folder : null,
+    off: off !== null && isFixed(off) ? off : null,
+  };
 }
 
-function loadMemory(): WallpaperMemory {
-  try {
-    const raw = storage()?.getItem(MEMORY_KEY);
-    const parsed = (raw ? JSON.parse(raw) : {}) as Partial<WallpaperMemory>;
-    const text = (value: unknown) => (typeof value === "string" ? value : null);
-    const shuffle = text(parsed.shuffle);
-    const folder = text(parsed.folder);
-    const fixed = text(parsed.fixed);
-    return {
-      shuffle: shuffle !== null && isShuffle(shuffle) ? shuffle : null,
-      folder: folder !== null && folder.startsWith(FOLDER_PREFIX) ? folder : null,
-      fixed: fixed !== null && isFixed(fixed) ? fixed : null,
-    };
-  } catch {
-    return EMPTY;
-  }
-}
-
-let memory: WallpaperMemory | null = null;
-
-function remembered(): WallpaperMemory {
-  memory ??= loadMemory();
-  return memory;
-}
-
-/** The shuffle Rotate last showed (a folder or the paintings), or null before any. */
-export function rememberedShuffle(): string | null {
-  return remembered().shuffle;
-}
-
-/** The folder Rotate last shuffled (`folder:<path>`), or null before any. */
-export function rememberedFolder(): string | null {
-  return remembered().folder;
-}
-
-/** The picture Off last showed (`none` when No Wallpaper was chosen), or null before any. */
-export function rememberedFixed(): string | null {
-  return remembered().fixed;
-}
-
-/** Keeps what `background` shows for its mode: a shuffle (and its folder) for Rotate, a picture for Off. */
-export function rememberBackground(background: string): void {
-  const now = remembered();
+/** The memory once `background` was shown: a shuffle (and its folder) for Rotate, a picture for
+ * Off. Null when it already holds that, so there is nothing to write. */
+export function rememberBackground(memory: WallpaperMemory, background: string): WallpaperMemory | null {
   const next: WallpaperMemory = isShuffle(background)
-    ? { ...now, shuffle: background, folder: background.startsWith(FOLDER_PREFIX) ? background : now.folder }
+    ? { ...memory, rotate: background, folder: background.startsWith(FOLDER_PREFIX) ? background : memory.folder }
     : isFixed(background)
-      ? { ...now, fixed: background }
-      : now;
-  if (next.shuffle === now.shuffle && next.folder === now.folder && next.fixed === now.fixed) return;
-  memory = next;
-  try {
-    storage()?.setItem(MEMORY_KEY, JSON.stringify(next));
-  } catch {
-    // No storage: the page still holds it while it lives.
-  }
+      ? { ...memory, off: background }
+      : memory;
+  if (next.rotate === memory.rotate && next.folder === memory.folder && next.off === memory.off) return null;
+  return next;
 }
 
-/** Tests: forget what the modes showed. */
-export function forgetWallpaperMemory(): void {
-  memory = EMPTY;
-  try {
-    storage()?.removeItem(MEMORY_KEY);
-  } catch {
-    // Nothing kept.
-  }
+/** The value to store: only the members that hold something. */
+export function memoryValue(memory: WallpaperMemory): Record<string, string> {
+  return Object.fromEntries(Object.entries(memory).filter((entry): entry is [string, string] => entry[1] !== null));
 }
 
 /** A macOS dynamic wallpaper: the host marks it (`dynamic`); without the mark, a system `.madesktop`

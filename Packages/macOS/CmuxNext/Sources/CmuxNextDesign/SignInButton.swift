@@ -15,7 +15,7 @@ public import AppKit
 @MainActor
 public final class SignInButton: ClickableButton {
     /// The default title, "Sign In".
-    public nonisolated static var defaultTitle: String { String(localized: "signIn.button", defaultValue: "Sign In", bundle: .module) }
+    public nonisolated static var defaultTitle: String { String(localized: "signIn.button", defaultValue: "Sign In", bundle: .localizedModule) }
     /// The identifier every Sign In button carries, so automation and tests find it.
     public static let identifier = NSUserInterfaceItemIdentifier("cmux.signIn.button")
 
@@ -54,6 +54,12 @@ public final class SignInButton: ClickableButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Draws the disabled title in the look's disabled ink, not AppKit's faded label.
+    public override class var cellClass: AnyClass? {
+        get { OwnInkButtonCell.self }
+        set {}
+    }
 
     /// The sizes the button draws at now.
     public var metrics: SignInButtonMetrics {
@@ -106,7 +112,9 @@ public final class SignInButton: ClickableButton {
         let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            return CmuxDialogButtonLook(role: .default, tokens: tokens, state: state)
+            // A Sign In button sits on a page or pane, not a dialog card: its disabled fill fades toward the window.
+            return CmuxDialogButtonLook(role: .default, tokens: tokens, state: state, isEnabled: isEnabled,
+                                        card: CmuxDialogButtonLook.windowSurfaces(tokens))
         }
     }
 
@@ -119,7 +127,6 @@ public final class SignInButton: ClickableButton {
             layer?.backgroundColor = look.fill.nsColor.cgColor
             layer?.cornerRadius = metrics.cornerRadius
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = NSFont.systemFont(ofSize: metrics.textSize, weight: .semibold)
             attributedTitle = NSAttributedString(string: signInTitle, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }

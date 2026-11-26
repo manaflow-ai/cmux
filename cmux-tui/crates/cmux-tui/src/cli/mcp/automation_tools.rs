@@ -99,7 +99,7 @@ const TOOLS: &[AutomationTool] = &[
     AutomationTool {
         name: "automation_teleport",
         verb: "teleport",
-        description: "Move an automation to another place: to cloud (cmux Cloud), home (this Mac, from Cloud) or ssh:HOST[:DIR] (another machine). Exactly one place runs it at any time; a move that did not finish resumes when called again, abort cancels it. A shell command cannot move to Cloud.",
+        description: "Move an automation to another place: to cloud (cmux Cloud), home (this Mac, from Cloud), ssh:HOST[:DIR] (another machine) or exec:PROGRAM (a program on this machine that imports it elsewhere: the spec on its stdin, exit 0 with an id on stdout moves it, exit 2 refuses). Exactly one place runs it at any time; a move that did not finish resumes when called again, abort cancels it. A shell command cannot move to Cloud.",
         mutation: true,
         destructive: false,
     },
@@ -248,7 +248,7 @@ fn descriptor(tool: &AutomationTool) -> Value {
     if tool.verb == "teleport" {
         properties.insert(
             "to".into(),
-            json!({"type": "string", "minLength": 1, "description": "cloud, home or ssh:HOST[:DIR]."}),
+            json!({"type": "string", "minLength": 1, "description": "cloud, home, ssh:HOST[:DIR] or exec:PROGRAM."}),
         );
     }
     if tool.mutation {

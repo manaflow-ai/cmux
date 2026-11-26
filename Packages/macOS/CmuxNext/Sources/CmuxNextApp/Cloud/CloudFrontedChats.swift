@@ -1,5 +1,7 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAppCore
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextTabs
@@ -16,13 +18,7 @@ import Observation
 @MainActor
 @Observable
 final class CloudFrontedChats {
-    /// The Cloud chat a Mac tab shows: its machine, tab and the workspace that holds it there.
-    struct Front: Codable, Hashable, Sendable {
-        let machine: String
-        let key: String
-        let workspace: String
-        var tab: AgentTabKey { AgentTabKey(machine: machine, key: key) }
-    }
+    typealias Front = AgentTabCloudFront
 
     private struct Entry: Codable { let machine: String; let key: String; let front: Front }
 
@@ -35,8 +31,8 @@ final class CloudFrontedChats {
     @ObservationIgnored var defaults: @MainActor () -> UserDefaults? = { nil }
     /// Ends a Cloud chat whose Mac tab closed: its workspace on its machine.
     @ObservationIgnored var closeCloud: @MainActor (Front) -> Void = { _ in }
-    /// Draws Mac tab `key` again (its panes' `showSelected`), once it shows a different page.
-    @ObservationIgnored var reshow: @MainActor (AgentTabKey) -> Void = { _ in }
+    /// Draws Mac tab `mac` again (its panes' `showSelected`) once Cloud tab `cloud`, the chat it showed, went.
+    @ObservationIgnored var reshow: @MainActor (_ mac: AgentTabKey, _ cloud: AgentTabKey) -> Void = { _, _ in }
 
     var isEmpty: Bool { fronts.isEmpty && making.isEmpty }
 
@@ -71,13 +67,13 @@ final class CloudFrontedChats {
         } else if let mac = mac(showing: tab) {
             fronts[mac] = nil
             persist()
-            reshow(mac)
+            reshow(mac, tab)
         }
     }
 
     /// The fronts kept by the last run.
     func restore() {
-        guard let data = defaults()?.data(forKey: Self.defaultsKey), let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return }
+        guard let data = defaults()?.data(forKey: Self.defaultsKey), let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return } // main-actor-ok: one small list (an entry per agent tab with a Cloud front), read once at launch.
         for entry in entries { fronts[AgentTabKey(machine: entry.machine, key: entry.key)] = entry.front }
     }
 
@@ -99,9 +95,13 @@ extension CloudFrontedChats {
             // task-owner: one close request; the workspace's row never showed, so nothing waits on it
             Task { _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: front.workspace)) }
         }
+        // Its new page says the Cloud chat ended, the start's prompt back in its composer: never a blank chat (cmux#55066).
         // After the release that dropped the front: a show now would make the Mac tab's page inside that release.
-        // task-owner: one main hop; it shows nothing once the app's services went
-        fronts.reshow = { [weak services] mac in Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } } }
+        fronts.reshow = { [weak services] mac, cloud in
+            if let tabs = services?.agentTabs, let seed = AgentPaneCloudStarted.endedSeed(tabs.pageChats.cloudStarted.removeValue(forKey: cloud), machine: services?.machines.session(cloud.machine)?.machine.title) { tabs.seeds[mac] = seed }
+            // task-owner: one main hop; it shows nothing once the app's services went
+            Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } }
+        }
         fronts.restore()
     }
 
@@ -153,5 +153,60 @@ extension CloudStartChat {
         services.agentTabs.release(mac.key, machine: mac.machine)
         services.agentTabs.frontedChats.front(mac, with: front)
         CloudFrontedChats.showSelected(mac.key, services: services)
+    }
+}
+
+/// A Cloud chat's Terminal and Browser on its Cloud machine (``CloudChatToolRoute``, cmux#55413).
+extension CloudFrontedChats {
+    /// Opens tool `kind` of chat tab `chat` on its Cloud machine: true once routed there (a refusal says why), nil
+    /// for a chat that is not a Cloud machine's or a tool its own pane opens on the machine already.
+    static func openTool(_ kind: RightColumnPlacement.Kind, chat: AgentTabKey, cwd: String?, services: AppServices) -> Bool? {
+        guard let session = services.machines.session(chat.machine) else { return nil }
+        let fronts = services.agentTabs.frontedChats, mac = fronts.mac(showing: chat), context = AppActionContext(services: services)
+        switch CloudChatToolRoute.resolve(kind == .browser ? .browser : kind == .terminal ? .terminal : .other, onCloud: true, shownOnThisMac: mac != nil) {
+        case .asLocal:
+            return nil
+        case .desktopBeside, .desktopWorkspace:
+            // A machine with no desktop: a chat in its machine's workspace keeps its pane's browser tab (which runs on the
+            // machine where it has a browser host); a Mac tab showing the chat says why, never a tab on this Mac.
+            guard (try? CloudHandlers.desktopRecord(session)) != nil else {
+                guard mac != nil else { return nil }
+                services.registry.refuse(CloudStrings.desktopUnavailable(session.machine.title))
+                return true
+            }
+            // A Mac tab in no window opens the desktop as Open Desktop does, in its own workspace.
+            if let mac, openDesktop(session, beside: mac, services: services) { return true }
+            do { try CloudHandlers.openDesktop(session, context) } catch { services.registry.refuse(CloudStrings.errorText(error)) }
+        case .machineTerminal:
+            // Never in the chat's own workspace, which no window shows.
+            let skipping = fronts.workspaceIDs
+            CloudHandlers.runTracked("open Cloud chat terminal", context) {
+                let anchor = try await CloudHandlers.terminalAnchor(on: session, context, skipping: skipping)
+                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(cwd: cwd, workspace: anchor.key))
+                CloudHandlers.reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context)
+            }
+        }
+        return true
+    }
+
+    /// The machine's desktop in a browser tab beside Mac tab `mac`, where the header's Browser opens on a chat of this
+    /// Mac (``RightColumnPlacement``). A person clicked it, so it connects without asking, as Open Desktop's tab does:
+    /// the approval goes on the exact tab this open made, once listed. False when the Mac tab is in no window.
+    static func openDesktop(_ session: CloudMachineSession, beside mac: AgentTabKey, services: AppServices) -> Bool {
+        guard let record = try? CloudHandlers.desktopRecord(session), let (_, pane) = services.locateTab(mac.key, onMachine: mac.machine),
+              let source = services.paneController(for: pane) else { return false }
+        let url = record.url, scope = ActionRunScope.current, cache = services.cache
+        return services.linkOpener.open(from: source, besideChat: true, kind: .browser, opening: .tool, split: services.linkOpener.browserSplit(nil)) { target, placed in
+            let store = target.daemon.store
+            return target.newBrowserTab(url: url, placementOwner: placed != nil) { surface in
+                placed?(surface)
+                // task-owner: one wait for the new tab's mirror, bounded by CloudWait.holds's 10 s; it then records one approval.
+                Task { [weak cache] in
+                    guard await CloudWait.holds(within: .seconds(10), until: { store.tab(surface: surface) != nil }), let id = store.tab(surface: surface)?.id else { return }
+                    cache?.personOpenedRemoteView(id, url: url, scope: scope)
+                }
+            }
+        }
     }
 }

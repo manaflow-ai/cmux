@@ -44,6 +44,11 @@ impl Brain {
                 urls.push(item.clone());
                 continue;
             }
+            if call.delay_seconds.is_some() {
+                return Err(
+                    "send: a message sent later carries text and URLs; send files now".into(),
+                );
+            }
             let path = media::local_path(item, home.as_deref()).ok_or_else(|| {
                 format!("send: attachment {item:?} is not an absolute path, ~/path, file:// or http(s) URL")
             })?;
@@ -113,6 +118,9 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
+        if let Some(seconds) = call.delay_seconds {
+            fingerprint.push_str(&format!("\u{0}delay={seconds}"));
+        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -158,6 +166,9 @@ impl Brain {
                 part_index: 0,
             });
             *thread_root = Some(root.clone());
+        }
+        if let Some(seconds) = call.delay_seconds {
+            return self.send_later(entry, key, seconds);
         }
         self.sent_keys.insert(key.clone());
         // The wake run's `result`: the posted text, or the files it sent.
@@ -220,6 +231,38 @@ impl Brain {
         answer.push_str(&self.untold_refusals());
         Ok(answer)
     }
+
+    /// `send` with `delay_seconds`: the conversation owner holds the message
+    /// and posts it as the Chief then (`conversation-scheduled-v1`), whether
+    /// or not the Chief runs; the user sees it waiting and can change it.
+    fn send_later(
+        &mut self,
+        entry: crate::state::OutboxEntry,
+        key: String,
+        seconds: u64,
+    ) -> Result<String, String> {
+        let send_at_ms = super::now_ms().saturating_add(seconds.saturating_mul(1_000));
+        let daemon = self
+            .daemon
+            .as_mut()
+            .ok_or("send: the conversation is not connected yet; try again")?;
+        let id = match daemon.schedule(&entry.conversation, &entry.op, send_at_ms) {
+            Ok(id) => id,
+            // The same message under its key is already queued (a replay
+            // returns it) or already sent: never queue it a second time.
+            Err(crate::daemon::OpError::Rejected(reason))
+                if reason.contains("idempotency_conflict") =>
+            {
+                self.sent_keys.insert(key);
+                return Ok("outcome: noop. this message is already scheduled or sent".to_owned());
+            }
+            Err(error) => return Err(format!("send: not scheduled: {error}")),
+        };
+        self.sent_keys.insert(key);
+        Ok(format!(
+            "outcome: done. scheduled {id} to send in {seconds} s"
+        ))
+    }
 }
 
 impl Brain {
@@ -248,7 +291,7 @@ impl Brain {
 /// What an owner's reject code means for the Chief.
 fn refusal_meaning(reason: &str) -> &'static str {
     if reason.contains("agent_budget") {
-        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing; keep the news for your next answer to them"
+        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing: end the turn (stop). The host keeps what is owed (untold outcomes, unannounced starts) and puts it in your turn for the person's next message"
     } else if reason.contains("idempotency_conflict") {
         "this message's key was already used for other text (a host bug)"
     } else {
