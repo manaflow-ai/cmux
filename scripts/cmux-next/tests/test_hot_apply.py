@@ -716,6 +716,8 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
         self.publish(FIX, rules="a" * 64)
+        # The first plan kept FIX's record under state/keys/hot; CI's republish replaces it there too.
+        (self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").unlink()
         code, plan, err = self.plan()
         self.assertEqual(code, 0, err)
         self.assertEqual(plan["via"], "published keys")
@@ -2297,4 +2299,10 @@ class RefusedOverlayRollback(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

@@ -425,6 +425,8 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// `PeerConfig` `group`: the person's own placing of this machine (`own` or `agent`).
+    group_override: StdMutex<Option<String>>,
     /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
     /// (`Peer::wake` runs it once per wake window).
     wake_hook: std::sync::OnceLock<WakeHook>,

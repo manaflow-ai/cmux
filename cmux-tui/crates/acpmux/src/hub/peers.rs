@@ -206,6 +206,7 @@ impl Hub {
         peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
+        peer.set_group_override(pc.group.clone());
         peer.set_wake_hook(self.peer_wake.clone());
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -312,6 +313,7 @@ impl Hub {
                 peer_token,
                 vm_boundary,
                 github_broker,
+                group: same.and_then(|old| old.group.clone()),
             };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
@@ -410,12 +412,14 @@ impl Hub {
             let same = next.get(name).filter(|n| n.url == pc.url);
             pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
             pc.github_broker = same.is_some_and(|n| n.github_broker);
+            pc.group = same.and_then(|n| n.group.clone());
             if !leases.contains_key(name)
                 && let Some(peer) = peers.get(name)
                 && peer.url == pc.url
             {
                 peer.set_vm_boundary(pc.vm_boundary);
                 peer.set_github_broker(pc.github_broker);
+                peer.set_group_override(pc.group.clone());
             }
         }
     }
@@ -580,19 +584,57 @@ impl Hub {
         }
     }
 
+    /// The refusal for a second parent-less start on a provisioned VM (`agent_vm::one_parent_refusal`).
+    pub fn one_parent_check(
+        &self,
+        peer: &crate::peer::Peer,
+        asks_parent: bool,
+    ) -> Option<RpcError> {
+        if asks_parent {
+            return None;
+        }
+        let leased =
+            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&peer.name);
+        let group = super::agent_vm::refused_group(leased, peer.group_override().as_deref());
+        if group != "agent" {
+            return None;
+        }
+        let rows: Vec<Value> = self
+            .remote_sessions
+            .read()
+            .live_of_peer(&peer.name)
+            .map(|r| r.summary.value())
+            .collect();
+        super::agent_vm::one_parent_refusal(&peer.name, group, asks_parent, rows)
+    }
+
     pub fn peers(&self) -> Vec<Value> {
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
+        let registry = super::agent_vm::registry_now();
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
             let peers = self.peers.load();
             let listed = peers
                 .values()
                 .map(|p| {
-                    let mut summary = p.summary();
+                    let mut s = p.summary();
                     if p.leased {
-                        summary.set("leased", Value::Bool(true));
+                        s.set("leased", Value::Bool(true));
                     }
-                    (p.name.clone(), summary)
+                    // Which of the person's pickers lists it (`agent_vm::group_of`).
+                    let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {
+                        set: p.group_override(),
+                        vm_boundary: p.vm_boundary(),
+                        leased: p.leased,
+                        registry_agent_vm: registry
+                            .as_ref()
+                            .is_some_and(|r| super::agent_vm::agent_vm_in(r, &p.name, &p.url)),
+                    });
+                    s.set("group", json!(group));
+                    if let Some(n) = s.pointer("/health/liveSessions").and_then(Value::as_u64) {
+                        s.set("liveSessions", json!(n));
+                    }
+                    (p.name.clone(), s)
                 })
                 .collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
@@ -622,6 +664,16 @@ impl Hub {
             if let Some(hub) = crate::share_host::device_hub_of(&host) {
                 row.set("deviceHub", hub);
             }
+            // Reached only through the hub: no config, no link of ours; the registry alone says.
+            let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {
+                set: None,
+                vm_boundary: false,
+                leased: false,
+                registry_agent_vm: registry.as_ref().is_some_and(|r| {
+                    super::agent_vm::agent_vm_in(r, &host, &format!("ssh://{host}"))
+                }),
+            });
+            row.set("group", json!(group));
             row
         }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());

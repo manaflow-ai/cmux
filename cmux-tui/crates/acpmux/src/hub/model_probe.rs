@@ -334,6 +334,11 @@ impl Hub {
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        // A probe dropped before its end below (the 60 s bound in `probe_models`, a stopping
+        // daemon's runtime) would leave its agent running for good: the agent's exit watcher
+        // holds it, so its child's `kill_on_drop` never fires. The group ends on that drop.
+        #[cfg(unix)]
+        let mut group = EndGroupOnDrop(child.pid.and_then(|p| i32::try_from(p).ok()));
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -390,6 +395,8 @@ impl Hub {
             }
         };
         child.kill().await;
+        #[cfg(unix)]
+        group.disarm();
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
@@ -398,6 +405,33 @@ impl Hub {
         })
         .await;
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
+    }
+}
+
+/// SIGKILL to a probe's process group (its agent leads one, `agent/command.rs`) when the probe
+/// is dropped before it ended its agent itself.
+#[cfg(unix)]
+pub(super) struct EndGroupOnDrop(pub(super) Option<i32>);
+
+#[cfg(unix)]
+impl EndGroupOnDrop {
+    /// The probe ended its agent: nothing is left to signal, and the group id may be reused.
+    pub(super) fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for EndGroupOnDrop {
+    fn drop(&mut self) {
+        // Never group 0 or 1: those name this daemon's own group and every process.
+        if let Some(group) = self.0.filter(|g| *g > 1) {
+            // SAFETY: killpg takes a process group id and a signal; the group is the probe's
+            // agent's, which the probe has not ended (or this was disarmed).
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+        }
     }
 }
 

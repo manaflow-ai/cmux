@@ -53,7 +53,7 @@ public nonisolated extension String {
             let count = bytes.count
             var from = 0
             while from + quoted.count <= count {
-                guard let hit = quoted.withUnsafeBytes({ memmem(base + from, count - from, $0.baseAddress, quoted.count) })
+                guard let hit = quoted.withUnsafeBytes({ memmem(base + from, count - from, $0.baseAddress!, quoted.count) })
                 else { return false }
                 var i = UnsafeRawPointer(base).distance(to: UnsafeRawPointer(hit)) + quoted.count
                 from = i

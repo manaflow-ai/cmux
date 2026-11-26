@@ -26,6 +26,11 @@ path = "tests/test_asc_review_package.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_asc_subscription_records.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_asc_subscription_records.py"
+
+[[test]]
 path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
@@ -97,6 +102,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cargo_test_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cas_derived_data_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cas_web_ota_replay.py"
 lane = "linux-guard"
 
 [[test]]
@@ -619,6 +632,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_post_edit_checks.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_prefetch_sparse_checkout.py"
+lane = "manual"
+reason = "No ci-guards step runs it yet. Pins scripts/ci/prefetch-sparse-checkout.sh (path_route's checkout): run python3 tests/test_prefetch_sparse_checkout.py after editing it or scripts/ci/path-route-sparse-checkout.txt."
 
 [[test]]
 path = "tests/test_preflight_trust.py"

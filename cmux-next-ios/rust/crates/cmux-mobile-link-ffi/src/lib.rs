@@ -37,6 +37,7 @@ mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
+mod screen;
 mod share_approval;
 mod tabs;
 mod terminal_chat;

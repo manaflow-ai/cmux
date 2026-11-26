@@ -152,11 +152,11 @@ impl Owners {
             Err(_) => return,
         };
         if let Some(dir) = file.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            let _ = crate::home_fs::create_dirs(dir);
         }
         let tmp = file.with_extension("json.tmp");
-        if std::fs::write(&tmp, body).is_ok() {
-            let _ = std::fs::rename(&tmp, file);
+        if crate::home_fs::write(&tmp, body).is_ok() {
+            let _ = crate::home_fs::rename(&tmp, file);
         }
     }
 }
@@ -254,14 +254,14 @@ pub async fn check(owner: &str, daemon: &Path) -> Result<Duration, String> {
 fn bind(socket: &Path) -> Result<UnixListener> {
     use std::os::unix::fs::FileTypeExt;
     if let Some(dir) = socket.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     match std::fs::symlink_metadata(socket) {
         Ok(meta) if meta.file_type().is_socket() => {
             if std::os::unix::net::UnixStream::connect(socket).is_ok() {
                 return Err(anyhow!("{} is already served", socket.display()));
             }
-            std::fs::remove_file(socket)
+            crate::home_fs::remove_file(socket)
                 .with_context(|| format!("remove stale {}", socket.display()))?;
         }
         Ok(_) => return Err(anyhow!("{} exists and is not a socket", socket.display())),

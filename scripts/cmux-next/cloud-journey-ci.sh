@@ -6,7 +6,8 @@
 # misnamed secret, as backend.yml journey-preview's CMUX_JOURNEY_DEV_STACK_* was, cmuxterm-hq#8702) is an
 # error and exit 1, verdict not-run: a journey never skips silently. A baseline (below) still exits 0.
 #
-# Around a deploy (cmux-vm.yml): JOURNEY_PHASE=baseline before it (never fails the job), then
+# Around a deploy (cmux-vm.yml; cloud-machine-channel-journey.yml for the Cloud machine
+# channel): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
 # which rolls the Worker back), 1 for a red that was already red before, 0 when green.
 #
@@ -108,12 +109,15 @@ run() { # label, extra args...
   fi
   if [ "${JOURNEY_RUST:-}" = 1 ] && [ -n "${CMUX_PATH:-}" ]; then rust_run "$label" "$dir" "$@"; fi
   if [ "$phase" = after ]; then
-    # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,
-    # which is reported and never rolls the Worker back.
+    # Only exit 3 is a proven green-to-red step. Exit 4 is a capacity-only red (no machine available, or rate
+    # limited: cloud-journey.ts capacityOnly), the platform's load and never the deploy's; any other nonzero exit
+    # is the compare itself failing. Neither rolls the deploy back.
     local rc=0
     bun "$here/cloud-journey.ts" --compare "$out/baseline-$label/journey.json" "$dir/journey.json" > "$dir/compare.txt" 2>&1 || rc=$?
     cat "$dir/compare.txt" >> "$summary"
-    if [ "$rc" = 3 ]; then regressed=1; elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
+    if [ "$rc" = 3 ]; then regressed=1
+    elif [ "$rc" = 4 ]; then echo "::warning title=Cloud journey::capacity-only red (no machine available or rate limited); not rolling back"
+    elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
   fi
 }
 run test-team

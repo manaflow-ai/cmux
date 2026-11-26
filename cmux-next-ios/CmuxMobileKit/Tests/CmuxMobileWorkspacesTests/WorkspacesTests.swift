@@ -5,15 +5,6 @@ import Observation
 import Testing
 @testable import CmuxMobileWorkspaces
 
-/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
-/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
-/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
-@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
-    source.paneFilter = PaneFilterSetting(defaults: nil)
-    source.paneFilter.showsBrowsers = true
-    return source
-}
-
 @Suite struct RelativeStampTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -37,6 +28,15 @@ import Testing
 import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
+
+/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
+/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
+/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
+@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
+    source.paneFilter = PaneFilterSetting(defaults: nil)
+    source.paneFilter.showsBrowsers = true
+    return source
+}
 
 @MainActor @Suite struct WorkspaceTabsSourceTests {
     func make(_ memory: [String: String] = [:], backend: (any WorkspaceCreationBackend)? = MockWorkspaceCreationBackend(latency: .zero))
@@ -744,6 +744,21 @@ import SwiftUI
         #expect(source.tabs.last?.id == id)
         #expect(source.activeTabID == id)
         #expect(store.lastTabByWorkspace["ws-cmux"] == id)
+    }
+
+    /// Leo, 2026-11-25: "the top area is black and has no background nor theming". The band
+    /// behind the top bar over a terminal is the terminal's ground, never the kit's black;
+    /// other pages keep the kit's band.
+    @Test func aTerminalsTopBarBandIsItsPagesGround() throws {
+        let (_, source) = make()
+        let tabs = Dictionary(uniqueKeysWithValues: source.tabs.map { ($0.id, $0) })
+        let terminal = try #require(tabs["t-zsh"])
+        #expect(source.topBarGround(for: terminal) != nil, "a terminal's band shows its ground")
+        #expect(tabs["t-claude"].flatMap { source.topBarGround(for: $0) } == nil)
+        #expect(tabs["t-docs"].flatMap { source.topBarGround(for: $0) } == nil)
+        // The ground's color is the terminal theme's background, as the page under the bar.
+        let theme = CmuxMobileTerminalThemes.shared.theme(for: source.workspace?.macID) ?? .stock
+        #expect(TerminalPageGround.background(macID: source.workspace?.macID) == theme.backgroundColor)
     }
 
     @Test func tabsMapToTabsKitChrome() {

@@ -21,6 +21,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod signature;
 pub mod sync;
 #[cfg(test)]
 mod tests;
@@ -185,6 +186,10 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // acpmux's own, in the session/ space: each session's dot glyph.
+        request::<signature::SignatureParams, signature::SignatureResult>(
+            method::SESSION_SIGNATURE,
+        ),
         // Which of the connection's requests still run (server/in_flight.rs `states`).
         untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
@@ -346,6 +351,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_HISTORY_DELETE, Request),
+        untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
         untyped(method::MUX_AUTO_SESSION_MOVE, Request),

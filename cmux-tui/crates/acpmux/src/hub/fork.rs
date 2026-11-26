@@ -488,7 +488,7 @@ impl Hub {
             let made = if target.is_some() {
                 // Onto another harness: its agent reads the subagent's turns (`rehydrate`), not
                 // the copy, which no one resumes.
-                let _ = std::fs::remove_file(&copy.file);
+                let _ = crate::home_fs::remove_file(&copy.file);
                 Made::Fresh
             } else {
                 Made::Copy(copy.copy.clone())

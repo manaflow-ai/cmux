@@ -50,10 +50,20 @@ comes from the Actions runs API (`actions: read`, $GH_TOKEN): the newest run of 
 have ended success, skipped or neutral; any other conclusion, a run still going, none at all or an unread answer keeps the
 head's usual tier. A head that merges something else, carries its own commit, or targets another base is unchanged.
 
+Land carry rule (goal ci-runner-min-per-day-50k): a `ready-to-land` head into feat-cmux-next that only merges the base
+(GitHub's update-branch, which land asks for, or an agent's own merge of feat-cmux-next) onto a previous head whose
+full tier passed runs the cheap tier, and pr-router.yml carries `cmux/land-tier` success to it. "Passed" means the
+previous head carries `cmux/land-tier` success (it ran the full tier) and its every Actions run ended green
+(green_previous). About 48% of PR commits were base merges on 11-24, about half of them update-branch, and a landing
+head's update-branch re-ran the whole full tier only to re-prove the change its previous head had proved. An unread
+status or runs answer, a run still going, a red one, a commit of its own or `full-ci` keeps the full tier. Leo:
+"de facto, im asking for 99% fewer minutes of ci time, period."
+
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
-off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off. Stdlib only; anything unreadable gives
+off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_CARRY=0 turns the land carry rule
+off (a landing base merge runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
 """
 
@@ -72,6 +82,8 @@ FULL_CI = "full-ci"
 LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to land
 LAND_BASE = "feat-cmux-next"
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
+# The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
+CARRY_REASON = "land tier carried"
 IDLE_HOURS = 24
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
 GREEN = frozenset({"success", "skipped", "neutral"})
@@ -152,6 +164,43 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
     return data["workflow_runs"]
 
 
+def land_status_at(repo: str, sha: str, token: str) -> str | None:
+    """The state of the `cmux/land-tier` commit status at SHA (success, pending, ...), "" when it has none, or None
+    when it cannot be read."""
+    if not (re.fullmatch(r"[\w.-]+/[\w.-]+", repo) and re.fullmatch(r"[0-9a-f]{40}", sha) and token):
+        return None
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import deadline_http  # the router's sparse checkout carries it beside this file
+        req = urllib.request.Request(f"{API}/repos/{repo}/commits/{sha}/status?per_page=100", headers={
+            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        data = json.loads(body) if status == 200 else None
+    except Exception:  # fail open: an unread status keeps the full tier
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("statuses"), list):
+        return None
+    states = [str(item.get("state") or "") for item in data["statuses"]
+              if isinstance(item, dict) and item.get("context") == LAND_STATUS]
+    return states[0] if states else ""  # the combined status lists each context's newest status once
+
+
+def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
+    """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
+    head into feat-cmux-next (land_rule_applies), without `full-ci`, with both switches on."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    return ((carry_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
+            and event.get("action") == "synchronize" and land_rule_applies(event)
+            and LAND_LABEL in labels and FULL_CI not in labels)
+
+
+def carried(decided: tuple[str, str]) -> bool:
+    """Whether a decide() answer is the land carry rule's (its head carries `cmux/land-tier` success)."""
+    return decided[0] == "cheap" and decided[1].startswith(CARRY_REASON)
+
+
 def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0") -> bool:
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
     feat-cmux-next (land_rule_applies) with both switches on and neither full-tier label."""
@@ -165,7 +214,7 @@ def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = 
 
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
-         green_switch: str = "1") -> tuple[str, str]:
+         green_switch: str = "1", carry_switch: str = "1") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
@@ -190,6 +239,12 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
                          "by git, not GitHub: the cheap tier runs, and the branch's next commit of its own, "
                          "`full-ci`, or land's update-branch runs the full tier")
+    if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
+            and carry_rule_applies(event, carry_switch, land_switch)):
+        return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
+                         f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
+                         f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
+                         f"own or {FULL_CI} runs the full tier")
     if (switch or "1").strip() == "0" and pr.get("draft") is True:
         return "full", "CI_DRAFT_CHEAP_TIER=0"
     if pr.get("draft") is True:
@@ -265,10 +320,12 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     land_switch = os.environ.get("CI_LAND_TIER", "1")
     sync_switch = os.environ.get("CI_SYNC_MERGE_CHEAP", "1")
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
+    carry_switch = os.environ.get("CI_LAND_CARRY", "1")
     labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
-    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted)
+    carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
+    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted)
               and FULL_CI not in labels)
     facts = head_facts(event) if wanted else None
     if facts and facts.get("base_merge_only") and green_wanted:
@@ -276,7 +333,15 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
             runs = runs_at(os.environ.get("GITHUB_REPOSITORY", ""), str(facts.get("previous") or ""),
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
-    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch)
+    if facts and facts.get("base_merge_only") and carry_wanted:
+        repo = os.environ.get("GITHUB_REPOSITORY", "")
+        previous = str(facts.get("previous") or "")
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        landed = land_status_at(repo, previous, token) == "success"
+        runs = runs_at(repo, previous, token) if landed else None
+        facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
+    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
+                carry_switch)
 
 
 def _load(path: str) -> dict:

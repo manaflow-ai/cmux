@@ -122,6 +122,8 @@ cmux-json.workspace = true
 # and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
 cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-netwatch.workspace = true
+# The agent dot signature (`session/signature`, src/server/requests/signature.rs).
+cmux-wallpaper = { path = "../cmux-wallpaper", features = ["schema"] }
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
 # Auto mode's shared core (src/auto_session/): the Cloud API's types, the holder's state machine
@@ -186,6 +188,7 @@ cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
+cmux-intent.workspace = true
 dirs = "6"
 # Read the containing app identity for DEV helper discovery and the app orphan exit
 # (src/daemon/app_orphan.rs).
@@ -290,6 +293,8 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-build-space = { workspace = true, features = ["testing"] }
+# Seeded-secret tests: gated clients send to a local capture server (hub/forum_hosted.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).

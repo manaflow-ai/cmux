@@ -86,7 +86,6 @@ extension WorkspaceRowView {
             [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
             pinMark.setTint(Palette.textTertiary)
-            usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -276,17 +275,6 @@ extension WorkspaceRowView {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
         }
-        if !usageWarningMark.isHidden {
-            // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
-            // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
-            // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
-            // box). Like every other mark it gives way to the hover controls in place (no move); the row's hover card
-            // still names each warning.
-            if columnMark?.view !== usageWarningMark {
-                usageWarningMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
-                trailing = usageWarningMark.frame.minX - Metrics.space2
-            }
-        }
         if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
             trailing = columns.trailingEdge(before: audioSlot.frame)
@@ -310,6 +298,7 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
+        textX = layoutSignature(textX: textX, cy: cy)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -344,10 +333,10 @@ extension WorkspaceRowView {
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
         // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
-        // status stack, the counts, the time and the usage warning hide in place (no layout shift). Only what a person
-        // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
+        // status stack, the counts and the time hide in place (no layout shift). Only what a person
+        // points at keeps its place: the audio button.
         let controlsShow = !shownControls.isEmpty
-        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             // A leading status mark sits before the title, clear of the hover controls: it never gives way.
             let statusMark = mark === activity || (mark === agentMark && markReplacesStatus)

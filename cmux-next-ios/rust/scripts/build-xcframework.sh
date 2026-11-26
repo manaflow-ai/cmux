@@ -12,7 +12,8 @@
 #           linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"),
 #                            .linkedFramework("CFNetwork")]),
 #
-# Environment: JOBS (default 6), IPHONEOS_DEPLOYMENT_TARGET (default 17.0),
+# Environment: JOBS (default 6), IPHONEOS_DEPLOYMENT_TARGET (default 17.0), CARGO_TARGET_DIR
+# (default rust/target; the CI step passes a warm per-worker dir, scripts/ci/ios_ffi_cache.py build),
 # DEVELOPER_DIR (default /Applications/Xcode.app/Contents/Developer; the
 # selected command line tools have no iOS SDK). SKIP_VERIFY=1 skips the
 # Swift typecheck and simulator link check.
@@ -25,6 +26,7 @@ export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 # Thin LTO would leave LLVM bitcode that Apple's ld may not read.
 export CARGO_PROFILE_RELEASE_LTO=off
 jobs="${JOBS:-6}"
+target_dir="${CARGO_TARGET_DIR:-$rust_dir/target}"
 name=CmuxMobileLinkFFIFFI
 lib=libcmux_mobile_link_ffi.a
 targets=(aarch64-apple-ios aarch64-apple-ios-sim)
@@ -44,19 +46,23 @@ cargo fetch --locked
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 nix_src="$(ls -d "$cargo_home"/registry/src/*/nix-0.26.4 2>/dev/null | head -1)"
 [[ -d "$nix_src" ]] || { echo "error: nix-0.26.4 source not found under $cargo_home/registry/src" >&2; exit 1; }
-patched="$rust_dir/target/ios-patches/nix-0.26.4"
-rm -rf "$patched"
+# The patched copy lives in the target dir at a fixed path, and an identical copy is kept as it is:
+# a path dependency is fingerprinted by its files' mtimes, so rewriting it would rebuild nix and
+# every crate above it (webrtc-*) in a warm target dir.
+patched="$target_dir/ios-patches/nix-0.26.4"
+staged="$patched.new"
+rm -rf "$staged"
 mkdir -p "$(dirname "$patched")"
-cp -R "$nix_src" "$patched"
-chmod -R u+w "$patched"
+cp -R "$nix_src" "$staged"
+chmod -R u+w "$staged"
 sed -i '' -e 's/libc::sockaddr_ctl/crate::darwin_ctl::sockaddr_ctl/g' \
-  -e 's/libc::AF_SYS_CONTROL/crate::darwin_ctl::AF_SYS_CONTROL/g' "$patched/src/sys/socket/addr.rs"
+  -e 's/libc::AF_SYS_CONTROL/crate::darwin_ctl::AF_SYS_CONTROL/g' "$staged/src/sys/socket/addr.rs"
 sed -i '' -e 's/libc::SYSPROTO_EVENT/crate::darwin_ctl::SYSPROTO_EVENT/g' \
-  -e 's/libc::SYSPROTO_CONTROL/crate::darwin_ctl::SYSPROTO_CONTROL/g' "$patched/src/sys/socket/mod.rs"
+  -e 's/libc::SYSPROTO_CONTROL/crate::darwin_ctl::SYSPROTO_CONTROL/g' "$staged/src/sys/socket/mod.rs"
 # A path dependency is linted like workspace code; nix denies `unused`, which
 # newer rustc reports on code nix never meant to keep.
-sed -i '' -e 's/^#!\[deny(unused)\]/#![allow(warnings)]/' "$patched/src/lib.rs"
-cat >> "$patched/src/lib.rs" <<'RUST'
+sed -i '' -e 's/^#!\[deny(unused)\]/#![allow(warnings)]/' "$staged/src/lib.rs"
+cat >> "$staged/src/lib.rs" <<'RUST'
 
 /// cmux-next-ios patch: Darwin's system-control socket items, which libc no
 /// longer exports for iOS (`<sys/kern_control.h>`, `<sys/sys_domain.h>`).
@@ -78,14 +84,21 @@ pub mod darwin_ctl {
     }
 }
 RUST
-cp Cargo.lock "$rust_dir/target/ios-patches/Cargo.lock.orig"
-restore_lock() { cp "$rust_dir/target/ios-patches/Cargo.lock.orig" "$rust_dir/Cargo.lock"; }
+if [[ -d "$patched" ]] && diff -rq "$staged" "$patched" >/dev/null 2>&1; then
+  rm -rf "$staged"
+else
+  rm -rf "$patched"
+  mv "$staged" "$patched"
+fi
+lock_orig="$(mktemp)"
+cp Cargo.lock "$lock_orig"
+restore_lock() { cp "$lock_orig" "$rust_dir/Cargo.lock"; rm -f "$lock_orig"; }
 trap restore_lock EXIT
 ios_patch=(--config "patch.crates-io.nix.path=\"$patched\"")
 
 for target in "${targets[@]}"; do
   cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib --target "$target" "${ios_patch[@]}"
-  exported="$(nm -g "target/$target/release/$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_link_ffi_' || true)"
+  exported="$(nm -g "$target_dir/$target/release/$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_link_ffi_' || true)"
   echo "$target: $exported exported uniffi symbols"
   [[ "$exported" -gt 0 ]] || { echo "error: $lib for $target exports no uniffi symbols" >&2; exit 1; }
 done
@@ -98,7 +111,7 @@ cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib
 gen="$(mktemp -d)"
 trap 'rm -rf "$gen"' EXIT
 cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library target/release/libcmux_mobile_link_ffi.dylib --language swift --out-dir "$gen"
+  generate --library "$target_dir/release/libcmux_mobile_link_ffi.dylib" --language swift --out-dir "$gen"
 
 sources="$cmux_mobile_dir/CmuxMobileKit/Sources/CmuxMobileLinkFFI"
 mkdir -p "$sources"
@@ -114,7 +127,7 @@ add_slice() {
   local slice="$1" supported="$2" variant="$3" target="$4"
   local fw="$xcf/$slice/$name.framework"
   mkdir -p "$fw/Headers" "$fw/Modules"
-  cp "target/$target/release/$lib" "$fw/$name"
+  cp "$target_dir/$target/release/$lib" "$fw/$name"
   cp "$gen/$name.h" "$fw/Headers/"
   printf 'framework module %s {\n    umbrella header "%s.h"\n    export *\n    module * { export * }\n}\n' \
     "$name" "$name" > "$fw/Modules/module.modulemap"

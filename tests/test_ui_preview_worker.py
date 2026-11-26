@@ -48,6 +48,8 @@ class PlanTests(unittest.TestCase):
     def test_web_paths_are_a_web_look(self):
         self.assertTrue(w.plan(["webviews/src/App.tsx"])["web"])
         self.assertTrue(w.plan(["cmux-tui/frontends/web/src/x.ts"])["web"])
+        self.assertTrue(w.plan(["design/icons/neko-candidates/a.svg"])["web"])
+        self.assertTrue(w.plan(["first-party-apps/notes/preview/index.html"])["web"])
 
     def test_the_web_tree_leaves_out_only_folders_no_web_file_imports(self):
         # bun install, protocol:codegen and the gallery read release-notes/, schemas/, Packages/ fixtures,
@@ -153,6 +155,77 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
+
+    def test_a_web_only_worker_shoots_no_swift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = False
+            receipt = worker.look(request())
+            self.assertEqual(worker.shot, [])
+            self.assertIn("shoots web scenes only", receipt["error"])
+
+
+class FollowTests(unittest.TestCase):
+    """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
+
+    def broker(self, answer):
+        calls = []
+
+        def call(tool, args, timeout):
+            calls.append((tool, args))
+            return answer
+
+        return calls, call
+
+    def test_a_first_start_takes_the_newest_seq_and_no_backlog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs = w.queue.Queue()
+            calls, call = self.broker({"seq": 41, "requests": [dict(request(), seq=41)]})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), jobs, None, call), 41)
+            self.assertTrue(jobs.empty())
+            self.assertEqual(calls, [("ui_preview_requests", {"after": 0, "wait": 0})])
+
+    def test_requests_after_the_seq_are_queued_and_the_seq_moves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs = w.queue.Queue()
+            web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
+            bad = {"seq": 43, "schema": "nope"}
+            _, call = self.broker({"seq": 43, "requests": [web, bad]})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), jobs, 41, call), 43)
+            req, _ = jobs.get_nowait()
+            self.assertEqual(req["ui_files"], ["webviews/src/a.tsx"])
+            self.assertTrue(jobs.empty())
+
+    def test_a_web_only_worker_leaves_swift_only_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = False
+            jobs = w.queue.Queue()
+            _, call = self.broker({"seq": 42, "requests": [dict(request(), seq=42)]})
+            self.assertEqual(w.follow_once(worker, jobs, 41, call), 42)
+            self.assertTrue(jobs.empty())
+
+    def test_lane_gh_call_reads_the_answers_data_and_names_a_refusal(self):
+        from unittest import mock
+        ran = []
+
+        def fake(argv, **kw):
+            ran.append(argv)
+            body = {"ok": True, "status": 200, "data": {"seq": 7}} if argv[2] == "ui_preview_requests" else \
+                {"ok": False, "status": 403, "error": "not this VM's file"}
+            return mock.Mock(returncode=0 if body["status"] == 200 else 1, stdout=json.dumps(body), stderr="")
+
+        with mock.patch.object(w.subprocess, "run", fake):
+            self.assertEqual(w.lane_gh_call("ui_preview_requests", {"after": 0}, 5), {"seq": 7})
+            with self.assertRaises(w.LookError):
+                w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq")
+        self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
+        self.assertEqual(ran[1][3], "manaflow-ai/cmuxterm-hq")
+
+    def test_a_reset_broker_queue_restarts_at_its_newest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, call = self.broker({"seq": 3, "requests": [], "reset": True})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), w.queue.Queue(), 90, call), 3)
 
 
 if __name__ == "__main__":

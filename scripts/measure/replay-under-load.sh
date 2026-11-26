@@ -7,7 +7,7 @@
 # VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
 # pass, with the [his Mac's] reading as a second series."
 #
-#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile]
+#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -21,14 +21,16 @@ root="$(git rev-parse --show-toplevel)"
 out="$root/artifacts/replay-under-load/reading.json"
 cores=""
 profile=0
+trace=""
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
     --seconds|--rate|--log|--warm) bench_args+=("$1" "$2"); shift 2 ;;
+    --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
@@ -84,6 +86,15 @@ status=0
 bun bench/replay-under-load.bench.ts --out "$work/bench.json" ${bench_args[@]+"${bench_args[@]}"} >"$work/bench.log" 2>&1 || status=1
 kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
 read -r load1 _ </proc/loadavg
+# --trace: the stress load stops first, then the attribution reads the trace here (streamed, so a big trace stays out
+# of memory), and the trace is kept gzipped beside it (TRACE.gz) for a fleet step's --artifact.
+if [ -n "$trace" ] && [ -s "$trace" ]; then
+  [ -n "$stress_pid" ] && kill "$stress_pid" 2>/dev/null && wait "$stress_pid" 2>/dev/null
+  stress_pid=""
+  ls -l "$trace" >&2
+  python3 -I "$root/scripts/measure/replay-attribution.py" "$trace" --json "$trace.attribution.json" || status=1
+  gzip -f -1 "$trace"
+fi
 if [ "$profile" -eq 1 ]; then
   cat "$work/bench.log"
 else

@@ -108,6 +108,8 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/job_input_fingerprint.py",
+            "scripts/ci/job_reuse.py",
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
@@ -122,7 +124,8 @@
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+            "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",

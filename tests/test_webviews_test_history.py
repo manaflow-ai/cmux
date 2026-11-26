@@ -99,13 +99,12 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
+            self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
-            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and

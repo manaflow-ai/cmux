@@ -3,10 +3,20 @@
 before and after, and hands them to the agent that pushed, with no app build and no agent action.
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
-                               [--publish-receipts CMD] [--no-warm]
+                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--follow]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
     ui-preview-worker.py submit --to http://HOST:PORT [REQUEST.json|-]
+    ui-preview-worker.py publish FILE HOST
+
+--follow takes requests from the lane-gh broker's push trigger itself (`lane-gh call ui_preview_requests`, a 20 s
+long-poll; cmuxterm-hq tools/lane-gh-broker/parts/49-calls-ui-preview.py), so a push needs no agent action and no
+POST. The last seq taken is kept in DIR/follow-seq; a first start begins at the broker's newest, not its backlog.
+--no-swift makes a web-only worker (a Linux host with no display or Xcode): it warms and shoots the web side only,
+takes from the broker only requests with a web file, and names a request's Swift scenes as not shot here.
+`publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
+broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
+`--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
 
 Goal auto-ui-preview-under-60s (cmuxterm-hq goals/auto-ui-preview-under-60s.md), cuts 3, 4, 5 and 7: the look runs
 on copies that stay warm between pushes instead of a NIGHTLY copied per look (hot-verify's fleet step: 154 s p50).
@@ -77,7 +87,9 @@ BASE_BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,200}$")
 BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,250}$")
-UI_PREFIXES = ("webviews/", "cmux-tui/frontends/web/", "Packages/macOS/CmuxNext/")
+# The web gallery also reads design/ (icons) and first-party-apps/<app>/preview: both are web looks.
+WEB_PREFIXES = ("webviews/", "cmux-tui/frontends/web/", "design/", "first-party-apps/")
+UI_PREFIXES = (*WEB_PREFIXES, "Packages/macOS/CmuxNext/")
 SWIFT_ROOT = "Packages/macOS/CmuxNext/Sources/"
 SHELL_PACKAGE = "Prototypes/UiLayerHost"
 SHELL_PRODUCT = "cmux-ui-layer"
@@ -209,7 +221,7 @@ def plan(files: list[str]) -> dict:
     needs_build: list[str] = []
     nothing: list[str] = []
     for path in files:
-        if path.startswith(("webviews/", "cmux-tui/frontends/web/")):
+        if path.startswith(WEB_PREFIXES):
             web = True
         elif path.startswith(SHELL_PACKAGE + "/Sources/"):
             swift.extend(ALL_SWIFT_SCENES)
@@ -250,6 +262,7 @@ class Worker:
         self.web_lock_hash: str | None = None
         self.lock = threading.Lock()
         self.receipt_lock = threading.Lock()
+        self.swift_on = True  # serve --no-swift: a web-only worker
 
     # The clone and its worktrees.
     def ensure_clone(self) -> None:
@@ -531,7 +544,10 @@ class Worker:
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
-        if planned["swift"]:
+        if planned["swift"] and not self.swift_on:
+            errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
+                          "scenes only")
+        elif planned["swift"]:
             try:
                 with stages("swift_before"):
                     before = self.swift_side(base, planned["swift"])
@@ -546,7 +562,7 @@ class Worker:
                     self.ensure_tree(self.web_tree, WEB_SPARSE, head)
                     if self.web_install():
                         self.stop_gallery()
-                    web_files = [f for f in req["ui_files"] if f.startswith(("webviews/", "cmux-tui/frontends/web/"))]
+                    web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
                     entries = self.web_scenes(web_files)
                 receipt["web_entries"] = entries
                 if entries:
@@ -711,14 +727,85 @@ def tailnet_address() -> str | None:
     return None
 
 
+FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
+FOLLOW_RETRY_S = 10  # after a failed call
+
+
+def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+    try:
+        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
+                              capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError) as err:
+        raise LookError(f"lane-gh call {tool}: {err}") from None
+    if done.returncode != 0:
+        raise LookError(f"lane-gh call {tool} exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+    try:
+        answer = json.loads(done.stdout)
+    except ValueError:
+        raise LookError(f"lane-gh call {tool}: not JSON: {tail(done.stdout)}") from None
+    if not isinstance(answer, dict) or answer.get("status") != 200:
+        raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
+    data = answer.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
+    """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
+                  FOLLOW_WAIT_S + 60)
+    newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
+    if after is None:
+        return newest
+    for raw in answer.get("requests") or []:
+        seq = raw.get("seq") if isinstance(raw, dict) else None
+        if isinstance(seq, int):
+            after = max(after, seq)
+        try:
+            req = check_request(raw)
+        except LookError as err:
+            log(f"follow: request {seq} not taken: {err}")
+            continue
+        if not worker.swift_on and not plan(req["ui_files"])["web"]:
+            continue  # Swift only: the display Mac's
+        jobs.put((req, time.monotonic()))
+        log(f"follow: request {seq} {req['head_sha'][:12]} ({req.get('branch')}) queued for {req['recipient']}")
+    if answer.get("reset"):
+        return newest  # the broker's queue restarted below our seq
+    return after
+
+
+def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
+    seq_file = worker.state / "follow-seq"
+    try:
+        after: int | None = int(seq_file.read_text().strip())
+    except (OSError, ValueError):
+        after = None
+    while True:
+        try:
+            nxt = follow_once(worker, jobs, after, call)
+        except LookError as err:
+            log(f"follow: {err}; again in {FOLLOW_RETRY_S} s")
+            time.sleep(FOLLOW_RETRY_S)
+            continue
+        if nxt != after:
+            after = nxt
+            with _suppress():
+                seq_file.write_text(f"{after}\n")
+
+
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
+    worker.swift_on = not args.no_swift
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
     if not args.no_warm:
-        log(f"warming: {json.dumps(worker.warm())}")
+        log(f"warming: {json.dumps(worker.warm(swift=worker.swift_on))}")
     jobs: queue.Queue = queue.Queue()
+    if args.follow:
+        threading.Thread(target=follow, args=(worker, jobs), name="follow", daemon=True).start()
 
     def drain() -> None:
         while True:
@@ -780,6 +867,19 @@ def command_submit(args) -> int:
     return 0
 
 
+def command_publish(args) -> int:
+    """FILE as ui-preview/HOST.json on cmuxterm-hq's reconciler-state/now-census (the broker's state_put)."""
+    try:
+        text = Path(args.file).read_text()
+        json.loads(text)
+        lane_gh_call("state_put", {"name": "now-census", "files": {f"ui-preview/{args.host}.json": text}},
+                     SEND_SECONDS, repo="manaflow-ai/cmuxterm-hq")
+    except (OSError, ValueError, LookError) as err:
+        print(f"ui-preview-worker: publish: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
@@ -795,6 +895,9 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--bind")
             p.add_argument("--port", type=int, default=8765)
             p.add_argument("--no-warm", action="store_true")
+            p.add_argument("--no-swift", action="store_true", help="a web-only worker (no display, no Xcode)")
+            p.add_argument("--follow", action="store_true",
+                           help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:
             p.add_argument("request", nargs="?", default="-")
             p.add_argument("--keep-gallery", action="store_true")
@@ -805,8 +908,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
+    p = sub.add_parser("publish")
+    p.add_argument("file")
+    p.add_argument("host")
     args = ap.parse_args(argv)
-    return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit}[args.command](args)
+    return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
+            "publish": command_publish}[args.command](args)
 
 
 if __name__ == "__main__":
