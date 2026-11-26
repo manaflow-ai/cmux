@@ -365,7 +365,10 @@ class LabelledPushTests(BranchRepo):
     def test_the_label_event_full_ci_switches_and_unread_heads_keep_the_full_tier(self) -> None:
         facts = head_tier.head_facts(self.landing(self.own))
         self.assertEqual(self.tier(self.landing(self.own, "labeled"), facts)[0], "full")
-        self.assertEqual(self.tier(self.landing(self.own, labels=("ready-to-land", "full-ci")), facts)[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own, labels=("ready-to-land", "full-ci")), facts,
+                                   full_ci_push_switch="0")[0], "full")
+        # With the full-ci push rule on, a push onto a PR carrying both labels is cheap too.
+        self.assertEqual(self.tier(self.landing(self.own, labels=("ready-to-land", "full-ci")), facts)[0], "cheap")
         self.assertEqual(self.tier(self.landing(self.own), facts, label_push_switch="0")[0], "full")
         self.assertEqual(self.tier(self.landing(self.own), facts, land="0")[0], "full")
         self.assertEqual(self.tier(self.landing(self.own), None)[0], "full")
@@ -390,6 +393,61 @@ class LabelledPushTests(BranchRepo):
                     os.environ.pop(n, None)
                 else:
                     os.environ[n] = v
+
+
+class FullCiPushTests(BranchRepo):
+    """The full-ci push rule: an agent's push onto a PR carrying full-ci runs the cheap tier; adding full-ci (the
+    labeled event), land's update-branch, an unread head, a fork and either switch off keep the full tier."""
+
+    landing = staticmethod(lambda sha, action="synchronize", labels=("full-ci",):
+                           LabelledPushTests.landing(sha, action, labels))
+    tier = LabelledPushTests.tier
+    github_merge = LabelledPushTests.github_merge
+
+    def test_an_own_commit_onto_a_full_ci_pr_runs_the_cheap_tier(self) -> None:
+        ev = self.landing(self.own)
+        got = self.tier(ev, head_tier.head_facts(ev))
+        self.assertEqual(got[0], "cheap", got)
+        self.assertIn("full-ci", got[1])
+
+    def test_an_agents_base_merge_onto_a_full_ci_pr_runs_the_cheap_tier(self) -> None:
+        ev = self.landing(self.head)
+        self.assertEqual(self.tier(ev, head_tier.head_facts(ev))[0], "cheap")
+
+    def test_the_label_event_switches_update_branch_unread_and_fork_keep_the_full_tier(self) -> None:
+        facts = head_tier.head_facts(self.landing(self.own))
+        self.assertEqual(self.tier(self.landing(self.own, "labeled"), facts)[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), facts, full_ci_push_switch="0")[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), facts, land="0")[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), None)[0], "full")
+        ev = self.landing(self.github_merge())
+        self.assertEqual(self.tier(ev, head_tier.head_facts(ev))[0], "full")
+        fork = self.landing(self.own)
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.tier(fork, facts)[0], "full")
+
+    def test_decide_reads_the_switch_and_the_router_posts_pending(self) -> None:
+        names = ("CI_LAND_TIER", "CI_FULL_CI_PUSH_CHEAP")
+        old = {n: os.environ.get(n) for n in names}
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            os.environ["CI_FULL_CI_PUSH_CHEAP"] = "1"
+            decided = head_tier.decide("pull_request", self.landing(self.own))
+            self.assertEqual(decided[0], "cheap")
+            self.assertEqual(pr_router.land_status(self.landing(self.own), decided), "pending")
+            os.environ["CI_FULL_CI_PUSH_CHEAP"] = "0"
+            self.assertEqual(head_tier.decide("pull_request", self.landing(self.own))[0], "full")
+        finally:
+            for n, v in old.items():
+                if v is None:
+                    os.environ.pop(n, None)
+                else:
+                    os.environ[n] = v
+
+    def test_every_workflow_that_reads_the_labelled_switch_reads_this_one(self) -> None:
+        for name in ("ci.yml", "pr-router.yml", "cmux-next.yml"):
+            text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / name).read_text()
+            self.assertIn("CI_FULL_CI_PUSH_CHEAP: ${{ vars.CI_FULL_CI_PUSH_CHEAP || '1' }}", text, name)
 
 
 class GreenBaseMergeTests(BranchRepo):
@@ -431,7 +489,7 @@ class GreenBaseMergeTests(BranchRepo):
         facts = self.facts(True)
         for label in ("full-ci", "ready-to-land"):
             self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
-                                  now=recent, label_push_switch="0")[0], "full", label)
+                                  now=recent, label_push_switch="0", full_ci_push_switch="0")[0], "full", label)
         # With the labelled push rule on, an agent's base merge onto a ready-to-land PR runs the cheap tier, not none.
         self.assertEqual(tier("pull_request", self.event(self.head, labels=("ready-to-land",)), facts=facts,
                               now=recent)[0], "cheap")

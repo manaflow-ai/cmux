@@ -63,7 +63,12 @@ Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every 
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_LABEL_PUSH_CHEAP=0 turns the labelled push
-rule off. Stdlib only; anything unreadable gives
+rule off; CI_FULL_CI_PUSH_CHEAP=0 turns the full-ci push rule off.
+
+The full-ci push rule: the same as the labelled push rule, for `full-ci`. An agent's own commit or base merge pushed
+onto a PR carrying `full-ci` runs the cheap tier (406 open PRs carried it on 2026-11-26, and about 90% of full-tier
+minutes went to PRs that did not merge). Adding `full-ci` (a `labeled` event) still runs the full tier at that head,
+and so does land: it re-adds `ready-to-land`, whose `labeled` event sees `full-ci` and runs the full tier. Stdlib only; anything unreadable gives
 `full`.
 """
 
@@ -185,15 +190,31 @@ def labelled_push(event: dict, facts: dict | None, land_switch: str = "0", switc
             and bool(facts) and facts.get("by_github") is False)
 
 
+def full_ci_push(event: dict, facts: dict | None, land_switch: str = "0", switch: str = "1") -> bool:
+    """Whether the full-ci push rule holds EVENT's head on the cheap tier: a `synchronize` of a PR into feat-cmux-next
+    from this repository (land_rule_applies) carrying `full-ci`, with both switches on, whose head commit's committer
+    was read and is not GitHub (FACTS["by_github"] is False). An unread head keeps the full tier."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    return ((switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
+            and event.get("action") == "synchronize" and land_rule_applies(event)
+            and FULL_CI in labels and bool(facts) and facts.get("by_github") is False)
+
+
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
-         green_switch: str = "1", label_push_switch: str = "1") -> tuple[str, str]:
+         green_switch: str = "1", label_push_switch: str = "1",
+         full_ci_push_switch: str = "1") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if full_ci_push(event, facts, land_switch, full_ci_push_switch):
+        return "cheap", (f"a push onto a PR that carries `{FULL_CI}`: the cheap tier runs; adding `{FULL_CI}` again "
+                         f"runs the full tier at this head, and land runs it at the head it lands (it re-adds "
+                         f"`{LAND_LABEL}`); {LAND_STATUS} stays pending until then")
     if FULL_CI in labels:
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
@@ -292,12 +313,16 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     sync_switch = os.environ.get("CI_SYNC_MERGE_CHEAP", "1")
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
     label_push_switch = os.environ.get("CI_LAND_LABEL_PUSH_CHEAP", "1")
+    full_ci_push_switch = os.environ.get("CI_FULL_CI_PUSH_CHEAP", "1")
     labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
     label_push_wanted = pull and label_push_switch.strip() != "0" and LAND_LABEL in labels
-    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or label_push_wanted)
-              and FULL_CI not in labels)
+    full_ci_push_wanted = (pull and full_ci_push_switch.strip() != "0" and land_switch.strip() not in ("0", "")
+                           and FULL_CI in labels)
+    wanted = pull and (full_ci_push_wanted or (
+        (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or label_push_wanted)
+        and FULL_CI not in labels))
     facts = head_facts(event) if wanted else None
     if facts and facts.get("base_merge_only") and green_wanted:
         if idle_switch.strip() == "0" or not idle(facts, time.time()):
@@ -305,7 +330,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                label_push_switch)
+                label_push_switch, full_ci_push_switch)
 
 
 def _load(path: str) -> dict:

@@ -969,6 +969,8 @@ jobs:
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
           # A push onto a PR that carries ready-to-land runs the cheap tier; land re-adds the label for the full tier (head_tier.py); 0 turns that off.
           CI_LAND_LABEL_PUSH_CHEAP: ${{ vars.CI_LAND_LABEL_PUSH_CHEAP || '1' }}
+          # The same for a push onto a full-ci PR; adding full-ci again runs the full tier (head_tier.py); 0 turns that off.
+          CI_FULL_CI_PUSH_CHEAP: ${{ vars.CI_FULL_CI_PUSH_CHEAP || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       # Why: 2026-11-24-path_route-3.md
       - name: Jobs red on the base right now
