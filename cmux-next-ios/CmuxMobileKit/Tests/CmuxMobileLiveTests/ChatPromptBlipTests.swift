@@ -131,7 +131,7 @@ import Testing
         store.send(prompt: "run the tests")
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
         await settle { store.clientError != nil }
-        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        #expect(store.clientError == AgentChatStore.macOfflineNotice("mini"))
         #expect(store.returnedDraft?.text == "run the tests")
 
         // The link comes back: the notice goes, the draft stays for the person to send.

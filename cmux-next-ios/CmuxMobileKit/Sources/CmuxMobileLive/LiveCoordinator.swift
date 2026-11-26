@@ -1567,7 +1567,7 @@ final class PendingAgentSource: AgentSessionSource {
     private func gaveBack(_ dropped: [AgentClientIntent]) {
         // Short, with nothing to decode: the draft is back in the composer and Send is the action
         // (Leo 2026-11-23: the old copy was "way too long and unactionable").
-        let reason = "Not sent: \(summary.macName) is offline."
+        let reason = AgentChatStore.macOfflineNotice(summary.macName)
         for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {

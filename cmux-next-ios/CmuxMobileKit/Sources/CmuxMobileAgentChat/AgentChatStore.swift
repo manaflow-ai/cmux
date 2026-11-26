@@ -340,13 +340,17 @@ public final class AgentChatStore {
     /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
     /// fleet lanes run in Bypass permissions): what to change to send it.
     public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
-    /// A notice that waits for the Mac to be back ("Not sent: mini was unreachable for more than
-    /// 10 seconds. Send again when it's back.", from a held message that came back to the
-    /// composer): stale once the link is back, or the person edits or sends the draft, and
-    /// cleared then (Leo, 2026-11-23: "things just work").
+    /// What the chat says when a held message comes back to the composer because the link was
+    /// down past the hold ("Not sent: mini is offline."). Every sender builds it here, so
+    /// ``isLinkNotSentNotice(_:)`` always recognizes it.
+    public nonisolated static func macOfflineNotice(_ macName: String) -> String {
+        "Not sent: \(macName) is offline."
+    }
+    /// A ``macOfflineNotice(_:)``: stale once the link is back, or the person edits or sends the
+    /// draft, and cleared then (Leo, 2026-11-23: "things just work").
     nonisolated static func isLinkNotSentNotice(_ notice: String?) -> Bool {
         guard let notice else { return false }
-        return notice.hasPrefix("Not sent: ") && notice.hasSuffix("Send again when it's back.")
+        return notice.hasPrefix("Not sent: ") && notice.hasSuffix(" is offline.")
     }
     /// The person edited the composer's draft: a "send again when it's back" notice about it goes.
     public func draftEdited() {

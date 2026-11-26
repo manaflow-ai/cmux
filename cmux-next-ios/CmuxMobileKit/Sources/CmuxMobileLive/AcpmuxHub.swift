@@ -1319,7 +1319,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard !done.isEmpty else { return }
         // Short, with nothing to decode: the draft is back in the composer and Send is the action
         // (Leo 2026-11-23: the old copy was "way too long and unactionable").
-        let reason = "Not sent: \(summary.macName) is offline."
+        let reason = AgentChatStore.macOfflineNotice(summary.macName)
         log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in done {
             guard let held = promptPayloads.removeValue(forKey: prompt.promptId) else { continue }
