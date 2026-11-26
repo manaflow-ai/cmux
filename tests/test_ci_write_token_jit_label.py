@@ -28,11 +28,13 @@ SWITCHES = {
     "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
+    "CI_SECRET_SKIP_FLEET": "cmux-gcp-secret-jit-x64",
 }
 LEAD = re.compile(r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| ")
 # workflow -> (marked lines that do not lead with a JIT label yet, why). A count, so a new unmoved job still fails.
 EXCEPTIONS = {
-    "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
+    "backend-migrations.yml": (1, "the required migration check moves to the gate label with its own policy PR, as on main; "
+                               "the other three lead with the secret JIT label"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
     "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
 }

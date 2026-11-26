@@ -116,7 +116,8 @@ class WiringTests(unittest.TestCase):
 
     def test_the_pool_matches_the_daemon_test_job(self):
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                  "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}")
         pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
         self.assertEqual(pools, [f"DAEMON_POOL: {runs_on}"] * 2)
 
