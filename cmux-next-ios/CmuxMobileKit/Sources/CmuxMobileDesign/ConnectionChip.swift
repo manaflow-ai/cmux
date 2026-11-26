@@ -27,9 +27,11 @@ private let theme = CmuxMobileTheme.standard
 public struct ConnectionChip: View {
     /// Every link state a chip can show, each with its one word pair and one symbol, so a state
     /// reads the same on every surface (the Home list, Workspaces, agent chat, the browser, the
-    /// terminal). The only place a chip's word or symbol is chosen.
+    /// terminal). The only place a chip's word or symbol is chosen. No state says a refresh over
+    /// rows the phone has is under way (Leo, 2026-11-24: "they dont need to know that it's
+    /// updating before they KNOW it's updating"), and only a kind that ``paints`` draws.
     public enum Kind: String, Sendable, Hashable, CaseIterable {
-        case connecting, reconnecting, updating
+        case connecting, reconnecting
         /// The phone has no network.
         case offline
         /// The phone is online, the Mac is not.
@@ -41,7 +43,6 @@ public struct ConnectionChip: View {
             switch self {
             case .connecting: String(localized: "Connecting")
             case .reconnecting: String(localized: "Reconnecting")
-            case .updating: String(localized: "Updating")
             case .offline: String(localized: "Offline")
             case .macOffline: String(localized: "Mac offline")
             case .cantReach: String(localized: "Can't reach")
@@ -49,23 +50,23 @@ public struct ConnectionChip: View {
         }
 
         /// Whether a chip of this kind is drawn at all. A link still trying (connecting,
-        /// reconnecting, updating, or "Can't reach" while it redials) draws nothing: the screen
+        /// reconnecting, or "Can't reach" while it redials) draws nothing: the screen
         /// keeps its last-known rows and the link comes back on its own (Leo, 2026-11-24: "all the
         /// connecting... indicators and the graying out of workspaces, nah let's not do that.
         /// let's just keep optimistically connecting and reinforcing the connection"). Only a
         /// fact the person can act on still shows: this phone has no network, or the Mac is off.
         public var paints: Bool {
             switch self {
-            case .connecting, .reconnecting, .updating, .cantReach: false
+            case .connecting, .reconnecting, .cantReach: false
             case .offline, .macOffline: true
             }
         }
 
-        /// Connecting, Reconnecting or Updating: the link is still being brought up (#55034).
+        /// Connecting or Reconnecting: the link is still being brought up (#55034).
         /// ``paints`` also hides "Can't reach" while the link redials.
         public var isStillTrying: Bool {
             switch self {
-            case .connecting, .reconnecting, .updating: true
+            case .connecting, .reconnecting: true
             case .offline, .macOffline, .cantReach: false
             }
         }
@@ -73,7 +74,7 @@ public struct ConnectionChip: View {
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? {
             switch self {
-            case .connecting, .reconnecting, .updating: nil
+            case .connecting, .reconnecting: nil
             case .offline: "wifi.slash"
             case .macOffline: "moon.zzz"
             case .cantReach: "exclamationmark.triangle"
@@ -118,7 +119,7 @@ public struct ConnectionChip: View {
                 .opacity(shown ? 1 : 0)
                 .allowsHitTesting(shown)
                 .accessibilityHidden(!shown)
-                .animation(.easeOut(duration: 0.2), value: shown)
+                .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
                 .modifier(QuietSince(quiet: quiet, downSince: downSince))
         }
     }
@@ -201,7 +202,7 @@ public extension ConnectionChip {
                 symbol
                     .opacity(shown ? 1 : 0)
                     .accessibilityHidden(!shown)
-                    .animation(.easeOut(duration: 0.2), value: shown)
+                    .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
                     .modifier(QuietSince(quiet: quiet, downSince: downSince))
             }
         }

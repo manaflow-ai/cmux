@@ -99,8 +99,6 @@ private struct StoredPage: Codable {
         var updatedAt: Double?
         var archived: Bool
         var lastPrompt: String?
-        var summary: String?
-        var nextAction: String?
     }
 
     var chats: [Chat]
@@ -110,7 +108,7 @@ private struct StoredPage: Codable {
         chats = page.chats.map {
             Chat(id: $0.id, title: $0.title, harness: $0.harness, cwd: $0.cwd, status: $0.status,
                  updatedAt: $0.updatedAt?.timeIntervalSince1970, archived: $0.archived,
-                 lastPrompt: $0.lastPrompt, summary: $0.summary, nextAction: $0.nextAction)
+                 lastPrompt: $0.lastPrompt)
         }
         nextCursor = page.nextCursor
     }
@@ -119,7 +117,7 @@ private struct StoredPage: Codable {
         AgentChatPage(chats: chats.map {
             AgentChatListing(id: $0.id, title: $0.title, harness: $0.harness, cwd: $0.cwd, status: $0.status,
                              updatedAt: $0.updatedAt.map(Date.init(timeIntervalSince1970:)), archived: $0.archived,
-                             lastPrompt: $0.lastPrompt, summary: $0.summary, nextAction: $0.nextAction)
+                             lastPrompt: $0.lastPrompt)
         }, nextCursor: nextCursor)
     }
 }

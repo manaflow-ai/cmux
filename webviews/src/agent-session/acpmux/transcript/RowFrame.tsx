@@ -1,11 +1,11 @@
 import React, {
-  Component as ReactComponent,
-  type ErrorInfo,
   useLayoutEffect,
   useRef,
   useState,
   useEffectEvent,
   useCallback,
+  Component as ReactComponent,
+  type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { sendPopEnabled } from "../chatDisplay";
@@ -15,9 +15,11 @@ import { NEXT_STEP } from "../conversation/turns";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
+import { useLiveThoughtRow } from "../liveThought";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
+import { DisclosureRow } from "../conversation/transcriptDisclosureModel";
 import { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { playSendMorph } from "../conversation/sendMorph";
 import { type RowProps, type OpenDiff } from "../rows/rowProps";
@@ -52,8 +54,8 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // A running command's output that moved on without the pane: this row alone draws it.
-    const row = useLiveToolRow(props.row, liveTools);
+    // What moved on without the pane (a running command's output, a thought): this row alone draws it.
+    const row = useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools);
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />
@@ -119,7 +121,9 @@ function UnrenderedRow() {
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
-/// (a font that loads, a custom renderer that grows).
+/// (a font that loads, a custom renderer that grows). A row kind fills the frame's slots (`lead`,
+/// `body`, `meta`, `actions`) through RowSlots (conversation/RowSlots.tsx), which places them, its
+/// actions in the fixed end slot; a prompt's footer does so far (UserBubble.tsx).
 export const RowFrame = React.memo(function RowFrame({
   row,
   kind,
@@ -143,6 +147,7 @@ export const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   sendThinking,
   enter,
+  enterUnseen,
   onEntered,
   loadFade,
   onLoadFaded,
@@ -213,6 +218,9 @@ export const RowFrame = React.memo(function RowFrame({
   sendThinking: boolean;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
+  /// The row arrived out of view (rowFrames `entersUnseen`): it draws in place, with no entrance, and
+  /// its arrival is still consumed. Read on the first mount only.
+  enterUnseen?: boolean;
   onEntered: (id: string) => void;
   /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
   loadFade: boolean;
@@ -239,7 +247,8 @@ export const RowFrame = React.memo(function RowFrame({
   if (acpmuxPerf.enabled) acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const [entering] = useState(enter);
+  const [arrived] = useState(enter);
+  const [entering] = useState(enter && enterUnseen !== true);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
   // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
@@ -298,7 +307,12 @@ export const RowFrame = React.memo(function RowFrame({
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
-  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
+  const content = (
+    <DisclosureRow.Provider value={row.id}>
+      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+    </DisclosureRow.Provider>
+  );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
@@ -323,7 +337,7 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => fadeInOnMount(), []);
   // Only the first mount enters.
   const enterOnMount = useEffectEvent(() => {
-    if (entering) onEntered(rowFrameKey(row));
+    if (arrived) onEntered(rowFrameKey(row));
   });
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit

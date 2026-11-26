@@ -38,6 +38,7 @@ pub mod chief_brains;
 mod chief_registry;
 mod command_context;
 mod conversation_drafts;
+mod conversation_inbox_once;
 mod conversation_live;
 mod conversation_search;
 mod conversation_store;
@@ -62,6 +63,8 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
+pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]
 pub mod tool_packs;

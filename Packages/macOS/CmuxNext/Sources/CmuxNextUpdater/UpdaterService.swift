@@ -146,9 +146,15 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
-    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
-    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
-    @ObservationIgnored public var afterimage: RelaunchAfterimage?
+    /// Restart to Update was clicked (set by the App: ``UpdateWindowHandoff/clicked()``): the pages' pictures
+    /// are saved now, while the windows are on screen and the click's feed read and pre-warm wait run, so
+    /// the windows leave at once when Sparkle commits to the relaunch (ask-ad4a68e740).
+    @ObservationIgnored public var picturesAtClick: (() -> Void)?
+    /// When Restart to Update was last clicked: the pre-warm wait is bounded from it (``installAfterPrewarm(_:)``).
+    @ObservationIgnored var installClickedAt: ContinuousClock.Instant?
+    /// Sparkle committed to an update's relaunch (``updaterWillRelaunchApplication()``); an abandoned install clears it.
+    /// The quit then skips Chromium's own shutdown: the relaunched app opens the same pages (ask-ad4a68e740).
+    @ObservationIgnored public internal(set) var relaunchingForUpdate = false
     /// The save of the pages' pictures a relaunch ran while its windows were still on screen
     /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
     /// nil: no relaunch took the windows off screen, the quit saves for itself.
@@ -160,6 +166,11 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// Reads the feed's notes index (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var indexLoader: (@Sendable () async -> [ReleaseNotesIndexEntry])?
+    /// "What's in this build": the PRs after this build through the staged one (``loadStagedPullRequests()``).
+    public internal(set) var stagedPullRequests: BuildPullRequests?
+    @ObservationIgnored var stagedPullRequestsTask: (build: String, task: Task<Void, Never>)?
     /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
     @ObservationIgnored var prewarmRun: StagedPrewarmRun?
     /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
@@ -175,10 +186,17 @@ public final class UpdaterService {
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
     @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
+    /// This build's PRs for About cmux's credits, read once per launch (``showAboutPanel()``).
+    @ObservationIgnored var aboutPullRequests: BuildPullRequests?
+    @ObservationIgnored var aboutPullRequestsTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
     public internal(set) var automaticUpdates = true
+    /// The automatic updater is paused (``AutomaticUpdatePause``): no scheduled, launch, wake, push or fast
+    /// checks, no automatic downloads, no Update When Idle relaunch. Check for Updates, its Update click and
+    /// Restart to Update still work. Fixed at init (the app passes ``AutomaticUpdatePause/app``).
+    public let pausesAutomaticUpdates: Bool
     /// Writes a setting the updater's cards change (set by the App).
     @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// A failed check after an update (``UpdateHealthCheck``) that offers Go Back on the notice card.
@@ -291,6 +309,14 @@ public final class UpdaterService {
     /// Sparkle relaunch.
     @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () async -> Bool, _ declined: @escaping @MainActor () -> Void,
                                                      _ inFront: @escaping @MainActor () -> Void) -> Void)?
+    /// Quits and reopens the app in front once it exits, with its launch home (``UpdateRelaunchBehind``
+    /// with `inBackground` false): the first closure runs just before the quit (false: the install
+    /// was taken over, so no quit), the second when the app did not quit. Nil lets Sparkle relaunch.
+    @ObservationIgnored public var reopenInFront: ((_ willQuit: @escaping @MainActor () async -> Bool,
+                                                    _ declined: @escaping @MainActor () -> Void) -> Void)?
+    /// The `open` options that bring the app back in its launch home (``RelaunchHome``); empty for
+    /// a launch in the account's own home.
+    @ObservationIgnored public var launchHomeOptions: () -> [String] = { RelaunchHome.openArguments() }
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// Holds an automatic install while a modal, sheet, menu or composition is up (``UpdateRelaunchMoment``).
@@ -357,12 +383,14 @@ public final class UpdaterService {
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
+                pausesAutomaticUpdates: Bool = false,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
-        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
+        self.pausesAutomaticUpdates = pausesAutomaticUpdates
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault && !pausesAutomaticUpdates
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         relaunchTimer = DemandTimer(owner: "UpdaterService.relaunch", clock: clock)
@@ -412,6 +440,9 @@ public final class UpdaterService {
             // agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = false
             controller.downloadsUpdatesInBackground = false
+            // Paused: Sparkle reads `SUEnableAutomaticChecks` at start, before the settings apply, for its
+            // launch check and its schedule. ``configure`` writes the setting's own value back once unpaused.
+            if pausesAutomaticUpdates { defaults.set(false, forKey: UpdateSettings.automaticChecksKey) }
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

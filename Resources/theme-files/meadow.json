@@ -7,6 +7,7 @@
 
   // Everforest's light terminal theme, with darker text so it reads at 5:1 or better.
   "appearance.theme": "Everforest Light Med",
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#efebd4", "foreground": "#3f4a50", "selection": "#e1ecbb", "accent": "#43602c", "12": "#2877a2" },
   "appearance.accent": "theme",
 

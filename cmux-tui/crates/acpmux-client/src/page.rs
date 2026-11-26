@@ -25,9 +25,8 @@ pub const MAX_WANTED_KEYS: usize = 4_096;
 /// Maximum encoded page-driver request accepted at the ABI door.
 pub const MAX_REQUEST_BYTES: usize = 1 << 20;
 /// Maximum active page questions on one list handle.
+/// Measured: each reply is up to MAX_REPLY_BYTES (256 KiB) held until read: 4 MiB a handle.
 pub const MAX_QUESTIONS: usize = 16;
-/// Maximum open list subscriptions on one driver.
-pub const MAX_SIDS: usize = 16;
 /// Maximum rows in a head or question slot.
 pub const MAX_ROWS: usize = 200;
 pub const HEAD_WINDOW: u16 = 20;
@@ -348,7 +347,8 @@ impl ListDriver {
             ListView::Folders => return Err(DriverError::Invalid(InvalidCode::Unsupported)),
         }
         .into();
-        if self.slots.len() >= MAX_SIDS {
+        // Only the connection's own bound: each sid holds a head of HEAD_WINDOW rows.
+        if self.slots.len() >= crate::wire::MAX_SUBSCRIPTIONS {
             return Err(DriverError::Limit("list.sids"));
         }
         let sub = Sub::new(sid.clone(), Stream::new("list")).around(Anchor::End, HEAD_WINDOW);

@@ -13,11 +13,18 @@ pub const AGENT: &str = "Chief";
 pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
 calls; take it into account and go on.";
 
-/// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief, with
-/// one Chief-only change: its "Turns" paragraph says to delegate
-/// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
+const COMPACTIONS_HEADER: &str = "# Compactions\n";
+const TURNS_HEADER: &str = "# Turns\n";
+
+/// The Chief turn's base prompt from the spec (gist 3c190e0, section 5;
+/// `optchat_core::TAELIN_PROMPT`), with the compactor-only section removed
+/// and its "Turns" paragraph replaced by `CHIEF_TURNS`.
 pub fn base_prompt() -> String {
+    without_compactions(full_base_prompt())
+}
+
+/// The complete shared prompt before the placement-specific cmux section.
+fn full_base_prompt() -> String {
     let spec = optchat_core::system_prompt(AGENT, MIDRUN);
     // Spec 5a: the turn's input is a frozen view and the log after it.
     let spec = if spec.contains(VIEW_END) {
@@ -31,6 +38,28 @@ pub fn base_prompt() -> String {
         // The spec text moved: keep it, and add the rule after it.
         format!("{spec}\n\n{CHIEF_TURNS}")
     }
+}
+
+/// Remove the compactor-only section from a Chief turn's base prompt.
+fn without_compactions(prompt: String) -> String {
+    match prompt.split_once(COMPACTIONS_HEADER) {
+        Some((before, _)) => before.trim_end().to_owned(),
+        None => prompt,
+    }
+}
+
+/// The compactor's system prompt. It keeps the identity and view description
+/// needed to interpret the input, then gives only the compaction contract. The
+/// Chief's turn rules and cmux instructions do not apply to a compaction.
+pub fn compactor_system_text() -> String {
+    let prompt = full_base_prompt();
+    let (before_compactions, compactions) = prompt
+        .split_once(COMPACTIONS_HEADER)
+        .expect("the shared prompt has a compactions section");
+    let view = before_compactions
+        .split_once(TURNS_HEADER)
+        .map_or(before_compactions, |(view, _)| view);
+    format!("{view}{COMPACTIONS_HEADER}{compactions}")
 }
 
 /// The spec's paragraph on background reports (optchat-core TAELIN_PROMPT).
@@ -59,11 +88,12 @@ fn cloud_base_prompt(offered: &[String]) -> String {
         spec.replacen(SPEC_BACKGROUND, "", 1)
     };
     let turns = cloud_turns(&has);
-    if spec.contains(SPEC_TURNS) {
+    let spec = if spec.contains(SPEC_TURNS) {
         spec.replacen(SPEC_TURNS, &turns, 1)
     } else {
         format!("{spec}\n\n{turns}")
-    }
+    };
+    without_compactions(spec)
 }
 
 /// `CHIEF_TURNS` with each sentence that names a tool kept only when the
@@ -88,15 +118,13 @@ more than they can do, say in one line what it needs."
     });
     let stop = has("stop");
     if has("send") {
-        out.push(
+        out.push(format!(
             "Write like a person texting: several short messages of a few lines each, not
 one long reply. The user's chat shows typing dots while you work and each
 message only when it is whole, so send each finished point at once with
-send(text). A plain-text response with no tool call ends the turn and is
-posted; call stop() only when you intentionally want to end without posting
-another reply."
-                .into(),
-        );
+send(text) and keep any closing text short{}.",
+            if stop { ", or call stop()" } else { "" }
+        ));
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
@@ -116,8 +144,8 @@ must act on it; say why only when asked.",
     );
     if has("send") {
         replies.push_str(
-            " Say things with send(text, reply_to): each call posts one or more
-short messages, split at natural boundaries when needed. When one turn answers separate asks, send one message per ask, each with
+            " Say things with send(text, reply_to): each call posts one message at
+once. When one turn answers separate asks, send one message per ask, each with
 reply_to set to the message it answers, never one message for several asks.",
         );
     }
@@ -138,9 +166,8 @@ unanswered, and the host starts a retry turn for it.",
     ));
     if stop {
         replies.push_str(
-            " When everything is said and you need to post nothing more, call
-stop() instead of writing a closing text. Otherwise a final plain-text reply
-is posted and ends the turn.",
+            " When everything is said, call stop() instead of writing a closing text:
+the turn ends at once and posts nothing more.",
         );
     }
     replies.push_str(
@@ -277,9 +304,7 @@ about 8 tool calls and the work is not done, hand the rest to a subagent.
 Write like a person texting: several short messages of a few lines each, not
 one long reply. The user's chat shows typing dots while you work and each
 message only when it is whole, so send each finished point at once with
-send(text). A plain-text response with no tool call ends the turn and is
-posted; call stop() only when you intentionally want to end without posting
-another reply.
+send(text) and keep any closing text short, or call stop().
 
 First words first: the user waits from the moment they press send, and only
 what you send ends the wait. An ask you can answer from the view: send the
@@ -312,19 +337,17 @@ what you have not looked at yet (\"I haven't checked\", \"I don't know X yet\"):
 say who is finding out, or give what you just read in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked. Say things with
-send(text, attachments, reply_to): each call posts one or more short messages,
-split at natural boundaries when needed. When
+send(text, attachments, reply_to): each call posts one message at once. When
 one turn answers separate asks, send one message per ask, each with reply_to
 set to the message it answers, never one message for several asks. Attach
 screenshots, videos and files with attachments (local paths), or put a picture
 in the text as `![alt](/abs/path.png)` (see Pictures). Every message
 of the user gets a reply in words, even one that needs only an
-acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone or NO_REPLY
-leaves it unanswered, and the host starts a retry turn for it. When everything
-is said and you need to post nothing more, call stop() instead of writing a
-closing text. Otherwise plain text is posted and ends the turn. Any text you
-end a turn with is posted as one or more short messages, in the thread of the
-message it answers when others came after it.
+acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone, NO_REPLY,
+or a stop with nothing sent leaves it unanswered, and the host starts a
+retry turn for it. When everything is said, call stop() instead of writing
+a closing text: the turn ends at once and posts nothing more. Any text you end a turn with is still posted as one
+message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
 note wakes you then. For a time of day, a reminder or a deadline, call
@@ -784,10 +807,9 @@ cmux Home, and your final reply of each turn is posted there.
     home_rule!()
 );
 
-/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
-/// section, then the user's own instructions file (spec 5), read once per
-/// host start so every turn's prompt stays byte-identical. Compactions send
-/// the same text (host.rs), so they read it from the turns' cache entry.
+/// The system prompt (the session's CLAUDE.md): the Chief turn's base prompt,
+/// the cmux section, then the user's own instructions file (spec 5), read once
+/// per host start so every turn's prompt stays byte-identical.
 pub fn claude_md(user: Option<&str>) -> String {
     system_text(user, &Tools::Mcp)
 }
@@ -902,8 +924,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
         Tools::Cloud(offered) => cloud_instructions(offered),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n{cmux}\n"),
     }
 }
 
@@ -1139,6 +1161,11 @@ report.
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
 {github}
+- Skills: Chief's skills, the ones cmux ships among them, are in
+  `~/.cmux/chief/skills/<name>/SKILL.md` when that folder exists.
+  `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them; read a
+  skill's SKILL.md before you do what its description names, instead of
+  working it out again.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or
@@ -1234,7 +1261,7 @@ pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a
 pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the user sees it: the last n messages as the conversation daemon stores them, every author (the user, you, the host, other Chiefs and agents), with attachments, reactions and threads. Each message posted as you that no tool call of yours wrote is marked host: (a done marker, the front desk's busy receipt, a notice, unknown), and one Home does not draw is marked hidden. Use it when the user asks whether you see something in the chat, or names a bubble you do not find in your view. Read-only.";
 
 /// The `send` tool's description.
-pub const SEND_DESCRIPTION: &str = "Post one or more short messages now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. Over-limit text is split at natural sentence and paragraph boundaries, while links, lists and fenced code stay intact where possible. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. Use long: true when the user explicitly wants one long message.";
+pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. The first send of a turn whose prose is over 45 words, or with a list line over 35, comes back to cut; tables, pictures and code spans do not count, and a list counts line by line.";
 
 /// The host `send`'s Send Later sentence (the Cloud Chief has no `delay_seconds`).
 pub const SEND_LATER_DESCRIPTION: &str = " delay_seconds sends it later (a reminder, a check-in at a time the user named) instead of now.";
@@ -1253,7 +1280,7 @@ pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the h
 pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps is a cloud automation (`cmux automation create NAME --target cloud`).";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. tasks id items: keep the task list its chat and its sidebar row show (what is done, what is next), for a long task whose harness keeps no plan of its own; send the whole list each time, [] clears it; a harness plan (TodoWrite, update_plan) replaces yours. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";

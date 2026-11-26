@@ -600,7 +600,8 @@ extension HomeHostView {
 
     /// A Chief turn started or ended (`working`: a Chief that uses a computer answers): the live view over the chat follows it.
     private func followComputerPopup(working: Bool) {
-        guard window != nil else { return }
+        // A chat kept hidden for a quick switch back (TopHomePageView's recent chats) shows no popup.
+        guard window != nil, !isHiddenOrHasHiddenAncestor || !working else { return }
         (computerPopup ?? makeComputerPopup()).follow(working: working)
     }
 

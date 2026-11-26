@@ -55,7 +55,7 @@ nonisolated extension ContextMenuCatalog {
             let entries = entries(for: context)
             guard !entries.isEmpty else { continue }
             menus[context.exportName] = [
-                "implied": Self.contextNames(ActionRegistry.impliedContext(for: context)),
+                "implied": Self.contextNames(MenuChoiceRules.impliedContext(for: context)),
                 "entries": Self.exportEntries(entries, byID: byID, titles: titles, labels: labels(for: context)),
             ] as [String: Any]
         }
@@ -76,7 +76,7 @@ nonisolated extension ContextMenuCatalog {
                 row["enabled_when"] = "can_perform"
                 // A menu-only title (ContextMenuPlacement.label), English.
                 if let label = labels[id] { row["label"] = label }
-                if case .choices = entry, let (argument, cases) = byID[id]?.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
+                if case .choices = entry, let (argument, cases) = byID[id]?.arguments.lazy.compactMap(MenuChoiceRules.menuChoices).first {
                     row["choices"] = [
                         "argument": argument.name,
                         "values": cases.map { choice -> [String: Any] in

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.feed.needsYouInChief.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pins open requests and questions at the top of the Chief's chat."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يثبّت الطلبات والأسئلة المفتوحة أعلى محادثة Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kači otvorene zahtjeve i pitanja na vrh razgovora s Chiefom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fastgør åbne anmodninger og spørgsmål øverst i Chiefs chat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Heftet offene Anfragen und Fragen oben im Chat des Chiefs an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fija las solicitudes y preguntas abiertas arriba en el chat del Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Épingle les demandes et questions en attente en haut de la conversation du Chief."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fissa richieste e domande aperte in cima alla chat del Chief."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未対応のリクエストと質問を Chief のチャットの上部に固定します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខ្ទាស់សំណើ និងសំណួរដែលនៅបើក នៅខាងលើការជជែករបស់ Chief។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열린 요청과 질문을 Chief 채팅 맨 위에 고정합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fester åpne forespørsler og spørsmål øverst i samtalen med Chief."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przypina otwarte prośby i pytania na górze czatu z Chiefem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fixa solicitações e perguntas abertas no topo do chat do Chief."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрепляет открытые запросы и вопросы вверху беседы с Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปักหมุดคำขอและคำถามที่ยังเปิดอยู่ไว้ด้านบนของการสนทนากับ Chief"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Açık istekleri ve soruları Chief sohbetinin en üstüne sabitler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закріплює відкриті запити й запитання вгорі розмови з Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghim các yêu cầu và câu hỏi đang mở ở đầu cuộc trò chuyện với Chief."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将待处理的请求和问题置顶在 Chief 对话顶部。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將待處理的請求和問題釘選在 Chief 對話頂端。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

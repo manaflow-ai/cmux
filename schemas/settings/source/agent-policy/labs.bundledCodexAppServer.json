@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on."
+}

@@ -23,13 +23,24 @@ public struct TerminalDemoRoot: View {
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
                 accent: "blue")), keep: false)
         }
+        // `-CmuxMobileTerminalDemoAttach`: the phone attaches into htop
+        // already running on a Mac pane of 120x40, the Mac answering the
+        // attach and each resize a round trip later (`-CmuxMobileTerminalDemoMac
+        // -CmuxMobileTerminalDemoMacMs N`, default 60), with the attach in series
+        // under `-CmuxMobileTerminalDemoAttachSerial` (TerminalAttachFirstFrameUITests).
+        let attach = Self.attachRequested
+            ? MockTerminalSession(playsIntro: false, macResize: Self.macResize ?? .milliseconds(60), attachesTo: (120, 40),
+                                  attachesInSeries: CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttachSerial")) : nil
         let session: any TerminalSession
         var altMac: MacPaneMockSession?
         let phases = TerminalDemoDriver.requestedPhases ?? []
-        if phases.contains("projection") || phases.contains("altproj") {
+        if let attach {
+            session = attach
+        } else if phases.contains("projection") || phases.contains("altproj") {
             // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
             // pane narrower than the phone), through the session the app builds
-            // for a Mac terminal. `altproj`: htop already running in it, and
+            // for a Mac terminal; `-CmuxMobileTerminalDemoMacProgram claude`:
+            // Claude Code inline in it. `altproj`: htop already running in it, and
             // the Mac answering a claim a round trip later
             // (`-CmuxMobileTerminalDemoMacLatencyMs`, default 60: LTE), or never
             // (`-CmuxMobileTerminalDemoMacKeepsSize YES`: Prefer this Mac).
@@ -38,7 +49,8 @@ public struct TerminalDemoRoot: View {
             let alt = phases.contains("altproj")
             let latency = alt ? (defaults.object(forKey: "CmuxMobileTerminalDemoMacLatencyMs") as? Int ?? 60) : 0
             let mac = MacPaneMockSession(columns: grid.count == 2 ? grid.first ?? 120 : 120, rows: grid.count == 2 ? grid.last ?? 40 : 40,
-                                         program: alt ? "htop" : nil, latency: .milliseconds(latency),
+                                         program: alt ? "htop" : defaults.string(forKey: "CmuxMobileTerminalDemoMacProgram"),
+                                         latency: .milliseconds(latency),
                                          keepsSize: alt && defaults.bool(forKey: "CmuxMobileTerminalDemoMacKeepsSize"))
             if alt {
                 altMac = mac
@@ -60,6 +72,7 @@ public struct TerminalDemoRoot: View {
                 .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+        if let attach { model.demoFinalGrid = { attach.macState } }
         if let altMac {
             // The settle probe: htop is right at the PTY's grid, once no resize is on its way.
             model.demoFinalColumns = { altMac.resizeInFlight ? nil : altMac.ptyGrid.columns }
@@ -69,6 +82,8 @@ public struct TerminalDemoRoot: View {
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    static var attachRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttach") }
 
     /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
     /// (its grid, a mirror reset and a replay, a round trip later:
@@ -102,6 +117,19 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
+            // The attach demo: its trace goes in the step label once the
+            // page's probe ended (5 s after the start), for UI tests.
+            if Self.attachRequested {
+                for _ in 0..<100 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(100))
+                    guard let trace = model.controller?.attachTrace else { continue }
+                    let ended = trace.marks.contains { $0.name == "probe-end" }
+                    model.demoNote = "attach.\(ended ? "done" : "running") first=\(trace.firstRightMs ?? -1) "
+                        + "fromstart=\(trace.firstRightFromStartMs ?? -1) marks=\(trace.line)"
+                    if ended { return }
+                }
+                return
+            }
             // The host grid demo is a still: no scripted phases. Its page's
             // layout goes in the step label, for UI tests.
             guard TerminalHostGridDemoSession.requestedSpec == nil else {
@@ -227,6 +255,16 @@ final class TerminalDemoDriver {
             await wait(1)
         }
         mark("wide ready " + (model.controller?.wideProbe ?? "-"))
+        // `-CmuxMobileTerminalDemoWideType`: Wide on, then a 120-column paste
+        // at the prompt: its echo carries the cursor far right of the page,
+        // and the page pans after it (TerminalWideOutputUITests).
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideType") {
+            model.setWide(true)
+            await wait(2)
+            model.controller?.surface.sendText(String(repeating: "x", count: 120), pressReturn: false)
+            await wait(1.5)
+            mark("wide typed " + (model.controller?.wideProbe ?? "-"))
+        }
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
             model.demoNote = "wide ready " + (model.controller?.wideProbe ?? "-")

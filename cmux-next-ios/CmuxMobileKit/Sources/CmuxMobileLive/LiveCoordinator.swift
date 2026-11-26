@@ -5,6 +5,9 @@ import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
@@ -104,6 +107,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -136,6 +141,8 @@ public final class LiveCoordinator {
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    /// Pre-wakes the focused Mac's link as the keyboard comes up (``followKeyboard()``).
+    @ObservationIgnored private var keyboardObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -520,6 +527,9 @@ public final class LiveCoordinator {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
             workspaces += saved.workspaces
             total += saved.total
+            // Rows already in the Feed at launch whose tab closed before the app last saw the Mac
+            // go before it answers (the Mac's own tree then judges every row).
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: saved.workspaces, complete: false), macID: mac.id)
             store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: mac.id)
         }
         store.workspaces = workspaces
@@ -580,6 +590,7 @@ public final class LiveCoordinator {
             snapshot?.workspaces[macID] = list
             guard store.macData[macID]?.source == .cache(savedAt: list.savedAt) else { continue }
             store.replaceWorkspaces(macID: macID, with: list.workspaces)
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: list.workspaces, complete: false), macID: macID)
             if list.total != current.total { store.handleMacData(.restored(count: list.total, savedAt: list.savedAt), macID: macID) }
             added += list.workspaces.count - current.workspaces.count
         }
@@ -879,6 +890,7 @@ public final class LiveCoordinator {
         parkedTerminals[id] = nil
         // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
         tabs.forget(macID: id)
+        feedStore.forgetOpenTabs(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -918,8 +930,8 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        // The remembered Mac stands for its computer (a build this phone picked, beside
-        // another build of the same computer), in the focus and in every list (``MacRoster``).
+        // The remembered Mac (one this phone picked) is the team's picked Mac: it takes the focus.
+        // Every build is listed on its own (``MacRoster``).
         store.setPickedMac(remembered, teamID: team.id)
         let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
@@ -928,20 +940,16 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
-    /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// The Macs the phone focuses and the screens list: the owner's own, each
+    /// build as its own Mac (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
         MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: team.pickedMacID).visible
     }
 
-    /// The Macs this phone may link: the listed ones, and another build on a
-    /// listed Mac while something names it (a Feed answer or a notification of
-    /// that build, `touch`, or a link it still holds until idle), so an ask
-    /// from that build is still answered on it.
+    /// The Macs this phone may link: every listed one (each build is listed as its
+    /// own Mac); ``MacLinkPolicy`` picks which of them hold a link.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
-        let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
+        listedMacs(team)
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -963,9 +971,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
         let now = instants.now()
-        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
-        // never "shown" by that: it keeps its link only for the idle window after
-        // something named it (`touch`), then closes.
+        // nil (Workspaces, the Feed): every listed Mac.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         for (id, session) in sessions { session.link.onScreen = showing.contains(id) }
@@ -1305,6 +1311,30 @@ public final class LiveCoordinator {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
         followForegroundNotification()
+        followKeyboard()
+    }
+
+    /// The keyboard coming up means a key follows in a few hundred ms: wake the one link it
+    /// goes to now (RFD 0142 T2, ``typingLink``). Only that one: every listed Mac is on
+    /// screen on the Workspaces list, and a rename sheet there is not typing to all of them.
+    func followKeyboard() {
+        #if canImport(UIKit)
+        guard keyboardObserver == nil else { return }
+        keyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.typingLink.prewake() }
+        }
+        #endif
+    }
+
+    /// The link a key typed now goes to: the one Mac on screen (a workspace's terminal or
+    /// chat), else the focused Mac's.
+    var typingLink: LinkController {
+        if let shown = showingMacs, shown.count == 1, let id = shown.first, let session = sessions[id] {
+            return session.link
+        }
+        return focused.link
     }
 
     /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
@@ -1376,6 +1406,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 
@@ -1419,9 +1450,35 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10)
+    var holdWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
+        didSet {
+            #if canImport(CmuxMobileLinkFFI)
+            outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
+            #endif
+        }
+    }
+    /// Each held prompt's intent, by its `promptId`.
+    private var intents: [String: AgentClientIntent] = [:]
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
+    /// up): their order, their hold, and the ones given back past it.
+    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
+    private var wake: Task<Void, Never>?
+
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
+    var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for id in outbox.unwritten() {
+            guard let intent = intents[id] else { continue }
+            held.append((intent: intent, at: tapped[id] ?? ContinuousClock.now))
+        }
+        return held
+    }
+    private var tapped: [String: ContinuousClock.Instant] = [:]
+    #else
     private(set) var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+    #endif
 
     /// A prompt is held for the chat's real source (``takeHeld()``); anything else has nothing
     /// to act on yet and says why.
@@ -1432,34 +1489,86 @@ final class PendingAgentSource: AgentSessionSource {
     /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
     /// keeps its first send's time, so the hold is one window in all).
     func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
-        guard case .prompt = intent else {
+        guard case .prompt(let text, _, _, let promptID, let resend) = intent else {
             let reason = "Connecting to \(summary.macName)…"
             for continuation in continuations { continuation.yield(.clientError(reason)) }
             return
         }
+        #if canImport(CmuxMobileLinkFFI)
+        guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
+                          tappedMs: ChatPromptClock.milliseconds(at),
+                          nowMs: ChatPromptClock.milliseconds(at)) else { return }
+        intents[promptID] = intent
+        tapped[promptID] = at
+        expireDue()
+        #else
+        _ = (text, promptID, resend)
         held.append((intent, at))
-        let wait = max(.zero, holdWindow - (ContinuousClock.now - at))
-        Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            self?.expire(sentAt: at)
-        }
+        #endif
     }
 
     /// The held prompts with their send times, for the chat's next source (the coordinator, as
     /// it builds it). They are no longer this source's to return.
     func takeHeld() -> [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        #if canImport(CmuxMobileLinkFFI)
+        var taken: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for prompt in outbox.drainUnwritten() {
+            guard let intent = intents[prompt.promptId] else { continue }
+            taken.append((intent: intent, at: tapped[prompt.promptId] ?? ChatPromptClock.instant(prompt.tappedMs)))
+        }
+        intents = [:]
+        tapped = [:]
+        wake?.cancel()
+        return taken
+        #else
         defer { held = [] }
         return held
+        #endif
     }
 
     /// The prompt sent at `sentAt` waited out the window: it and every prompt after it come back
     /// to the composer (none goes after an earlier one that did not), as `AcpmuxSessionSource` does.
     func expire(sentAt: ContinuousClock.Instant) {
+        #if canImport(CmuxMobileLinkFFI)
+        guard let id = outbox.unwritten().first(where: { tapped[$0] == sentAt }) else { return }
+        gaveBack(ids: outbox.giveUpFrom(promptId: id).map(\.promptId))
+        #else
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
+        gaveBack(dropped.map(\.intent))
+        #endif
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// Gives back what is past the hold now, and wakes for the next hold.
+    private func expireDue() {
+        let nowMs = ChatPromptClock.milliseconds(ContinuousClock.now)
+        gaveBack(ids: outbox.expire(nowMs: nowMs).map(\.promptId))
+        wake?.cancel()
+        guard let wait = outbox.nextWakeMs(nowMs: nowMs) else { wake = nil; return }
+        wake = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
+            guard !Task.isCancelled else { return }
+            self?.expireDue()
+        }
+    }
+
+    private func gaveBack(ids: [String]) {
+        var dropped: [AgentClientIntent] = []
+        for id in ids {
+            tapped[id] = nil
+            if let intent = intents.removeValue(forKey: id) { dropped.append(intent) }
+        }
+        gaveBack(dropped)
+    }
+    #endif
+
+    private func gaveBack(_ dropped: [AgentClientIntent]) {
+        // Short, with nothing to decode: the draft is back in the composer and Send is the action
+        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
         let reason = "Not sent: \(summary.macName) is offline."
-        for (intent, _) in dropped {
+        for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {
                 continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))

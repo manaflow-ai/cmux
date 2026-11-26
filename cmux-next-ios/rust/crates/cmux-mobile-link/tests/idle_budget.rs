@@ -91,6 +91,7 @@ fn kind(received: Received<'_>) -> String {
         Received::Keepalive => "wg keepalive".into(),
         Received::Refused => "wg duplicate (refused)".into(),
         Received::TunnelControl(what) => format!("wg {what}"),
+        Received::Parity => "wg parity".into(),
         Received::Packet(packet) => packet_kind(packet),
     }
 }

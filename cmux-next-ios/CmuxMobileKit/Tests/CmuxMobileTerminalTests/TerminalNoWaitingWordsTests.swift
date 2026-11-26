@@ -15,7 +15,7 @@ import Testing
     }
 
     @Test func noCardIsGreyed() {
-        for content in [TerminalCardContent.connecting, .snapshot, .screenText, .savedFrame, .placeholder] {
+        for content in [TerminalCardContent.snapshot, .screenText, .savedFrame, .nothing] {
             #expect(content.drawnOpacity == 1, "\(content) drawn at \(content.drawnOpacity)")
         }
     }

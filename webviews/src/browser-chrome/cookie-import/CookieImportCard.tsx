@@ -3,8 +3,8 @@
 // glass under it). Leo, 2026-11-08: "i dont like this. 1. looks bad. 2. not glass. 3. talks about
 // too much irrelevant shit". It is a toast now: the browser's icon, one line, and the toast's
 // clear-text answers. Lawrence 2026-11-09 (msg 26162, "ugly flat gray, washed-out text"): it draws in the
-// dialog card's grammar now (the overlay dialog's buttons): the line in the title's weight, Don't Show
-// Again quiet text, Not Now a gray button and Import the filled primary, every answer labelled. Keep in
+// dialog card's grammar now (the overlay dialog's buttons): the line in the title's weight, Never for Chrome
+// quiet text, Not now a gray button and Import the filled primary, every answer labelled. Keep in
 // sync is Settings > Browser > Import (`browser.import.cookieSync`, on by default), not a line here.
 // It never takes focus, so Return and Escape stay the page's; every answer closes it (the host does).
 import { Button } from "../../ui/Button";

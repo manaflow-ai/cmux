@@ -123,17 +123,44 @@ test("scrolled up while the chat goes on, the line goes after what the view last
     daemon.push([mux(9, "user_message", { text: "Step 3" }), mux(10, "turn_started")]);
     await chat.settled(() => chat.rows().some((row) => row.text === "Step 3"));
     expect(chat.sinceKey()).toBeUndefined();
-    // A reply is: the line goes after what the view last followed, before the prompt.
+    // A reply while the turn still runs is not new either (Leo, 2026-11-25: "dont mark it as new if
+    // it's still going"): no line yet.
     daemon.push([reply(11, "Reply 3.")]);
+    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 3."));
+    expect(chat.sinceKey()).toBeUndefined();
+    // The turn ends with the reader still scrolled away: what they did not see is new, and the line
+    // goes after what the view last followed, before the prompt.
+    daemon.push([mux(12, "turn_result", { status: "completed" })]);
     await chat.settled(() => chat.sinceKey() !== undefined);
     expect(chat.sinceKey()).toBe(`${CHAT}:8`);
     expect(afterLine(chat.rows())?.text).toBe("Step 3");
     // Back at the latest and away again: the one line stays where it was.
     chat.client.setFollowing(true);
     chat.client.setFollowing(false);
-    daemon.push([mux(12, "turn_result", { status: "completed" }), ...turn(13, 4)]);
+    daemon.push(turn(13, 4));
     await chat.settled(() => chat.rows().some((row) => row.text === "Reply 4."));
     expect(chat.sinceKey()).toBe(`${CHAT}:8`);
+  } finally {
+    chat.client.close();
+  }
+});
+
+test("a turn that ends while the reader follows the latest row places no line", async () => {
+  const daemon = fakeDaemon([...turn(1, 1)], {});
+  const chat = await connect(daemon);
+  try {
+    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 1."));
+    // Scrolled up mid-turn while it streams, then back at the bottom before it ends.
+    daemon.push([mux(5, "user_message", { text: "Step 2" }), mux(6, "turn_started")]);
+    chat.client.setFollowing(false);
+    daemon.push([reply(7, "Reply 2.")]);
+    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 2."));
+    expect(chat.sinceKey()).toBeUndefined();
+    chat.client.setFollowing(true);
+    daemon.push([mux(8, "turn_result", { status: "completed" })]);
+    daemon.push(turn(9, 3));
+    await chat.settled(() => chat.rows().some((row) => row.text === "Reply 3."));
+    expect(chat.sinceKey()).toBeUndefined();
   } finally {
     chat.client.close();
   }

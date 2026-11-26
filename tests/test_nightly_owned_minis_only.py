@@ -83,6 +83,9 @@ HOSTED_TAIL_JOBS = {
                           "openssl pkeyutl -rawin, which macOS's LibreSSL lacks",
     "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
     "publish-nightly-reel": "an ffmpeg render of up to 90 min",
+    # Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap". No secret, but a
+    # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
+    "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
 # Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
 # VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
@@ -103,10 +106,18 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf")
-# RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on attempt 1.
-NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
-NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build")
+# RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
+                       "published-build")
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# The post-feed dispatchers (#56483) mint App tokens (cmux-bot and the CI pools), so they left the nightly mini for the
+# same reserved-label route: the keys stay off the mini, and a refused dispatch moves to another installation's hour.
+# Unlike CMUX_LINUX_JOBS they hold a secret; their route is exactly NIGHTLY_PINNED_RUNS_ON. job -> why.
+NIGHTLY_LINUX_CONTROLS = {
+    "wake-nightly-next-tick": "dispatches main's nightly-next tick with App tokens (#56483)",
+    "dispatch-published-in": "dispatches the post-publication run with App tokens (#56483)",
+}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -192,6 +203,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
+            if name in NIGHTLY_LINUX_CONTROLS:
+                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
+                    failures[name] = "a nightly Linux control takes only the reserved label, then cmux-linux"
+                continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
             cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
             if cells is None or routes is None:
@@ -256,7 +271,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
-                self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a JIT job without a secret moves to the light runners")
+                permissions = JOBS[name].get("permissions")
+                writes = isinstance(permissions, dict) and "write" in permissions.values()
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]) or writes,
+                                "a JIT job without a secret or a write token moves to the light runners")
 
     def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may

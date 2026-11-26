@@ -97,6 +97,7 @@
     "cloudMachine.prewarm": "cloudMachine.prewarm",
     "cloudMachine.recoveryList": "cloudMachine.recoveryList",
     "cloudMachine.resume": "cloudMachine.resume",
+    "cloudMachine.wakeHint": "cloudMachine.wakeHint",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
     "customizations.menu": "customizations.menu",

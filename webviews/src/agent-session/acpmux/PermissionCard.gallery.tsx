@@ -86,22 +86,21 @@ const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
 const letterStyles: Record<Exclude<LetterStyle, "slash">, string> = {
   only: `
     [data-letter-style="only"] .acpmux-permission-keys-or,
-    [data-letter-style="only"] .acpmux-permission-keys .acpmux-keycap:not(:first-child),
-    [data-letter-style="only"] .acpmux-permission-keys .acpmux-permission-action-shortcut { display: none; }`,
+    [data-letter-style="only"] .acpmux-permission-keys .ui-key-hint:not(:first-child) { display: none; }`,
   joined: `
     [data-letter-style="joined"] .acpmux-permission-keys-or { display: none; }
-    [data-letter-style="joined"] .acpmux-permission-keys .acpmux-keycap:first-child { margin-inline-end: 6px; }`,
+    [data-letter-style="joined"] .acpmux-permission-keys .ui-key-hint:first-child { margin-inline-end: 6px; }`,
 };
 
 const rowStyles: Record<Exclude<RowStyle, "light">, string> = {
   // The hint as a small keycap: a faint rounded box around it, Claude desktop's menu style.
   keycap: `
-    [data-row-style="keycap"] .acpmux-permission-ask .acpmux-permission-action-shortcut { padding: 1px 4px;
+    [data-row-style="keycap"] .acpmux-permission-ask .acpmux-permission-action-label + .ui-key-hint { padding: 1px 4px;
       border-radius: 4px; background: color-mix(in srgb, currentColor 12%, transparent); }`,
   // The hint only on hover or focus: the resting row reads as three words.
   hover: `
-    [data-row-style="hover"] .acpmux-permission-ask .acpmux-permission-action-shortcut { opacity: 0; }
-    [data-row-style="hover"] .acpmux-permission-ask button:is(:hover, :focus-visible) .acpmux-permission-action-shortcut { opacity: 1; }`,
+    [data-row-style="hover"] .acpmux-permission-ask .acpmux-permission-action-label + .ui-key-hint { opacity: 0; }
+    [data-row-style="hover"] .acpmux-permission-ask button:is(:hover, :focus-visible) .acpmux-permission-action-label + .ui-key-hint { opacity: 1; }`,
   // The light hint, the row grouped at the trailing edge, as a macOS dialog's buttons.
   trailing: `
     [data-row-style="trailing"] .acpmux-permission-ask .acpmux-permission-buttons { justify-content: flex-end; }
@@ -254,6 +253,28 @@ const grokPlan: AcpmuxPermission = {
   ],
 };
 
+/// A Cloud chat's risky step (acpmux fork_risky.rs): uncommitted work dropped on the Cloud machine (what
+/// the staging run measured), with Fork first
+/// beside Allow once (RFD 0163 row 25, behind cloud.autoCloud).
+const forkFirstAsk: AcpmuxPermission = {
+  permissionId: "gallery-fork-first",
+  kind: "execute",
+  title: "`git reset --hard && git clean -fdx`",
+  command: "git reset --hard && git clean -fdx",
+  description: "Start over from the last commit",
+  scope: { kind: "directory", value: "/home/cmux/src/atlas-web" },
+  pending: true,
+  forkOffer: {
+    machine: "vm_7k2q9d",
+    reason: "git reset --hard drops uncommitted work",
+    clientKey: "risky-gallery-fork-first",
+  },
+  options: [
+    { id: "allow", name: "Allow", kind: "allow_once", allow: true },
+    { id: "reject", name: "Reject", kind: "reject_once", allow: false },
+  ],
+};
+
 function GalleryPermissionCard({
   permission,
   harness,
@@ -285,7 +306,7 @@ function GalleryPermissionCard({
       {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       {editStyle && editStyle !== "leading" && <style>{editStyles[editStyle]}</style>}
       <div className="acpmux-main">
-        <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
+        <div className="acpmux-permission acpmux-asks-stack" ref={stack} data-tooltip-escape="">
           <ShortcutsContext value={labels}>
             <PermissionCard
               permission={permission}
@@ -293,6 +314,8 @@ function GalleryPermissionCard({
               fullAccessMode={fullAccessMode}
               shortcuts={shortcuts}
               onAnswer={() => undefined}
+              // A Cloud chat's risky step offers Fork first, as the chat's card does.
+              onForkFirst={permission.forkOffer ? () => new Promise(() => undefined) : undefined}
               // A plan offers its other builds, as the chat's card does (rows/PermissionAsk.tsx).
               onBuildPlan={permission.plan ? () => new Promise(() => undefined) : undefined}
               // Claude Code's plan takes an edit before Approve plan, as the chat's card does.
@@ -356,7 +379,6 @@ export default componentEntry<Props>({
       import("../../ui/glass/glass.css"),
       import("./styles.css"),
       import("./conversation/conversation.css"),
-      import("./keys.css"),
     ]),
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 260,
@@ -393,6 +415,10 @@ export default componentEntry<Props>({
         },
       ]),
     ),
+    "fork-first": {
+      note: "Shipped behind cloud.autoCloud (RFD 0163 row 25): a risky step on a Cloud machine says why it is risky and offers Fork first beside Allow once; Fork first copies the machine (about 40 s) and then allows the step on the original, so the copy holds the state from before it.",
+      props: { permission: forkFirstAsk, harness: "claude" },
+    },
     "long-rule": {
       note: 'Leo 2026-11-05, on Claude desktop\'s "Allow Claude to use …?" card: "The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys." A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.',
       props: { permission: longRule, harness: "claude" },

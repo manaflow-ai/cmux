@@ -103,14 +103,35 @@ public struct TerminalTabPage: View {
     let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
+    /// The page is full screen, not zoomed out to the tab grid; true through
+    /// an open menu, a swipe or an edit. The page turns sideways by this, so
+    /// opening the page menu in landscape does not snap the app to portrait.
+    let isOnPage: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
+    /// When the connecting cover went up (nil: no cover), for ``TerminalLoadWatch``.
+    @State private var coverSince: ContinuousClock.Instant?
+    /// The cover has been up past ``TerminalLoadWatch/bound``.
+    @State private var coverOverdue = false
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool,
+                isOnPage: Bool? = nil) {
         self.host = host
         self.insets = insets
         self.chromeTop = chromeTop
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage ?? isInteractive
+    }
+
+    /// How far above the page's bottom inset its rows end now: the dock at rest (key row
+    /// and one-line composer) over the keyboard when it is up (``TerminalConnectingView``).
+    private var rowsLift: CGFloat {
+        let model = host.model
+        let stack = TerminalDockMetrics().restingStackHeight(
+            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
+        let keyboard = model.keyboardVisible ? TerminalKeyboardHeight.shared.height : 0
+        return max(0, keyboard - insets.bottom) + stack + TerminalDocumentLayout.composerGap
     }
 
     public var body: some View {
@@ -124,12 +145,15 @@ public struct TerminalTabPage: View {
             // workspace release it (PROTOCOL.md, "Terminal size claims").
             .onAppear {
                 host.pageAppeared(pageID, interactive: isInteractive)
-                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isOnPage)
             }
             .onChange(of: isInteractive) { _, interactive in
                 host.pageSettled(pageID, interactive: interactive)
-                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
-                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onChange(of: isOnPage) { _, onPage in
+                // On the page, it turns with the phone (a menu, swipe or edit
+                // keeps it turned); zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: onPage)
             }
             .onDisappear {
                 host.pageDisappeared(pageID)
@@ -148,20 +172,51 @@ public struct TerminalTabPage: View {
             // skeleton, which take no touches. No status over the content or by the composer:
             // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
+                let cover = Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                            drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil)
+                let stage = cover ? TerminalLoadWatch.stage(model.connectionState, waited: coverOverdue ? TerminalLoadWatch.bound : .zero)
+                    : .loading
                 Group {
-                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
-                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
+                    if cover {
                         // Once attached the cover stays until the live rows are drawn, then
-                        // goes in one frame: a cut, never a fade over live rows (R3-4).
-                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
+                        // goes in one frame: a cut, never a fade over live rows (R3-4). Its
+                        // rows are laid out for the page as it is now (keyboard up or down).
+                        // Past its bound it draws no gray bars: words and Retry instead.
+                        TerminalConnectingView(topInset: insets.top, showsPlaceholder: stage == .loading,
+                                               screenText: model.cardScreenText,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
                             .placeholderBound("terminal.page.connecting", .milliseconds(2000))
+                        if case let .stalled(title, detail) = stage {
+                            TerminalLoadStalledPanel(title: title, detail: detail) { retryAttach() }
+                                .padding(.top, insets.top)
+                                .padding(.bottom, insets.bottom + rowsLift)
+                        }
                     }
                 }
                 .allowsHitTesting(isInteractive)
                 .accessibilityHidden(!isInteractive)
+                // The cover's bound: past it, the page says so and tries the attach again by
+                // itself, again after each retry delay, for as long as the cover is up.
+                .task(id: cover) {
+                    guard cover else {
+                        coverSince = nil
+                        coverOverdue = false
+                        return
+                    }
+                    coverSince = coverSince ?? .now
+                    try? await Task.sleep(until: coverSince! + TerminalLoadWatch.bound, clock: .continuous)
+                    guard !Task.isCancelled else { return }
+                    coverOverdue = true
+                    var attempt = 0
+                    while !Task.isCancelled {
+                        retryAttach()
+                        try? await Task.sleep(for: TerminalLoadWatch.retryDelay(attempt))
+                        attempt += 1
+                    }
+                }
             }
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
@@ -174,6 +229,13 @@ public struct TerminalTabPage: View {
 }
 
 extension TerminalTabPage {
+    /// Tries the attach again: the shell's recovery (the Mac's link, the tab's live session
+    /// in place of a placeholder, the session's attach), when there is one.
+    @MainActor func retryAttach() {
+        guard let reconnect = host.model.reconnect else { return }
+        Task { await reconnect() }
+    }
+
     /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
     /// its surface: only while the surface has no rows of its own, neither fed from the kept
     /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
@@ -188,10 +250,14 @@ extension TerminalTabPage {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// A picture of the tab from elsewhere (the Mac's thumbnail, kept across launches), drawn in place
+    /// of the labeled placeholder: a card never blanks while any picture of its tab is known.
+    let fallback: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, fallback: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.fallback = fallback
     }
 
     public var body: some View {
@@ -204,7 +270,6 @@ public struct TerminalTabCard: View {
     public var content: TerminalCardContent {
         let started = model.controller?.started == true
         return TerminalCardContent.choose(sessionStarted: started,
-                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
                                           hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
                                           screenTextIsNewer: model.cardScreenTextIsNewer)
     }
@@ -217,9 +282,6 @@ public struct TerminalTabCard: View {
                         ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background))
                 switch content {
-                case .connecting:
-                    TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
-                        .placeholderBound("tabgrid.terminal.connecting", .milliseconds(1000))
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -232,7 +294,9 @@ public struct TerminalTabCard: View {
                         visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
                                                 bottomTrim: max(0, insets.bottom + composer - 6) * scale)
-                    // The newest rows and the prompt at the card's bottom edge (V5-6).
+                    // The newest rows and the prompt at the card's bottom edge (V5-6). A frame
+                    // from an earlier launch is the last-known page, shown as it is (not
+                    // dimmed) until the Mac's screen replaces it.
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)
@@ -245,21 +309,15 @@ public struct TerminalTabCard: View {
                         // "the graying out of workspaces, nah let's not do that").
                         .opacity(content.drawnOpacity)
                     }
-                case .placeholder:
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(model.programName) — \(model.title)")
-                            .foregroundStyle(Color.white.opacity(0.45))
-                        HStack(spacing: 0) {
-                            Text("$ ")
-                            Rectangle().fill(Color.white.opacity(0.85)).frame(width: 8, height: 15)
-                        }
+                case .nothing:
+                    // Nothing of the terminal known yet: a picture of the tab from elsewhere (the Mac's
+                    // thumbnail) when there is one, else the terminal's background, no stand-in.
+                    if let fallback {
+                        Image(uiImage: fallback).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * fallback.size.height / max(1, fallback.size.width))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
                     }
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .padding(.top, insets.top + 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .placeholderBound("tabgrid.terminal.placeholder", .milliseconds(1000))
                 }
             }
         }

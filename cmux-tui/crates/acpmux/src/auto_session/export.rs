@@ -19,8 +19,8 @@ pub(crate) mod events;
 pub(crate) mod folder;
 mod ignore;
 pub(crate) mod leftover;
-mod redact;
 pub(crate) mod native;
+mod redact;
 pub(crate) mod snapshot;
 
 #[cfg(test)]

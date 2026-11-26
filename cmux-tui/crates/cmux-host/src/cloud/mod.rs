@@ -38,6 +38,7 @@
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
 //! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
+//! [`page_in`] (the harness executables read back in right after a resume),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
@@ -80,12 +81,19 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod machine_request;
 pub mod mcp_call;
 #[cfg(all(test, unix))]
 mod mcp_call_tests;
 pub mod page_cache;
+pub mod page_in;
+#[cfg(all(test, unix))]
+mod page_in_tests;
 #[cfg(target_os = "linux")]
 mod poster_http;
+pub mod pressure;
+#[cfg(test)]
+mod pressure_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -93,6 +101,9 @@ pub mod session;
 pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
+pub mod wake_echo;
+#[cfg(test)]
+mod wake_echo_tests;
 pub mod wire;
 pub mod workload;
 

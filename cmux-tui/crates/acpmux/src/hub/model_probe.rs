@@ -1,7 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. The model catalog of each harness: the ids a profile can
-//! run, the lists agents report (`known_models`), and the probe that asks every ACP harness for
+//! run, the lists agents report (`model_lists`), and the probe that asks every ACP harness for
 //! its models without creating a session.
 
+use super::model_lists::{Freshness, ListTag};
 use super::*;
 use std::sync::PoisonError;
 
@@ -16,15 +17,9 @@ impl Hub {
             crate::config::HarnessKind::ClaudeStdio => {
                 ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
             }
-            crate::config::HarnessKind::Acp => ids.extend(
-                self.known_models
-                    .lock()
-                    .unwrap()
-                    .get(profile)
-                    .into_iter()
-                    .flatten()
-                    .map(|(id, _)| id.clone()),
-            ),
+            crate::config::HarnessKind::Acp => {
+                ids.extend(self.model_lists.acp(profile).into_iter().flatten().map(|(id, _)| id))
+            }
             crate::config::HarnessKind::Terminal => {}
         }
         ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
@@ -35,16 +30,20 @@ impl Hub {
     /// Remember the models an agent lists so the picker can show them for
     /// harnesses without a live session.
     pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
+        let now = self.model_lists.stamp();
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref(), now);
     }
 
     /// Whether the list `agent` reported is not the one served before (none, the disk copy, or
-    /// an earlier report): only then do watchers hear of it (`keep_probed_models`).
+    /// an earlier report): only then do watchers hear of it (`keep_probed_models`). `written`:
+    /// the cache clock (`model_lists`) when the report was asked for, so a refresh or a profile
+    /// change since leaves the list stale.
     fn remember_models_from(
         &self,
         agent: &str,
         config_options: Option<&Value>,
         models: Option<&Value>,
+        written: cmux_tag_cache::Stamp,
     ) -> bool {
         let mut list: Vec<(String, String)> = Vec::new();
         if let Some(opts) = config_options.and_then(Value::as_array)
@@ -67,9 +66,21 @@ impl Hub {
             return false;
         }
         self.recheck_live_models(agent, &list);
-        let old = self.known_models.lock().unwrap().insert(agent.to_owned(), list.clone());
-        self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner).remove(agent);
-        old.is_none_or(|old| old != list)
+        // Only a report that lists `availableModels` says what the levels are: a resumed chat's
+        // answer without them keeps the ones known.
+        let lists_ids = models.and_then(|m| m.get("availableModels")).is_some_and(Value::is_array);
+        let efforts_changed = lists_ids && {
+            let efforts = crate::model_catalog::variant_efforts(&list, models);
+            let mut known = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner);
+            let old = if efforts.is_empty() {
+                known.remove(agent)
+            } else {
+                known.insert(agent.to_owned(), efforts.clone())
+            };
+            old.unwrap_or_default() != efforts
+        };
+        let list_changed = self.model_lists.put_acp(agent, list, written);
+        efforts_changed || list_changed
     }
 
     /// Startup's model lists from disk: the live lists, then the ACP probes'. A models read
@@ -105,33 +116,17 @@ impl Hub {
         if crate::harness_fixture::active().is_some() {
             return;
         }
-        let cached = tokio::task::spawn_blocking(move || {
-            crate::live_models::AcpCache::new(dir).load_entries()
-        })
-        .await
-        .unwrap_or_default();
-        // Each kept list counts as probed when its file was written, so a read revalidates it by
-        // age (`revalidate_acp_models`) and the start probes none of them.
-        {
-            let (now_s, now_i) = (std::time::SystemTime::now(), std::time::Instant::now());
-            let mut ages = self.acp_ages.lock().unwrap_or_else(PoisonError::into_inner);
-            for (name, entry) in &cached {
-                if let Some(at) =
-                    entry.stored_at.and_then(|at| super::live_ages::instant_of(at, now_s, now_i))
-                {
-                    ages.started(name, at);
-                }
-            }
-        }
-        *self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner) = cached
-            .into_iter()
-            .map(|(name, entry)| (name, (entry.profile, entry.models, entry.choices)))
-            .collect();
+        let cached =
+            tokio::task::spawn_blocking(move || crate::live_models::AcpCache::new(dir).load_all())
+                .await
+                .unwrap_or_default();
+        *self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner) =
+            cached.into_iter().collect();
         let cfg = self.config.read().await;
         self.serve_acp_cache(&cfg.harnesses);
     }
 
-    /// Fills `known_models` from the disk copy for each ACP profile that has no list yet and
+    /// Serves the disk copy (`model_lists`, stale) for each ACP profile that has no list yet and
     /// was probed under the same profile. Also after a catalog reload: a profile found on the
     /// login PATH appears only then.
     pub(super) fn serve_acp_cache(
@@ -142,23 +137,15 @@ impl Hub {
         if cached.is_empty() {
             return;
         }
-        let mut known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut from_disk = self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut choices = self.probed_choices.lock().unwrap_or_else(PoisonError::into_inner);
-        for (name, profile) in harnesses {
-            if profile.kind != crate::config::HarnessKind::Acp || known.contains_key(name) {
-                continue;
+        let lists = harnesses.iter().filter_map(|(name, profile)| {
+            if profile.kind != crate::config::HarnessKind::Acp {
+                return None;
             }
-            let Some((key, list, kept)) = cached.get(name) else { continue };
-            if *key != crate::live_models::AcpCache::profile_key(profile) {
-                continue;
-            }
-            known.insert(name.clone(), list.clone());
-            from_disk.insert(name.clone());
-            if let Some(kept) = kept {
-                choices.entry(name.clone()).or_insert_with(|| kept.clone());
-            }
-        }
+            let (key, list) = cached.get(name)?;
+            (*key == crate::live_models::AcpCache::profile_key(profile))
+                .then(|| (name.clone(), list.clone()))
+        });
+        self.model_lists.serve_acp_from_disk(lists);
     }
 
     /// A probe of `name` under `profile` answered: its list goes to disk when the disk copy is
@@ -176,25 +163,16 @@ impl Hub {
         profile: &HarnessProfile,
         changed: bool,
     ) {
-        let Some(list) =
-            self.known_models.lock().unwrap_or_else(PoisonError::into_inner).get(name).cloned()
-        else {
+        let Some(list) = self.model_lists.acp(name) else {
             return;
         };
-        let choices =
-            self.probed_choices.lock().unwrap_or_else(PoisonError::into_inner).get(name).cloned();
-        let entry = (crate::live_models::AcpCache::profile_key(profile), list, choices);
+        let entry = (crate::live_models::AcpCache::profile_key(profile), list);
         let on_disk = self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner).get(name)
             == Some(&entry);
         if !on_disk {
-            let (harness, (key, list, choices)) = (name.to_owned(), entry.clone());
+            let (harness, (key, list)) = (name.to_owned(), entry.clone());
             let stored = tokio::task::spawn_blocking(move || {
-                crate::live_models::AcpCache::new(dir).store_with_choices(
-                    &harness,
-                    &key,
-                    &list,
-                    choices.as_ref(),
-                )
+                crate::live_models::AcpCache::new(dir).store(&harness, &key, &list)
             })
             .await;
             match stored {
@@ -222,11 +200,12 @@ impl Hub {
         self.probe_models_with(false, false, None).await;
     }
 
-    /// `daemon models --refresh`: forget every reported catalog, probe every
-    /// ACP harness again, and wait for the answers (bounded).
+    /// `daemon models --refresh` (the picker's Refresh models): every list turns stale (one
+    /// invalidation, `model_lists`), every harness is probed again, and this caller waits for the
+    /// answers (bounded). Nothing is forgotten: every other read meanwhile (a picker open, a start
+    /// default, a model hint) is served the lists it had until each probe answers.
     pub async fn refresh_models(self: &Arc<Self>) {
-        self.known_models.lock().unwrap().clear();
-        self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.model_lists.invalidate(ListTag::Every);
         self.probe_models_with(true, true, None).await;
     }
 
@@ -243,98 +222,32 @@ impl Hub {
             tracing::info!("agent launch is disabled; model probes skipped");
             return;
         }
-        let agents = self.acp_probes_due(force, only.as_ref()).await;
-        // Claude Code's and Codex's own lists, beside the ACP probes: at start, only those
-        // with no kept list of their unchanged program (`live_probes_at_start`).
+        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
+        let agents: Vec<(String, HarnessProfile)> = {
+            let cfg = self.config.read().await;
+            // A stale list (served from disk, its profile changed) is probed again all the same
+            // (stale while revalidating); a fresh one only when forced.
+            cfg.harnesses
+                .iter()
+                .filter(|(n, p)| {
+                    p.kind == crate::config::HarnessKind::Acp
+                        && (force || self.model_lists.acp_freshness(n) != Freshness::Fresh)
+                        && self.probes(n)
+                        && picked(n)
+                })
+                .map(|(n, p)| (n.clone(), p.clone()))
+                .collect()
+        };
+        // Claude Code's and Codex's own lists, beside the ACP probes.
         let live = {
             let hub = self.clone();
-            let only = if force {
-                only.clone()
-            } else {
-                Some(self.live_probes_at_start(only.as_ref()).await)
-            };
+            let only = only.clone();
             tokio::spawn(async move { hub.probe_live_models(wait, only).await })
         };
         let mut handles = vec![live];
         for (name, profile) in agents {
-            handles.push(self.spawn_acp_probe(name, profile));
-        }
-        if wait {
-            for h in handles {
-                let _ = h.await;
-            }
-        }
-    }
-
-    /// The ACP harnesses a probe round starts (`force`: every one), of `only` when set.
-    pub(super) async fn acp_probes_due(
-        &self,
-        force: bool,
-        only: Option<&std::collections::BTreeSet<String>>,
-    ) -> Vec<(String, HarnessProfile)> {
-        let picked = |n: &str| only.is_none_or(|o| o.contains(n));
-        let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap();
-        // A list served from disk is not probed again here: a models read probes it once it
-        // is `ACP_MAX_AGE` old (`revalidate_acp_models`). It was probed at every daemon start
-        // before, one agent process per ACP harness per restart. A disk copy written before
-        // the choices were kept still is, so a new chat's pickers get them.
-        let from_disk = self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner);
-        let choices = self.probed_choices.lock().unwrap_or_else(PoisonError::into_inner);
-        let ages = self.acp_ages.lock().unwrap_or_else(PoisonError::into_inner);
-        let kept = |n: &str| from_disk.contains(n) && choices.contains_key(n) && ages.has(n);
-        cfg.harnesses
-            .iter()
-            .filter(|(n, p)| {
-                p.kind == crate::config::HarnessKind::Acp
-                    && (force || !known.contains_key(*n) || (from_disk.contains(*n) && !kept(n)))
-                    && self.probes(n)
-                    && picked(n)
-            })
-            .map(|(n, p)| (n.clone(), p.clone()))
-            .collect()
-    }
-
-    /// A models read: each ACP harness whose list is `ACP_MAX_AGE` old is probed again in the
-    /// background (stale while revalidating, as `revalidate_live_models` for the live lists).
-    pub(crate) async fn revalidate_acp_models(self: &Arc<Self>) {
-        let due: Vec<(String, HarnessProfile)> = {
-            let cfg = self.config.read().await;
-            let names: Vec<&str> = cfg
-                .harnesses
-                .iter()
-                .filter(|(n, p)| p.kind == crate::config::HarnessKind::Acp && self.probes(n))
-                .map(|(n, _)| n.as_str())
-                .collect();
-            let due = self.acp_ages.lock().unwrap_or_else(PoisonError::into_inner).claim_due_after(
-                names,
-                std::time::Instant::now(),
-                super::live_ages::ACP_MAX_AGE,
-            );
-            due.into_iter().filter_map(|n| cfg.harnesses.get(&n).cloned().map(|p| (n, p))).collect()
-        };
-        if due.is_empty() || crate::launch_policy::agent_launch_disabled() {
-            return;
-        }
-        tracing::info!(agents = ?due.iter().map(|(n, _)| n).collect::<Vec<_>>(), "ACP model lists are old; probing again");
-        for (name, profile) in due {
-            drop(self.spawn_acp_probe(name, profile));
-        }
-    }
-
-    /// One ACP harness's model probe, in the background, bounded at 60 s.
-    fn spawn_acp_probe(
-        self: &Arc<Self>,
-        name: String,
-        profile: HarnessProfile,
-    ) -> tokio::task::JoinHandle<()> {
-        self.acp_ages
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .started(&name, std::time::Instant::now());
-        let hub = self.clone();
-        {
-            tokio::spawn(async move {
+            let hub = self.clone();
+            handles.push(tokio::spawn(async move {
                 // Probes spawn agents: wait for the login environment.
                 hub.wait_startup().await;
                 // Resolved here, once, so neither this probe nor a later
@@ -362,7 +275,12 @@ impl Hub {
                             .insert(name, "the model probe timed out after 60 s".into());
                     }
                 }
-            })
+            }));
+        }
+        if wait {
+            for h in handles {
+                let _ = h.await;
+            }
         }
     }
 
@@ -375,6 +293,9 @@ impl Hub {
         // or begins while it runs ends it once its harness reported full access, an unset after it
         // too (reviews 71 and 73 of #23322).
         let latch = self.off_latch();
+        // The cache clock before the agent is asked: a refresh or a profile change while it runs
+        // leaves what it read stale (`model_lists`).
+        let written = self.model_lists.stamp();
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
         // #23322). The tap sees each line before its answer is handed back, so none sent before
@@ -407,6 +328,11 @@ impl Hub {
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        // A probe dropped before its end below (the 60 s bound in `probe_models`, a stopping
+        // daemon's runtime) would leave its agent running for good: the agent's exit watcher
+        // holds it, so its child's `kill_on_drop` never fires. The group ends on that drop.
+        #[cfg(unix)]
+        let mut group = EndGroupOnDrop(child.pid.and_then(|p| i32::try_from(p).ok()));
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -435,6 +361,7 @@ impl Hub {
                         name,
                         res.get("configOptions").filter(|v| !v.is_null()),
                         res.get("models").filter(|v| !v.is_null()),
+                        written,
                     )
                 })
             };
@@ -449,7 +376,7 @@ impl Hub {
             if let Some(changed) = remembered {
                 self.keep_probed_models(name, profile, changed || choices == Some(true)).await;
             }
-            Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
+            Ok(self.model_lists.acp(name).map(|l| l.len()).unwrap_or(0))
         });
         let result = tokio::select! {
             listed = listed => listed,
@@ -463,6 +390,8 @@ impl Hub {
             }
         };
         child.kill().await;
+        #[cfg(unix)]
+        group.disarm();
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
@@ -471,6 +400,33 @@ impl Hub {
         })
         .await;
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
+    }
+}
+
+/// SIGKILL to a probe's process group (its agent leads one, `agent/command.rs`) when the probe
+/// is dropped before it ended its agent itself.
+#[cfg(unix)]
+pub(super) struct EndGroupOnDrop(pub(super) Option<i32>);
+
+#[cfg(unix)]
+impl EndGroupOnDrop {
+    /// The probe ended its agent: nothing is left to signal, and the group id may be reused.
+    pub(super) fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for EndGroupOnDrop {
+    fn drop(&mut self) {
+        // Never group 0 or 1: those name this daemon's own group and every process.
+        if let Some(group) = self.0.filter(|g| *g > 1) {
+            // SAFETY: killpg takes a process group id and a signal; the group is the probe's
+            // agent's, which the probe has not ended (or this was disarmed).
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+        }
     }
 }
 

@@ -350,6 +350,14 @@ impl Home {
 
     /// The carried files present here (the allowlist), never through a link.
     fn scan(&self) -> anyhow::Result<BTreeSet<String>> {
+        let mut found = self.scan_all()?;
+        found.retain(|relative| carried(relative));
+        Ok(found)
+    }
+
+    /// Every regular file under the allowlisted places, before any name check
+    /// (`plan` names each one it refuses), never through a link.
+    fn scan_all(&self) -> anyhow::Result<BTreeSet<String>> {
         let mut found = BTreeSet::new();
         for file in ROOT_FILES {
             if let Some((dir, name)) = place::parent_of(&self.root, file)?
@@ -371,7 +379,6 @@ impl Home {
                 }
             }
         }
-        found.retain(|relative| carried(relative));
         Ok(found)
     }
 }
@@ -405,29 +412,47 @@ fn walk(root: &Dir, folder: &str, found: &mut BTreeSet<String>) -> anyhow::Resul
 }
 
 /// Single files carried from the home.
-const ROOT_FILES: &[&str] = &[".claude/CLAUDE.md", ".codex/AGENTS.md"];
+const ROOT_FILES: &[&str] = &[".claude/CLAUDE.md", ".codex/AGENTS.md", ".gemini/GEMINI.md"];
 /// Folders carried whole.
 const TREES: &[&str] = &[".claude/agents", ".claude/commands", ".claude/skills", ".codex/prompts"];
+/// Longest carried path, in bytes.
+pub(super) const PATH_MAX: usize = 512;
 
 /// Whether `relative` (a path under the home) is a carried file: on the
 /// allowlist, a plain relative path, and not named like a secret.
 pub(super) fn carried(relative: &str) -> bool {
-    let parts: Vec<&str> = relative.split('/').collect();
-    if relative.starts_with('/')
-        || parts.iter().any(|part| part.is_empty() || *part == "." || *part == "..")
-        || parts.iter().any(|part| part.contains('\0'))
-    {
-        return false;
-    }
-    let name = parts.last().copied().unwrap_or_default().to_ascii_lowercase();
-    if merge::is_conflict_file(&name) || name.ends_with(".cmux-sync-part") || secret_name(&name) {
-        return false;
-    }
-    ROOT_FILES.contains(&relative)
-        || TREES.iter().any(|tree| relative.starts_with(&format!("{tree}/")))
-        || matches!(parts.as_slice(), [".claude", "projects", _, "memory", _, ..])
+    refusal(relative).is_none()
 }
 
+/// Why `relative` is never carried, by its path alone; `None` when it is.
+/// A path is checked as it is, never cleaned up into an allowed one.
+pub(super) fn refusal(relative: &str) -> Option<&'static str> {
+    use unicode_normalization::UnicodeNormalization as _;
+    let parts: Vec<&str> = relative.split('/').collect();
+    if relative.is_empty()
+        || relative.len() > PATH_MAX
+        || relative.starts_with('/')
+        || parts.iter().any(|part| part.is_empty() || *part == "." || *part == "..")
+        || relative.chars().any(|c| c.is_control() || c == '\\')
+        || !relative.nfc().eq(relative.chars())
+    {
+        return Some("path form");
+    }
+    let name = parts.last().copied().unwrap_or_default().to_ascii_lowercase();
+    if merge::is_conflict_file(&name) || name.ends_with(".cmux-sync-part") {
+        return Some("sync side file");
+    }
+    if secret_name(&name) {
+        return Some("credential name");
+    }
+    let allowed = ROOT_FILES.contains(&relative)
+        || TREES.iter().any(|tree| relative.starts_with(&format!("{tree}/")))
+        || matches!(parts.as_slice(), [".claude", "projects", _, "memory", _, ..]);
+    (!allowed).then_some("not on the allowlist")
+}
+
+/// A file name (lowercased) that credentials, harness settings or history
+/// use: never carried, wherever it sits.
 fn secret_name(name: &str) -> bool {
     [
         ".env",
@@ -440,9 +465,18 @@ fn secret_name(name: &str) -> bool {
         "auth.json",
         "id_rsa",
         "id_ed25519",
+        "id_ecdsa",
+        "id_dsa",
+        "netrc",
+        ".npmrc",
+        ".pypirc",
+        "oauth_creds",
+        "history.jsonl",
+        "config.toml",
     ]
     .iter()
     .any(|word| name.contains(word))
+        || (name.starts_with("settings") && name.ends_with(".json"))
 }
 
 /// The permissions a carried file gets: the owner always reads and writes,
@@ -867,7 +901,7 @@ pub(super) fn push(ctx: &Ctx<'_>) -> anyhow::Result<Outcome> {
     Ok(out)
 }
 
-const USAGE: &str = "usage: cmux link memory pull|propose|push --head DIR [--home DIR] [--record DIR] [--user NAME|UID] [--device NAME]";
+const USAGE: &str = "usage: cmux link memory pull|propose|push --head DIR [--home DIR] [--record DIR] [--user NAME|UID] [--device NAME]\n       cmux link memory plan [--home DIR] [--folder DIR]... [--ledger FILE] [--json]";
 
 fn user_ids(name: &str) -> anyhow::Result<(u32, u32, PathBuf)> {
     let c = std::ffi::CString::new(name)?;
@@ -923,6 +957,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
 
 fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
     let verb = args.first().map(String::as_str).unwrap_or_default();
+    if verb == "plan" {
+        return plan::run(args.get(1..).unwrap_or_default());
+    }
     if !matches!(verb, "pull" | "propose" | "push") {
         bail!("{USAGE}");
     }
@@ -989,6 +1026,9 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
     }
     Ok(value)
 }
+
+#[path = "memory_plan.rs"]
+mod plan;
 
 #[cfg(test)]
 #[path = "memory_tests.rs"]

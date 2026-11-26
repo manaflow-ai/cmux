@@ -237,7 +237,7 @@ pub trait Orchestrator: Send + Sync {
         let _ = (id, text);
         Err("this Chief host cannot reply in a thread".into())
     }
-    /// `send(text, attachments, reply_to)`: one or more short messages posted now.
+    /// `send(text, attachments, reply_to)`: one message posted now.
     fn send(&self, call: SendCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot send".into())
@@ -944,7 +944,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | tasks ID [{content, status}...] | cap N | cloud [PEER[,PEER...]|off]",
+                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
             "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
@@ -966,8 +966,6 @@ pub struct ControlCall {
     pub n: Option<u64>,
     /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
     pub peer: Option<String>,
-    /// `tasks`: the subagent chat's task list, `[{content, status}]` (`[]` clears it).
-    pub items: Option<Value>,
 }
 
 impl ControlCall {
@@ -1001,7 +999,6 @@ impl ControlCall {
             option: text("option"),
             n,
             peer: text("peer"),
-            items: args.get("items").filter(|v| !v.is_null()).cloned(),
         };
         let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
         if needs_id && call.id.is_none() {
@@ -1009,12 +1006,6 @@ impl ControlCall {
         }
         if call.action == "answer" && call.option.is_none() {
             return Err("control answer: `option` is required (an option id, or `deny`)".into());
-        }
-        if call.action == "tasks" && !call.items.as_ref().is_some_and(Value::is_array) {
-            return Err(
-                "control tasks: `items` is required, a list of {content, status} ([] clears it)"
-                    .into(),
-            );
         }
         if call.action == "cap" && call.n.is_none() {
             return Err("control cap: `n` is required (0: no cap)".into());
@@ -1038,9 +1029,6 @@ impl ControlCall {
         }
         if let Some(p) = &self.peer {
             v["peer"] = json!(p);
-        }
-        if let Some(items) = &self.items {
-            v["items"] = items.clone();
         }
         v
     }
@@ -1104,7 +1092,7 @@ pub enum Call {
         id: u64,
         text: String,
     },
-    /// `send` (brain/send.rs): one or more messages now, with files, optionally in
+    /// `send` (brain/send.rs): one message now, with files, optionally in
     /// a thread.
     Send(SendCall),
     /// `transcript` (brain/transcript.rs): the last `n` messages of the

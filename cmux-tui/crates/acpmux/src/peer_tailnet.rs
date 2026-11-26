@@ -3,42 +3,52 @@
 //!
 //! The setting `CMUX_TAILNET_CARRIER` is off by default; off, nothing here calls tailscale and
 //! the peer has no tailnet path. On, the peer's configured host is matched against the cached
-//! `tailscale status` snapshot ([`crate::tailnet_carrier::route_for`]): when it names one online
-//! node of this tailnet whose path the mode offers, the peer gains a [`Via::Tailnet`] path that
+//! tailscaled status ([`crate::tailnet_carrier::route_for`]), read from the LocalAPI and from
+//! `tailscale status` only when the LocalAPI is unavailable ([`PathSource`]): when it names one
+//! online node of this tailnet whose path the mode offers, the peer gains a [`Via::Tailnet`] path that
 //! dials that node's tailnet address at the peer's listener port, joins the cold-connect race and
 //! the probe set like every other path, and carries the session only when the selector finds it
-//! faster. A snapshot that stops offering it (the path went through DERP under `direct-only`, the
-//! node went offline, the setting's host changed) takes the path out again.
+//! faster. Under `direct-only` a path that is not direct (DERP, a peer relay) skips the tailnet
+//! attempt; under `on` it is the relayed class. A snapshot that stops offering it (the path went
+//! through DERP under `direct-only`, the node went offline, the setting's host changed) takes
+//! the path out again.
 
 use super::Peer;
 use super::carriers::BoxDuplex;
 use crate::no_panic::LockExt;
 use crate::peer_paths::Via;
-use crate::tailnet_carrier::{Mode, Route, Snapshots, route_for};
+use crate::tailnet_carrier::{Mode, PathSource, Route, route_for};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-/// How long the very first status read may delay a cold connect.
-const FIRST_READ_WAIT: Duration = Duration::from_millis(200);
+/// How long the background read after a cold connect awaits tailscale's first answer. The
+/// connect itself never waits: it races the paths it already knows.
+const FIRST_READ_WAIT: Duration = Duration::from_secs(3);
 /// How often the watcher reads the snapshot (a path that flipped to DERP is demoted then).
 const WATCH_EVERY: Duration = Duration::from_secs(10);
 
 pub(super) struct State {
     mode: Mode,
-    snaps: Option<Arc<Snapshots>>,
+    source: Option<Arc<PathSource>>,
     route: Option<Route>,
     watching: bool,
 }
 
 impl State {
     pub(super) fn from_env() -> Self {
-        Self::with(Mode::from_env(), None)
+        Self::with_source(Mode::from_env(), None)
     }
 
-    /// `mode` over `snaps` (the installed CLI's when None).
-    pub(super) fn with(mode: Mode, snaps: Option<Arc<Snapshots>>) -> Self {
-        Self { mode, snaps, route: None, watching: false }
+    /// `mode` over the CLI's `snaps` only; the system's LocalAPI then CLI when None.
+    #[cfg(test)]
+    pub(super) fn with(mode: Mode, snaps: Option<Arc<crate::tailnet_carrier::Snapshots>>) -> Self {
+        Self::with_source(mode, snaps.map(PathSource::cli_only))
+    }
+
+    /// `mode` over `source` (the system's when None).
+    pub(super) fn with_source(mode: Mode, source: Option<Arc<PathSource>>) -> Self {
+        Self { mode, source, route: None, watching: false }
     }
 }
 
@@ -71,19 +81,28 @@ impl Peer {
     }
 
     /// Read the snapshot and keep this peer's tailnet path in step with it. `wait` bounds an
-    /// await of tailscale: None is the cold connect's (a first read only, briefly; else memory).
-    /// Under [`Mode::Off`] it returns at once and tailscale is never called.
+    /// await of tailscale: None is the cold connect's, memory only (an absent or hung tailscale
+    /// never delays the race); before any read, a background read applies the path when it
+    /// lands. Under [`Mode::Off`] it returns at once and tailscale is never called.
     pub(super) async fn refresh_tailnet(self: &Arc<Self>, wait: Option<Duration>) {
-        let (mode, snaps) = {
+        let (mode, source) = {
             let state = self.tailnet.lock_or_recover();
-            (state.mode, state.snaps.clone())
+            (state.mode, state.source.clone())
         };
         if mode == Mode::Off {
             return;
         }
-        let snaps = snaps.unwrap_or_else(Snapshots::global);
-        let wait = wait.unwrap_or(if snaps.loaded() { Duration::ZERO } else { FIRST_READ_WAIT });
-        let status = snaps.get(wait).await;
+        let source = source.unwrap_or_else(PathSource::global);
+        let wait = match wait {
+            Some(wait) => wait,
+            None => {
+                if !source.loaded() {
+                    self.read_tailnet_soon();
+                }
+                Duration::ZERO
+            }
+        };
+        let status = source.get(wait).await;
         let route = status.and_then(|status| {
             let host = self.tailnet_host()?;
             // A URL that already names the tailnet node is that path itself.
@@ -136,6 +155,15 @@ impl Peer {
                 self.after_switch(switch.flatten().map(Some));
             }
         }
+    }
+
+    /// One background read awaiting tailscale's first answer, so a path a cold connect could not
+    /// know yet is raced from the next dial on.
+    fn read_tailnet_soon(self: &Arc<Self>) {
+        let peer = self.clone();
+        self.scope.spawn_named("peer-tailnet-first-read", async move {
+            peer.refresh_tailnet(Some(FIRST_READ_WAIT)).await;
+        });
     }
 
     /// Re-read the snapshot every [`WATCH_EVERY`] until the peer stops; once per peer.

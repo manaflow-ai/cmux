@@ -15,8 +15,7 @@ import UIKit
     static func field(_ lines: Int) -> ComposerUITextView {
         let view = ComposerUITextView()
         view.font = .preferredFont(forTextStyle: .body)
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.text = (1...lines).map { "echo \($0)" }.joined(separator: "\n")
         view.frame = CGRect(origin: .zero, size: view.fittingSize(proposedWidth: 280))
@@ -56,7 +55,8 @@ import UIKit
 
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
-        #expect(maxLines == 14)
+        // The agent chat's six (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too high").
+        #expect(maxLines == 6)
         let heights = (1...17).map { Self.field($0).bounds.height }
         for index in 1..<maxLines { #expect(heights[index] > heights[index - 1]) }
         for index in maxLines..<heights.count { #expect(heights[index] == heights[maxLines - 1]) }
@@ -71,7 +71,7 @@ import UIKit
         // Typing at the end shows the field's bottom inset under the last
         // line, as at rest, not the line flush against the field's edge.
         #expect(abs(visible.maxY - tall.contentSize.height) < 0.5, "scrolled to the end: \(visible) of \(tall.contentSize)")
-        #expect(tall.textContainerInset.top == TerminalDockMetrics.textVerticalInset)
+        #expect(tall.textContainerInset == .zero)
     }
 
     @Test func terminalKeyInputStaysRaw() {

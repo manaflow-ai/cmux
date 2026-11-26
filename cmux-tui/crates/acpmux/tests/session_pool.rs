@@ -944,8 +944,26 @@ async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_wa
             .map(|v| v == "true")
             .collect::<Vec<_>>()
     };
+    // `session/new` returns before the harness's `initialize` (a deferred start): its line is
+    // waited for, bounded, never read once at once (an empty read was this test's red).
+    let settled = |pid: i64| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let got = asked(pid);
+            if !got.is_empty() || std::time::Instant::now() > deadline {
+                let log = std::fs::read_to_string(&init_log).unwrap_or_default();
+                return (got, log);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
     let script_pid = harness_pid(&scripts);
-    assert_eq!(asked(script_pid), [false], "the script's Claude Code asked for suggestions");
+    let (got, log) = settled(script_pid);
+    assert_eq!(
+        got,
+        [false],
+        "the script's Claude Code asked for suggestions (pid {script_pid}; log {log:?})"
+    );
 
     // The person's chat takes the warm one, which asked for them.
     let mut person = daemon.rpc().await;
@@ -953,7 +971,13 @@ async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_wa
     let (persons, _) = new_session(&mut person, &home, "fakeb").await;
     assert!(taken(&daemon, &persons), "the person's chat started cold");
     assert_runs_on_pooled_host(&daemon, &persons, &pooled);
-    assert_eq!(asked(harness_pid(&persons)), [true], "the person's Claude Code had no suggestions");
+    let person_pid = harness_pid(&persons);
+    let (got, log) = settled(person_pid);
+    assert_eq!(
+        got,
+        [true],
+        "the person's Claude Code had no suggestions (pid {person_pid}; log {log:?})"
+    );
     let _ = std::fs::remove_file(&init_log);
 }
 

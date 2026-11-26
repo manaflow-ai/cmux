@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.externalLinkPatterns.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text matches anywhere; * and ? are wildcards; re: starts a regular expression."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يطابق النص أي جزء؛ و* و? أحرف بدل؛ وre: تبدأ تعبيرًا نمطيًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst se podudara bilo gdje; * i ? su zamjenski znakovi; re: započinje regularni izraz."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst matcher hvor som helst; * og ? er jokertegn; re: starter et regulært udtryk."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Text passt an jeder Stelle; * und ? sind Platzhalter; re: beginnt einen regulären Ausdruck."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El texto coincide en cualquier parte; * y ? son comodines; re: inicia una expresión regular."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le texte correspond n'importe où ; * et ? sont des jokers ; re: commence une expression régulière."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il testo corrisponde in qualsiasi punto; * e ? sono caratteri jolly; re: inizia un'espressione regolare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "テキストはどこにでも一致し、* と ? はワイルドカード、re: は正規表現の開始です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អត្ថបទត្រូវគ្នានៅកន្លែងណាក៏បាន; * និង ? ជាតួអក្សរជំនួស; re: ចាប់ផ្ដើមកន្សោមធម្មតា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "텍스트는 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst samsvarer hvor som helst; * og ? er jokertegn; re: starter et regulært uttrykk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst pasuje w dowolnym miejscu; * i ? to symbole wieloznaczne; re: rozpoczyna wyrażenie regularne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O texto corresponde a qualquer parte; * e ? são curingas; re: inicia uma expressão regular."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Текст совпадает в любом месте; * и ? — подстановочные знаки; re: начинает регулярное выражение."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้อความตรงกับส่วนใดก็ได้ * และ ? เป็นไวลด์การ์ด และ re: เริ่มนิพจน์ทั่วไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Metin her yerde eşleşir; * ve ? joker karakterdir; re: bir düzenli ifade başlatır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Текст збігається будь-де; * і ? — символи підстановки; re: починає регулярний вираз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Văn bản khớp ở bất kỳ đâu; * và ? là ký tự đại diện; re: bắt đầu một biểu thức chính quy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "文本可匹配任意位置，* 和 ? 为通配符，re: 表示正则表达式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "文字可符合任何位置；* 和 ? 為萬用字元；re: 表示正規表示式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

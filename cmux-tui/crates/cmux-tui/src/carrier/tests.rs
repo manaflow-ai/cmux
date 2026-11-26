@@ -157,6 +157,23 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
         ("noise handshake failed: decrypt", "noise"),
         ("authorization failed: grant expired", "unauthorized"),
         ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+        ("reconnect deadline expired after 4 attempts", "resume_deadline"),
+        ("reconnect failed after 3 attempts: connection is closed", "closed"),
+        ("stale connection generation 2, current is 3", "stale_generation"),
+        ("connection generation changed from 2 to 3", "generation_changed"),
+        ("connection generation exhausted", "generation_exhausted"),
+        (
+            "daemon no longer has the requested logical session (it expired or was closed)",
+            "session_gone",
+        ),
+        ("too many connected clients: the daemon serves its limit of 256", "daemon_full"),
+        ("interactive replay buffer is full", "replay_full"),
+        ("bulk delivery window is full", "window_full"),
+        ("interactive outbound queue is full", "queue_full"),
+        ("interactive sequence gap: expected 6, got 9", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame: short header", "invalid_frame"),
     ];
     let token = |code: &str| {
         (1..=24).contains(&code.len())

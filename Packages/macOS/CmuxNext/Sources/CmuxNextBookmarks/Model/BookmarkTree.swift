@@ -168,44 +168,12 @@ public nonisolated struct BookmarkTree: Sendable, Equatable {
         BookmarkRoot.isRoot(parent) || nodes[parent]?.isFolder == true
     }
 
-    // MARK: Internal mutation (BookmarkTree+Apply)
+    // MARK: Index upkeep
 
     private mutating func tally(_ node: BookmarkNode?, by delta: Int) {
         guard let node, !node.isFolder, let url = node.url else { return }
         let key = BookmarkURL.key(url)
         let value = urlKeys[key, default: 0] + delta
         urlKeys[key] = value > 0 ? value : nil
-    }
-
-    mutating func insert(_ node: BookmarkNode, at index: Int?) {
-        tally(nodes[node.id], by: -1)
-        tally(node, by: 1)
-        nodes[node.id] = node
-        var siblings = childIDs[node.parent] ?? []
-        let position = min(max(index ?? siblings.count, 0), siblings.count)
-        siblings.insert(node.id, at: position)
-        childIDs[node.parent] = siblings
-    }
-
-    mutating func detach(_ id: String) {
-        guard let node = nodes[id] else { return }
-        childIDs[node.parent]?.removeAll { $0 == id }
-    }
-
-    mutating func replace(_ node: BookmarkNode) {
-        tally(nodes[node.id], by: -1)
-        tally(node, by: 1)
-        nodes[node.id] = node
-    }
-
-    mutating func removeSubtree(_ id: String) -> [String] {
-        let removed = subtree(id)
-        detach(id)
-        for value in removed {
-            tally(nodes[value], by: -1)
-            nodes[value] = nil
-            childIDs[value] = nil
-        }
-        return removed
     }
 }
