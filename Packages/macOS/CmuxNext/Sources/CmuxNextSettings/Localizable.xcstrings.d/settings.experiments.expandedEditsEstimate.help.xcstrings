@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.expandedEditsEstimate.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تضع دردشة الوكيل الصفوف أسفل مجموعة الملفات المعدّلة الموسّعة عند ارتفاعها الحقيقي، فلا تظهر فجوة تحتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat agenta postavlja redove ispod proširene grupe izmijenjenih datoteka na njenu stvarnu visinu, pa ispod nje nema praznine."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agentchatten placerer rækkerne under en udvidet gruppe af ændrede filer ved dens reelle højde, så der ikke opstår et hul under den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Agent-Chat platziert die Zeilen unter einer aufgeklappten Gruppe bearbeiteter Dateien auf ihrer echten Höhe, sodass darunter keine Lücke entsteht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El chat del agente coloca las filas bajo un grupo de archivos editados expandido a su altura real, para que no quede un hueco debajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le chat d’agent place les lignes sous un groupe de fichiers modifiés développé à sa hauteur réelle, sans laisser d’espace vide dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La chat dell’agente posiziona le righe sotto un gruppo di file modificati espanso alla sua altezza reale, così sotto non resta uno spazio vuoto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントチャットは展開した「編集したファイル」グループを実際の高さで扱い、その下の行を配置するので、下に隙間ができません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែករបស់ភ្នាក់ងារដាក់ជួរនៅក្រោមក្រុមឯកសារដែលបានកែដែលពង្រីក តាមកម្ពស់ពិតរបស់វា ដូច្នេះគ្មានចន្លោះទទេនៅខាងក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트 채팅이 펼친 편집 파일 그룹을 실제 높이로 계산해 그 아래 행을 배치하므로 빈 공간이 생기지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agentchatten plasserer radene under en utvidet gruppe med endrede filer ved den faktiske høyden, så det ikke oppstår et tomrom under den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Czat agenta umieszcza wiersze pod rozwiniętą grupą edytowanych plików na jej rzeczywistej wysokości, więc pod nią nie powstaje przerwa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O chat do agente posiciona as linhas sob um grupo expandido de arquivos editados na altura real dele, para que não surja um espaço vazio abaixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чат агента размещает строки под развёрнутой группой изменённых файлов с учётом её настоящей высоты, поэтому под ней не появляется пустое место."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชทของเอเจนต์จัดวางแถวใต้กลุ่มไฟล์ที่แก้ไขซึ่งขยายอยู่ตามความสูงจริง จึงไม่เกิดช่องว่างด้านล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajan sohbeti, genişletilmiş Düzenlenen dosyalar grubunun altındaki satırları grubun gerçek yüksekliğine göre yerleştirir; böylece altında boşluk açılmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чат агента розміщує рядки під розгорнутою групою змінених файлів з урахуванням її справжньої висоти, тож під нею не з’являється порожнього місця."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat của tác nhân đặt các hàng bên dưới nhóm tệp đã sửa đang mở rộng theo đúng chiều cao thật, nên không có khoảng trống bên dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理聊天按展开的“已编辑文件”组的实际高度放置其下方的行，不会留下空隙。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理聊天依展開的「已編輯檔案」群組的實際高度擺放其下方的列，不會留下空隙。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

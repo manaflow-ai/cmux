@@ -25,15 +25,51 @@ def wait_for(app: bench_memory.App, predicate, seconds: float, step: float = 0.2
     return None
 
 
+def seed_completed_spawns(chief_home: str, count: int, payload_bytes: int) -> None:
+    if count <= 0:
+        return
+    records = {}
+    payload = "x" * payload_bytes
+    for index in range(count):
+        spawn_id = f"s{index}"
+        records[spawn_id] = {
+            "started_ms": index,
+            "delivered": True,
+            "turn": f"turn-{index}-{payload}",
+            "conversation": f"conversation-{index}-{payload}",
+            "answers": [f"answer-{index}-{payload}"],
+            "subs": [
+                {
+                    "id": f"a{index}",
+                    "status": "reported",
+                    "title": f"completed-{index}-{payload}",
+                }
+            ],
+        }
+    optchat = os.path.join(chief_home, "optchat")
+    os.makedirs(optchat, mode=0o700, exist_ok=True)
+    with open(os.path.join(optchat, "host.json"), "w", encoding="utf-8") as handle:
+        json.dump({"spawns": records}, handle)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
     parser.add_argument("--minutes", type=int, default=10)
     parser.add_argument("--sample-seconds", type=int, default=60)
+    parser.add_argument("--completed-spawns", type=int, default=0)
+    parser.add_argument("--spawn-payload-bytes", type=int, default=256)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
-    if args.minutes < 1 or args.sample_seconds < 1:
-        parser.error("minutes and sample-seconds must be positive")
+    if (
+        args.minutes < 1
+        or args.sample_seconds < 1
+        or args.completed_spawns < 0
+        or args.spawn_payload_bytes < 0
+    ):
+        parser.error(
+            "minutes, sample-seconds, completed-spawns, and spawn-payload-bytes must be valid"
+        )
 
     bundle = os.path.realpath(args.app)
     chief_home = tempfile.mkdtemp(prefix="chief-memory-", dir="/tmp")
@@ -42,11 +78,14 @@ def main() -> int:
         "app": bundle,
         "minutes": args.minutes,
         "sample_seconds": args.sample_seconds,
+        "completed_spawns": args.completed_spawns,
+        "spawn_payload_bytes": args.spawn_payload_bytes,
         "started_at": time.time(),
         "samples": [],
     }
     pid = socket_path = scratch = None
     try:
+        seed_completed_spawns(chief_home, args.completed_spawns, args.spawn_payload_bytes)
         pid, socket_path, scratch = bench_memory.launch(
             bundle,
             {},

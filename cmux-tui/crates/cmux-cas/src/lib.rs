@@ -20,12 +20,15 @@
 
 pub mod assemble;
 pub mod cdc;
+pub mod cold;
+pub mod dedup;
 pub mod id;
 pub mod manifest;
 pub mod pack;
 pub mod peer;
 pub mod plan;
 pub mod pointer;
+pub mod public;
 pub mod store;
 pub mod wire;
 
