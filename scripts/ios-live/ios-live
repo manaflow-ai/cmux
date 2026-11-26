@@ -9,7 +9,7 @@
 #   ios-live swap                    your whole change (anything): warm rebuild + relaunch (lease)
 #   ios-live up [REF]                rebuild at REF (default origin/feat-cmux-next), no patch (lease)
 #   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
-#   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
+#   ios-live relaunch [ARG...] | tap X Y | type TEXT | tree | log [N]
 #   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
 #   ios-live slots                   every slot on every host: base, holder; and how many are free
