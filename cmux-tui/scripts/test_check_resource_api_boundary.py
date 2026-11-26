@@ -389,6 +389,34 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_sibling_test_modules_and_internal_readers_are_skipped(self) -> None:
+        # feat-cmux-next went red on `search_tests.rs`, `inference_gateway_tests.rs` and
+        # `cloud_start_chat/direct_tests.rs` (Rust's `#[path = "X_tests.rs"] mod tests;`), and on
+        # `cmux search`'s legacy daemon reader; the public module beside them is still scanned.
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            cli = tui / "crates/cmux-tui/src/cli"
+            for name in (
+                "search_tests.rs",
+                "inference_gateway_tests.rs",
+                "cloud_start_chat/direct_tests.rs",
+                "search/internal/legacy_daemon.rs",
+            ):
+                write(
+                    cli / name,
+                    'fn t() { let _ = json!({"surface": 7, "short_id": "a1", "slot": 2, '
+                    '"ws": "workspace:3"}); }\n',
+                )
+            write(cli / "search.rs", 'const USAGE: &str = "cmux attach-surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 1)
+            self.assertEqual(
+                [(item.path.relative_to(tui).as_posix(), item.code) for item in diagnostics],
+                [("crates/cmux-tui/src/cli/search.rs", "boundary.surface")],
+            )
+
     def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
