@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "test-ios.yml"
 STEPS = ("Run CMUXMobileCore package tests", "Run CmuxMobilePairedMac package tests",
          "Run CmuxMobileShellModel package tests")
-JOB_GATE = "(inputs.swift_package != '' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+JOB_GATE = "(inputs.swift_package != '' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))"
 
 
 class MobileCorePackageMacWhenAsked(unittest.TestCase):
@@ -38,7 +38,7 @@ class MobileCorePackageMacWhenAsked(unittest.TestCase):
             self.assertIn("env.MAC_RUNS_LINUX_PACKAGES == 'true'", cond, name)
             self.assertIn("inputs.swift_package ==", cond, name)
         env = str(self.job["env"]["MAC_RUNS_LINUX_PACKAGES"])
-        self.assertEqual(env, "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}")
+        self.assertEqual(env, "${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}")
 
     def test_linux_job_covers_the_packages(self) -> None:
         body = yaml.safe_dump(self.jobs["mobile-core-linux"])

@@ -371,7 +371,7 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
         # #49046: a pull request into another base is not a cmux-next PR; one into feat-cmux-next needs full-ci.
         self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
-                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+                      " || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", condition)
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
@@ -386,7 +386,7 @@ class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
     def test_the_plan_needs_full_ci(self) -> None:
         plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
         condition = re.search(r"^    if: (.*)$", plan, re.M).group(1)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertIn("(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", condition)
         # The compile job needs the plan, so a skipped plan skips it: no gateway runner is taken.
         job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
         self.assertRegex(job, r"(?m)^    needs: plan$")

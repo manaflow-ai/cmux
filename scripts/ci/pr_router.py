@@ -32,7 +32,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
-A `full-ci` label on the pull request starts every callee its types allow.
+A `full-ci` label on the pull request starts every callee its types allow; into feat-cmux-next only on its own
+`labeled` event (head_tier.py's one-shot full-ci rule, CI_FULL_CI_ONE_SHOT=0 makes it sticky again).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -153,8 +154,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
         cheap = fast
     action = str(event.get("action") or "")
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
+    sticky_full = head_tier.full_ci_applies(event)
     if added in (head_tier.LAND_LABEL, FULL_CI):
         # The land handoff (head_tier's land rule): the same head now runs the full tier, as when a draft is marked
         # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review). full-ci is
@@ -169,7 +170,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = f"label '{added}' added"
             continue
-        if FULL_CI in labels:
+        if sticky_full:
             start.append(name)
             why[name] = "full-ci"
             continue
@@ -198,7 +199,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels)
+            steps = table_steps(config, files, full=tier == "full" or sticky_full)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -297,8 +298,7 @@ def main(argv: list[str]) -> int:
         files = changed_files()
         decided = head_tier.decide("pull_request", event)
         start, why = route(event, callees, files, decided=decided)
-        labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
-        full = decided[0] == "full" or FULL_CI in labels
+        full = decided[0] == "full" or head_tier.full_ci_applies(event)
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),
                       land_status(event, decided))
         return 0

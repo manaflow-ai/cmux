@@ -198,7 +198,7 @@ jobs:
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
         env:
           REACT_APPS_SHARDS: "8"
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
           # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
           CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
@@ -387,7 +387,7 @@ jobs:
     needs: web-subarea-scope
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
@@ -832,7 +832,7 @@ jobs:
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -945,7 +945,7 @@ jobs:
         continue-on-error: true
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
-          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
+          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')), github.base_ref, runner.os, runner.arch) }}
         run: python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" >> "$GITHUB_OUTPUT"
 
       - name: Look up this shard's same-input receipt
@@ -1190,7 +1190,7 @@ jobs:
       # files the change between the two heads cannot reach (Test webviews). Best effort: no list runs every file.
       - name: Download the files that passed at the previous head
         id: passed-before
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -1245,7 +1245,7 @@ jobs:
           CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
           # Every failed or timed-out file gets its alone retry before it counts
@@ -1528,7 +1528,7 @@ jobs:
   # a skipped early job never skips the base check; a full-ci run's early results count when they are uploaded first.
   react-apps-base-early:
     needs: web-subarea-scope
-    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
@@ -1570,7 +1570,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ matrix.shard_count }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
           mkdir -p "$runner"
@@ -2261,7 +2261,7 @@ jobs:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (the shards' land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -2688,7 +2688,7 @@ jobs:
           WEB_BASE_REF: ${{ github.base_ref }}
           WEB_WORKFLOW: ${{ github.workflow }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (webviews-typecheck's land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
