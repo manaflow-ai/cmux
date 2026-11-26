@@ -79,6 +79,32 @@ fn a_team_signed_production_channel_names_the_shared_session_item() {
 }
 
 #[test]
+fn the_shared_session_store_answers_its_next_effects() {
+    let (code, launch) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": {}, "event": {"event": "settle", "ownRefresh": null}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(launch["effects"], json!([{"kind": "read_shared"}]));
+    let (_, imported) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": launch["state"], "event": {"event": "shared_read", "pair": {"access": "a", "refresh": "r"}}}),
+    );
+    assert_eq!(imported["state"]["usesImported"], true);
+    assert_eq!(
+        imported["effects"],
+        json!([{"kind": "seed_imported", "access": "a", "refresh": "r"}])
+    );
+    let (_, shared) = call(
+        c"cloud_auth_shared_session_next",
+        &json!({"state": imported["state"], "event": {"event": "is_shared", "refresh": "r"}}),
+    );
+    assert_eq!(shared["shared"], true);
+    let (code, _) = call(c"cloud_auth_shared_session_next", &json!({"event": {"event": "nope"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn the_sign_in_screen_backend_label_answers_here() {
     let (code, production) =
         call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));

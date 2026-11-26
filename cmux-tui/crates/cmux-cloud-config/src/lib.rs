@@ -37,6 +37,9 @@
 //!   at most its bound, and name the step of a mint that stalls (remote-cloud-durability F13).
 //! - [`stack_redirects`]: the redirect URLs the hosted sign-in page sends Stack and Stack's
 //!   trusted-domain check of them, so a test proves a fresh build's sign-in passes.
+//! - [`shared_session_store`]: the token store of a Team-signed production build that shares its
+//!   session ([`config::shared_session`]): its own session wins, a signed-out launch imports the
+//!   shared item read-only in memory, and only its own session is written to or withdrawn from it.
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -53,5 +56,6 @@ pub mod install_key_slots;
 pub mod keychain;
 pub mod origin;
 pub mod screen_picker;
+pub mod shared_session_store;
 pub mod signin;
 pub mod stack_redirects;
