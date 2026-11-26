@@ -82,8 +82,9 @@ final class DebugSettingsService: InternalPageProvider {
     /// Registers the catalog and activates the store (dev tools only).
     func start() {
         guard isAvailable else {
-            // Release and RC: no file; only `CMUX_IN_TREE_PAGES` can turn in-tree pages on.
-            InTreePages.shared.latch(fileOverride: nil, tag: nil)
+            // Release and RC: no file.
+            let inTree = InTreePages.launchInputs(devTools: false, file: nil, tag: services.environment.launch.tag)
+            InTreePages.shared.latch(fileOverride: inTree.fileOverride, tag: inTree.tag)
             return
         }
         let store = TunableStore.shared
@@ -101,14 +102,8 @@ final class DebugSettingsService: InternalPageProvider {
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
         // In-tree pages are decided once, before the first window or page: the file's switch as it is now.
-        InTreePages.shared.latch(fileOverride: Self.launchInTreePages(url), tag: launch.tag)
-    }
-
-    /// Debug Settings `browser.inTreePages` as the override file holds it at launch (nil without an override).
-    nonisolated static func launchInTreePages(_ url: URL?) -> Bool? {
-        // concurrency-allow: one small Debug Settings file, read once at launch before the first window
-        guard let url, let data = try? Data(contentsOf: url) else { return nil }
-        return TunableFile.decode(data)[InTreePages.key] as? Bool
+        let inTree = InTreePages.launchInputs(devTools: true, file: url, tag: launch.tag)
+        InTreePages.shared.latch(fileOverride: inTree.fileOverride, tag: inTree.tag)
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).

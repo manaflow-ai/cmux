@@ -83,6 +83,22 @@ public final class InTreePages {
         source = from
     }
 
+    /// What ``latch(fileOverride:tag:environment:)`` takes at launch: the Debug Settings file's `browser.inTreePages`,
+    /// read only with dev tools (a Release or RC build has no file), and the build's tag in every build, so a
+    /// Release-compiled dev build tagged `in-tree-pages…` runs them by default as its Debug twin does. An untagged
+    /// build has no tag and keeps the default off.
+    public nonisolated static func launchInputs(devTools: Bool, file: URL?, tag: String?)
+        -> (fileOverride: Bool?, tag: String?) {
+        (devTools ? fileOverride(file) : nil, tag)
+    }
+
+    /// `browser.inTreePages` as the Debug Settings file `url` holds it at launch (nil without an override).
+    public nonisolated static func fileOverride(_ url: URL?) -> Bool? {
+        // concurrency-allow: one small Debug Settings file, read once at launch before the first window
+        guard let url, let data = try? Data(contentsOf: url) else { return nil }
+        return TunableFile.decode(data)[key] as? Bool
+    }
+
     /// The decision ``latch(fileOverride:tag:environment:)`` makes, without latching it (tests).
     public nonisolated static func decide(fileOverride: Bool?, tag: String?,
                                           environment: [String: String]) -> (Bool, String) {
