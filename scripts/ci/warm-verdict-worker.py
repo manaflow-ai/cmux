@@ -66,11 +66,13 @@ TEST_TIMEOUT = 900
 WEB_TEST_TIMEOUT = 300
 SPARSE_EXCLUDE = ("cmux-next-ios/verify/",)
 # Submodules a verdict builds from (ghostty-vt-sys's build script needs ghostty-next's sources). Each is checked out
-# at the head's gitlink, from a local mirror (MIRRORS/<name>.git) when one holds it, else from its .gitmodules URL.
+# at the head's gitlink, from a local mirror (MIRRORS/<name>.git) when one holds it, else from its .gitmodules URL;
+# blobs a partial mirror lacks come from the .gitmodules URL.
 SUBMODULES = ("ghostty-next",)
 MIRRORS = Path(os.environ.get("WARM_VERDICT_MIRRORS", Path.home() / "Projects/.wt-mirrors/manaflow-ai"))
 # tsc of webviews/ passes V8's default 4 GB heap on a large head (seen: Mark-Compact at 4082 MB, exit -6).
 TSC_NODE_OPTIONS = "--max-old-space-size=8192"
+PRE_TSC = {"webviews": ["bun", "run", "protocol:codegen"]}
 # A Python test file that took longer than this on this worker is the full tier's (one 1076-case file took 178 s
 # and would set every verdict that selects it); the worker learns each file's seconds as it runs them.
 PY_BUDGET = 20.0
@@ -200,7 +202,8 @@ class Worker:
                 continue
             want, sub = entry[2], self.tree / path
             have = subprocess.run(["git", "-C", str(sub), "rev-parse", "HEAD"], capture_output=True, text=True)
-            if (sub / ".git").exists() and have.returncode == 0 and have.stdout.strip() == want:
+            if (sub / ".git").exists() and have.returncode == 0 and have.stdout.strip() == want \
+                    and not git(sub, "ls-files", "--deleted", check=False):
                 continue
             url = git(self.tree, "config", "-f", ".gitmodules", f"submodule.{path}.url", check=False).strip()
             mirror = MIRRORS / (url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git") + ".git")
@@ -210,6 +213,15 @@ class Worker:
                                        "update", "--init", "--force", "--quiet", "--", path], capture_output=True)
                 if done.returncode == 0:
                     break
+            if url and not url.startswith(("/", "file:")) and Path(str(mirror)).is_dir():
+                # The local mirror is itself a partial clone and serves no blob it lacks, so the checkout can come
+                # out with files missing (seen: ghostty-next without build.zig). Make the upstream URL the
+                # submodule's promisor remote and restore: what the mirror lacked is fetched from upstream.
+                git(sub, "remote", "set-url", "origin", url)
+                git(sub, "config", "remote.origin.promisor", "true")
+                git(sub, "config", "remote.origin.partialclonefilter", "blob:none")
+                if git(sub, "ls-files", "--deleted", check=False):
+                    git(sub, "checkout", "--force", want, "--", ".", check=False)
 
     def target(self, ws: str) -> Path:
         return self.state / "target" / ws.replace("/", "__")
@@ -345,6 +357,12 @@ class Worker:
                     self.installed[pkg] = head
         for pkg in r["web_ts"]:
             d = self.tree / pkg
+            if pkg in PRE_TSC:
+                # Generated, gitignored types (webviews' protocol codegen) follow the head, as `bun run typecheck`
+                # regenerates them first; a stale copy fails tsc on a head that changed the protocol.
+                res = run(PRE_TSC[pkg], d, CHECK_TIMEOUT, self.env)
+                results.append(res)
+                t["ts_check"] += res["s"]
             tsc = d / "node_modules" / ".bin" / "tsc"
             info = self.state / "tsbuild" / f"{pkg}.tsbuildinfo"
             info.parent.mkdir(parents=True, exist_ok=True)
