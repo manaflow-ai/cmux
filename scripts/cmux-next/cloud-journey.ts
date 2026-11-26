@@ -240,6 +240,12 @@ export class FirstTextTiming {
   guest(part: string, ms: number | null): void {
     if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
   }
+  /** Forget every mark: a create the team's machine cap refused (createWithRoom) is asked again, and the clock starts at that ask. */
+  reset(): void {
+    this.start = undefined;
+    this.marks = {};
+    this.onGuest = {};
+  }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
       this.start = this.clock();
@@ -2055,6 +2061,9 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  // The pause policy (cmux-platform PausePolicy.ts) sets the window a turn's end starts, over the idle policy above:
+  // named apart, so "idle policy 1800 s" is never read as the window an `aggressive` or `turn_end` machine runs.
+  if (typeof m?.pause_policy === "string") bits.push(`pause policy ${m.pause_policy}`);
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
   // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
   // process, port and timer names, so a walk that never paused names what held it.
@@ -3156,6 +3165,8 @@ const FACTS_READ_MS = 10_000;
 /** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
 export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
 export const COLD_CREATE_STEP = "cold create (asked size)";
+/** Journey-only checks whose red is recorded while the run goes on: the platform's own record of the machine. */
+export const RECORD_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP] as const;
 export const JOURNEY_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP, "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
@@ -3757,10 +3768,13 @@ def call(f, s, i, method, p):
 class Retryable(RuntimeError):
     pass
 # acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
-# few seconds"), and while it restarts its socket refuses connections or is not there yet. Neither can have made a
-# session, so the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
+# few seconds"), and while it restarts its socket refuses connections or is not there yet. The start sends it again
+# for up to RETRY_S, as the app does, and gives up on anything else. A cut start may still have made the session
+# (run 45885585817): the resend's "name is taken" then names that session, which the start takes by name.
 RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
 deadline = time.monotonic() + RETRY_S
+# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it.
+cut = False
 while True:
     errors = []
     sid = None
@@ -3777,14 +3791,26 @@ while True:
                 raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-            r = call(f, s, 2, 'session/new', params)
-            sid = (r or {}).get('sessionId')
+            try:
+                r = call(f, s, 2, 'session/new', params)
+                sid = (r or {}).get('sessionId')
+            except RuntimeError as e:
+                # A start cut by acpmux's restart can have made the session before its answer was lost: the
+                # resend then finds its name taken. Only after such a cut is that name this start's own session.
+                if not cut or 'is taken' not in str(e) or isinstance(e, Retryable):
+                    raise
+                r = call(f, s, 3, '_acpmux/resolve', {'query': params['_meta']['acpmux']['name']})
+                sid = ((r or {}).get('session') or {}).get('sessionId')
+                if sid is None:
+                    raise
+                print('@@adopted ' + str(sid), flush=True)
             print('@@session ' + str(sid), flush=True)
             used = path
             break
         except Retryable as e:
             errors.append(path + ': ' + str(e))
             retry = True
+            cut = cut or str(e).startswith('session/new')
         except Exception as e:
             errors.append(path + ': ' + str(e))
     if not errors and sid is None:
@@ -5434,9 +5460,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
-          J.firstText.mark("create");
-          createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`, sendTrace.headers);
+          // The test team's active-machine cap is shared with every other journey (createWithRoom): a refused create made
+          // no machine and is asked again under a new key, and the first-text clock starts at the ask that got room.
+          const room = await createWithRoom((n) => {
+            if (n) J.firstText.reset();
+            J.firstText.mark("create");
+            createSentAt = Date.now();
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+          });
+          const v = room.value;
+          if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -5445,7 +5478,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const spare = spareFields(v);
           Object.assign(probeExtra, spare, { claimed_spare: null });
           if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
-          return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
+          return { value: v.machine, detail: `${machine} status ${v.machine.status}${room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : ""}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitRunning(api, created.id, 300_000);
@@ -5543,7 +5576,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
         return { value: null, detail: `${detail}${size}` };
-      });
+      }).catch(() => undefined);
+      // "listed" and DEFAULT_SIZE_STEP record what the platform says about the machine; a red one is recorded and the
+      // run goes on (RECORD_ONLY_STEPS): nothing after them needs it, and ending there left a --chaos-move run with no
+      // drill at all (run 45896711769 kill-src: staging recorded 4/8192/32768 for a default create, the move never ran).
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
       if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
@@ -5554,7 +5590,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const why = defaultSizeProblem(m?.size);
         if (why) throw new Error(why);
         return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
-      });
+      }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
         // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).

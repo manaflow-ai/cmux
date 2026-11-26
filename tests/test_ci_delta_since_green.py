@@ -474,8 +474,7 @@ class MainTests(unittest.TestCase):
 
 
 def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
-    """Evaluate a GitHub Actions `if:` made of ==, !=, !, &&, || and startsWith()/endsWith() over string
-    contexts (the functions compare case-insensitively, as GitHub's do).
+    """Evaluate a GitHub Actions `if:` made of ==, !=, !, &&, ||, startsWith, endsWith and contains over string contexts.
 
     Anything else in the expression is an error rather than a guess.
     """
@@ -484,8 +483,12 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
     if body.startswith("${{") and body.endswith("}}"):
         body = body[3:-2]
     tokens = re.findall(r"'[^']*'|[A-Za-z_][A-Za-z0-9_.-]*|==|!=|&&|\|\||\(|\)|\S", body)
-    functions = {"startsWith": lambda s, p: s.lower().startswith(p.lower()),
-                 "endsWith": lambda s, p: s.lower().endswith(p.lower())}
+    functions = {
+        # GitHub's string functions compare case-insensitively.
+        "startsWith": lambda text, prefix: str(text).lower().startswith(str(prefix).lower()),
+        "endsWith": lambda text, suffix: str(text).lower().endswith(str(suffix).lower()),
+        "contains": lambda text, part: str(part).lower() in str(text).lower(),
+    }
     python = []
     for token in tokens:
         if token.startswith("'"):
@@ -505,6 +508,10 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
         else:
             raise AssertionError(f"unsupported token {token!r} in {expression!r}")
     return bool(eval(" ".join(python), {"__builtins__": {}, **functions}))
+
+
+# #49195 moved the detector's list off a fixed /tmp path, under RUNNER_TEMP.
+CHANGED_FILES_REDIRECT = "> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"
 
 
 class WorkflowTests(unittest.TestCase):
@@ -554,7 +561,7 @@ class WorkflowTests(unittest.TestCase):
         run = detect["run"]
         override = run.index('BASE_SHA="$DELTA_BASE_SHA"')
         self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), override)
-        self.assertLess(override, run.index("> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"))
+        self.assertLess(override, run.index(CHANGED_FILES_REDIRECT))
 
     def test_a_drafts_base_merge_on_a_green_head_routes_nothing(self) -> None:
         # A draft does not land; its own changes passed at the green head the
@@ -572,18 +579,18 @@ class WorkflowTests(unittest.TestCase):
         skip = run.index('if [ "${DRAFT_BASE_MERGE:-}" = "true" ]; then')
         # after the delta override, so it wins; before the diff, so the diff is empty
         self.assertLess(run.index('BASE_SHA="$DELTA_BASE_SHA"'), skip)
-        self.assertLess(run.index('BASE_SHA="$MERGE_SHA"', skip), run.index("> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"))
+        self.assertLess(run.index('BASE_SHA="$MERGE_SHA"', skip), run.index(CHANGED_FILES_REDIRECT))
         # an empty diff routes every product area off
-        self.assertLess(run.index("> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"), run.index("PR diff is empty; skipping product-area CI."))
+        self.assertLess(run.index(CHANGED_FILES_REDIRECT), run.index("PR diff is empty; skipping product-area CI."))
 
     def test_draft_base_merge_skip_routes_an_empty_diff(self) -> None:
         # The detector's own lines, run in a repository: a draft's base merge
         # diffs the tested merge against itself.
         run = self.steps["detect"]["run"]
         start = run.index('if git rev-parse -q --verify "$MERGE_SHA^2"')
-        end = run.index("> ${RUNNER_TEMP}/cmux-ci-changed-files.txt")
+        end = run.index(CHANGED_FILES_REDIRECT)
         end = run.index("\n", end)
-        snippet = run[start:end].replace("> ${RUNNER_TEMP}/cmux-ci-changed-files.txt", '> "$OUT"')
+        snippet = run[start:end].replace(CHANGED_FILES_REDIRECT, '> "$OUT"')
         snippet = snippet.replace("if ! git diff", "git diff", 1).rstrip().removesuffix("; then")
         with tempfile.TemporaryDirectory() as directory:
             env = git_fixture_env.write_env()
@@ -607,8 +614,8 @@ class WorkflowTests(unittest.TestCase):
             # off: the delta routes what the base gained since the green head; on: nothing
             for flag, expected in (("true", ""), ("false", "c.txt")):
                 out = Path(directory, f"out-{flag}")
-                script = (f"set -euo pipefail\nMERGE_SHA={merge}\nBASE_SHA={base}\nDELTA_BASE_SHA={green}\n"
-                          f"DRAFT_BASE_MERGE={flag}\nOUT={out}\nRUNNER_TEMP={directory}\n{snippet}\n")
+                script = (f"set -euo pipefail\nRUNNER_TEMP={directory}\nMERGE_SHA={merge}\nBASE_SHA={base}\nDELTA_BASE_SHA={green}\n"
+                          f"DRAFT_BASE_MERGE={flag}\nOUT={out}\n{snippet}\n")
                 subprocess.run(["bash", "-c", script], cwd=directory, env=env, check=True, capture_output=True)
                 with self.subTest(draft_base_merge=flag):
                     self.assertEqual(out.read_text().strip(), expected)

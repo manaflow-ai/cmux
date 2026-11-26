@@ -14,12 +14,13 @@ continued and the chat shows it. 10 of 10, re-run nightly." Runs cmux-tui's `lid
 its header) and reads its `GATE lid-close {json}` line. Not covered here: a real Mac's network going
 down with it and a real Cloud VM's own idle policy.
 
-Gate 3, move: "cmux#51824 landed, p95 under 10 s each way, 56 of 56 in the kill matrix." Reads
-cmux#51824's state, runs cmux-tui's `move_kill_drill_matrix` (8 steps x 7 kills, owned by the
+Gate 3, move: "cmux#51824 landed, p95 under 10 s each way, 56 of 56 in the kill matrix." Checks
+that cmux#51824's code is in the tree (it landed through cmux#52230), runs cmux-tui's `move_kill_drill_matrix` (8 steps x 7 kills, owned by the
 kill-mid-move-drills lane) and counts its cells with nothing lost and no wrong answer (a cell KNOWN
-lists still counts as not clean), and reads per-direction move times from MOVE_TIMES (a JSON file of
-{"to_cloud_ms": [...], "back_ms": [...]}) when one is given; with none the p95 is unmeasured and the
-gate is NO.
+lists still counts as not clean), and times each direction with cmux-tui's `move_times` test
+(`--move-runs` round trips of a running chat to a VM and back; MOVE_TIMES, a JSON file of
+{"to_cloud_ms": [...], "back_ms": [...]}, replaces the run). A replay (`--matrix-log`) times nothing
+and leaves the p95 unmeasured: NO.
 
 Gate 4, phone: "read and reply to a kept-running chat from the phone with the Mac powered down."
 The phone reaches a Cloud chat only through the signed-in Mac today (docs/design/cloud-phone-pipe.md
@@ -40,6 +41,7 @@ import math
 import os
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -50,14 +52,14 @@ P95_BUDGET_MS = 10_000
 
 
 def cargo_test(name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    # Every cmux-tui test file is a module of the one `it` binary (#56677), so the gate is a name filter on it.
+    # cmux-tui's tests are modules of one binary, `it` (cmux#56677): a test's name starts with its file's.
     cmd = ["cargo", "test", "-p", "cmux-tui", "--test", "it", "--", "--ignored", "--nocapture",
            "--test-threads", "1", name]
     return subprocess.run(cmd, cwd=TUI, env={**os.environ, **env}, text=True, capture_output=True)
 
 
 def gate_lid_close(args: argparse.Namespace) -> dict:
-    run = cargo_test("lid_close_gate",
+    run = cargo_test("lid_close_gate::",
                      {"LID_CLOSE_RUNS": str(args.runs), "LID_CLOSE_SECS": str(args.secs)})
     sys.stderr.write(run.stderr[-20_000:])
     data = gate_line(run.stdout + "\n" + run.stderr, "lid-close")
@@ -101,14 +103,38 @@ def p95(values: list[float]) -> float | None:
     return ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
 
 
+# cmux#51824 (the move's controls and driver) closed unmerged: its commits landed through cmux#52230. A PR's
+# state is the wrong question (and the gate job holds no GitHub token to ask it); the files it added are the
+# answer, read from the checked-out tree.
+MOVE_CODE = (
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceDriver.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceEvacuation.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Move.swift",
+)
+
+
+def move_code_landed(root: Path = ROOT) -> bool:
+    return all((root / path).is_file() for path in MOVE_CODE)
+
+
+def move_times(args: argparse.Namespace) -> dict:
+    """The round-trip move times: the `MOVE_TIMES` file when set, else a run of tests/move_times.rs."""
+    if os.environ.get("MOVE_TIMES"):
+        return json.loads(Path(os.environ["MOVE_TIMES"]).read_text())
+    if args.matrix_log:  # a replay of a saved matrix log runs nothing
+        return {}
+    out = Path(tempfile.mkdtemp(prefix="rfd0135-move-times-")) / "move-times.json"
+    run = cargo_test("move_times::", {"MOVE_TIMES_OUT": str(out), "MOVE_TIMES_RUNS": str(args.move_runs)})
+    sys.stderr.write(run.stderr[-20_000:])
+    return json.loads(out.read_text()) if out.is_file() else {}
+
+
 def gate_move(args: argparse.Namespace) -> dict:
-    pr = subprocess.run(["gh", "pr", "view", "51824", "--repo", "manaflow-ai/cmux", "--json", "state,mergedAt"],
-                        text=True, capture_output=True)
-    landed = pr.returncode == 0 and json.loads(pr.stdout).get("state") == "MERGED"
+    landed = move_code_landed()
     if args.matrix_log:
         log = Path(args.matrix_log).read_text()
     else:
-        run = cargo_test("move_kill_drill_matrix", {})
+        run = cargo_test("move_kill_drill::move_kill_drill_matrix", {})
         log = run.stderr
         sys.stderr.write(log[-20_000:])
     cells = matrix_cells(log)
@@ -118,15 +144,15 @@ def gate_move(args: argparse.Namespace) -> dict:
     n_cells = counted[-1]["cells"] if counted else len(cells)
     if counted:
         clean = counted[-1]["clean"]
-    times = json.loads(Path(os.environ["MOVE_TIMES"]).read_text()) if os.environ.get("MOVE_TIMES") else {}
+    times = move_times(args)
     to_cloud, back = p95(times.get("to_cloud_ms", [])), p95(times.get("back_ms", []))
     ok = (landed and n_cells == MATRIX_CELLS and clean == MATRIX_CELLS and to_cloud is not None
           and back is not None and to_cloud < P95_BUDGET_MS and back < P95_BUDGET_MS)
-    return {"gate": "move", "ran": bool(n_cells), "ok": ok, "pr_51824_landed": landed, "cells": n_cells,
+    return {"gate": "move", "ran": bool(n_cells), "ok": ok, "move_code_landed": landed, "cells": n_cells,
             "clean": clean, "not_clean": [f'{c["step"]}:{c["kill"]}' for c in cells if not c["clean"]],
             "p95_to_cloud_ms": to_cloud, "p95_back_ms": back,
-            "number": f"{clean}/{MATRIX_CELLS} clean, p95 {to_cloud} / {back} ms, #51824 "
-                      + ("landed" if landed else "open"),
+            "number": f"{clean}/{MATRIX_CELLS} clean, p95 {to_cloud} / {back} ms, move code "
+                      + ("landed" if landed else "missing"),
             "why": None if n_cells else "the matrix printed no table"}
 
 
@@ -168,6 +194,7 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--secs", type=int, default=1800)
     ap.add_argument("--matrix-log")
+    ap.add_argument("--move-runs", type=int, default=20, help="round trips tests/move_times.rs times")
     ap.add_argument("--out")
     args = ap.parse_args()
     names = list(GATES) if args.gate == "all" else [args.gate]
