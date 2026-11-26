@@ -23,6 +23,10 @@
  */
 
 const BLOCK_SIZE = 64;
+/// The most leaves the tree spans (2^36 rows, more than a page holds). The descents halve `high - low` with `>>> 1`,
+/// which is exact only below 2^32, and the doubling in `splice` was `capacity <<= 1`, which wraps to 0 past 2^31 and
+/// then doubled 0 forever with the page's main thread held. A splice past it throws instead.
+const MAX_LEAVES = 2 ** 30;
 
 /// The mark of a row that carries its height but neither takes nor gives a gap: the rows on either
 /// side gap as if it were not there. A row collapsing to nothing is placed so (model.ts
@@ -143,6 +147,7 @@ function summarize(
 }
 
 function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: number): Leaf | undefined {
+  // ends: each pass halves high - low
   while (node && high - low > 1) {
     const middle = low + ((high - low) >>> 1);
     if (leafIndex < middle) {
@@ -176,6 +181,7 @@ function prefixBeforeLeaf(
   let node = root;
   let low = 0;
   let high = capacity;
+  // ends: each pass halves high - low
   while (node && high - low > 1) {
     const middle = low + ((high - low) >>> 1);
     if (leafIndex < middle) {
@@ -350,9 +356,11 @@ export class PlacedHeightIndex {
     let leafIndex = Math.floor(start / BLOCK_SIZE);
     const cursor = this.cursorAtLeaf(leafIndex);
     let index = leafIndex * BLOCK_SIZE;
+    // ends: each pass reads the next leaf, which holds at least one row, so `index` rises; no leaf, or an empty one,
+    // returns
     while (index < end) {
       const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
-      if (!leaf) return;
+      if (!leaf || leaf.heights.length === 0) return;
       for (let offset = 0; offset < leaf.heights.length && index < end; offset += 1, index += 1) {
         const top = this.step(cursor, leaf, offset);
         if (index >= start && visit(index, top, leaf.heights[offset]!) === false) return;
@@ -423,9 +431,12 @@ export class PlacedHeightIndex {
     const leafCount = Math.max(1, Math.ceil(count / BLOCK_SIZE));
     let capacity = this.capacity;
     let root = this.root;
+    if (leafCount > MAX_LEAVES)
+      throw new RangeError(`PlacedHeightIndex: ${count} rows is past the most it places (${MAX_LEAVES * BLOCK_SIZE})`);
+    // ends: `capacity` doubles each pass, and `leafCount` is at most MAX_LEAVES, a power of two
     while (capacity < leafCount) {
       root = root ? { left: root, summary: root.summary } : undefined;
-      capacity <<= 1;
+      capacity *= 2;
     }
     const between = this.rules.between;
     const fromLeaf = Math.floor(start / BLOCK_SIZE);
@@ -491,6 +502,7 @@ export class PlacedHeightIndex {
     let high = this.capacity;
     // The descent picks the leftmost subtree whose last row's top is past `target`; a top
     // that rounding puts on the other side is caught by the leaf scans below.
+    // ends: each pass halves high - low
     while (node && high - low > 1) {
       const middle = low + ((high - low) >>> 1);
       const left = summaryOf(node.left);
@@ -514,6 +526,7 @@ export class PlacedHeightIndex {
     }
     let leafIndex = Math.max(0, low - 1);
     // Scan from the leaf before the descent's, in case rounding put the answer there.
+    // ends: `leafIndex` rises by one each pass, past the last row's leaf at most
     while (leafIndex * BLOCK_SIZE < this.count) {
       const places = this.placesOf(leafIndex);
       if (!places) break;

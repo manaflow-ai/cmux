@@ -27,6 +27,8 @@ final class SidebarPriorityRowView: NSView {
     /// Control-Option-Up or -Down while the row has focus, or VoiceOver's Move Earlier or Move Later:
     /// the row moves one place and keeps it, as a drag there would.
     var onMove: ((MoveDirection) -> Void)?
+    /// Where the panel last placed the row (`SidebarPriorityPanelView.placeRows`); nil while a drag holds it elsewhere.
+    var slot: NSRect?
 
     private let title = ChromeLabel(labelWithString: "")
     private let agentIcon = DecorativeImageView()
@@ -126,11 +128,14 @@ final class SidebarPriorityRowView: NSView {
         needsDisplay = true
     }
 
-    /// Refreshes a working chip's elapsed time.
-    func tick(now: Date) {
-        guard case .working = entry.state else { return }
-        chip.stringValue = chipLine(now: now)
+    /// Refreshes a working chip's elapsed time; true when its text changed. A row whose text reads the same is untouched.
+    @discardableResult func tick(now: Date) -> Bool {
+        guard case .working = entry.state else { return false }
+        let text = chipLine(now: now)
+        guard text != chip.stringValue else { return false }
+        chip.stringValue = text
         needsLayout = true
+        return true
     }
 
     static func chipText(_ state: SidebarPriorityEntry.State, now: Date) -> String {
