@@ -26,11 +26,20 @@ final class PageInfoRowView: PopupRowView {
         icon.themeTint = { tint() ?? PageInfoStyle.text }
         let trailing = Self.makeAccessory(accessory)
         var layout = Layout()
-        layout.leading = PageInfoStyle.rowInset
-        layout.leadingColumn = PageInfoStyle.iconColumn - PageInfoStyle.rowInset
-        layout.gap = PageInfoStyle.rowInset
-        layout.trailing = PageInfoStyle.rowInset
-        layout.trailingGap = PageInfoStyle.rowInset
+        if let look = PageInfoStyle.look {
+            layout.leading = look.rowLeading
+            layout.leadingColumn = look.iconColumn
+            layout.gap = look.iconGap
+            layout.trailing = look.rowTrailing
+            layout.trailingGap = look.iconGap
+            layout.fillRadius = look.fillRadius
+        } else {
+            layout.leading = PageInfoStyle.rowInset
+            layout.leadingColumn = PageInfoStyle.iconColumn - PageInfoStyle.rowInset
+            layout.gap = PageInfoStyle.rowInset
+            layout.trailing = PageInfoStyle.rowInset
+            layout.trailingGap = PageInfoStyle.rowInset
+        }
         let hasSubtitle = !(subtitle?.isEmpty ?? true)
         layout.minHeight = hasSubtitle ? PageInfoStyle.rowHeightWithSubtitle : PageInfoStyle.rowHeight
         super.init(leading: icon, title: title, subtitle: subtitle, trailing: trailing, layout: layout, interactive: interactive)
@@ -38,6 +47,7 @@ final class PageInfoRowView: PopupRowView {
         self.identifier = identifier.map { NSUserInterfaceItemIdentifier($0) }
         translatesAutoresizingMaskIntoConstraints = false
         takesFocus = true
+        if PageInfoStyle.look != nil { titleLabel.font = PageInfoStyle.rowFont }
         titleLabel.themeColor = { tint() ?? PageInfoStyle.text }
         subtitleLabel.themeColor = { PageInfoStyle.secondaryText }
     }

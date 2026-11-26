@@ -8,18 +8,34 @@ import CmuxNextIcons
 enum PageInfoStyle {
     /// The page info bubble is at least 320 points wide.
     static var bubbleWidth: CGFloat { Metrics.density == .compact ? 320 : 344 }
-    static var rowHeight: CGFloat { Metrics.paletteRowHeight }
-    static var rowHeightWithSubtitle: CGFloat { Metrics.sidebarRowHeightWithSubtitle + Metrics.panelInset }
-    static var inset: CGFloat { Metrics.panelInset * 2 }
+    /// The redraw's numbers when a look other than today's is on (``PageInfoLook``); nil today.
+    static var look: PageInfoLookGeometry? { PageInfoLook.active.geometry }
+    static var rowHeight: CGFloat { look?.rowHeight ?? Metrics.paletteRowHeight }
+    static var rowHeightWithSubtitle: CGFloat { look?.rowHeightWithSubtitle ?? Metrics.sidebarRowHeightWithSubtitle + Metrics.panelInset }
+    /// Twice the space between the bubble's edge and its page.
+    static var inset: CGFloat { look.map { $0.cardPadding * 2 } ?? Metrics.panelInset * 2 }
     static var rowInset: CGFloat { Metrics.panelInset }
     static var iconSize: CGFloat { Metrics.iconSize }
     static var iconColumn: CGFloat { Metrics.iconSize + Metrics.panelInset * 2 }
-    static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
+    static var cornerRadius: CGFloat { look?.cornerRadius ?? PopupStyle.standard.cornerRadius }
     static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     static var spacing: CGFloat { Metrics.panelInset }
     static var toggleSize: CGSize { Metrics.density == .compact ? CGSize(width: 28, height: 16) : CGSize(width: 32, height: 18) }
 
-    static var titleFont: NSFont { Typography.bodyEmphasized }
+    static var titleFont: NSFont { look.map { font($0.headerFont) } ?? Typography.bodyEmphasized }
+    /// A row's title.
+    static var rowFont: NSFont { look.map { font($0.font) } ?? Typography.body }
+    /// The header title's ink: a section header's secondary ink in the menu and band looks.
+    static var headerText: NSColor { look?.headerFont == .sectionHeader ? secondaryText : text }
+
+    static func font(_ font: PageInfoLookGeometry.Font) -> NSFont {
+        switch font {
+        case .body: Typography.body
+        case .card: Typography.cardBody
+        case .sectionHeader: Typography.header
+        case .cardTitle: Typography.cardTitle
+        }
+    }
     static var captionFont: NSFont { Typography.caption }
 
     static var background: NSColor { Palette.elevatedBackground } // theme-scoped
