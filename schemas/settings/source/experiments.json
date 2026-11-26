@@ -230,6 +230,30 @@
           ]
         },
         {
+          "key": "experiments.jumpLatestLands",
+          "note": "Design dp-c070192381 (cmuxterm-hq docs/design/proposals/2026-11-23-jump-to-bottom-one-smooth-ride-and-no-bouncing-dots.md), its decided slice: one eased ride, with the fade after landing. The agent chat's Jump to latest stays through its ride to the bottom and fades once the view lands there, instead of fading as the ride starts (webviews jumpLatestLands.experiment.ts, VirtualTranscript.tsx rideToLatest). Off by default; off keeps today's button.",
+          "title": {
+            "key": "settings.experiments.jumpLatestLands",
+            "text": "Jump to Latest Fades on Landing"
+          },
+          "help": {
+            "key": "settings.experiments.jumpLatestLands.help",
+            "text": "After you click Jump to latest, the button stays until the chat reaches the bottom, then fades."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "jump",
+            "latest",
+            "bottom",
+            "scroll",
+            "chat"
+          ]
+        },
+        {
           "key": "experiments.seeThroughDock",
           "note": "Leo, 2026-11-17 (ask-cbb09912f6): the agent chat's \"Needs your input\" stack and the notice lines above the composer (switch notice, managed banner, host line, host-error cards, dictation, ui-notice) hide only what they draw, so the conversation stays visible beside and between them (webviews experimentSwitchOn(\"seeThroughDock\"), conversation/useBesideStack.ts, besideStack.ts bandMask). Off by default; off keeps today's mask, which ends the rows at the stack's top.",
           "title": {

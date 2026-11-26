@@ -435,3 +435,56 @@ test("Jump up draws only under its on arm; off, Jump to latest stands alone", as
   expect(await draw("off")).toEqual({ up: false, latest: true });
   expect(await draw("on")).toEqual({ up: true, latest: true });
 });
+
+// Jump to latest fades after landing (jumpLatestLands.experiment.ts, design dp-c070192381: "one eased
+// ride, with the fade after landing"): off by default, the press hides the button at once; its `on`
+// arm keeps it through the ride and fades it once the chat reaches the bottom.
+test("under jump-latest-lands on, the button stays through the ride and hides on landing; off, it hides at the press", async () => {
+  const ride = async (arm: "on" | undefined) => {
+    if (arm) globalThis.cmuxExperiments = { "jump-latest-lands": arm };
+    const html = dom.window.document.documentElement;
+    delete html.dataset.agentMotion;
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            jumpButton
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const latest = scrollerEnd(scroller);
+      const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST)!;
+      scroller.scrollTop = 0;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+      });
+      expect(button().dataset.shown).toBe("");
+      await act(async () => button().click());
+      const atPress = button().dataset.shown;
+      expect(scroller.scrollTop).toBeLessThan(latest);
+      // Frames until the ride lands (jsdom's frames run at 60 Hz in real time).
+      for (let frame = 0; frame < 300 && scroller.scrollTop < latest; frame++)
+        await act(async () => {
+          await nextFrame();
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
+      expect(scroller.scrollTop).toBe(latest);
+      await act(async () => {
+        await nextFrame();
+      });
+      return { atPress, landed: button().dataset.shown };
+    } finally {
+      await act(async () => root.unmount());
+      delete globalThis.cmuxExperiments;
+      html.dataset.agentMotion = "off";
+    }
+  };
+  expect(await ride(undefined)).toEqual({ atPress: undefined, landed: undefined });
+  expect(await ride("on")).toEqual({ atPress: "", landed: undefined });
+});
