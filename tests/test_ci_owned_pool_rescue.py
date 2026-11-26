@@ -10295,6 +10295,56 @@ class StallMove(unittest.TestCase):
         self.assertEqual(scan(api, logs)[0], 0)
         self.assertTrue(any("next scan" in line for line in logs), logs)
 
+    def test_dispatch_refreshes_only_its_current_placement_after_a_bounded_wait(self):
+        clock = Clock()
+        api_name = rescue.CMUX_NEXT_PLACEMENT_JOB
+        placement = stall_job(api_name, job_id=22, status="completed", conclusion="success", started=1,
+                              label="ubuntu-latest", steps=[("Identify a dispatch eligible for PR rescue", 1, 2)])
+        scheme = stall_job("cmux app scheme compile (Debug)", job_id=23)
+        jobs = [placement, scheme]
+        api = StallAPI(clock, lambda attempt, seconds: jobs, attempt=1)
+        record = api.record
+        api.record = lambda: {**record(), "event": "workflow_dispatch", "display_title": f"cmux-next · {HEAD}"}
+        api.workflow_text = """jobs:
+  macos-placement:
+    name: cmux-next macOS placement
+    runs-on: ubuntu-latest
+    env:
+      dispatch_rescue_runner: ${{ steps.rescue-dispatch.outputs.runner }}
+  cmux-scheme-compile:
+    name: cmux app scheme compile (Debug)
+    needs: macos-placement
+    runs-on: ${{ needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.dispatch_rescue_runner || vars.CI_SIDE_LANE_RUNNER }}
+"""
+        starts, logs = [], []
+        def scan():
+            return rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                     moves=[], pull_only=True, start=lambda target, stalls, placement:
+                                     starts.append((target, stalls, placement)))
+        clock.advance(rescue.OWNED_WAIT_BOUND_SECONDS - 1)
+        self.assertEqual(scan(), 0)
+        clock.advance(1)
+        for replacement in ({**placement, "steps": []}, {**placement, "started_at": stamp(-10)}):
+            jobs[0] = replacement
+            self.assertEqual(scan(), 0)
+        jobs[0] = placement
+        for replacement in ({**scheme, "name": "a job the placement cannot move"},
+                            {**scheme, "status": "in_progress", "runner_name": "mini"}):
+            jobs[1] = replacement
+            self.assertEqual(scan(), 0)
+        jobs[1] = scheme
+        api.snapshot = room_snapshot(running=20)
+        self.assertEqual(scan(), 1, logs)
+        self.assertTrue(any("past the owned wait bound" in line for line in logs), logs)
+        target, stalls, plan = starts.pop()
+        self.assertEqual(plan.job_id, placement["id"])
+        with unittest.mock.patch.object(api, "rerun_job") as rerun:
+            result = rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep, log=logs.append,
+                                       deadline=clock.now() + dt.timedelta(hours=2), placement=plan)
+        self.assertIn("re-ran", result)
+        rerun.assert_called_once_with(RUN_ID, placement["id"], 2)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))], ["cancel:1"])
+
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
 
