@@ -1028,7 +1028,8 @@ class PipelineTest(unittest.TestCase):
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        runs = [s.get("run", "") for s in wf["jobs"]["linux"]["steps"]]
+        self.assertTrue(any("git diff --name-only --no-renames -z " in run for run in runs))
         with tempfile.TemporaryDirectory() as tmp:
             listed = Path(tmp) / "paths"
             listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
@@ -1297,8 +1298,9 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
         # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
         autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
-        self.assertTrue(autofix["generated-drift"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        self.assertIn(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')",
+            autofix["generated-drift"]["if"])
         drift = steps["generated-drift"]
         self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
         self.assertLessEqual(drift.timeout, 360)

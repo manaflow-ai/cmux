@@ -313,6 +313,21 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_a_pulsed_full_ci_is_the_full_tier_though_the_payload_lost_it(self) -> None:
+        # cmux#53671 at c52da39d (14:13Z 2026-11-26): land-judge's lane VM pulse added full-ci and took it off 2 s
+        # later; the `labeled` payload listed only ready-to-land, the router read the affected cheap tier and pr
+        # pipeline (the iOS matrix land-judge waits for) never started. The event's own added label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertIn("heavy.yml", start)
+        # Only a `labeled` event adds its label: an unlabeled full-ci is gone.
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+        self.assertEqual(head_tier.tier("pull_request", gone, land_switch="1", land_full_switch="0")[0], "cheap")
+
     def test_the_land_label_overrides_the_idle_skip(self) -> None:
         facts = {"base_merge_only": True, "own_last": 0}
         self.assertEqual(head_tier.tier("pull_request", land_event(), facts=facts, now=10 * 86400,

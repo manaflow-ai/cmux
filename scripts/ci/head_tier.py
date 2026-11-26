@@ -145,7 +145,7 @@ def full_ci_applies(event: dict, one_shot: str | None = None) -> bool:
     this is its own `labeled` event, the base is not feat-cmux-next, or ONE_SHOT (default $CI_FULL_CI_ONE_SHOT, on)
     is 0. The workflows' `if:` gates read the same three conditions (tests/test_feat_ci_guard_group.py FULL_CI_ON)."""
     pr = event.get("pull_request") or {}
-    if FULL_CI not in {str(label.get("name") or "") for label in pr.get("labels") or []}:
+    if FULL_CI not in labels_of(event):
         return False
     switch = os.environ.get(ONE_SHOT_VAR, "1") if one_shot is None else one_shot
     return ((switch or "1").strip() == "0" or str((pr.get("base") or {}).get("ref") or "") != LAND_BASE
@@ -267,6 +267,21 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
     return states[0] if states else ""  # the combined status lists each context's newest status once
 
 
+def labels_of(event: dict) -> set[str]:
+    """The PR's labels for EVENT: the payload's list, plus the label a `labeled` event added. GitHub fills the payload's
+    list when it sends the event, not when the label went on, so a label taken off right after (land-judge's full-ci
+    pulse on a lane VM, label_lane_pulse: added and taken off 2 s later) is missing from it. cmux#53671 at c52da39d,
+    2026-11-26 14:13Z: the pulse's `labeled` run read no full-ci, routed the land-affected cheap tier, skipped pr
+    pipeline, and land-judge refused matrix_missing again; every lane VM land of an iOS link PR stopped there."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
+
+
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0",
                        one_shot: str | None = None) -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
@@ -311,7 +326,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     if full_ci_applies(event, one_shot):
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
