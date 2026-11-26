@@ -34,6 +34,9 @@ pub(crate) struct HubHealth {
     asked: BTreeMap<String, u64>,
     /// The machines whose ask is still out.
     out: BTreeSet<String>,
+    /// When each machine's newest ask failed (ms), cleared by an answer: a reading older than
+    /// it is not believed (`placement/reach.rs`, `healthFailedAt`).
+    failed: BTreeMap<String, u64>,
     /// Until when a placement wants fresh readings (ms).
     interest_until: u64,
 }
@@ -63,19 +66,31 @@ impl HubHealth {
         due
     }
 
-    /// `host`'s ask ended at `now`: with its reading, or with none (kept as it was).
+    /// `host`'s ask ended at `now`: with its reading, or with none (the reading kept as it was,
+    /// and the failure's time kept, so placement passes the host over until one answers).
     pub(crate) fn answered(&mut self, host: &str, reading: Option<Value>, now: u64) {
         self.out.remove(host);
-        if let Some(v) = reading
-            && (self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS)
-        {
+        let Some(v) = reading else {
+            if self.failed.contains_key(host) || self.failed.len() < MAX_HOSTS {
+                self.failed.insert(host.to_owned(), now);
+            }
+            return;
+        };
+        self.failed.remove(host);
+        if self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS {
             self.readings.insert(host.to_owned(), (now, v));
         }
+    }
+
+    /// When `host`'s newest ask failed, if it did and none answered since.
+    pub(crate) fn failed_at(&self, host: &str) -> Option<u64> {
+        self.failed.get(host).copied()
     }
 
     /// Only the machines `listed` names are kept.
     pub(crate) fn retain(&mut self, listed: &BTreeSet<String>) {
         self.readings.retain(|h, _| listed.contains(h));
+        self.failed.retain(|h, _| listed.contains(h));
         self.asked.retain(|h, _| listed.contains(h) || self.out.contains(h));
     }
 
@@ -121,9 +136,13 @@ mod tests {
         assert!(h.due(&hosts(&["a"]), 2_000).is_empty(), "asked within the minute");
         assert_eq!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS), hosts(&["a"]));
         assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
-        // No answer keeps the last reading.
+        // No answer keeps the last reading, and when the ask failed.
         h.answered("a", None, 3_000);
         assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
+        assert_eq!(h.failed_at("a"), Some(3_000));
+        // An answer clears it.
+        h.answered("a", Some(json!({"cpus": 4})), 4_000);
+        assert_eq!(h.failed_at("a"), None);
     }
 
     #[test]

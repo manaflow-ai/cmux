@@ -465,12 +465,21 @@ impl Hub {
         // Taken after the book's lock is let go: the two are never held together.
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
-            let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
+            let Some(name) = row.get("name").and_then(Value::as_str).map(str::to_owned) else {
+                continue;
+            };
+            let name = name.as_str();
             if let Some((at, reading)) = health.reading(name)
                 && let Some(fields) = row.as_object_mut()
             {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
+            }
+            // Its newest read failed: placement passes it over (`placement/reach.rs`).
+            if let Some(failed) = health.failed_at(name)
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("healthFailedAt".into(), json!(failed));
             }
         }
         rows
