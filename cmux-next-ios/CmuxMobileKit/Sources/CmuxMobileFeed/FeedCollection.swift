@@ -119,9 +119,6 @@ final class FeedCollectionView: UITableView {
 final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSourcePrefetching, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
-    /// The pinned group's label ("Needs you · 2"), the header section's second row while the
-    /// whole Feed has open asks: under the chips, above the first ask.
-    static let pinnedLabelID = "feed.needs-you-label"
     /// The most rows that travel at once when asks leave or join the pinned group; more is a rebuild.
     static let pinnedMoveLimit = 4
     /// How many rows before the end the next page of spilled events is read.
@@ -226,7 +223,6 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         view.delegate = self
         view.prefetchDataSource = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
-        view.register(FeedPinnedLabelCell.self, forCellReuseIdentifier: Self.pinnedLabelID)
         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         view.register(FeedFoldCell.self, forCellReuseIdentifier: FeedFoldCell.reuseID)
         let refresh = UIRefreshControl()
@@ -245,13 +241,6 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
             MainActor.assumeIsolated { () -> UITableViewCell in
                 guard indexPath.section != 0 else {
-                    if id == Self.pinnedLabelID {
-                        let cell = tableView.dequeueReusableCell(withIdentifier: Self.pinnedLabelID, for: indexPath)
-                        if let self, let label = cell as? FeedPinnedLabelCell {
-                            label.show(count: self.shownPinned, font: FeedPinnedLabelCell.font(self.styles))
-                        }
-                        return cell
-                    }
                     let cell = tableView.dequeueReusableCell(withIdentifier: Self.headerID, for: indexPath)
                     cell.selectionStyle = .none
                     cell.backgroundColor = .clear
@@ -388,8 +377,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     private func reconfigureHeader() {
         guard let dataSource, dataSource.snapshot().indexOfItem(Self.headerID) != nil else { return }
         var snapshot = dataSource.snapshot()
-        // The pinned group's label follows the text size with the header.
-        snapshot.reconfigureItems(shownPinned > 0 ? [Self.headerID, Self.pinnedLabelID] : [Self.headerID])
+        snapshot.reconfigureItems([Self.headerID])
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -545,7 +533,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         }
         let animated = animatesNextCommit && !UIAccessibility.isReduceMotionEnabled && mounted == nil
         animatesNextCommit = false
-        // The pinned group (open asks first, the whole Feed only) and its label's count.
+        // The pinned group (open asks first, the whole Feed only): an ask leaving or joining it moves its row.
         let pinned = FeedPinnedGroup.count(next, filter: store.filter)
         let wasPinned = shownPinned
         guard !plan.isEmpty || mounted != nil || pinned != wasPinned || dataSource.snapshot().numberOfSections == 0 else { return }
@@ -581,31 +569,22 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         if snapshot.numberOfSections == 0 {
             snapshot = NSDiffableDataSourceSnapshot<Section, String>()
             snapshot.appendSections([.header, .events])
-            snapshot.appendItems(pinned > 0 ? [Self.headerID, Self.pinnedLabelID] : [Self.headerID], toSection: .header)
+            snapshot.appendItems([Self.headerID], toSection: .header)
             snapshot.appendItems(shownOrder, toSection: .events)
-        } else {
-            if plan.orderChanged {
-                // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
-                // snapshot of every row to diff. An ask leaving or joining the pinned group: row moves.
-                // Anything else (a re-sort) rebuilds the section.
-                if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
-                    let movers = Set(previousOrder.prefix(wasPinned)).symmetricDifference(shownOrder.prefix(pinned))
-                    if let move = FeedMoveEdit(old: previousOrder, new: shownOrder, movers: movers, limit: Self.pinnedMoveLimit) {
-                        FeedListController.apply(move, to: &snapshot)
-                        travelling = movers
-                    } else {
-                        snapshot.deleteSections([.events])
-                        snapshot.appendSections([.events])
-                        snapshot.appendItems(shownOrder, toSection: .events)
-                    }
+        } else if plan.orderChanged {
+            // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
+            // snapshot of every row to diff. An ask leaving or joining the pinned group: row moves.
+            // Anything else (a re-sort) rebuilds the section.
+            if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
+                let movers = Set(previousOrder.prefix(wasPinned)).symmetricDifference(shownOrder.prefix(pinned))
+                if let move = FeedMoveEdit(old: previousOrder, new: shownOrder, movers: movers, limit: Self.pinnedMoveLimit) {
+                    FeedListController.apply(move, to: &snapshot)
+                    travelling = movers
+                } else {
+                    snapshot.deleteSections([.events])
+                    snapshot.appendSections([.events])
+                    snapshot.appendItems(shownOrder, toSection: .events)
                 }
-            }
-            if pinned > 0, wasPinned == 0 {
-                snapshot.insertItems([Self.pinnedLabelID], afterItem: Self.headerID)
-            } else if pinned == 0, wasPinned > 0 {
-                snapshot.deleteItems([Self.pinnedLabelID])
-            } else if pinned != wasPinned {
-                snapshot.reconfigureItems([Self.pinnedLabelID])
             }
         }
         // Reconfigured rows are shown rows by construction (the plan lists only ids it had shown); a
@@ -1011,9 +990,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     /// Exact heights for the rows the table shows: the header's measured height, each row's from
     /// its layout (laid out here if prefetch did not get to it). Other rows hold the estimate.
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.section != 0 else {
-            return indexPath.row == 0 ? headerHeight : FeedPinnedLabelCell.height(FeedPinnedLabelCell.font(styles))
-        }
+        guard indexPath.section != 0 else { return headerHeight }
         heightQueries += 1
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
         if let height = shownHeights[id] { return height }
@@ -1375,19 +1352,6 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         return UIMenu(title: item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()), options: .displayInline, children: children)
     }
 
-    func rowPeek(_ id: String) -> UIViewController? {
-        guard let item = items[id], let list = collectionView else { return nil }
-        let chat = context.chat(item)
-        let content = FeedPeek.content(opensTerminal: item.opensTerminal, hasLink: item.link != nil, loadedTurns: chat?.turns.count ?? 0)
-        let container = list.window?.bounds.size ?? list.bounds.size
-        return FeedPeekView.controller(item: item, chat: content == .chat ? chat : nil, container: container)
-    }
-
-    func rowPeekCommit(_ id: String) {
-        guard let item = items[id] else { return }
-        context.openFromPeek(item)
-    }
-
     // MARK: Demo driver
 
     #if DEBUG
@@ -1433,42 +1397,6 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         }
     }
     #endif
-}
-
-/// The pinned group's label under the chips: "Needs you · 2", in the chips' text style, on the
-/// rows' 16 pt leading edge. UIKit only, like the rows; its height is its font's line plus fixed
-/// padding, so nothing is measured.
-final class FeedPinnedLabelCell: UITableViewCell {
-    private let label = UILabel()
-
-    static func font(_ styles: NativeTextStyles) -> UIFont { styles.font(.subheadline, weight: .medium) }
-    static func height(_ font: UIFont) -> CGFloat { ceil(font.lineHeight) + 12 }
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        backgroundColor = .cmuxMobileBackground
-        label.textColor = .secondaryLabel
-        label.accessibilityTraits = .header
-        label.accessibilityIdentifier = "feed.needsYouLabel"
-        contentView.addSubview(label)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    func show(count: Int, font: UIFont) {
-        label.font = font
-        label.text = FeedPinnedGroup.title(count)
-        setNeedsLayout()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let bounds = contentView.bounds, line = ceil(label.font.lineHeight)
-        // 4 pt under the chips' 44 pt row, 8 pt above the first ask.
-        label.frame = CGRect(x: 16, y: 4, width: max(0, bounds.width - 32), height: line)
-    }
 }
 
 /// The Feed's diffable source. A diffable table source answers no to
