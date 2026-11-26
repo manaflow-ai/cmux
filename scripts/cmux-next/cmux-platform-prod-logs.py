@@ -49,7 +49,9 @@ _spec.loader.exec_module(base)
 # and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
 # team, so a cmux-vm service reads only `window`.
 VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
-SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
+# cmux-platform-development lives in the same account: its never_bound and bind_late lines (bind_probe) are the guest
+# facts a Cloud lane reads after a fresh create, and cmux-platform's worker-log-read.yml gets 403 on it too.
+SERVICES = ("cmux-platform-production", "cmux-platform-staging", "cmux-platform-development") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
