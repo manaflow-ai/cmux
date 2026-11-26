@@ -19,13 +19,17 @@ use std::path::{Path, PathBuf};
 /// Whether `path` is the person's home folder, as spelled or with its symlinks resolved. `false`
 /// when the process names no home folder.
 pub fn is_home_folder(path: &Path) -> bool {
-    let Some(home) = home_folder() else { return false };
+    home_folder().is_some_and(|home| is_home_folder_of(path, &home))
+}
+
+/// Whether `path` is the home folder `home`, as spelled or with its symlinks resolved.
+pub fn is_home_folder_of(path: &Path, home: &Path) -> bool {
     if path == home {
         return true;
     }
     // git names a top level with its symlinks resolved; the home folder can be reached through
     // one (`/var` on macOS, `/home` on some systems).
-    match (std::fs::canonicalize(path), std::fs::canonicalize(&home)) {
+    match (std::fs::canonicalize(path), std::fs::canonicalize(home)) {
         (Ok(path), Ok(home)) => path == home,
         _ => false,
     }

@@ -3,7 +3,10 @@
 //! The git form is `session_move_carry`'s: the base commit the remote already has, a bundle of
 //! the local commits past it, and one binary patch of the uncommitted work against HEAD, with
 //! untracked files that look like secrets left behind. A folder that is no repository, or one
-//! whose remote has none of its commits, goes as a tar.
+//! whose remote has none of its commits, goes as a tar. A folder in the home folder's own
+//! repository (a dotfiles `~/.git`) counts as no repository: that repository holds every folder
+//! of the home folder, and its untracked files are all of them (`cmux_git::home`), so the chat's
+//! folder goes as the tar of itself, and no git run lists the home folder.
 //!
 //! Everything here blocks (it runs `git`): call it off the async workers.
 
@@ -90,10 +93,16 @@ fn line(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).trim().to_owned()
 }
 
-/// The checkout's top folder, when `cwd` is in one.
+/// The checkout's top folder, when `cwd` is in one other than the home folder's own (module text).
 pub(crate) fn top_of(cwd: &Path) -> Option<PathBuf> {
-    let top = line(git(cwd, &["rev-parse", "--show-toplevel"])?);
-    (!top.is_empty()).then(|| PathBuf::from(top))
+    top_in(cwd, dirs::home_dir().as_deref())
+}
+
+/// `top_of` for the user whose home folder is `home`.
+fn top_in(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    let top = PathBuf::from(line(git(cwd, &["rev-parse", "--show-toplevel"])?));
+    let home_repository = home.is_some_and(|home| cmux_git::home::is_home_folder_of(&top, home));
+    (!top.as_os_str().is_empty() && !home_repository).then_some(top)
 }
 
 /// `origin`'s URL without a login, and the branch checked out (`HEAD` when detached).
@@ -245,7 +254,7 @@ fn walk(top: &Path, under: &Path, found: &mut Vec<PathBuf>) -> Result<()> {
 
 /// The files of `top` a tar takes, each with whether git tracks it. In a repository: what git
 /// tracks and what is untracked and not ignored. Elsewhere: every file, none tracked.
-fn listed(top: &Path) -> Result<Vec<(PathBuf, bool)>> {
+fn listed(top: &Path, home: Option<&Path>) -> Result<Vec<(PathBuf, bool)>> {
     let paths = |bytes: Vec<u8>, tracked: bool| -> Vec<(PathBuf, bool)> {
         bytes
             .split(|b| *b == 0)
@@ -253,7 +262,7 @@ fn listed(top: &Path) -> Result<Vec<(PathBuf, bool)>> {
             .map(|name| (PathBuf::from(String::from_utf8_lossy(name).into_owned()), tracked))
             .collect()
     };
-    if top_of(top).is_some() {
+    if top_in(top, home).is_some() {
         let tracked = git(top, &["ls-files", "-z", "--cached"]).unwrap_or_default();
         let others =
             git(top, &["ls-files", "-z", "--others", "--exclude-standard"]).unwrap_or_default();
@@ -268,12 +277,12 @@ fn listed(top: &Path) -> Result<Vec<(PathBuf, bool)>> {
 
 /// The folder as a tar of at most `max` bytes of files. A file git does not track that looks
 /// like a secret stays behind, as in the git form.
-fn plain(cwd: &Path, max: u64) -> Result<PlainFolder> {
-    let top = top_of(cwd).unwrap_or_else(|| cwd.to_path_buf());
+fn plain(cwd: &Path, max: u64, home: Option<&Path>) -> Result<PlainFolder> {
+    let top = top_in(cwd, home).unwrap_or_else(|| cwd.to_path_buf());
     let mut tar = tar::Builder::new(Vec::new());
     tar.follow_symlinks(false);
     let mut total = 0u64;
-    for (relative, tracked) in listed(&top)? {
+    for (relative, tracked) in listed(&top, home)? {
         if !tracked && leave_out(&top, &relative) {
             continue;
         }
@@ -293,16 +302,21 @@ fn plain(cwd: &Path, max: u64) -> Result<PlainFolder> {
 /// Reads the chat's folder at `cwd`. `max`: the most bytes a tar's files may add up to; past it
 /// the error is [`TooLarge`].
 pub(crate) fn read(cwd: &Path, max: u64) -> Result<Folder> {
+    read_in(cwd, max, dirs::home_dir().as_deref())
+}
+
+/// `read` for the user whose home folder is `home`.
+pub(crate) fn read_in(cwd: &Path, max: u64, home: Option<&Path>) -> Result<Folder> {
     if cwd.to_string_lossy().contains('\n') {
         bail!("the chat's folder has a line break in its name");
     }
-    let git_form = top_of(cwd).and_then(|top| {
+    let git_form = top_in(cwd, home).and_then(|top| {
         let (remote, branch) = remote_and_branch(&top)?;
         let base = base_of(&top)?;
         Some((top, remote, branch, base))
     });
     let Some((top, remote, branch, base)) = git_form else {
-        return plain(cwd, max).map(Folder::Plain);
+        return plain(cwd, max, home).map(Folder::Plain);
     };
     let (carry, tree) = work_tree(&top)?;
     let bundle = bundle(&top, &base, &carry.base)?;

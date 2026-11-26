@@ -55,3 +55,39 @@ fn a_plain_folder_leaves_version_control_dependencies_and_credentials_behind() {
     };
     assert_eq!(names(&plain.tar), ["README.md", "docs/keys.md", "src/main.rs"]);
 }
+
+/// A chat's folder in the home folder's own repository (a dotfiles `~/.git`) goes as the tar of
+/// itself, never from that repository's top: its untracked files are the whole home folder, the
+/// Photos library included (LAUNCH-NO-TCC-PROMPTS). For another home folder the same repository
+/// is a checkout, and the folder goes from its top as before.
+#[test]
+fn a_folder_in_the_home_folders_repository_goes_as_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let git = |args: &[&str]| {
+        let out =
+            std::process::Command::new("git").arg("-C").arg(home).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q"]);
+    put(home, ".zshrc");
+    git(&["add", ".zshrc"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "dotfiles"]);
+    put(home, "Pictures/Photos Library.photoslibrary/database/Photos.sqlite");
+    put(home, "Documents/notes.txt");
+    put(home, "itp-rs/tools/run.py");
+    let chat = home.join("itp-rs/tools");
+
+    let Folder::Plain(plain) = folder::read_in(&chat, 1 << 20, Some(home)).unwrap() else {
+        panic!("a folder in the home folder's repository goes as a tar")
+    };
+    assert_eq!(names(&plain.tar), ["run.py"]);
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let Folder::Plain(plain) = folder::read_in(&chat, 1 << 20, Some(elsewhere.path())).unwrap()
+    else {
+        panic!("a checkout with no remote goes as a tar")
+    };
+    let listed = names(&plain.tar);
+    assert!(listed.contains(&"Documents/notes.txt".to_owned()), "{listed:?}");
+}
