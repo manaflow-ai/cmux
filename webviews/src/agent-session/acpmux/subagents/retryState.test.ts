@@ -164,11 +164,15 @@ describe("the fold keeps a subagent's retry", () => {
     expect(fold.all()[0]!.retriedOut).toBeUndefined();
   });
 
-  test("the summary card's started-chat rows and counts read it, as Running with no retry words", () => {
+  test("the summary card's started-chat rows and counts read it", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
-    // acpmux's own retry is quiet in a list row (Leo, 2026-11-14): the running ring, no retry words.
-    expect(sessionStateText(translate, chat)).toMatchObject({ text: "", working: true });
+    expect(sessionStateText(translate, chat, () => true)).toMatchObject({
+      text: "Retrying (2/4) after a capacity error",
+      working: true,
+    });
+    // Before the retry has waited the shared bound, the row reads running: the turning ring, no word.
+    expect(sessionStateText(translate, chat, () => false)).toMatchObject({ text: "", working: true });
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 

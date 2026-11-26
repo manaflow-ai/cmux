@@ -20,7 +20,8 @@ const [
   { SubsessionCallCard },
   { ConnectorsSection },
   { SubsessionContext, SubsessionStore },
-  { CONNECTION_QUIET_MS },
+  { CONNECTION_QUIET_MS, QUIET_CONNECT_SWITCH },
+  { setExperimentSwitches },
 ] = await importWithDom(() =>
   Promise.all([
     import("../src/agent-session/acpmux/i18n"),
@@ -30,6 +31,7 @@ const [
     import("../src/agent-session/acpmux/session-info/ConnectorsSection"),
     import("../src/agent-session/acpmux/subagents/subsessions"),
     import("../src/ui/lasting"),
+    import("../src/experiments/switches"),
   ]),
 );
 
@@ -61,6 +63,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   jest.useRealTimers();
+  setExperimentSwitches({});
   setPaneLanguage("en");
   await settleReact();
   dom?.window.close();
@@ -163,6 +166,8 @@ const child = (change: Partial<AcpmuxSessionEntry>) =>
   }) as AcpmuxSessionEntry;
 
 test("a sub-session card draws its name on the first frame and no retry words through a 2 s retry", async () => {
+  // The card's retry words wait the bound behind Settings > Experiments > Quiet Connections (off by default).
+  setExperimentSwitches({ [QUIET_CONNECT_SWITCH]: true });
   jest.useFakeTimers();
   const container = installDom();
   const store = new SubsessionStore();

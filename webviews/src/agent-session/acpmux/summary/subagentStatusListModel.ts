@@ -4,7 +4,7 @@ import { type StringKey, type Translate } from "../i18n";
 import { running, STATE_LABEL } from "../subagents/subagentGroupModel";
 import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
-import { retrying } from "../subagents/retryState";
+import { retrying, retryWords, subagentRetryKey, type RetryQuiet } from "../subagents/retryState";
 import { type SubsessionState } from "../subagents/subsessions";
 
 /// What a row says of its subagent: a subagent that asks the user for a permission or an answer
@@ -36,7 +36,7 @@ export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>, no
   return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
 }
 
-/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Stopped),
+/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Disconnected),
 /// as its transcript row does.
 /// A running subagent quiet past ``IDLE_AFTER_MS`` with no call open, and not retrying.
 export function isIdle(agent: Subagent, now: number): boolean {
@@ -51,13 +51,20 @@ export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
 }
 
-/// What a subagent's line says of its state: its status's word. One acpmux waits to retry reads
-/// Running with its turning ring (``subagentStatus``), never "Retrying (2/4) …": acpmux retries on
-/// its own and the person can do nothing about it, so a list row says nothing of it (Leo,
-/// 2026-11-14, asked connectivity to stay quiet; the chat's own retry line waits the shared bound,
-/// AutoResumeNotice.tsx). One that gave up reads Failed, with its Retry on its end line.
-export function subagentStateText(t: Translate, agent: Subagent, waiting: ReadonlySet<string>, now?: number): string {
-  return t(subagentStatusLabel(agent, waiting, now));
+/// What a subagent's line says of its state: acpmux's retry once it has waited the shared bound
+/// ("Retrying (2/4) after a capacity error", ``retryWords``), else its status's word.
+/// `connectionQuiet`: the drawing component's `useConnectionQuietKeys`.
+export function subagentStateText(
+  t: Translate,
+  agent: Subagent,
+  waiting: ReadonlySet<string>,
+  connectionQuiet: RetryQuiet,
+  now?: number,
+): string {
+  return (
+    retryWords(t, retrying(agent), subagentRetryKey(agent), connectionQuiet) ??
+    t(subagentStatusLabel(agent, waiting, now))
+  );
 }
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),

@@ -8,8 +8,8 @@ import type {
   CloudEnvironmentsState,
   HarnessesState,
   HostLists,
-  IntegrationRow,
   ProviderAccount,
+  IntegrationRow,
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo, GALLERY_NOW } from "../../gallery/clock";
@@ -71,6 +71,7 @@ const cmuxSignedOut: AccountsCmux = {
   status: "Signed out",
   statusKind: "attention",
   buttons: [button("cmux.signIn", "Sign In to cmux")],
+  signInBackend: "Signs in to Development backend · dev-abc.cmux.dev",
   error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
 };
 const cmuxSigningIn: AccountsCmux = {
