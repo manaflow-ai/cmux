@@ -50,7 +50,16 @@ comes from the Actions runs API (`actions: read`, $GH_TOKEN): the newest run of 
 have ended success, skipped or neutral; any other conclusion, a run still going, none at all or an unread answer keeps the
 head's usual tier. A head that merges something else, carries its own commit, or targets another base is unchanged.
 
-Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
+One-shot full-ci rule (goal ci-runner-min-per-day-500k): into feat-cmux-next, the `full-ci` label gives the full tier
+only on its own `labeled` event, at the head it was added on, not on every later head. Nothing took the label off, so
+each push and base merge after it re-ran the full suite: over 11-25 09Z..11-26 09Z the 265 open feat-cmux-next PRs
+carrying it spent about 246k GitHub runner-min (27% of PR minutes, about 69 runs per PR). A later head of such a PR
+gets the tier it would get without the label (the land rule's cheap tier until `ready-to-land`), and the land runs
+the full tier at the head it merges, as before. Another base keeps the sticky label. Leo, 2026-11-25: "de facto, im
+asking for 99% fewer minutes of ci time, period."
+
+Switches: the repository variable CI_FULL_CI_ONE_SHOT=0 makes `full-ci` sticky again (every head of a labelled PR
+full); the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off. Stdlib only; anything unreadable gives
@@ -72,6 +81,7 @@ FULL_CI = "full-ci"
 LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to land
 LAND_BASE = "feat-cmux-next"
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
+ONE_SHOT_VAR = "CI_FULL_CI_ONE_SHOT"  # 0: full-ci is sticky again (the one-shot full-ci rule above)
 IDLE_HOURS = 24
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
 GREEN = frozenset({"success", "skipped", "neutral"})
@@ -95,6 +105,18 @@ def idle(facts: dict | None, now: float, hours: float = IDLE_HOURS) -> bool:
         return False
     own_last = facts.get("own_last")
     return isinstance(own_last, (int, float)) and now - own_last > hours * 3600
+
+
+def full_ci_applies(event: dict, one_shot: str | None = None) -> bool:
+    """Whether EVENT's head gets the full tier from the `full-ci` label: the label is on the pull request and either
+    this is its own `labeled` event, the base is not feat-cmux-next, or ONE_SHOT (default $CI_FULL_CI_ONE_SHOT, on)
+    is 0. The workflows' `if:` gates read the same three conditions (tests/test_feat_ci_guard_group.py FULL_CI_ON)."""
+    pr = event.get("pull_request") or {}
+    if FULL_CI not in {str(label.get("name") or "") for label in pr.get("labels") or []}:
+        return False
+    switch = os.environ.get(ONE_SHOT_VAR, "1") if one_shot is None else one_shot
+    return ((switch or "1").strip() == "0" or str((pr.get("base") or {}).get("ref") or "") != LAND_BASE
+            or (event.get("action") == "labeled" and str((event.get("label") or {}).get("name") or "") == FULL_CI))
 
 
 def land_rule_applies(event: dict) -> bool:
@@ -152,27 +174,29 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
     return data["workflow_runs"]
 
 
-def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0") -> bool:
+def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0",
+                       one_shot: str | None = None) -> bool:
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
-    feat-cmux-next (land_rule_applies) with both switches on and neither full-tier label."""
+    feat-cmux-next (land_rule_applies) with both switches on, no ready-to-land, and no full-ci that applies
+    (full_ci_applies)."""
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     base = str((pr.get("base") or {}).get("ref") or "")
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
-            and not labels & {FULL_CI, LAND_LABEL})
+            and LAND_LABEL not in labels and not full_ci_applies(event, one_shot))
 
 
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
-         green_switch: str = "1") -> tuple[str, str]:
+         green_switch: str = "1", one_shot: str | None = None) -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
-    if FULL_CI in labels:
+    if full_ci_applies(event, one_shot):
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
     landing = LAND_LABEL in labels and pr.get("draft") is not True
@@ -181,7 +205,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
     if (not landing and facts and facts.get("base_merge_only") and facts.get("previous_green") is True
-            and green_rule_applies(event, green_switch, land_switch)):
+            and green_rule_applies(event, green_switch, land_switch, one_shot)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
                         f"run passed: nothing runs until a new commit, {LAND_LABEL} (the land), or {FULL_CI}; "
                         f"{LAND_STATUS} stays pending")
@@ -265,18 +289,19 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     land_switch = os.environ.get("CI_LAND_TIER", "1")
     sync_switch = os.environ.get("CI_SYNC_MERGE_CHEAP", "1")
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
-    labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+    one_shot = os.environ.get(ONE_SHOT_VAR, "1")
     pull = event_name in ("pull_request", "pull_request_target")
-    green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
+    green_wanted = pull and green_rule_applies(event, green_switch, land_switch, one_shot)
     wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted)
-              and FULL_CI not in labels)
+              and not full_ci_applies(event, one_shot))
     facts = head_facts(event) if wanted else None
     if facts and facts.get("base_merge_only") and green_wanted:
         if idle_switch.strip() == "0" or not idle(facts, time.time()):
             runs = runs_at(os.environ.get("GITHUB_REPOSITORY", ""), str(facts.get("previous") or ""),
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
-    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch)
+    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
+                one_shot)
 
 
 def _load(path: str) -> dict:
