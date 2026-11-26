@@ -976,9 +976,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func isDeliveringPrompt(_ promptID: String) -> Bool {
         #if canImport(CmuxMobileLinkFFI)
-        sendTasks[promptID] != nil || promptPayloads[promptID] != nil
+        sendTasks[promptID] != nil || writingPromptID == promptID ||
+            (promptPayloads[promptID] != nil && promptOutbox.unwritten().contains(promptID))
         #else
-        false
+        sendTasks[promptID] != nil
         #endif
     }
 
@@ -1183,6 +1184,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// retried with a jittered, capped backoff, queued while the link is down and given back
     /// past ``heldPromptWindow``. This source only writes what it hands out and reports back.
     private let promptOutbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: UInt64.random(in: 0...UInt64.max))
+    /// The bounded channel write in progress. Waiting for the RPC reply has no write deadline.
+    private var writingPromptID: String?
     /// The wake for the outbox's next hold or retry.
     private var promptWake: Task<Void, Never>?
 
@@ -1214,6 +1217,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let request = promptOutbox.nextRequest(nowMs: nowMs) {
             if var prompt = promptPayloads[request.promptId] {
                 prompt.resend = request.resend
+                writingPromptID = prompt.promptID
                 Task { [weak self] in await self?.writePrompt(prompt, hub: hub) }
             } else {
                 _ = promptOutbox.answered(promptId: request.promptId)
@@ -1292,6 +1296,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
         do {
             let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: sessionID))
+            if writingPromptID == prompt.promptID { writingPromptID = nil }
             promptOutbox.wrote(promptId: prompt.promptID)
             promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
             pumpPrompts()
@@ -1303,6 +1308,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 promptFailed(prompt, error, written: true)
             }
         } catch {
+            if writingPromptID == prompt.promptID { writingPromptID = nil }
             promptFailed(prompt, error, written: false)
         }
         pumpPrompts()
@@ -1471,8 +1477,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     ///   a `resource_link` to the uploaded path (the agent reads it there).
     /// A failed upload throws, so nothing is sent without its attachments.
     /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
-    /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
-    /// lane/ios-attachment-send).
+    /// Successful chunk writes renew the live upload’s stall bound (including uploads begun before Send).
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
                       prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
@@ -1562,25 +1567,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
     static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
-                       stall: Duration) async throws -> String {
-        @Sendable func send(to folder: String?) async throws -> String {
-            #if canImport(CmuxMobileLinkFFI)
-            let activity = LinkProgress()
-            return try await LinkDeadline.run(
-                timeout: stall,
-                timeoutError: LinkError(code: "upload_stalled", message: AgentChatStore.unreachableNotice),
-                extend: activity.stallExtension(after: stall)
-            ) {
-                try await LinkUpload.upload(payload, name: name, cwd: folder, over: link, onWrite: activity.progressed)
-            }
-            #else
-            return try await LinkUpload.upload(payload, name: name, cwd: folder, over: link)
-            #endif
-        }
+                       stall: Duration = AgentChatStore.sendDeadline) async throws -> String {
         do {
-            return try await send(to: LinkUpload.folder(cwd))
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link, stall: stall)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await send(to: nil)
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link, stall: stall)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }

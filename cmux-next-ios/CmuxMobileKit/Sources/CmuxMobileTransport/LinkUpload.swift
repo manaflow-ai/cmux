@@ -44,10 +44,45 @@ public enum LinkUpload {
     /// Nonisolated async: the file reads run off the caller's actor.
     public static func upload(_ payload: Payload, name: String, cwd: String?, over link: any MacLink,
                               scope: any SecurityScope = SystemSecurityScope(),
-                              onWrite: (@Sendable () -> Void)? = nil) async throws -> String {
+                              stall: Duration? = nil) async throws -> String {
+        guard let stall else {
+            return try await stream(payload, name: name, cwd: cwd, over: link, scope: scope, activity: nil)
+        }
+        let activity = Activity()
+        return try await LinkDeadline.run(
+            timeout: stall, timeoutError: LinkError(code: "upload_stalled", message: "The upload stopped making progress."),
+            extend: { activity.advanced() ? stall : nil }
+        ) {
+            try await stream(payload, name: name, cwd: cwd, over: link, scope: scope, activity: activity)
+        }
+    }
+
+    /// One upload owns one channel. Its native byte count advances even inside a single slow
+    /// write. A channel without a counter reports the number of bytes its writes have returned.
+    private final class Activity: @unchecked Sendable { // crash-allow: all state is lock protected
+        private let lock = NSLock()
+        private var channel: (any LinkChannel)?
+        private var completed: UInt64 = 0
+        private var observed: UInt64 = 0
+
+        func opened(_ channel: any LinkChannel) { lock.withLock { self.channel = channel } }
+        func wrote(_ bytes: Int) { lock.withLock { completed = UInt64(bytes) } }
+
+        func advanced() -> Bool {
+            lock.withLock {
+                let sent = max(channel?.sentBytes ?? 0, completed)
+                guard sent > observed else { return false }
+                observed = sent
+                return true
+            }
+        }
+    }
+
+    private static func stream(_ payload: Payload, name: String, cwd: String?, over link: any MacLink,
+                               scope: any SecurityScope, activity: Activity?) async throws -> String {
         switch payload {
         case .data(let data):
-            return try await send(name: name, size: data.count, cwd: cwd, over: link, onWrite: onWrite) { offset, count in
+            return try await send(name: name, size: data.count, cwd: cwd, over: link, activity: activity) { offset, count in
                 data.subdata(in: data.startIndex + offset..<data.startIndex + offset + count)
             }
         case .file(let url):
@@ -65,7 +100,7 @@ public enum LinkUpload {
                 throw unreadable(name)
             }
             defer { try? handle.close() }
-            return try await send(name: name, size: size, cwd: cwd, over: link, onWrite: onWrite) { _, count in
+            return try await send(name: name, size: size, cwd: cwd, over: link, activity: activity) { _, count in
                 try handle.read(upToCount: count) ?? Data()
             }
         }
@@ -78,7 +113,7 @@ public enum LinkUpload {
     /// Opens the channel with `size`, sends `nextChunk(offset, count)` until
     /// `size` bytes went, then reads the Mac's one reply.
     private static func send(name: String, size: Int, cwd: String?, over link: any MacLink,
-                             onWrite: (@Sendable () -> Void)?,
+                             activity: Activity?,
                              nextChunk: (_ offset: Int, _ count: Int) throws -> Data) async throws -> String {
         var args = ["name": name, "size": String(size)]
         if let cwd, cwd.hasPrefix("/") { args["cwd"] = cwd }
@@ -88,6 +123,7 @@ public enum LinkUpload {
         } catch let error as LinkError {
             throw Failure(code: error.code, message: error.message)
         }
+        activity?.opened(channel)
         // Cancelling the upload closes its channel, which ends a wait for the
         // Mac's reply; the stream stops at its next chunk. The caller's file
         // handle and scope then close as the upload returns.
@@ -108,7 +144,7 @@ public enum LinkUpload {
                 }
                 do { try await channel.send(chunk) } catch { break }
                 offset += chunk.count
-                onWrite?()
+                activity?.wrote(offset)
             }
             var reply = Data()
             while let chunk = try await channel.receive() {
