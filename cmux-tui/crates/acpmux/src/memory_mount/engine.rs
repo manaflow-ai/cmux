@@ -397,13 +397,20 @@ impl Engine {
                 .with_context(|| format!("create {}", parent.display()))?;
         }
         let temp = temp_beside(&path);
-        crate::home_fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
+        // This process's writers of the copy take turns, from its fill to its rename.
+        let _turn = crate::dead_temps::hold(&temp);
+        let _ = crate::home_fs::remove_file(&temp);
+        crate::home_fs::write_synced(&temp, bytes)
+            .with_context(|| format!("write {}", temp.display()))?;
         let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
         if now.as_deref() != expect {
             let _ = crate::home_fs::remove_file(&temp);
             return Ok(false);
         }
         crate::home_fs::rename(&temp, &path)
+            .inspect_err(|_| {
+                let _ = crate::home_fs::remove_file(&temp);
+            })
             .with_context(|| format!("rename into {}", path.display()))?;
         Ok(true)
     }
@@ -563,24 +570,20 @@ pub fn safe_rel(rel: &str) -> bool {
         && rel.split('/').all(|p| !p.is_empty() && p != "." && p != "..")
 }
 
+/// This process's hidden copy beside `path`: `.<name>.memtmp-<pid>`, the same on every write
+/// (`dead_temps`: each new name is one more path fseventsd keeps). Its writers take turns with
+/// `dead_temps::hold`.
 fn temp_beside(path: &Path) -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    path.with_file_name(format!(".{name}.memtmp-{}-{n}", std::process::id()))
+    path.with_file_name(format!(".{name}.memtmp-{}", std::process::id()))
 }
 
-/// Write through a hidden temp beside `path`, then rename over it.
+/// Write through a hidden copy beside `path`, then rename over it (`home_fs::write`).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         crate::home_fs::create_dirs(parent)?;
     }
-    let temp = temp_beside(path);
-    crate::home_fs::write(&temp, bytes)?;
-    crate::home_fs::rename(&temp, path).inspect_err(|_| {
-        let _ = crate::home_fs::remove_file(&temp);
-    })
+    crate::home_fs::write(path, bytes)
 }
 
 fn mtime_ms(path: &Path) -> Option<u64> {
