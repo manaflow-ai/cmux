@@ -659,24 +659,6 @@ pub(super) fn transcript_rows_range(
                             });
                         }
                     }
-                    Item::Plan { entries } => {
-                        plain("plan", Style::default().fg(c.attention_fg), i, &mut rows);
-                        for (s, content) in entries {
-                            let glyph = match s.as_str() {
-                                "completed" => "✓",
-                                "in_progress" => "▶",
-                                _ => "○",
-                            };
-                            wrap(
-                                content,
-                                w.saturating_sub(2),
-                                Style::default().fg(c.attention_fg),
-                                &format!("{glyph} "),
-                                i,
-                                &mut rows,
-                            );
-                        }
-                    }
                     Item::Status { text } => plain(&format!("-- {text}"), c.dim(), i, &mut rows),
                     Item::TurnEnd { stop } => plain(&format!("-- {stop}"), c.dim(), i, &mut rows),
                     Item::Error { text } => {
