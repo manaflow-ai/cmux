@@ -1,0 +1,67 @@
+{
+  "envs": [
+    ["light", "photo-light"],
+    ["dark", "photo-light"],
+    ["light", "photo-dark"],
+    ["dark", "photo-dark"],
+    ["light", "photo-busy"],
+    ["dark", "photo-busy"]
+  ],
+  "shots": [
+    {
+      "name": "hover-one",
+      "entry": "ui.hover-surface",
+      "variant": "one",
+      "width": 960,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "shipped": ""
+      }
+    },
+    {
+      "name": "hover-now",
+      "entry": "ui.hover-surface",
+      "variant": "now",
+      "width": 960,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "shipped": ""
+      }
+    },
+    {
+      "name": "hover-menu",
+      "entry": "ui.hover-surface",
+      "variant": "menu",
+      "width": 960,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "shipped": ""
+      }
+    },
+    {
+      "name": "glass-system",
+      "entry": "ui.glass-system",
+      "variant": "glass",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "shipped": ""
+      }
+    },
+    {
+      "name": "menu-material",
+      "entry": "ui.menu-material",
+      "variant": "one",
+      "width": 800,
+      "height": 340,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "shipped": ""
+      }
+    }
+  ]
+}
