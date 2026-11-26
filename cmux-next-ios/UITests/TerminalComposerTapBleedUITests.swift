@@ -147,13 +147,13 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         let control = app.buttons["terminal.key.control"]
         XCTAssertTrue(control.waitForExistence(timeout: 2), "the Control positive-control key is missing")
         XCTAssertLessThanOrEqual(control.frame.maxX, width, "the Control positive-control key is off screen")
-        let before = probe.value as? String ?? ""
+        let beforeControl = probe.value as? String ?? ""
         let probeChange = XCTKVOExpectation(keyPath: "value", object: probe)
         origin.withOffset(CGVector(dx: control.frame.midX, dy: control.frame.midY)).tap()
         _ = XCTWaiter.wait(for: [probeChange], timeout: 1)
         let after = probe.value as? String ?? ""
-        XCTAssertTrue(after != before && after.contains("control"),
-                      "a tap on Control \(control.frame) did not reach it: \(before) -> \(after)")
+        XCTAssertTrue(after != beforeControl && after.contains("control"),
+                      "a tap on Control \(control.frame) did not reach it: \(beforeControl) -> \(after)")
     }
 
     /// The 8 pt gap between the key row and the composer is the composer's: a tap there, at the
