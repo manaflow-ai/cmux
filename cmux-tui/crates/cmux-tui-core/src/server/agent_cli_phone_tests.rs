@@ -125,3 +125,35 @@ fn the_mac_screens_facts_and_the_transcript_make_the_phones_screen() {
         }
     }
 }
+
+/// A growing transcript is folded from where the last read stopped, a line cut mid-write
+/// included, and ends with the turns one whole read gives: a long session's change costs its
+/// new lines, not the whole file again.
+#[test]
+fn a_growing_transcript_folds_only_what_it_gained() {
+    let whole = std::fs::read(fixture().join("transcript.jsonl")).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-phone-grid-grow-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("transcript.jsonl");
+    std::fs::write(&path, b"").unwrap();
+    let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
+    // Seven appends, cut at arbitrary bytes, so most cuts fall inside a line.
+    let step = whole.len() / 7 + 1;
+    let mut written = 0;
+    while written < whole.len() {
+        let end = (written + step).min(whole.len());
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut f, &whole[written..end]).unwrap();
+        written = end;
+        phone.refresh();
+        assert_eq!(phone.offset, written as u64);
+    }
+    let full = acpmux::adopt_replay::read("claude", &fixture().join("transcript.jsonl"));
+    assert!(!full.is_empty());
+    assert_eq!(phone.turns(), full.as_slice());
+    // A rewritten (shorter) file is a new transcript, folded from its start.
+    std::fs::write(&path, b"").unwrap();
+    phone.refresh();
+    assert!(phone.turns().is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

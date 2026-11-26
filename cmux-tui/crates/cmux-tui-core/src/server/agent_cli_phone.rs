@@ -10,7 +10,8 @@
 //! grid, from:
 //!
 //! - the records: Claude Code's own transcript (the session the terminal's hook reported, read
-//!   by acpmux's adopt reader, the same records an adopted chat replays), re-read when it grows;
+//!   by acpmux's adopt reader, the same records an adopted chat replays), folded from where the
+//!   last read stopped when it grows, so a long session costs only its new lines per change;
 //! - the host facts only the screen has (`claude_facts::ScreenFacts`): the banner, mode, effort,
 //!   done verb, placeholder, the person's unsent draft and whether a turn runs, read off the
 //!   Mac's screen at each frame.
@@ -21,8 +22,10 @@
 //! `tests/parity.rs` in cmux-agent-cli-render holds the drawing to real Claude Code screens at
 //! iPhone grids.
 
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::time::SystemTime;
+
+use acpmux::adopt_replay::{Fold, PastTurn};
 
 use cmux_agent_cli_render::claude::{self, Chrome};
 use cmux_agent_cli_render::claude_facts::ScreenFacts;
@@ -40,6 +43,12 @@ const MIN_ROWS: u16 = 8;
 /// draws it.
 const FULL_SCREEN_SINCE: &str = "2.1.320";
 
+/// The newest turns drawn (acpmux's adopted-chat replay keeps as many): a long session's frame
+/// costs the same as a short one's.
+const KEEP_TURNS: usize = 200;
+/// A transcript bigger than this, met for the first time, is folded from its newest part only.
+const FIRST_READ_BYTES: u64 = 64 << 20;
+
 /// One viewer's Claude Code drawn at its grid.
 pub(super) struct PhoneGrid {
     pub(super) cols: u16,
@@ -47,9 +56,10 @@ pub(super) struct PhoneGrid {
     transcript: PathBuf,
     /// The host facts seen so far: the banner's persist after it scrolls away.
     seen: Chrome,
-    /// The transcript's length and change time at the last read.
-    read_at: Option<(u64, Option<SystemTime>)>,
-    turns: Vec<acpmux::adopt_replay::PastTurn>,
+    /// The transcript folded so far, up to `offset`; `partial` is a line not yet ended.
+    fold: Fold,
+    offset: u64,
+    partial: Vec<u8>,
 }
 
 /// The transcript of the Claude Code session `session_id`, under the login's Claude home.
@@ -66,8 +76,9 @@ impl PhoneGrid {
             rows,
             transcript,
             seen: Chrome::default(),
-            read_at: None,
-            turns: Vec::new(),
+            fold: Fold::new("claude", true),
+            offset: 0,
+            partial: Vec::new(),
         })
     }
 
@@ -80,18 +91,60 @@ impl PhoneGrid {
             self.seen.version = Some(FULL_SCREEN_SINCE.to_owned());
         }
         self.refresh();
-        let records = records(&self.turns, facts.running);
+        let records = records(self.turns(), facts.running);
         claude::render_with_history(&records, &self.seen, self.cols, self.rows)
     }
 
-    /// Re-reads the transcript when it changed since the last read.
+    /// The turns drawn: the newest [`KEEP_TURNS`] folded.
+    fn turns(&self) -> &[PastTurn] {
+        let turns = self.fold.held(false).1;
+        &turns[turns.len().saturating_sub(KEEP_TURNS)..]
+    }
+
+    /// Folds what the transcript gained since the last read. Claude Code only appends to it; a
+    /// file shorter than what was read is a new one, folded from its start.
     fn refresh(&mut self) {
-        let meta = std::fs::metadata(&self.transcript).ok();
-        let now = meta.map(|m| (m.len(), m.modified().ok()));
-        if now.is_some() && now != self.read_at {
-            self.turns = acpmux::adopt_replay::read("claude", &self.transcript);
-            self.read_at = now;
+        let Ok(mut file) = std::fs::File::open(&self.transcript) else { return };
+        let Ok(len) = file.metadata().map(|m| m.len()) else { return };
+        if len < self.offset {
+            self.fold = Fold::new("claude", true);
+            self.offset = 0;
+            self.partial.clear();
         }
+        if len == self.offset {
+            return;
+        }
+        // The first read of a huge transcript starts near its end, past the partial line there.
+        let mut skip_line = false;
+        if self.offset == 0 && len > FIRST_READ_BYTES {
+            self.offset = len - FIRST_READ_BYTES;
+            skip_line = true;
+        }
+        if file.seek(SeekFrom::Start(self.offset)).is_err() {
+            return;
+        }
+        // No further than the file was when opened: one read is bounded however fast it grows.
+        let mut bytes = Vec::new();
+        if file.take(len - self.offset).read_to_end(&mut bytes).is_err() {
+            return;
+        }
+        self.offset += bytes.len() as u64;
+        let mut rest = bytes.as_slice();
+        if skip_line {
+            rest = rest.iter().position(|&b| b == b'\n').map_or(&[][..], |i| &rest[i + 1..]);
+        }
+        while let Some(end) = rest.iter().position(|&b| b == b'\n') {
+            if self.partial.is_empty() {
+                self.fold.line(&rest[..end]);
+            } else {
+                self.partial.extend_from_slice(&rest[..end]);
+                self.fold.line(&std::mem::take(&mut self.partial));
+            }
+            rest = &rest[end + 1..];
+        }
+        self.partial.extend_from_slice(rest);
+        // Older turns never change again: let them go, so memory stays bounded too.
+        self.fold.settle(KEEP_TURNS);
     }
 
     #[cfg(test)]
