@@ -452,10 +452,11 @@
         ".github/workflows/base-coalesce.yml",
         "schemas/design-scale/design-scale.json",
         "schemas/instrument/instrument.json",
+        "schemas/settings/file-keys.json",
         "schemas/layout-grid/layout-grid.json",
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
-        "schemas/settings/file-keys.json"
+        "schemas/design-scale/scene-scale.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
