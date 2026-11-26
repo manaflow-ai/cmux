@@ -224,6 +224,35 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_heavy_at_land_off_changes_nothing(self) -> None:
+        for ev in (land_event(), land_event(labels=("full-ci",)), land_event(base="lane/other"),
+                   land_event(labels=("full-ci",), action="labeled", added="full-ci"), land_event(draft=True),
+                   land_event(head_repo="someone/fork")):
+            self.assertEqual(head_tier.tier("pull_request", ev, land_switch="1"),
+                             head_tier.tier("pull_request", ev, land_switch="1", heavy_at_land_switch="0"))
+
+    def test_heavy_at_land_runs_the_full_tier_only_on_the_handoff_event(self) -> None:
+        on = {"land_switch": "1", "heavy_at_land_switch": "1"}
+        handoff = land_event(labels=("full-ci",), action="labeled", added="full-ci")
+        self.assertEqual(head_tier.tier("pull_request", handoff, **on)[0], "full")
+        later = head_tier.tier("pull_request", land_event(labels=("full-ci",)), **on)
+        self.assertEqual(later[0], "cheap")
+        self.assertIn(head_tier.HEAVY_AT_LAND_REASON, later[1])
+        self.assertEqual(head_tier.tier("pull_request", land_event(base="lane/other"), **on)[0], "cheap")
+        self.assertEqual(head_tier.tier("pull_request", land_event(head_repo="someone/fork"), **on)[0], "full")
+        self.assertEqual(head_tier.tier("push", {}, **on)[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", land_event(), **on),
+                         head_tier.tier("pull_request", land_event(), land_switch="1"))
+
+    def test_decide_reads_heavy_at_land_from_the_environment(self) -> None:
+        ev = land_event(labels=("full-ci",))
+        with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "1", "CI_IDLE_BASE_MERGE_SKIP": "0",
+                                                   "CI_SYNC_MERGE_CHEAP": "0", "CI_GREEN_BASE_MERGE_SKIP": "0",
+                                                   "CI_LAND_CARRY": "0"}):
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"}):
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+
     def test_the_router_starts_only_cheap_callees_then_everything_on_the_land_label(self) -> None:
         ev = land_event()
         start, why = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=head_tier.tier(

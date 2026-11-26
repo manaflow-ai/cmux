@@ -1013,6 +1013,7 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       - name: Mint a read token with its own quota
         id: base-red-token
