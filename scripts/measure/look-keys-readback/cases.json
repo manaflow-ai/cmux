@@ -3,15 +3,38 @@
     {
       "name": "tab-shape",
       "pr": 46780,
-      "setup": [{"action": "newTab", "wait": 1}, {"action": "newTab", "wait": 1}, {"action": "newTab", "wait": 2}],
-      "theme": {"appearance.tabShape": "rounded"}
+      "setup": [
+        {
+          "action": "newTab",
+          "wait": 1
+        },
+        {
+          "action": "newTab",
+          "wait": 1
+        },
+        {
+          "action": "newTab",
+          "wait": 2
+        }
+      ],
+      "theme": {
+        "appearance.tabShape": "rounded"
+      }
     },
     {
       "name": "menu-tokens",
       "pr": 46846,
       "setup": [
-        {"action": "palette.newAgentChat", "focus": true, "wait": 10},
-        {"action": "agentPane.switchModel", "wait": 3}
+        {
+          "action": "palette.newAgentChat",
+          "focus": true,
+          "wait": 10
+        },
+        {
+          "action": "agentPane.switchModel",
+          "wait": 3,
+          "focus": true
+        }
       ],
       "agent_pane_css": {
         "--menu-fill": "#ff00ff",
@@ -19,7 +42,90 @@
         "--menu-border": "#ff00ff",
         "--menu-radius": "0px"
       },
-      "expect_color": {"rgb": "#ff00ff", "tolerance": 40, "min_pixels": 400, "wait": 15}
+      "expect_color": {
+        "rgb": "#ff00ff",
+        "tolerance": 40,
+        "min_pixels": 400,
+        "wait": 15
+      }
+    },
+    {
+      "name": "chat-environment",
+      "pr": 47049,
+      "note": "Needs a NIGHTLY with 164749844bee. A theme file refuses these keys (not in ThemeFileOverlay.lookKeys), so they go through settings.set.",
+      "setup": [
+        {
+          "action": "palette.newAgentChat",
+          "focus": true,
+          "wait": 10
+        }
+      ],
+      "settings": {
+        "agentPane.display.environmentCard": true,
+        "agentPane.display.changesPill": true
+      }
+    },
+    {
+      "name": "menu-popover-look",
+      "pr": 46898,
+      "note": "Every appearance.menu.* and appearance.popover.* key #46898 added, each off its default, set in one theme file.",
+      "theme": {
+        "appearance.menu.cornerRadius": 20,
+        "appearance.menu.borderOpacity": 0.5,
+        "appearance.menu.shadow": "strong",
+        "appearance.menu.fill": "#ff00ff",
+        "appearance.menu.padding": 12,
+        "appearance.menu.highlightRadius": 12,
+        "appearance.menu.rowHeight": 36,
+        "appearance.menu.shortcuts": "muted",
+        "appearance.menu.sectionLabel": "muted",
+        "appearance.menu.separator": "none",
+        "appearance.menu.destructiveInk": "plain",
+        "appearance.menu.submenu": "flush",
+        "appearance.menu.subtitle": "muted",
+        "appearance.popover.padding": 20,
+        "appearance.popover.header": "strong",
+        "appearance.popover.progressHeight": 10,
+        "appearance.popover.progressFill": "strong"
+      }
+    },
+    {
+      "name": "look-proportions",
+      "pr": 46861,
+      "setup": [
+        {
+          "action": "newTab",
+          "wait": 2
+        }
+      ],
+      "theme": {
+        "appearance.metrics.sidebarRowInset": 8,
+        "appearance.metrics.sidebarRowPadding": 8,
+        "appearance.metrics.sidebarRowGap": 2,
+        "appearance.metrics.sidebarRowHeightWithSubtitle": 45,
+        "appearance.metrics.toolbarButtonActiveFill": 0.14,
+        "appearance.metrics.headerDivider": 0,
+        "appearance.metrics.toolbarButtonSize": 26,
+        "appearance.metrics.toolbarButtonGap": 8,
+        "appearance.metrics.toolbarButtonCornerRadius": 8,
+        "appearance.metrics.spacingScale": 1,
+        "appearance.metrics.composerPadding": 10,
+        "appearance.metrics.composerMinHeight": 52
+      }
+    },
+    {
+      "name": "composer-customizer",
+      "pr": 53624,
+      "setup": [
+        {
+          "action": "palette.newAgentChat",
+          "focus": true,
+          "wait": 10
+        }
+      ],
+      "settings": {
+        "experiments.composerCustomizer": true
+      }
     }
   ]
 }
