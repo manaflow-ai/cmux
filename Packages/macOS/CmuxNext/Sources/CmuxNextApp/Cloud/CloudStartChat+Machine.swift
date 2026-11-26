@@ -111,10 +111,9 @@ extension CloudStartChat {
         }
         let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
         return try await cloud.startGate.entering(id ?? "") { try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // held from before its connect, so its handshake's automatic update never restarts it under the start (cmux#55519); a failed pin, attach or route deletes a machine made for this start
-            // Beside the link's connect (nothing on the machine, cmux#45953): the pin, this Mac's own record, and a new machine's route report (no spare read it ahead), whose exec (1.9-2.5 s) ran after the 8-11 s connect until 2026-11-25; one that does not say the chat starts is read again after (leo: "when you press enter, the stuff should just start playing").
+            // Pin while connecting. Only pre-read the route for a new machine whose chat uses that route.
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
-            // A launch carrying its own connection only needs a route probe if prepare finds the daemon cannot serve it.
             async let routeAhead: String? = { @MainActor in if connection == nil, let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
             let shown = machines.session(id ?? ""); shown?.waking = asker?.waking; defer { shown?.waking = nil } // the card's "Waking machine" while it settles
             let session: CloudMachineSession

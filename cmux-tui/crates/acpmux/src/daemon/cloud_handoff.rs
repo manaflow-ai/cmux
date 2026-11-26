@@ -891,6 +891,9 @@ impl<I: Io> Reporter<I> {
                 return;
             }
             self.send_unmade(&session).await;
+            if self.closed.contains(&session) {
+                self.drop_settled_track(&session);
+            }
         }
     }
 
@@ -966,12 +969,13 @@ impl<I: Io> Reporter<I> {
     /// until it reopens.
     async fn close(&mut self, session: &str) {
         self.closed.insert(session);
-        let Some(track) = self.tracks.remove(session) else { return };
         if self.handoff_closed.contains(session) {
+            self.tracks.remove(session);
             return;
         }
+        let Some(track) = self.tracks.get_mut(session) else { return };
         let closed = || Some("The session was closed before the turn finished.".to_owned());
-        let ended = match track.now {
+        let ended = match std::mem::take(&mut track.now) {
             Now::Reporting { turn, last } if !matches!(last, Some("done" | "failed")) => {
                 Some((turn, closed()))
             }
@@ -980,6 +984,14 @@ impl<I: Io> Reporter<I> {
         };
         if let Some((turn, note)) = ended {
             self.finish(session, turn, "failed", note).await;
+        }
+        // Closing fences new events, but an end still waiting for the hand-off must reach it.
+        self.drop_settled_track(session);
+    }
+
+    fn drop_settled_track(&mut self, session: &str) {
+        if self.tracks.get(session).is_some_and(|t| t.unmade.is_none()) {
+            self.tracks.remove(session);
         }
     }
 
@@ -992,7 +1004,7 @@ impl<I: Io> Reporter<I> {
         let quiet: Vec<String> = self
             .tracks
             .iter()
-            .filter(|(_, t)| t.now == Now::Quiet)
+            .filter(|(_, t)| t.now == Now::Quiet && t.unmade.is_none())
             .map(|(id, _)| id.clone())
             .take(self.tracks.len() / 4 + 1)
             .collect();

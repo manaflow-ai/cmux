@@ -513,6 +513,31 @@ async fn an_unanswered_first_begin_keeps_the_end_until_the_hand_off_exists() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn closing_before_hand_off_creation_preserves_the_first_turn_end() {
+    for finished in [false, true] {
+        let (mut r, fake) = reporter();
+        fake.answer([not_found(), not_found()]);
+        r.step(S, began(1)).await;
+        if finished {
+            r.step(S, done(1, "Done.")).await;
+        }
+        r.step(S, Step::Closed).await;
+        fake.take();
+        let (status, note) = if finished {
+            ("done", "Done.")
+        } else {
+            ("failed", "The session was closed before the turn finished.")
+        };
+        tokio::time::advance(UNMADE_AFTER[0]).await;
+        fake.answer([ok(1, status)]);
+        r.expire().await;
+        assert_eq!(fake.take(), [s(1, status, Some(note))]);
+        assert_eq!(r.next_deadline(), None);
+        assert!(!r.tracks.contains_key(S));
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_first_turn_that_ends_before_its_hand_off_is_made_reports_its_end_once() {
     let (mut r, fake) = reporter();
     fake.answer([not_found(), not_found(), not_found()]);
