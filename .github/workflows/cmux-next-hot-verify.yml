@@ -790,6 +790,7 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the publisher
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         id: checkout
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -819,7 +820,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: |
+          sparse-checkout: &publisher-sparse |
             .github/actions/pr-media-publish
             scripts/pr-media.py
             scripts/ci/pr_media_privacy.py
@@ -832,6 +833,32 @@ jobs:
             scripts/ci/ci_pool_tokens.py
             .gitmodules
           sparse-checkout-cone-mode: false
+      - name: "Pool mirror: checkout the publisher"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *publisher-sparse
+        # Pool runners use their local mirror directly. actions/checkout adds a blobless promisor fetch, which
+        # can stall while the mirror backfills blobs. The unfiltered fetch only transfers objects the mirror lacks.
+        run: |
+          set -euo pipefail
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
       # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
       # spent hour: 2026-11-23 17:43-23:43Z, post the look's read took 569 s at the median and 1,579 s at p90 (242
