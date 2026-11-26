@@ -653,7 +653,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1154,7 +1154,7 @@ jobs:
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. A healthy owner publishes about 20 minutes after it
           # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch

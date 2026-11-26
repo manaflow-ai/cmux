@@ -273,7 +273,9 @@ class WorkflowTests(unittest.TestCase):
 
     def test_runs_on_owned_label_never_blacksmith_or_hosted(self):
         runs_on = self.job["runs-on"]
-        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}")
+        # The secret JIT label leads (tests/test_ci_secret_jobs_secret_jit.py); CI_SECRET_SKIP_FLEET=1 falls back to the control runner.
+        self.assertEqual(runs_on, "${{ vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || "
+                                  "vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}")
         for bad in ("blacksmith", "ubuntu-", "RUNNER_POOLS", "LINUX_RUNNER", "cmux-fleet-linux"):
             self.assertNotIn(bad, runs_on)
 

@@ -70,6 +70,8 @@ PR_GATE_JOBS = (
 )
 EXCEPTIONS = {
     **{job: PR_GATE for job in PR_GATE_JOBS},
+    ("ci-shed-superseded-runs.yml", "shed"): "runs only in manaflow-ai/cmux (its job `if`), so it has no fork branch; it "
+    "leads with the secret JIT switch, and tests/test_ci_shed_superseded_runs.py forbids a hosted label",
     ("ci-queue-janitor.yml", "sweep"): "queue janitor's own route, which must keep running while JIT capacity is short",
     ("pr-pipeline.yml", "ios-runner"): LEO_OVERFLOW,
 }
