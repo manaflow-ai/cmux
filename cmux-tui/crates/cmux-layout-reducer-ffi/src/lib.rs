@@ -101,6 +101,7 @@ mod tab_discard;
 pub mod tab_drag;
 pub mod typed;
 pub mod window_close_selection;
+mod window_registry;
 mod window_rules;
 use sidebar_mirror::Mirror;
 
@@ -619,6 +620,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
+            }
+            operation if window_registry::handles(operation) => {
+                window_registry::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
