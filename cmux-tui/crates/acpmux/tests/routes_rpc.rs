@@ -194,15 +194,15 @@ notes = "The work account"
         .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
         .await;
     let state = root.join("home");
-    let before = acpmux::routes::bindings(&state);
+    let bindings_before = acpmux::routes::bindings(&state);
     for (method, params) in [
         ("_acpmux/account/switch", json!({"account": "claude-token"})),
         ("_acpmux/route/default.set", json!({"scope": "family:claude", "routeId": "claude-token"})),
     ] {
         local.err(method, params).await;
         let after = acpmux::routes::bindings(&state);
-        assert_eq!(after.families, before.families);
-        assert_eq!(after.global, before.global);
+        assert_eq!(after.families, bindings_before.families);
+        assert_eq!(after.global, bindings_before.global);
     }
     // A default saved by an older build does not block local Claude starts.
     acpmux::routes::set_binding(&state, "family:claude", Some("claude-token")).unwrap();
