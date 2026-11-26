@@ -538,6 +538,10 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
+          # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
+          # Inter, as the browser tests draw it (B7 webviews-linux-parity, scripts/gallery-matrix/parity.py).
+          "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it

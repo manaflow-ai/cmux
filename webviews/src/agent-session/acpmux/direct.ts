@@ -4478,7 +4478,8 @@ export class AcpmuxDirectClient {
     const asked = Date.now();
     void this.typed(
       "_acpmux/events",
-      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"] },
+      // In order: answered after the records acpmux queued before it, so one still on its way is not read as missed.
+      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"], inOrder: true },
       STALL_CHECK_MS,
     ).then(
       (result) => {
@@ -13835,6 +13836,31 @@ export class AcpmuxDirectClient {
     }
     return toolApplied(result?.applied);
   }
+  /// Replaces the shown chat's Sources folders (`_acpmux/set_directories`): the daemon persists the
+  /// list and restarts the harness on the same conversation with the remaining folders.
+  async setDirectories(
+    additionalDirectories: readonly string[],
+    renderedSessionId = this.actingSessionId,
+    expectedAdditionalDirectories?: readonly string[],
+  ): Promise<void> {
+    const sessionId = renderedSessionId;
+    if (!sessionId || sessionId !== this.actingSessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
+    const result = await this.request("_acpmux/set_directories", {
+      sessionId,
+      additionalDirectories: [...additionalDirectories],
+      ...(expectedAdditionalDirectories ? { expectedAdditionalDirectories: [...expectedAdditionalDirectories] } : {}),
+    });
+    if (
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      this.summary &&
+      Array.isArray(result?.additionalDirectories)
+    ) {
+      this.summary = { ...this.summary, additionalDirectories: result.additionalDirectories };
+      this.emit("session changed");
+    }
+  }
   /// Auto for the shown chat `sessionId` (autoSession/autoSession.ts; acpmux
   /// `_acpmux/auto_session/set`): on or off, and with `keepInCloud` whether a chat the Cloud runs
   /// stays there when this Mac is back. acpmux answers the chat's `autoSession`, which the pane
@@ -14315,6 +14341,12 @@ export class AcpmuxDirectClient {
   /// Account menu. Each route says whether it `serves` the session's harness family.
   async routes(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/route/list", { sessionId });
+  }
+  /// Each chat's dot signature (`session/signature`, cmux-wallpaper signature.rs):
+  /// `{signatures: {<id>: Glyph}}`. Asked only while appearance.agentSignature is on
+  /// (conversation/agentSignatureModel.ts), at most 512 ids at once.
+  async signatures(sessionIds: string[]): Promise<unknown> {
+    return this.request("session/signature", { sessionIds: sessionIds.slice(0, 512) });
   }
   /// Binds chat `sessionId` to route `routeId` (null: back to its default) through
   /// `_acpmux/chat/route.set`. acpmux restarts the harness on it and resumes the same agent
