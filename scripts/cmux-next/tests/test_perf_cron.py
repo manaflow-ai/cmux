@@ -1272,9 +1272,31 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
-        # web-ui-god's paired rounds stop starting at GOD_PAIRED_DEADLINE_S, and the last may run one round more.
+        # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
+        # round more, and the suite runs after them under its own cap.
         self.assertGreaterEqual(cron.linux_job_minutes("web-ui-god") * 60,
-                                cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S)
+                                cron.GOD_PAIRED_PANE_BUILD_S + cron.GOD_PAIRED_DEADLINE_S
+                                + cron.GOD_PAIRED_ROUND_TIMEOUT_S + cron.linux_run_seconds("web-ui-god"))
+
+    def test_the_paired_god_rounds_run_first_and_fit_their_minimum(self):
+        # 2026-11-21..25: the suite ran first and the paired rounds' deadline left room for one 600 s round, cut at
+        # 600 s, so no run reached GOD_PAIRED_MIN_ROUNDS and god_chat_replay_ratio_max read nothing.
+        self.assertEqual(list(cron.linux_bench_runs("/r", "web-ui-god")), ["paired", "suite"])
+        self.assertGreaterEqual(cron.GOD_PAIRED_DEADLINE_S,
+                                (cron.GOD_PAIRED_MIN_ROUNDS - 1) * cron.GOD_PAIRED_ROUND_TIMEOUT_S * 3 // 4,
+                                "MIN rounds of three quarters of the cut each start before the deadline")
+
+    def test_the_paired_rounds_share_one_pane_build(self):
+        with tempfile.TemporaryDirectory() as out:
+            def built(argv, **kw):
+                open(os.path.join(argv[-1], ".shared-build-done"), "w").close()
+                return mock.Mock(returncode=0)
+            env, line = cron.paired_pane_build("/r", {}, out, run=built)
+            self.assertEqual(env, {"CMUX_BENCH_PANE_DIR": out})
+            self.assertIn("paired pane build", line)
+        env, line = cron.paired_pane_build("/r", {}, "/nonexistent", run=lambda argv, **kw: mock.Mock(returncode=1))
+        self.assertEqual(env, {}, "a failed build leaves each round to build its own")
+        self.assertIn("each round builds its own", line)
 
     def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
         # chat-100k-flat's suite timeout (1200 s) killed it in long_x20, and the grown run timed out at 1770 s against a
