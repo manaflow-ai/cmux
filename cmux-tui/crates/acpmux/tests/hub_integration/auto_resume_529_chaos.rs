@@ -281,7 +281,12 @@ async fn a_529_storm_leaves_no_session_dead_or_silent_and_bounds_the_time_lost()
         ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
     ]);
     let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    {
+        let mut cfg = hub.config.write().await;
+        cfg.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+        // The storm measures the opt-in failover (off by default since cmux#57784).
+        cfg.capacity_fallback_after = Some(1);
+    }
 
     // The chats, each on Opus.
     // The interactive chats are the person's; the lanes are the coordinator's, made from inside
@@ -417,7 +422,12 @@ async fn a_dead_pool_gets_one_probe_at_a_time_and_every_lane_comes_back_after_it
         ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
     ]);
     let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    {
+        let mut cfg = hub.config.write().await;
+        cfg.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+        // The storm measures the opt-in failover (off by default since cmux#57784).
+        cfg.capacity_fallback_after = Some(1);
+    }
 
     // A coordinator (no prompt of its own) starts the lanes, so they are background.
     let coord = new_session(&mut c, INTERACTIVE[0]).await;
