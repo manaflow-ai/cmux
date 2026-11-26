@@ -46,6 +46,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_PEER_REPLACE_SECS",
     // The peer link's send window (off by default), so a row can measure it.
     "ACPMUX_PEER_SEND_WINDOW_KB",
+    // The peer link's chunk merge (off by default), so a row can measure it.
+    "ACPMUX_PEER_MERGE_CHUNKS",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};

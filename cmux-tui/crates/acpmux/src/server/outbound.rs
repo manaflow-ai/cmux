@@ -228,6 +228,9 @@ pub(crate) static OVERRUNS: AtomicU64 = AtomicU64::new(0);
 /// detector reads the split (cmuxterm-hq `docs/handbook/gui-chat-loses-its-agent-session.md`).
 pub(crate) static TOTAL_OVERRUNS: AtomicU64 = AtomicU64::new(0);
 
+/// Text chunks merged into a queued one (`chunk_merge.rs`), daemon-wide.
+pub(crate) static MERGED_CHUNKS: AtomicU64 = AtomicU64::new(0);
+
 /// Why a connection's queue ended it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Overrun {
@@ -302,6 +305,9 @@ struct State {
     /// The bulk lane's bytes the transport's channel may hold: [`BULK_WINDOW`], or a peer
     /// link's own ([`Outbound::set_window`]).
     window: usize,
+    /// A queued text chunk takes the next one of the same record into it (`chunk_merge.rs`,
+    /// [`Outbound::set_merge_chunks`]).
+    merge_chunks: bool,
 }
 
 impl Drop for State {
@@ -451,6 +457,10 @@ impl Shared {
             durable: self.raised.durable.load(Ordering::SeqCst),
             written: self.raised.written.load(Ordering::SeqCst),
         };
+        if state.merge_chunks && self.merged_into_back(state, &mut line, lane) {
+            self.wake.notify_one();
+            return true;
+        }
         let size = line.text.len();
         // A newer row says all the queued one did ([`Row`]); a line that must follow that one keeps it.
         let row = if lane == Lane::Bulk { line.row.clone() } else { Row::None };
@@ -511,6 +521,34 @@ impl Shared {
         state.set_held(held);
         Self::queue_line(state, line, lane);
         self.wake.notify_one();
+        true
+    }
+
+    /// Appends a text chunk to the still-queued chunk at the bulk lane's back when it is the same
+    /// record but for its `seq`, `at` and text (`chunk_merge.rs`): true when it did. Else `line`
+    /// keeps its chunk, to take the next one into it once queued.
+    fn merged_into_back(&self, state: &mut State, line: &mut Line, lane: Lane) -> bool {
+        if lane != Lane::Bulk
+            || !matches!(line.row, Row::None)
+            || line.ticket.is_some()
+            || line.lag_marker != 0
+        {
+            return false;
+        }
+        line.chunk = super::chunk_merge::Chunk::of(&line.text);
+        let Some(newer) = &line.chunk else { return false };
+        let Some(back) = state.queue.back_mut() else { return false };
+        let Some(chunk) = back.chunk.as_mut() else { return false };
+        // The merged line must fit as the two lines would have.
+        if state.held + line.text.len() > self.bound {
+            return false;
+        }
+        let Some(text) = chunk.merged(newer) else { return false };
+        let old = std::mem::replace(&mut back.text, text);
+        back.needs = line.needs;
+        let held = state.held - old.len() + back.text.len();
+        state.set_held(held);
+        MERGED_CHUNKS.fetch_add(1, Ordering::Relaxed);
         true
     }
 
@@ -623,6 +661,8 @@ pub(super) struct Line {
     pub(super) row: Row,
     /// Its place in the bulk lane: set when it is queued there.
     pub(super) serial: u64,
+    /// A text chunk a later one may be merged into while it is queued (`chunk_merge.rs`).
+    pub(super) chunk: Option<Box<super::chunk_merge::Chunk>>,
 }
 
 /// The journal's LSNs a line may show (`durable_gate.rs`): the connection's [`Raised`] when it
@@ -669,6 +709,13 @@ impl Outbound {
     pub(super) fn set_window(&self, bytes: usize) {
         self.shared.lock().window = bytes.max(1);
         self.shared.wake.notify_one();
+    }
+
+    /// Merges a text chunk queued behind a still-queued one of the same record into it
+    /// (`chunk_merge.rs`): a peer link's, with `ACPMUX_PEER_MERGE_CHUNKS=1` (off by default,
+    /// `requests/initialize.rs`).
+    pub(super) fn set_merge_chunks(&self, on: bool) {
+        self.shared.lock().merge_chunks = on;
     }
 
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
@@ -951,6 +998,7 @@ fn start_with(
             sheds: false,
             who: String::new(),
             window: BULK_WINDOW,
+            merge_chunks: false,
         }),
         wake: Notify::new(),
         closed,

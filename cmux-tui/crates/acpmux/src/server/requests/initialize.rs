@@ -387,6 +387,9 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
         if link && let Some(bytes) = peer_send_window() {
             conn.out.set_window(bytes);
         }
+        if link && super::super::chunk_merge::enabled_from(&|k| std::env::var(k).ok()) {
+            conn.out.set_merge_chunks(true);
+        }
     }
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the

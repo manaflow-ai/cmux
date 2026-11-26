@@ -69,6 +69,7 @@ mod chat_windows;
 mod chatgpt_import_tests;
 mod chats;
 mod chunk_deltas;
+mod chunk_merge;
 pub(crate) mod client_features;
 mod client_request;
 #[cfg(test)]
