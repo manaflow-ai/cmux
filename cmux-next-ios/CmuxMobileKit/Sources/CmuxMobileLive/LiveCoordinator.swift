@@ -431,8 +431,8 @@ public final class LiveCoordinator {
     /// it loaded gets that store now, not when it is next opened: the prompts go to its new
     /// source (sent, or back in its composer with why) instead of expiring into a store that
     /// is gone, which would lose them.
-    func chatSessionChanged(id: String, macID: String) {
-        AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
+    func chatSessionChanged(id: String, macID: String, carryWaiting: Bool = true) {
+        AgentSessionDirectory.shared.invalidate(id: id, macID: macID, carryWaiting: carryWaiting)
         let key = AgentSessionDirectory.key(id: id, macID: macID)
         guard let pending = pendingSources[key], !pending.held.isEmpty else { return }
         _ = AgentSessionDirectory.shared.store(for: pending.summary)

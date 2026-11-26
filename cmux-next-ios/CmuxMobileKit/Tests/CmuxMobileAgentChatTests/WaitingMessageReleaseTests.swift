@@ -55,4 +55,30 @@ import Testing
         #expect(store.turns.last?.id == "t1")
         #expect(store.turns.last?.localSend == nil)
     }
+
+    @Test func aPendingSteerIsCarriedAndResentAsASteer() throws {
+        let old = Recorder()
+        let store = AgentChatStore(source: old)
+        store.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
+        store.apply(.turnStarted(turnId: "t1", at: Date()))
+        store.send(prompt: "follow up", steer: true)
+        let carried = store.waitingMessages
+        #expect(carried.count == 1)
+        #expect(carried.first?.steer == true)
+
+        let next = Recorder()
+        let replacement = AgentChatStore(source: next)
+        replacement.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
+        replacement.apply(.turnStarted(turnId: "t1", at: Date()))
+        replacement.adoptWaiting(carried)
+
+        guard case .prompt(let text, _, let steer, let id, let resend) = next.sent.last else {
+            Issue.record("the carried steer was not resent")
+            return
+        }
+        #expect(text == "follow up")
+        #expect(steer)
+        #expect(id == carried.first?.promptID)
+        #expect(resend)
+    }
 }
