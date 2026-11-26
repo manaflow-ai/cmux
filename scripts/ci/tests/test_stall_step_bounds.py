@@ -18,6 +18,9 @@ WORKFLOWS = ROOT / ".github/workflows"
 
 # Healthy durations measured on 2026-11-23 (note-stall-step-bounds), in seconds: the bound must stay well above them.
 HEALTHY_MAX_SECONDS = {"checkout": 193, "rust": 120, "setup": 60, "cache": 46}
+# Longest passing checkout per job, 2026-11-25/26 step samples (note-stall-step-bounds): these jobs fetch on Macs or full trees.
+HEALTHY_MAX_SECONDS.update({"checkout-mac": 693, "checkout-swift-test": 485, "checkout-daemon": 395, "checkout-clippy": 246})
+RETRY = "Retry checkout after transient network failure"
 # (workflow, job, how the step is found: its name or its `uses` prefix, kind, bound in minutes)
 BOUNDS = (
     ("cmux-next.yml", "web-bundles", "actions/checkout@", "checkout", 6),
@@ -33,6 +36,16 @@ BOUNDS = (
     ("ci-guards.yml", "workflow-guard-history", "Checkout", "checkout", 6),
     ("ci-guards.yml", "workflow-guard-history", "Set up Python 3.9", "setup", 5),
     ("backend.yml", "test", "actions/setup-node@", "setup", 5),
+    ("cmux-next.yml", "checks", "Checkout", "checkout", 6),
+    ("cmux-next.yml", "checks", RETRY, "checkout", 6),
+    ("cmux-next.yml", "swift-test", "Checkout", "checkout-swift-test", 15),
+    ("cmux-next.yml", "swift-test", RETRY, "checkout-swift-test", 15),
+    ("cmux-next.yml", "daemon-test", "Checkout", "checkout-daemon", 12),
+    ("cmux-next.yml", "daemon-test", RETRY, "checkout-daemon", 12),
+    ("pr-pipeline.yml", "mac", "Checkout the merge commit and the base tip", "checkout-mac", 21),
+    ("pr-pipeline.yml", "mac", RETRY, "checkout-mac", 21),
+    ("cmux-tui-spec.yml", "clippy", "Checkout", "checkout-clippy", 8),
+    ("cmux-tui-spec.yml", "clippy", RETRY, "checkout-clippy", 8),
 )
 
 
@@ -77,6 +90,17 @@ class StallStepBoundsTests(unittest.TestCase):
         for name, job, needle, kind, minutes in BOUNDS:
             with self.subTest(workflow=name, job=job, step=needle):
                 self.assertGreaterEqual(minutes * 60, 1.8 * HEALTHY_MAX_SECONDS[kind])
+
+    def test_a_bounded_first_checkout_has_its_retry(self):
+        for name, job, needle, kind, _ in BOUNDS:
+            if not kind.startswith("checkout") or needle == RETRY or (name, job, RETRY, kind) not in {b[:4] for b in BOUNDS}:
+                continue
+            with self.subTest(workflow=name, job=job):
+                first = find_steps(load(name), job, needle)
+                self.assertTrue(all(s.get("continue-on-error") is True and s.get("id") == "checkout" for s in first),
+                                f"{name} {job}: the first checkout continues to its retry (id: checkout, continue-on-error)")
+                retry = find_steps(load(name), job, RETRY)
+                self.assertTrue(retry and all(s.get("if") == "steps.checkout.outcome == 'failure'" for s in retry))
 
     def test_no_job_limit_is_shortened_below_its_bound(self):
         for name, job, needle, kind, minutes in BOUNDS:
