@@ -9,6 +9,8 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
+#[path = "window_rules_desktop.rs"]
+mod desktop;
 #[path = "window_rules_misc.rs"]
 mod misc;
 #[path = "window_rules_workspaces.rs"]
@@ -63,6 +65,9 @@ struct KnownToAsk {
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
+    if desktop::handles(operation) {
+        return desktop::respond_desktop(operation, request);
+    }
     if operation.starts_with(b"window_tabs_") || operation.starts_with(b"window_panes_") {
         return respond_tabs(operation, request);
     }
