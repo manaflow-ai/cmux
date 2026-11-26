@@ -35,13 +35,13 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
-  formatDuration,
+  turnTimeKey,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
+  formatDuration,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
@@ -51,9 +51,17 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Close, Retry } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
 import { SteerChatContext } from "./pendingSteerModel";
@@ -70,6 +78,8 @@ import {
   isAccountLimit,
 } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentArm } from "../../../experiments/useExperimentArm";
+import { forumCallLook } from "./forumCall.experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { capacityWaitLook } from "./capacityWait.experiment";
 import { CapacityWaitContext, waitsFor } from "../capacityWait";
@@ -178,7 +188,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {label}
-      <span className="cv-worked__work">{` · ${work}`}</span>
+      {/* A line with no time or count of its own (a fold whose time is unknown) opens on its work: never
+          a bare "·" before the first word (Leo, 2026-11-25: "dot on left weird"). */}
+      <span className="cv-worked__work">{label ? ` · ${work}` : work}</span>
     </>
   );
 }
@@ -315,7 +327,7 @@ function groupNode(
         />
       );
     case "forum":
-      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} look={group.look} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -352,7 +364,10 @@ export function ToolRows({
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
   const items = useMemo(() => visibleToolItems(row.items, Boolean(revealing)), [row.items, revealing]);
-  const groups = useMemo(() => toolGroups(items ?? []), [items]);
+  // An `agent-forum` shell call draws as a forum card only in the `forum-call-card` experiment; a
+  // Settings switch regroups at once.
+  const forumLook = useExperimentArm(forumCallLook);
+  const groups = useMemo(() => toolGroups(items ?? [], forumLook), [items, forumLook]);
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
@@ -676,6 +691,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
+              with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
+              and you get the timing ... and we already have logic for the timing"). */}
+          {!messages && !failed && <ReplyTime at={row.at} />}
           {!messages && endMark}
         </MessageFooterRow>
       </div>
