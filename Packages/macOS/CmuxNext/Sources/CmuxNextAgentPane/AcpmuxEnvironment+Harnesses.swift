@@ -239,10 +239,12 @@ extension AcpmuxEnvironment {
 
     /// Calls `onChange` for each `_acpmux/connections.changed` (Settings > Models: an order, spread,
     /// sign-in or key change by any client), on the same kind of watch connection, with the
-    /// notification's line (its `params` are the whole `ConnectionsState`).
+    /// notification's line (its `params` are the whole `ConnectionsState`). `onReady` runs only
+    /// after the daemon acknowledges the watch, so a caller can safely take a fresh snapshot then.
     public nonisolated func watchConnections(onEnd: @escaping @Sendable () -> Void = {},
+                                              onReady: (@Sendable () -> Void)? = nil,
                                               _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
-        watchNotifications(Self.connectionsChanged, onEnd: onEnd, onChange)
+        watchNotifications(Self.connectionsChanged, onEnd: onEnd, onReady: onReady, onChange)
     }
 
     nonisolated static let harnessesChanged = "_acpmux/harnesses_changed"
@@ -250,6 +252,7 @@ extension AcpmuxEnvironment {
 
     /// One watch connection calling `onChange` with each notification line named `method`.
     private nonisolated func watchNotifications(_ method: String, onEnd: @escaping @Sendable () -> Void = {},
+                                                onReady: (@Sendable () -> Void)? = nil,
                                                 _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
@@ -258,7 +261,7 @@ extension AcpmuxEnvironment {
             let connection = CmuxEgress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
-                try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)
+                try? await Self.readHarnessChanges(on: connection, method: method, onReady: onReady, onChange: onChange)
             } onCancel: {
                 connection.cancel()
             }
@@ -266,6 +269,7 @@ extension AcpmuxEnvironment {
     }
 
     private nonisolated static func readHarnessChanges(on connection: NWConnection, method: String,
+                                                      onReady: (@Sendable () -> Void)?,
                                                       onChange: @escaping @Sendable (Data) -> Void) async throws {
         try await AcpmuxStatusClient.start(connection)
         let initialize: [String: Any] = [
@@ -284,6 +288,7 @@ extension AcpmuxEnvironment {
         }
         try await AcpmuxStatusClient.send(payload, on: connection)
         var buffer = Data()
+        var pendingReady = onReady
         // wakeup-allow: each pass awaits socket data; EOF, an error or cancellation ends it
         while !Task.isCancelled {
             guard let chunk = try await AcpmuxStatusClient.receive(on: connection) else { return }
@@ -291,7 +296,14 @@ extension AcpmuxEnvironment {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if Self.isNotification(line, method) { onChange(line) }
+                if let ready = pendingReady, let frame = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                   frame["id"] as? Int == 2 {
+                    guard frame["result"] != nil, frame["error"] == nil else { return }
+                    pendingReady = nil
+                    ready()
+                } else if Self.isNotification(line, method) {
+                    onChange(line)
+                }
             }
             // A session event larger than this is not one this reader needs whole.
             if buffer.count > 4 << 20 { buffer.removeAll(keepingCapacity: true) }

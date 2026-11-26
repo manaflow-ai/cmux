@@ -604,13 +604,15 @@ struct CloudAgentCredentialRefresherTests {
         defer { second.continuation.finish() }
         var subscriptions = 0
         var cloudOn = true
+        var canRead = true
         var withdrawn: [String] = []
         credentials.watchCredentialConnections = {
             subscriptions += 1
             return subscriptions == 1 ? first.stream : second.stream
         }
         credentials.readCredentialConnections = {
-            .init(connections: [.init(id: "key", families: ["claude"], servesCloud: cloudOn,
+            guard canRead else { return nil }
+            return .init(connections: [.init(id: "key", families: ["claude"], servesCloud: cloudOn,
                                       canServeCloud: true, credentialInstance: instance)])
         }
         credentials.withdrawGuestBindings = {
@@ -624,10 +626,18 @@ struct CloudAgentCredentialRefresherTests {
         try await clock.waitForSleeper()
         #expect(withdrawn.isEmpty)
         cloudOn = false
-        let retry = try #require(clock.sleeperDeadlines.first)
-        clock.advance(by: clock.now.duration(to: retry))
+        canRead = false
+        let reconnect = try #require(clock.sleeperDeadlines.first)
+        clock.advance(by: clock.now.duration(to: reconnect))
+        second.continuation.yield(()) // The daemon acknowledged the new watch.
         try await clock.waitForSleeper()
         #expect(subscriptions == 2)
+        #expect(withdrawn.isEmpty)
+
+        canRead = true
+        let reconcile = try #require(clock.sleeperDeadlines.first)
+        clock.advance(by: clock.now.duration(to: reconcile))
+        try await clock.waitForSleeper()
         #expect(withdrawn == [expected])
     }
 

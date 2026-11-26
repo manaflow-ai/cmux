@@ -145,6 +145,7 @@ public final class CloudAgentCredentials {
     private var guestWithdrawalPending = false
 
     /// Subscribes to local connection changes while guest reconciliation is active.
+    /// Yields when the daemon acknowledges the watch and after subsequent changes.
     public var watchCredentialConnections: (@MainActor () async -> AsyncStream<Void>?)?
     private var keyWatch: Task<Void, Never>?
     private let keyWatchRetry: DemandTimer
@@ -152,11 +153,12 @@ public final class CloudAgentCredentials {
     private var keyDeliveries: [ChatKey: KeyDelivery] = [:]
     private(set) var keySync: Task<Void, Never>?
     private var keyChangesPending = false
+    private var keyReadPending = false
     private let withdrawalRetry: DemandTimer
 
     /// Reconcile an owner's bound launches after a connection change or a guest reconnect.
     public func credentialConnectionsChanged() {
-        guard withdrawGuestBindings != nil || !keyDeliveries.isEmpty else { return }
+        guard needsKeyWatch else { return }
         startKeyWatch()
         queueKeySync()
     }
@@ -169,8 +171,6 @@ public final class CloudAgentCredentials {
         // task-owner: keyWatch, until acpmux closes its watch or reconciliation is no longer needed.
         keyWatch = Task { [weak self] in
             if let changes = await watchCredentialConnections(), !Task.isCancelled {
-                // Subscribe before reading so a change during the outage or this read is covered.
-                self?.queueKeySync()
                 for await _ in changes {
                     guard let self, !Task.isCancelled else { break }
                     self.keyWatchRetryDelay = .seconds(2)
@@ -196,6 +196,8 @@ public final class CloudAgentCredentials {
         keyWatch?.cancel()
         keyWatchRetry.cancel()
         keyWatchRetryDelay = .seconds(2)
+        keyReadPending = false
+        withdrawalRetry.cancel()
     }
 
     private func queueKeySync() {
@@ -209,7 +211,7 @@ public final class CloudAgentCredentials {
         defer {
             keySync = nil
             stopKeyWatchIfIdle()
-            if guestWithdrawalPending || keyDeliveries.values.contains(where: \.withdrawalPending) {
+            if needsKeyWatch && (keyReadPending || guestWithdrawalPending || keyDeliveries.values.contains(where: \.withdrawalPending)) {
                 withdrawalRetry.scheduleIfIdle(after: CloudAgentCredentialRefresher.retry) { @MainActor [weak self] in
                     self?.queueKeySync()
                 }
@@ -219,7 +221,12 @@ public final class CloudAgentCredentials {
         }
         while keyChangesPending {
             keyChangesPending = false
-            guard let state = await readCredentialConnections?() else { continue }
+            guard let readCredentialConnections else { continue }
+            guard let state = await readCredentialConnections() else {
+                keyReadPending = true
+                continue
+            }
+            keyReadPending = false
             for (chat, delivery) in keyDeliveries {
                 await reconcile(chat, delivery: delivery, state: state)
             }
@@ -398,6 +405,7 @@ public final class CloudAgentCredentials {
         chosen[key] = Selection(connection: nil, harness: harness, claudeAuth: nil)
         keyDeliveries[key] = nil
         stopRefresh(key)
+        stopKeyWatchIfIdle()
     }
 
     /// The chat's tab got the key `key` on `machine` (not the one its start planned): its choice follows.

@@ -372,7 +372,8 @@ extension CloudStartChat {
             guard let host = services?.agentTabs.host as? AcpmuxHost,
                   let environment = try? await host.readyEnvironment() else { return nil }
             let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-            let socket = environment.watchConnections(onEnd: { continuation.finish() }) { _ in continuation.yield(()) }
+            let socket = environment.watchConnections(onEnd: { continuation.finish() },
+                                                      onReady: { continuation.yield(()) }) { _ in continuation.yield(()) }
             continuation.onTermination = { _ in socket.cancel() }
             return changes
         }
