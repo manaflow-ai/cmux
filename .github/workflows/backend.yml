@@ -158,16 +158,61 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A shard already green on these inputs is not run again (goal ci-min-per-pr-30; Leo, 2026-11-21: "de facto,
+      # im asking for 99% fewer minutes of ci time, period."). The key is the git object id of every path the shard's
+      # tests read (scripts/ci/receipt-inputs/api-workerd.txt, this workflow among them, so its Bun and Node pins too)
+      # on the tree this job checked out; a green shard saves an empty marker under it, and a later run of the same
+      # shard whose key finds the marker skips setup and tests and records `success` for the `test` gate. A pull
+      # request reads its own markers and feat-cmux-next's (GitHub scopes a pull request's cache saves to it), so a
+      # new head or base merge that leaves the backend inputs alone, or a label retrigger, keeps the shards that
+      # passed. It fails closed: no key, a failed lookup or a miss runs the tests; a fork's pull request never keys;
+      # 1 run in 10 (run id) runs the tests on a hit, and a red there is the reuse getting it wrong. Off:
+      # vars.CI_GREEN_SKIP=0.
+      - name: Input key of this shard's tests
+        id: green-key
+        if: ${{ (vars.CI_GREEN_SKIP || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: .
+        run: python3 scripts/ci/receipt_input_key.py key api-workerd --units all --output "$GITHUB_OUTPUT"
+      - name: Look up a green run of this shard on the same inputs
+        id: green-lookup
+        if: ${{ steps.green-key.outcome == 'success' && steps.green-key.outputs.input_key != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green
+          key: green-api-workerd-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.green-key.outputs.input_key }}
+          lookup-only: true
+      - name: Reuse the green shard
+        id: green
+        if: ${{ steps.green-lookup.outcome == 'success' && steps.green-lookup.outputs.cache-hit == 'true' }}
+        working-directory: .
+        env:
+          INPUT_KEY: ${{ steps.green-key.outputs.input_key }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if (( GITHUB_RUN_ID % 10 == 0 )); then
+            echo "::notice title=api-workerd green reuse (audit)::shard ${SHARD}/12 passed before on input key ${INPUT_KEY}; this run (1 in 10) runs it anyway, and a red here is the reuse getting it wrong"
+            echo "audit=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice title=api-workerd green reuse::shard ${SHARD}/12 passed before on input key ${INPUT_KEY} (scripts/ci/receipt-inputs/api-workerd.txt); its tests are not run again"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.green.outputs.skip != 'true' }}
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ steps.green.outputs.skip != 'true' }}
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
+        if: ${{ steps.green.outputs.skip != 'true' }}
         timeout-minutes: 5
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -181,6 +226,7 @@ jobs:
       # version manifest (refused when the installation's hour runs dry) nor copies a fresh download into the tool
       # cache, which on a packed cmux-linux host ran past this step's 5 min (5 shards of run 45606215566, cmux#56511).
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.green.outputs.skip != 'true' }}
         shell: bash
         timeout-minutes: 3
         continue-on-error: true
@@ -188,15 +234,18 @@ jobs:
           TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: ${{ steps.green.outputs.skip != 'true' }}
         timeout-minutes: 5
         with:
           node-version: "24.22.1"
-      - run: bun install --frozen-lockfile
+      - if: ${{ steps.green.outputs.skip != 'true' }}
+        run: bun install --frozen-lockfile
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
         working-directory: backend/apps/api
         # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
         # runs the same script for a shard whose job died before this step answered (cmux#56511).
         id: shard
+        if: ${{ steps.green.outputs.skip != 'true' }}
         env:
           API_WORKERD_NO_VERDICT_FILE: ${{ runner.temp }}/api-workerd-no-verdict
         run: bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" ${{ matrix.shard }} 12
@@ -204,7 +253,7 @@ jobs:
       # and the gate reruns it (scripts/ci/api_workerd_infra_shards.py). An artifact, not a REST read of the run's
       # jobs, which the repository's GITHUB_TOKEN hour refuses when CI is busiest.
       - name: Record the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure' || steps.green.outputs.skip == 'true') }}
         working-directory: backend
         # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
         # attempt's answer from an older one's.
@@ -213,9 +262,12 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/api-workerd-verdict"
           if [ -e "$RUNNER_TEMP/api-workerd-no-verdict" ]; then echo "no test verdict (see the test step); the gate reruns this shard"; exit 0; fi
-          echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+          outcome="${{ steps.shard.outcome }}"
+          # A reused green shard records `success`: its tests passed on these same inputs.
+          if [ "${{ steps.green.outputs.skip }}" = true ]; then outcome=success; fi
+          echo "$outcome ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
       - name: Upload the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure' || steps.green.outputs.skip == 'true') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -225,6 +277,25 @@ jobs:
           retention-days: 30
           overwrite: true
           if-no-files-found: ignore
+      # Saved only when this run's tests passed on a key that had no marker: an audit run on a hit leaves it be.
+      - name: Mark this shard green on its input key
+        id: green-mark
+        if: ${{ success() && steps.shard.outcome == 'success' && steps.green-key.outputs.input_key != '' && steps.green-lookup.outcome == 'success' && steps.green-lookup.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        working-directory: .
+        env:
+          INPUT_KEY: ${{ steps.green-key.outputs.input_key }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/api-workerd-green"
+          echo "${GITHUB_RUN_ID} ${GITHUB_RUN_ATTEMPT} ${INPUT_KEY}" > "$RUNNER_TEMP/api-workerd-green/marker"
+      - name: Save the green marker
+        if: ${{ steps.green-mark.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green
+          key: green-api-workerd-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.green-key.outputs.input_key }}
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the

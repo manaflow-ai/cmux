@@ -15,7 +15,7 @@ scripts/ci/cmux_tui_tree_key.py.
 The record is RFD 0019's ci-receipt/v1 (scripts/ci/ci_receipt.py is its producer for local receipts) with one
 added field, `input_key`; `tree` stays, so a whole-tree match still counts. No second format.
 
-Shadow only. Until the controller signs receipts and posts them as the check run from the manaflow-checks App
+Shadow only, but for api-workerd (below). Until the controller signs receipts and posts them as the check run from the manaflow-checks App
 (RFD 0019), nothing is skipped: the workflow looks the key up, reports `would_skip`, runs in full, and records its
 own green result. A record here is unsigned and is never skip evidence.
 
@@ -53,6 +53,14 @@ CHECKS = {
     "react-doctor": {
         "check": "React Doctor (changed React projects)",
         "command": "python3 scripts/ci/react_doctor_gate.py",
+    },
+    # The one key that skips (ci-min-per-pr-30): backend.yml saves an actions cache marker
+    # green-api-workerd-SHARD-OS-ARCH-KEY when a shard passes, and a later run of that shard whose key finds it skips
+    # its tests (1 in 10 still runs them). The marker is the run's own cache entry, not a receipt: nothing here is
+    # read as receipt evidence. The shard number is in the cache key, not in this key, so `--units all`.
+    "api-workerd": {
+        "check": "api-workerd: the API Worker suite on workerd, one shard",
+        "command": "bash scripts/ci/api-workerd-shard.sh SHARD 12",
     },
     # Its rows are traced, not written: scripts/ci/traced_inputs.py export (cmuxterm-hq RFD 0148 row 9). It has no
     # units (`*` rows only), so `--units all` keys the whole check.
