@@ -175,7 +175,7 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   const rest = () => {
     // The jobs that waited only for this quiet run with it rather than wake the resting page (slackTimers.ts).
     slackTimersFor(view).rest();
-    beat(true);
+    void beat(true);
     stop();
     resting = true;
     restedAt = view.performance.now();
@@ -233,7 +233,7 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   // After the input's render (its mark is set or cleared by then), not at the next beat.
   const editChanged = () => {
     active();
-    if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) beat();
+    if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) void beat();
   };
   view.addEventListener("input", () => view.setTimeout(editChanged, 0), { capture: true, passive: true });
   doc.addEventListener(UNSAVED_EDITS_EVENT, editChanged);
