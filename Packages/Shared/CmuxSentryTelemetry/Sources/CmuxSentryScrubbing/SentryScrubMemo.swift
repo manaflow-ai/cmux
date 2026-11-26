@@ -23,7 +23,10 @@ public final class SentryScrubMemo: Sendable {
     private let capacity: Int
     // `OSAllocatedUnfairLock` (macOS 13 / iOS 16) keeps the type checked
     // `Sendable`; `Synchronization.Mutex` needs macOS 15 / iOS 18.
-    private let entries = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
+    // Keyed by exact UTF-8 bytes, not `String` equality: Swift compares strings by
+    // canonical equivalence ("caf\u{E9}" == "cafe\u{301}"), but the scrub regexes
+    // match literal scalars, so two equal strings can scrub differently.
+    let entries = OSAllocatedUnfairLock<[SentryScrubMemoKey: String]>(initialState: [:])
 
     /// - Parameter capacity: The most entries kept; 0 or less keeps none.
     public init(capacity: Int) {
@@ -33,26 +36,40 @@ public final class SentryScrubMemo: Sendable {
     /// The remembered result for `text`, if any.
     func result(for text: String) -> String? {
         guard fits(text) else { return nil }
-        return entries.withLock { $0[text] }
+        let key = SentryScrubMemoKey(text)
+        return entries.withLock { $0[key] }
     }
 
     /// Remembers `result` as the scrub of `text`.
     func remember(_ result: String, for text: String) {
         guard fits(text) else { return }
         let capacity = capacity
+        let key = SentryScrubMemoKey(text)
         entries.withLock { entries in
             if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
-            entries[text] = result
+            entries[key] = result
         }
-    }
-
-    /// The number of remembered results (tests).
-    var count: Int {
-        entries.withLock { $0.count }
     }
 
     private func fits(_ text: String) -> Bool {
         capacity > 0 && text.utf8.count <= Self.maximumLength
+    }
+}
+
+/// A memo key equal only to the same UTF-8 bytes (see ``SentryScrubMemo``).
+struct SentryScrubMemoKey: Hashable, Sendable {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.text.utf8.elementsEqual(rhs.text.utf8)
+    }
+
+    func hash(into hasher: inout Hasher) {
+        for byte in text.utf8 { hasher.combine(byte) }
     }
 }
 

@@ -46,10 +46,26 @@ import Testing
         #expect(scrubbed.components(separatedBy: "é👍 at /Users/<redacted>/x token=<redacted-secret>").count == 501, "\(scrubbed.prefix(200))")
     }
 
+    /// Canonically equal strings with different scalars ("é" composed vs "e" plus a
+    /// combining accent) are separate memo entries: the home rule matches literal
+    /// scalars, so a remembered result for one must never stand in for the other.
+    @Test func canonicallyEqualStringsAreSeparateEntries() {
+        let composedHome = "/srv/caf\u{00E9}"
+        let plain = SentryScrubber(homeDirectory: composedHome, memoCapacity: 0)
+        let memoized = SentryScrubber(homeDirectory: composedHome)
+        let decomposed = "/srv/cafe\u{0301}/x"
+        let composed = "/srv/caf\u{00E9}/x"
+        #expect(decomposed == composed, "Swift treats them as equal strings")
+        #expect(memoized.scrub(decomposed) == plain.scrub(decomposed))
+        let scrubbed = memoized.scrub(composed)
+        #expect(scrubbed == plain.scrub(composed))
+        #expect(!scrubbed.unicodeScalars.elementsEqual(composed.unicodeScalars), "the home path is redacted: \(scrubbed)")
+    }
+
     @Test func copiesShareOneMemoAndItStaysBounded() {
         let memo = SentryScrubMemo(capacity: 4)
         for index in 0..<10 { memo.remember("out\(index)", for: "in\(index)") }
-        #expect(memo.count <= 4)
+        #expect(memo.entries.withLock { $0.count } <= 4)
         #expect(memo.result(for: "in9") == "out9")
         let long = String(repeating: "a", count: SentryScrubMemo.maximumLength + 1)
         memo.remember("x", for: long)
