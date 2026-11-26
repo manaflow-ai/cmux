@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextNotifications
 import CmuxNextSettings
 
 /// The native notification of a sandboxed Run handed off from a New Tab page (hq#3367): when the Run
@@ -93,39 +94,38 @@ final class SandboxRunNotices {
         arrival.appActive = services?.appActiveSource() ?? false
         // A tab whose page still shows the send's earlier answer doesn't show the end.
         arrival.paneIsViewed = !stale(end.record.key) && (tab(holding: end.record.key).map { center.isViewed($0) } ?? false)
-        arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .cancelled ? .message : .error
+        arrival.soundEvent = NotificationNotices.soundEvent(.sandboxRun, outcome: end.outcome.rawValue)
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
         center.note("sandbox run \(end.record.id) \(end.outcome.rawValue) \(decision)")
-        guard !decision.acknowledge, center.desktopPostingEnabled else { return }
+        guard NotificationNotices.goesOn(acknowledge: decision.acknowledge, postingEnabled: center.desktopPostingEnabled) else { return }
         center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
         let text = Self.text(end)
-        if decision.desktop {
+        let delivery = NotificationNotices.delivery(desktop: decision.desktop, sound: decision.sound)
+        if delivery.banner {
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
-                                workspace: nil, defaultSound: decision.sound == "default",
+                                workspace: nil, defaultSound: delivery.defaultSound,
                                 incognito: end.record.incognito == true || incognito(end.record.key))
-            if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
-        } else if let sound = decision.sound {
-            center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
+        }
+        if let sound = decision.sound, let banner = delivery.play {
+            center.soundGate.player.play(sound, volume: decision.soundVolume, banner: banner)
         }
         if let mode = decision.bounce { center.dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
-    /// The banner's words: the task's first line, then how the Run ended.
+    /// The banner's words: the task's first line, then how the Run ended. The rule is
+    /// cmux-window-rules' (`notification_notices_sandbox_run_text`); the app words the body.
     static func text(_ end: SandboxRunEnd) -> (title: String, body: String) {
-        let line = end.record.task.split(whereSeparator: \.isNewline).lazy
-            .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
-        let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
-        let body = switch end.outcome {
+        let text = NotificationNotices.sandboxRunText(task: end.record.task, outcome: end.outcome.rawValue)
+        let body = switch text.body {
         case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module.inAppLanguage)
         case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
         case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module.inAppLanguage)
         case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module.inAppLanguage)
-        // A Run never stops for the person (only a hand-off does, HandoffNotices).
-        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
+        case nil: ""
         }
-        return (title, body)
+        return (text.title, body)
     }
 
     /// A click on banner `banner`: the tab that sent the Run, else a new workspace whose chat shows
@@ -133,17 +133,23 @@ final class SandboxRunNotices {
     /// False when the banner is no Run's.
     @discardableResult
     func open(banner: String) -> Bool {
-        guard banner.hasPrefix(Self.bannerPrefix) else { return false }
+        guard let named = NotificationNotices.banner(banner), named.notice == .sandboxRun else { return false }
         // The follower keeps the ended Runs a week across a relaunch, so a banner left in Notification
         // Center still opens its card; an older one is withdrawn now, and opens nothing.
         follower.forgetOld()
-        guard let services, let run = follower.endedRun(String(banner.dropFirst(Self.bannerPrefix.count))) else { return true }
-        if !stale(run.record.key), let key = tab(holding: run.record.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
-            services.notifications.open(surface: tab.surface)
-            return true
-        }
+        guard let services else { return true }
+        let run = follower.endedRun(named.id)
+        let shown = run.flatMap { tab(holding: $0.record.key) }.flatMap { NotificationCenterService.tab(id: $0, in: services.daemon.store) }
         // An incognito chat's Run never shows outside its window: with the tab gone, the click opens nothing.
-        if run.record.incognito == true { return true }
+        switch NotificationNotices.sandboxRunOpen(found: run != nil, stale: run.map { stale($0.record.key) } ?? false, tab: shown != nil,
+                                                  incognito: run?.record.incognito == true) {
+        case .nothing: return true
+        case .showTab:
+            if let shown { services.notifications.open(surface: shown.surface) }
+            return true
+        case .newWorkspace: break
+        }
+        guard let run else { return true }
         var seed = AgentPaneSeed()
         seed.sandboxResult = .init(task: run.record.task, key: run.record.key, card: run.card)
         var spawn = WorkspaceSpawn(name: Self.text(SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: Data())).title)

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextNotifications
 import CmuxNextSettings
 
 /// The native notification of a chat handed off to a Cloud machine (cloud work mode; the hand-off
@@ -153,43 +154,41 @@ final class HandoffNotices {
         if let tab, center.isViewed(tab) { return center.note("handoff \(end.record.id) \(end.outcome.rawValue) viewed") }
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = services?.appActiveSource() ?? false
-        arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .needsYou ? .message : .error
+        arrival.soundEvent = NotificationNotices.soundEvent(.handoff, outcome: end.outcome.rawValue)
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
         center.note("handoff \(end.record.id) \(end.outcome.rawValue) \(decision)")
-        guard !decision.acknowledge, center.desktopPostingEnabled else { return }
+        guard NotificationNotices.goesOn(acknowledge: decision.acknowledge, postingEnabled: center.desktopPostingEnabled) else { return }
         center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
         let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.titleText }
         let text = Self.text(end, chat: chat)
-        if decision.desktop {
+        let delivery = NotificationNotices.delivery(desktop: decision.desktop, sound: decision.sound)
+        if delivery.banner {
             // One banner per hand-off: its end replaces the needs-you banner it posted before.
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
-                                workspace: nil, defaultSound: decision.sound == "default", incognito: end.record.incognito == true
+                                workspace: nil, defaultSound: delivery.defaultSound, incognito: end.record.incognito == true
                                     || tab.map { services?.cache.browserTabs.isIncognitoTab($0) == true } == true)
-            if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
-        } else if let sound = decision.sound {
-            center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
+        }
+        if let sound = decision.sound, let banner = delivery.play {
+            center.soundGate.player.play(sound, volume: decision.soundVolume, banner: banner)
         }
         if let mode = decision.bounce { center.dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
     /// The banner's words: the chat's title (else the summary's first line), then what happened and,
-    /// once it finished, the summary.
+    /// once it finished, the summary. The rule is cmux-window-rules' (`notification_notices_handoff_text`);
+    /// the app words the untitled title and the state.
     static func text(_ end: SandboxRunEnd, chat: String?) -> (title: String, body: String) {
-        let summary = summary(end.snapshot) ?? end.record.task
-        let firstLine = summary.split(whereSeparator: \.isNewline).lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
-        let named = chat.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? firstLine
-        let line = named ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module.inAppLanguage)
-        let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
-        let state = switch end.outcome {
+        let text = NotificationNotices.handoffText(outcome: end.outcome.rawValue, summary: summary(end.snapshot), task: end.record.task, chat: chat)
+        let title = text.title ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module.inAppLanguage)
+        let state = switch text.state {
         case .needsYou: String(localized: "handoffs.notification.needsYou", defaultValue: "Needs you", table: "Handoffs", bundle: .module.inAppLanguage)
-        case .succeeded: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module.inAppLanguage)
-        case .failed, .timedOut, .cancelled: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .done: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .failed: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module.inAppLanguage)
+        case nil: ""
         }
-        let detail = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = end.outcome == .needsYou || detail.isEmpty || named == firstLine ? state : state + "\n" + String(detail.prefix(240))
-        return (title, body)
+        return (title, text.detail.map { state + "\n" + $0 } ?? state)
     }
 
     /// The hand-off's summary in a wait's `{handoff}` (nil: none, or a replayed end, which keeps no body).
@@ -202,19 +201,23 @@ final class HandoffNotices {
     /// host when this app made the hand-off. False when the banner is no hand-off's.
     @discardableResult
     func open(banner: String) -> Bool {
-        guard banner.hasPrefix(Self.bannerPrefix), let services else { return false }
+        guard let named = NotificationNotices.banner(banner), named.notice == .handoff, let services else { return false }
         follower.forgetOld()
-        let id = String(banner.dropFirst(Self.bannerPrefix.count))
-        guard let record = follower.endedRun(id)?.record ?? follower.following.first(where: { $0.id == id }) else { return true }
-        if let tab = tab(showing: record.key), services.revealTab(tab) { return true }
-        // An incognito chat's hand-off never opens outside its window.
-        if record.incognito == true { return true }
-        // A hand-off found in the list names no host this app knows: the chat stays where it is, and
-        // the app comes forward. (The composer's hand-off passes its host to watch(handoff:session:host:).)
-        guard let host = record.host else {
+        let id = named.id
+        let record = follower.endedRun(id)?.record ?? follower.following.first(where: { $0.id == id })
+        let revealed = record.flatMap { tab(showing: $0.key) }.map { services.revealTab($0) } ?? false
+        // An incognito chat's hand-off never opens outside its window. A hand-off found in the list
+        // names no host this app knows: the chat stays where it is, and the app comes forward. (The
+        // composer's hand-off passes its host to watch(handoff:session:host:).)
+        switch NotificationNotices.handoffOpen(found: record != nil, revealed: revealed, incognito: record?.incognito == true,
+                                               hasHost: record?.host != nil) {
+        case .nothing: return true
+        case .activate:
             NSApp.activate()
             return true
+        case .openWorkspace: break
         }
+        guard let record, let host = record.host else { return true }
         do {
             services.registry.track(try AgentSessionWorkspace.open(session: record.key, name: nil, cwd: nil, host: host, services: services))
         } catch {

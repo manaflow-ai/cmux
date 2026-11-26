@@ -29,6 +29,11 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_notices`]: the notices beside a tab's notification: a
+//!   Cloud hand-off's and a sandboxed Run's banner (sound, delivery, words,
+//!   what a click opens), the Needs you banners, Mark Tab Unread's toggle,
+//!   the tab a pane shows, the entry blink, a finished `cmux status run` and
+//!   an OSC 7501 program alert.
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -46,6 +51,7 @@ pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_notices;
 pub mod notifications;
 pub mod remote;
 pub mod restore;

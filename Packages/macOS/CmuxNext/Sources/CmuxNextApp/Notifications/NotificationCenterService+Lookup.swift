@@ -248,7 +248,7 @@ extension NotificationCenterService {
     func shownTab(of pane: PaneModel) -> String? {
         if let selected = services?.paneController(for: pane)?.stripModel.selectedID { return selected.rawValue }
         guard !pane.tabs.isEmpty else { return nil }
-        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)].id
+        return pane.tabs[NotificationNotices.shownIndex(count: pane.tabs.count, defaultIndex: pane.defaultTabIndex) ?? 0].id
     }
 
     /// Whether `workspace` draws an attention ring now (the Dismiss Highlight item shows only then).

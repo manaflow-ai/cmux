@@ -1,4 +1,6 @@
 /// Identity and set reconciliation for needs-you requests, independent of the system notifier.
+/// The rules are cmux-window-rules' (`notification_notices_attention_*`, see
+/// `AttentionBannerLifecycle+Wire.swift`); the banner id stays here, as the notifier reads it.
 public struct AttentionBannerLifecycle {
     public init() {}
     /// What changed in the marked tabs since the last list: the banners to post (a new mark, or a
@@ -7,18 +9,14 @@ public struct AttentionBannerLifecycle {
     /// nothing, as notifications that arrived before launch do not.
     public nonisolated static func attentionChanges(previous: [AgentPaneAttentionTabs.Item]?, current: [AgentPaneAttentionTabs.Item])
         -> (post: [AgentPaneAttentionTabs.Item], withdraw: [String]) {
-        guard let previous else { return ([], []) }
-        let before = Set(previous.map(attentionBannerID))
-        let now = Set(current.map(attentionBannerID))
-        return (current.filter { !before.contains(attentionBannerID($0)) }, previous.map(attentionBannerID).filter { !now.contains($0) })
+        AttentionBannerRules.changes(previous: previous, current: current, eligible: nil)
     }
 
     /// The watch has already classified current-launch changes per machine. Its eligible set
     /// may include a request seen earlier while the tree was unready, so don't diff it away.
     public nonisolated static func posts(previous: [AgentPaneAttentionTabs.Item]?, current: [AgentPaneAttentionTabs.Item],
                                          eligibleRequests: Set<String>?) -> [AgentPaneAttentionTabs.Item] {
-        if let eligibleRequests { return current.filter { eligibleRequests.contains($0.tabId) } }
-        return attentionChanges(previous: previous, current: current).post
+        AttentionBannerRules.changes(previous: previous, current: current, eligible: eligibleRequests).post
     }
 
     /// One banner per request: a new request on the same tab is a new banner.
@@ -28,9 +26,7 @@ public struct AttentionBannerLifecycle {
 
     /// The tab a Needs you banner names, nil for any other banner.
     public nonisolated static func attentionTab(banner: String) -> String? {
-        guard banner.hasPrefix(attentionBannerPrefix) else { return nil }
-        let tab = banner.dropFirst(attentionBannerPrefix.count)
-        return tab.isEmpty || tab.utf8.count > 256 ? nil : String(tab)
+        AttentionBannerRules.tab(banner: banner)
     }
 
     public nonisolated static let attentionBannerPrefix = "cmux-attention."
@@ -38,6 +34,6 @@ public struct AttentionBannerLifecycle {
     /// Snapshot IDs from Notification Center minus requests this launch posted. Call this after
     /// the center answers, using the latest set, so a concurrent new banner is never withdrawn.
     public nonisolated static func staleBannerIDs(_ retained: [String], currentLaunch: Set<String>) -> [String] {
-        retained.filter { $0.hasPrefix(attentionBannerPrefix) && !currentLaunch.contains($0) }
+        AttentionBannerRules.stale(retained, currentLaunch: currentLaunch)
     }
 }

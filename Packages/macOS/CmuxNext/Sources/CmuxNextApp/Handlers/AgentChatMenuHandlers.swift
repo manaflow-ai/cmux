@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextNotifications
 import CmuxNextWindowRules
 
 /// Native bindings for rows in an agent chat's header and "..." menu.
