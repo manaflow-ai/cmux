@@ -121,9 +121,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTailCache+Bridge.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift": {
   "JSON / property-list encode": 1,
   "JSON encode with sorted keys": 1
