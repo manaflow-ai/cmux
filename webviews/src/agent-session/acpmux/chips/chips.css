@@ -123,7 +123,7 @@
   color: var(--cv-link);
 }
 .cv-image-placeholder__load {
-  padding: 2px var(--ds-space-fixed-2);
+  padding: 2px 8px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
   border-radius: 6px;
   background: none;
@@ -175,7 +175,7 @@
 }
 .cv-image-file__open {
   flex: none;
-  padding: 2px var(--ds-space-fixed-2);
+  padding: 2px 8px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
   border-radius: 6px;
   background: none;

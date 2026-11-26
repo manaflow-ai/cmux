@@ -7,19 +7,30 @@ literal geometry when page-density overrides the scalable --ds-space-* family.
 from __future__ import annotations
 
 import argparse
+import json
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "webviews/src"
 SKIP = {"pages/shared/desktop.css", "pages/shared/pageDensity.css"}
 PROPERTIES = re.compile(
-    r"^(?:padding(?:-(?:block|inline|block-start|block-end|inline-start|inline-end|top|right|bottom|left))?|"
-    r"margin(?:-(?:block|inline|top|right|bottom|left)(?:-(?:start|end))?)?|"
+    r"^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?|"
     r"gap|row-gap|column-gap)$"
 )
-NUMBERS = re.compile(r"(?<![\w.#-])(-?)(4|8|12|16|24|32|40|48|56)px\b")
-TOKENS = {"4": "1", "8": "2", "12": "3", "16": "4", "24": "5", "32": "6", "40": "40", "48": "48", "56": "56"}
+NUMBER = re.compile(r"(?<![\w.#-])(?P<sign>-?)(?P<number>(?:\d+(?:\.\d+)?|\.\d+))px\b")
+
+
+def spacing_tokens() -> dict[Decimal, str]:
+    scale = json.loads((ROOT / "schemas/design-scale/design-scale.json").read_text())
+    spacing = scale["spacing"]
+    tokens = {Decimal(str(step["px"])): str(step["name"]) for step in spacing["steps"]}
+    tokens.update({Decimal(str(px)): str(px) for px in spacing["layout"]})
+    return tokens
+
+
+TOKENS = spacing_tokens()
 
 
 def mask(text: str) -> str:
@@ -77,12 +88,22 @@ def var_depths(value: str) -> list[int]:
 def rewrite_value(value: str, masked: str) -> tuple[str, int]:
     depths = var_depths(masked)
     edits = []
-    for match in NUMBERS.finditer(masked):
+    matches = []
+    for match in NUMBER.finditer(masked):
         if any(depths[match.start() : match.end()]):
             continue
-        sign, number = match.groups()
+        try:
+            number = Decimal(match.group("number"))
+        except InvalidOperation:
+            return value, 0
+        matches.append((match, number))
+        if number != 0 and number not in TOKENS:
+            return value, 0
+    for match, number in matches:
+        if number == 0:
+            continue
         token = f"var(--ds-space-fixed-{TOKENS[number]})"
-        edits.append((match.start(), match.end(), f"calc(-1 * {token})" if sign else token))
+        edits.append((match.start(), match.end(), f"calc(-1 * {token})" if match.group("sign") else token))
     for start, end, replacement in reversed(edits):
         value = value[:start] + replacement + value[end:]
     return value, len(edits)

@@ -357,7 +357,7 @@ function rolesBlock(roles) {
 
 function cssBlock(data, roles) {
   const out = [BEGIN, ":root {"];
-  // Fixed nominal spacing remains stable when page density scales --ds-space-* for settings and diff pages.
+  // Scalable nominal spacing follows the density-aware --ds-space-* family.
   for (const step of data.spacing.steps) {
     out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
   }
@@ -650,7 +650,9 @@ export function writeDesignScale({ check = false, log = console.log } = {}) {
   if (fixedWanted !== fixedCurrent) {
     if (check) {
       drifted = true;
-      log(`fixed spacing drifted from ${SOURCE} in ${FIXED_CSS_FILE}: run node webviews/scripts/pages/gen-design-scale.mjs`);
+      log(
+        `fixed spacing drifted from ${SOURCE} in ${FIXED_CSS_FILE}: run node webviews/scripts/pages/gen-design-scale.mjs`,
+      );
     } else {
       fs.writeFileSync(fixedPath, fixedWanted);
       log(`wrote ${FIXED_CSS_FILE}`);

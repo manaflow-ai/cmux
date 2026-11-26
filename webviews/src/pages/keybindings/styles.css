@@ -158,7 +158,7 @@
 .keys-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: var(--ds-space-fixed-1) 10px 18px;
+  padding: 4px 10px 18px;
 }
 
 .keys-table {
@@ -301,7 +301,7 @@
   background: transparent;
   color: var(--page-text-2);
   font-size: 11px;
-  padding: 1px var(--ds-space-fixed-1);
+  padding: 1px 4px;
   border-radius: 4px;
   cursor: default;
 }
@@ -327,7 +327,7 @@
   text-align: left;
   border: 0;
   background: transparent;
-  padding: 2px var(--ds-space-fixed-1);
+  padding: 2px 4px;
   border-radius: 4px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
@@ -350,7 +350,7 @@
   width: 100%;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
-  padding: 2px var(--ds-space-fixed-1);
+  padding: 2px 4px;
   border-radius: 4px;
   border: 1px solid var(--page-text-3);
   background: transparent;
@@ -473,7 +473,7 @@
   .keys-row td:last-child {
     width: auto;
     border-radius: 0;
-    padding: 2px var(--ds-space-fixed-2);
+    padding: 2px 8px;
     background: transparent;
   }
 

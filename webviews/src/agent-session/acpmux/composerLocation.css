@@ -287,7 +287,7 @@
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-name[data-warning="true"],
 .acpmux-location-name[data-warning="true"] .acpmux-menu-description { color: var(--acpmux-warning); }
-.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: var(--ds-space-fixed-1) 6px; background: var(--ds-surface-inset); }
+.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: var(--ds-surface-inset); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
 .acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
@@ -364,7 +364,7 @@
   min-height: var(--ui-row-height);
   /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
      popup's 4px and the row's 4px put the text about 8pt from the menu's edge. */
-  padding: 5px var(--ds-space-fixed-1);
+  padding: 5px 4px;
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
@@ -389,7 +389,7 @@
 .acpmux-access-item-iconless .acpmux-menu-text { grid-column: 1; }
 .acpmux-access-item-iconless :is(.ui-menu-check, .ui-menu-shortcut) { grid-column: 2; }
 /* The harness's own title over its modes ("Mode", "How should actions be approved?"). */
-.acpmux-access-heading { padding: var(--ds-space-fixed-1) var(--ds-space-fixed-1) 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; letter-spacing: var(--text-detail--letter-spacing); }
 /* Claude Code's Recommended badge beside Auto, on the name's line. */
 .acpmux-access-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .acpmux-menu-badge {
@@ -1327,7 +1327,7 @@
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
-.acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: var(--ds-space-fixed-1) 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
+.acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
 /* The rule separates the pinned action from the folder choices. */
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 0; margin: 0 var(--cmux-menu-highlight-inset) var(--ds-space-1); border-top: var(--cmux-hairline) solid color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-location-action-icon,
@@ -1377,7 +1377,7 @@
   align-items: center;
   gap: 3px;
   margin-left: auto;
-  padding: 1px var(--ds-space-fixed-1);
+  padding: 1px 4px;
   border: 0;
   border-radius: 4px;
   background-color: transparent;

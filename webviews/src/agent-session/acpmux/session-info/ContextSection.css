@@ -30,7 +30,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--ds-space-fixed-2);
-  padding: 2px var(--ds-space-fixed-2) 6px;
+  padding: 2px 8px 6px;
   white-space: nowrap;
 }
 .acpmux-session-info-context__tokens {
@@ -69,7 +69,7 @@
 .acpmux-session-info-context__bar {
   display: flex;
   height: var(--acpmux-context-bar-height);
-  margin: 0 var(--ds-space-fixed-2) 6px;
+  margin: 0 8px 6px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--acpmux-context-free);
@@ -200,7 +200,7 @@
   max-width: min(230px, calc(100vw - 24px));
 }
 .acpmux-context-pop .acpmux-session-info-context__bar {
-  margin: var(--ds-space-fixed-2) 0 6px;
+  margin: 8px 0 6px;
 }
 .acpmux-context-pop .acpmux-session-info-row {
   margin: 0 calc(-1 * var(--ds-space-fixed-1));

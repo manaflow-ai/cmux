@@ -228,7 +228,7 @@ body {
      scope; the actual collapse is the body[data-files-hidden="false"] rule. */
   gap: 7px;
   min-height: 32px;
-  padding: 3px var(--ds-space-fixed-1) 3px var(--ds-space-fixed-2);
+  padding: 3px 4px 3px 8px;
   border-bottom: 1px solid var(--cmux-diff-border);
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
@@ -299,7 +299,7 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  padding: 0 var(--ds-space-fixed-5) 0 9px;
+  padding: 0 24px 0 9px;
   border: 1px solid transparent;
   border-radius: var(--ds-radius-control);
   background:
@@ -604,7 +604,7 @@ body {
   padding: var(--ds-space-1);
 }
 .base-picker-status {
-  padding: var(--ds-space-fixed-3) 9px;
+  padding: 12px 9px;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
   text-align: center;
 }
@@ -618,7 +618,7 @@ body {
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
-  padding: 5px var(--ds-space-fixed-2) 7px;
+  padding: 5px 8px 7px;
   font-size: var(--text-caption);
   color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
   cursor: default;
@@ -948,7 +948,7 @@ body[data-status-only="true"] #files-motion-curtain {
   height: 28px;
   /* A little room under the filter before the first file row. */
   margin: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2);
-  padding: 0 var(--ds-space-fixed-1) 0 10px;
+  padding: 0 4px 0 10px;
   border: 1px solid var(--cmux-diff-rim);
   /* Concentric with its clear button: the 20 px button centered in the 28 px box sits 4 px from the edge
      (the 1 px border and 3 px of room). */
@@ -1487,7 +1487,7 @@ body[data-status-only="true"] #status-text {
 .comment-composer,
 .comment-card {
   margin: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-fixed-2);
@@ -1671,7 +1671,7 @@ body[data-status-only="true"] #status-text {
 
 /* Review parity: viewed progress, file filter, and per-file header controls. */
 #files-filter-empty {
-  padding: var(--ds-space-fixed-3) 10px;
+  padding: 12px 10px;
   color: var(--cmux-diff-text-muted);
 }
 .file-tree-context-menu {
@@ -1721,7 +1721,7 @@ body[data-status-only="true"] #status-text {
 }
 .file-review-load,
 .file-review-stage {
-  padding: 1px var(--ds-space-fixed-2);
+  padding: 1px 8px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -1872,7 +1872,7 @@ body[data-status-only="true"] #status-text {
 .diff-bulk-divider {
   align-self: stretch;
   width: 1px;
-  margin: var(--ds-space-fixed-1) 2px;
+  margin: 4px 2px;
   background: var(--cmux-diff-border);
 }
 /* Stage, Commit and Push reuse the changes view's git.css (cx-ueuc8): its tokens, from the viewer's. */
@@ -1930,7 +1930,7 @@ body[data-status-only="true"] #status-text {
   .diff-git-tools-row {
     display: flex;
     justify-content: flex-end;
-    padding: 3px var(--ds-space-fixed-2);
+    padding: 3px 8px;
     border-bottom: 1px solid var(--cmux-diff-border);
   }
 }
@@ -2436,7 +2436,7 @@ svg[data-icon-fill] {
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
 }
 .base-picker-search {
-  padding: 9px var(--ds-space-fixed-3);
+  padding: 9px 12px;
   border-bottom: 0;
 }
 .base-picker-input {
@@ -2476,7 +2476,7 @@ svg[data-icon-fill] {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 var(--ds-space-fixed-3) 0 17px;
+  padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--text-field);
   line-height: calc(20px * var(--page-density-text, var(--cmux-interface-scale, 1)));

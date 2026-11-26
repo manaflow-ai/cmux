@@ -87,7 +87,7 @@
   min-inline-size: 0;
   margin: 0;
   border: 0;
-  padding: 0 var(--ds-space-fixed-2) 6px;
+  padding: 0 8px 6px;
 }
 .acpmux-effort-slider-head {
   display: flex;
@@ -247,7 +247,7 @@
 }
 /* The approval menu's question above the modes (permissions-menu.png). */
 .acpmux-menu-heading {
-  padding: 6px 10px var(--ds-space-fixed-1);
+  padding: 6px 10px 4px;
   font-size: var(--text-detail);
   line-height: var(--text-body--line-height, 18px);
   color: var(--agent-muted);
@@ -265,7 +265,7 @@
   height: 28px;
   min-width: 0;
   gap: var(--ds-space-fixed-1);
-  padding: 0 6px 0 var(--ds-space-fixed-2);
+  padding: 0 6px 0 8px;
   color: var(--agent-muted);
 }
 .acpmux-options .acpmux-picker-button[aria-expanded="true"],

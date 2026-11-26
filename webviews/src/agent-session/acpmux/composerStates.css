@@ -1007,7 +1007,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-queued-action.acpmux-queued-steer {
   width: auto;
   gap: var(--ds-space-fixed-1);
-  padding: 0 6px 0 var(--ds-space-fixed-1);
+  padding: 0 6px 0 4px;
   font: inherit;
   font-size: var(--text-detail);
   line-height: 18px;
@@ -1106,7 +1106,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-queue-foldbar {
   display: flex;
   min-width: 0;
-  padding: 0 6px 2px var(--ds-space-fixed-3);
+  padding: 0 6px 2px 12px;
   box-sizing: border-box;
   --acpmux-queue-fill: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
   background: var(--acpmux-queue-fill);
@@ -1177,7 +1177,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  padding: var(--ds-space-fixed-1) 0 2px;
+  padding: 4px 0 2px;
 }
 .acpmux-queued-image-slot {
   position: relative;

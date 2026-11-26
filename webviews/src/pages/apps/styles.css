@@ -30,7 +30,7 @@
   border: 0;
   background: transparent;
   border-radius: 999px;
-  padding: 3px var(--ds-space-fixed-3);
+  padding: 3px 12px;
   font-weight: 500;
   color: var(--page-text-2);
   white-space: nowrap;
@@ -46,7 +46,7 @@
   max-width: 320px;
   min-width: 0;
   margin-left: auto;
-  padding: 5px var(--ds-space-fixed-3);
+  padding: 5px 12px;
   border-radius: 999px;
   border: 1px solid var(--page-separator);
   background: transparent;
@@ -71,7 +71,7 @@
 .apps-error-copy {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ds-space-fixed-1) 10px;
+  gap: 4px 10px;
   min-width: 0;
 }
 
@@ -93,7 +93,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: var(--ds-space-fixed-2) 0 14px;
+  padding: 8px 0 14px;
 }
 
 .apps-chip {
@@ -271,7 +271,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding: 6px var(--ds-space-fixed-2);
+  padding: 6px 8px;
   border-radius: 8px;
   min-width: 0;
 }
@@ -311,7 +311,7 @@
   border: 1px solid var(--page-separator);
   background: transparent;
   border-radius: var(--ds-radius-control);
-  padding: 2px var(--ds-space-fixed-3);
+  padding: 2px 12px;
   white-space: nowrap;
 }
 
@@ -449,7 +449,7 @@
 /* Full width like Discover and Installed, on the toolbar's edges, so moving between them never
    moves the content's left edge. */
 .apps-detail-body {
-  padding: 20px 20px var(--ds-space-fixed-6);
+  padding: 20px 20px 32px;
   padding-left: var(--page-edge);
   padding-right: var(--page-edge);
   display: flex;
@@ -630,7 +630,7 @@ code {
 .apps-installed-row {
   border: 1px solid var(--page-separator);
   border-radius: 10px;
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -740,7 +740,7 @@ code {
   align-items: center;
   gap: var(--ds-space-fixed-4);
   margin-top: var(--ds-space-fixed-3);
-  padding: 14px var(--ds-space-fixed-4);
+  padding: 14px 16px;
   border: 1px solid var(--page-separator);
   border-radius: 12px;
 }
@@ -823,7 +823,7 @@ code {
     /* 2px left of the first chip for its focus ring (pulled back so it stays on the edge), and room
        past the last one to scroll it clear of the fade. */
     margin-left: -2px;
-    padding-inline: 2px var(--ds-space-fixed-5);
+    padding-inline: 2px 24px;
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 }
@@ -854,7 +854,7 @@ code {
 }
 
 .apps-card.compact {
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
 }
 
 .apps-card-line {
@@ -892,7 +892,7 @@ code {
 }
 
 .apps-card.artwork .apps-card-text {
-  padding: var(--ds-space-fixed-3) 14px 0;
+  padding: 12px 14px 0;
 }
 
 .apps-card.artwork .apps-card-footer {

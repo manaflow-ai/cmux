@@ -5,7 +5,7 @@
 .acpmux-shell-row-gallery-receipt {
   display: block;
   min-height: 18px;
-  padding: 0 var(--ds-space-fixed-3) var(--ds-space-fixed-1) 26px;
+  padding: 0 12px 4px 26px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-caption);

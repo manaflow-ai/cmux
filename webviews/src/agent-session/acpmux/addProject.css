@@ -34,7 +34,7 @@
 .acpmux-add-project .acpmux-add-project-combobox .acpmux-add-project-input { grid-row: 1; }
 .acpmux-add-project .acpmux-add-project-combobox .acpmux-add-project-list { grid-row: 2; display: block; overflow: auto; min-height: 0; margin: 6px 0 0; padding: 0; }
 .acpmux-add-project .acpmux-add-project-list[hidden] { visibility: hidden; }
-.acpmux-add-project .acpmux-add-project-item { display: flex; align-items: center; gap: var(--ds-space-fixed-2); padding: 6px var(--ds-space-fixed-2); min-height: 32px; box-sizing: border-box; border-radius: 5px; }
+.acpmux-add-project .acpmux-add-project-item { display: flex; align-items: center; gap: var(--ds-space-fixed-2); padding: 6px 8px; min-height: 32px; box-sizing: border-box; border-radius: 5px; }
 .acpmux-add-project-item svg { flex: none; color: var(--agent-muted); }
 .acpmux-add-project-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-add-project .acpmux-add-project-item[data-highlighted] { background: var(--agent-control); }
@@ -43,6 +43,6 @@
 .acpmux-add-project-status { grid-row: 5; display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-add-project-status span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-add-project-actions { grid-row: 6; display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-fixed-2); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-add-project-actions button { padding: var(--ds-space-fixed-1) 7px; }
+.acpmux-add-project-actions button { padding: 4px 7px; }
 .acpmux-add-project .acpmux-add-project-submit { background: var(--agent-control); }
 .acpmux-add-project-footer { grid-row: 7; display: flex; justify-content: space-between; align-items: end; gap: 6px; border-top: 1px solid var(--agent-border); color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }

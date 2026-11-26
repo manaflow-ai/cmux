@@ -26,7 +26,7 @@
   align-items: center;
   gap: var(--ds-space-fixed-1);
   height: var(--icon-top-height);
-  padding: 0 10px 0 var(--ds-space-fixed-2);
+  padding: 0 10px 0 8px;
 }
 
 .icon-picker-back {
@@ -431,7 +431,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-4) calc(var(--icon-bar-height) + 20px);
+  padding: 4px 16px calc(var(--icon-bar-height) + 20px);
 }
 
 .icon-asset-drop {

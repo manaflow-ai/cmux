@@ -5,7 +5,7 @@
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
    across that height moves the composer with it, never in a 55px jump (Leo 2026-10-20: "the new tab area
    resizing calculation is slow and wack"; new-tab-live-resize). */
-.nt-screen{padding-top:clamp(var(--ds-space-fixed-3),calc(46vh - 154px),clamp(var(--ds-space-fixed-40),14vh,140px))}
+.nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
    shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
@@ -82,7 +82,7 @@
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
-.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px var(--ds-space-fixed-2);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
+.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
 .nt-chats-retry:not(:disabled):hover{background-image:var(--ds-surface-hover-layer)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
@@ -265,7 +265,7 @@
    it where centering put the resting page (the composer and the create row, 212px between 32px
    and 24px insets). */
 .nt-screen[data-template="composer"] {
-  padding-top: max(var(--ds-space-fixed-6), calc(50vh - 102px));
+  padding-top: max(32px, calc(50vh - 102px));
 }
 .nt-screen[data-template="composer"] .nt-box {
   border-radius: 24px;
@@ -422,7 +422,7 @@
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
-  margin: 0 calc(-1 * var(--ds-space-fixed-2)) 9px 0;
+  margin: 0 -8px 9px 0;
   flex-wrap: nowrap;
   padding: 0;
 }
@@ -1199,7 +1199,7 @@
    chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
   gap: var(--ds-space-3);
-  padding-top: clamp(var(--ds-space-fixed-5), 8vh, 96px);
+  padding-top: clamp(24px, 8vh, 96px);
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
@@ -1213,7 +1213,7 @@
 .nt-screen[data-template="cards"][data-pill] .nt-input {
   align-items: center;
   min-height: 56px;
-  padding: 0 var(--ds-space-fixed-2) 0 22px;
+  padding: 0 8px 0 22px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
   --nt-input-pad-block: 18px;
@@ -1291,7 +1291,7 @@
    The composer sits about the window's middle at a fixed place (a
    pasted image or a long draft grows it downward, never moves it). */
 .nt-screen[data-minimal] {
-  padding-top: max(var(--ds-space-fixed-6), calc(50vh - 150px));
+  padding-top: max(32px, calc(50vh - 150px));
 }
 .nt-screen[data-minimal] .nt-create {
   justify-content: center;

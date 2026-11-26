@@ -17,7 +17,7 @@
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
-  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(var(--ds-space-fixed-4) * var(--cmux-interface-scale, 1)) calc(var(--ds-space-fixed-2) * var(--cmux-interface-scale, 1));
+  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
   color: var(--agent-text);
@@ -195,14 +195,14 @@
   text-underline-offset: 3px;
 }
 .acpmux-md code {
-  padding: 1px var(--ds-space-fixed-1);
+  padding: 1px 4px;
   border-radius: 4px;
   background: var(--ds-surface-inset);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
-  padding: var(--ds-space-fixed-2) 10px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: var(--ds-surface-inset);
   overflow-x: auto;

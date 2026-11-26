@@ -5,6 +5,7 @@
    - A hover or press fill covers its own row or control, never its neighbours.
    - Press and selection change the fill only, never weight, size or icon (design/pressed-state.md).
    - Fills ease on the quick step; Reduce Motion makes every change instant. Nothing here loops. */
+@import "../pages/shared/fixed-spacing.css";
 @import "../ui/ui.css";
 
 :where(.kit-list, .kit-row, .kit-pill, .kit-avatar, .kit-field) {

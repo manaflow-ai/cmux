@@ -83,7 +83,7 @@
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-status-failure)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
-.acpmux-summary-title__button{display:inline-flex;align-items:center;gap:var(--ds-space-1);margin:-2px calc(-1 * var(--ds-space-fixed-1));padding:2px var(--ds-space-fixed-1);border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-title__button{display:inline-flex;align-items:center;gap:var(--ds-space-1);margin:-2px -4px;padding:2px 4px;border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
 .acpmux-summary-title__button{max-width:100%;text-align:left}
 .acpmux-summary-title__text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}

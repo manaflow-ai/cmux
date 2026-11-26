@@ -412,7 +412,7 @@ body {
   max-width: 100%;
   align-items: center;
   gap: var(--ds-space-fixed-2);
-  padding: var(--ds-space-fixed-1) 6px;
+  padding: 4px 6px;
   border: 1px solid var(--cmux-md-border-color);
   border-radius: var(--cmux-md-code-radius);
   background: var(--cmux-md-code-background);
@@ -1304,7 +1304,7 @@ body {
 }
 
 .md-width-unit {
-  padding: 0 var(--ds-space-fixed-1) 0 3px;
+  padding: 0 4px 0 3px;
   color: var(--page-text-2);
 }
 
@@ -1636,7 +1636,7 @@ body {
   top: 1.6em;
   left: -28px;
   width: min(360px, 80vw);
-  padding: 10px var(--ds-space-fixed-3);
+  padding: 10px 12px;
   border: 1px solid var(--cmux-md-border-color);
   border-radius: 10px;
   background: var(--page-elevated);

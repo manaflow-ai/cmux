@@ -6,7 +6,7 @@
   min-width: 0;
   max-width: 100%;
   margin: var(--ds-space-1) 0;
-  padding: 2px 0 var(--ds-space-fixed-1);
+  padding: 2px 0 4px;
   border-radius: var(--grid-cards-radius);
   background: var(--acpmux-composer-tray);
   color: var(--agent-text);
@@ -52,7 +52,7 @@
   flex-direction: column;
   min-width: 0;
   margin: var(--grid-half-step) var(--ds-space-1) 0;
-  padding: var(--ds-space-fixed-1) 2px 0 var(--ds-space-fixed-2);
+  padding: 4px 2px 0 8px;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 .acpmux-tasks-head + .acpmux-task {

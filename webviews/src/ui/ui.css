@@ -239,7 +239,7 @@
 
 .ui-menu-group-label,
 .ui-drill-section {
-  padding: 6px var(--ds-space-fixed-2) 2px;
+  padding: 6px 8px 2px;
   color: var(--menu-label-color, var(--ui-fg-2));
   font-size: var(--menu-label-size, var(--text-caption));
   font-weight: var(--menu-label-weight, var(--weight-emphasis));
@@ -248,7 +248,7 @@
 
 .ui-separator {
   height: 1px;
-  margin: var(--ds-space-fixed-1) 2px;
+  margin: 4px 2px;
   background: var(--menu-separator, var(--ui-line));
 }
 
@@ -360,7 +360,7 @@
 }
 
 .ui-combobox-item {
-  padding: 3px var(--ds-space-fixed-2);
+  padding: 3px 8px;
   border-radius: 5px;
 }
 
