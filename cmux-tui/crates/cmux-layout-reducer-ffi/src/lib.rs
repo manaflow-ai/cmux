@@ -300,6 +300,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_item_info" => {
+                use cmux_layout_reducer::sidebar_item_info;
+                let request: sidebar_item_info::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_item_info::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_bridge" => {
                 let request: cmux_layout_reducer::sidebar_bridge::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
