@@ -53,7 +53,13 @@ const FIRST_READ_BYTES: u64 = 64 << 20;
 /// every record that reader parsed, this one parses too.
 const MAX_PARTIAL_BYTES: usize = FIRST_READ_BYTES as usize;
 /// The last bytes folded, read again before each fold: a file rewritten in place (same inode,
-/// as long or longer) differs there and is folded from its start.
+/// as long or longer) that differs there is folded from its start.
+///
+/// The writer contract is append-only: Claude Code only appends records to a session
+/// transcript. A shorter file, another inode or a changed seam is caught and refolded from the
+/// start; a rewrite that keeps the length and these last bytes but changes earlier content is
+/// not. Catching that would mean reading the whole file on each change, which is the cost this
+/// incremental fold exists to avoid, so it is the stated limit, not a check.
 const SEAM_BYTES: usize = 64;
 
 /// One viewer's Claude Code drawn at its grid.
