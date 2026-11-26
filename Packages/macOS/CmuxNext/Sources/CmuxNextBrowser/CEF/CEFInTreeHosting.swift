@@ -365,8 +365,17 @@ final class CEFInTreeHosting {
         return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
     }
 
+    /// Whether the page is in the tree and has its window's keyboard (``InTreePageFocus/holdsTheKeyboard(_:in:)``):
+    /// Chromium's own ask to focus it is allowed then (`CEFTab.chromiumRequestsFocus`).
+    var hasTheKeyboard: Bool {
+        guard page != nil, let container, let window = container.window else { return false }
+        return InTreePageFocus.holdsTheKeyboard(container, in: window)
+    }
+
     /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the
-    /// window's first responder to the page view, both inside one grant the window's gate lets through.
+    /// window's first responder to the page view, both inside one grant the window's gate lets through. A grant before
+    /// the page's first navigation finds no content view and leaves the keyboard on the page's `WebContentsViewCocoa`;
+    /// Chromium's ask after that navigation moves it to the new view (``hasTheKeyboard``).
     /// - Returns: Whether the page view is the window's first responder after it.
     @discardableResult
     func grantFocus(_ focus: () -> Void) -> Bool {

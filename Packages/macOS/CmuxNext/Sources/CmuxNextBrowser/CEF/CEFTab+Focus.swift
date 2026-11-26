@@ -55,8 +55,19 @@ extension CEFTab {
     /// granting one activates the page window, which takes the keys from
     /// the omnibar of a new tab (that omnibar stays focused until the
     /// user clicks the page) or from wherever the user is typing.
+    ///
+    /// In tree, a shown page that already has cmux's keyboard (its window's first responder is in its container) is
+    /// allowed: no window is activated, and Chromium's focus moves the keyboard only inside the page. cmux's grant runs
+    /// before a new page's first navigation, when the page has no `RenderWidgetHostViewCocoa`, and leaves the keyboard on
+    /// its `WebContentsViewCocoa`; CEF's ask after that navigation (source navigation) focuses the view it made. Refused,
+    /// the page never had Chromium's focus and keys typed with no click reached nothing (other-Mac run osr-func-17:
+    /// 0 keydowns, document.hasFocus() false; NIGHTLY's child-window mode, osr-func-18, keeps the focus).
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
         if isGrantingFocus { return true }
+        if presentation == .inTree, isShown, host.hostView.inTree.hasTheKeyboard {
+            host.lifecycleTrace.record(id, "focus-allowed source=\(source.name): the page has the keyboard")
+            return true
+        }
         host.lifecycleTrace.record(id, "focus-refused source=\(source.name)")
         return false
     }
