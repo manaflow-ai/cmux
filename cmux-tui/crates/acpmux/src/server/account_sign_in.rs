@@ -561,8 +561,8 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         }
     }
     let mut reply = json!({"signedIn": true, "account": account});
-    if let Some(git) = git {
-        reply["git"] = json!(git);
+    if let (Some(git), Some(obj)) = (git, reply.as_object_mut()) {
+        obj.insert("git".to_owned(), Value::Bool(git));
     }
     Ok(reply)
 }
