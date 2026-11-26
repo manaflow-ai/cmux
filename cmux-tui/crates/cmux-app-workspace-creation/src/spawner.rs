@@ -148,9 +148,9 @@ pub fn start_plan(spawn: &Spawn, facts: &StartFacts) -> StartPlan {
         (None, None) => (KeySource::Generate, None),
     };
     let unconnected = StartPlan {
-        reserved_use: taken.clone(),
+        reserved_use: taken,
         key_source,
-        key: key.clone(),
+        key,
         claims_window: facts.in_window,
         not_connected: true,
         name: None,
