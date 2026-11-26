@@ -6772,6 +6772,217 @@ public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> U
 
 
 /**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+public protocol RowSpillPagesProtocol: AnyObject, Sendable {
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+    func pop()  -> [Data]
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+    func push(rows: [Data]) 
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+    func reset() 
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+    func rowsInMemory()  -> [Data]
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+    func storedCount()  -> UInt32
+    
+}
+/**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+open class RowSpillPages: RowSpillPagesProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowspillpages(self.handle, $0) }
+    }
+    /**
+     * The spill on `directory` (made when the first page fills), `page_size` rows a page, at
+     * most `max_rows` rows (at least one page).
+     */
+public convenience init(directory: String, pageSize: UInt32, maxRows: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowspillpages_new(
+        FfiConverterString.lower(directory),
+        FfiConverterUInt32.lower(pageSize),
+        FfiConverterUInt32.lower(maxRows),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowspillpages(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+open func pop() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_pop(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+open func push(rows: [Data])  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_push(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceData.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+open func reset()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_reset(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+open func rowsInMemory() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_rows_in_memory(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+open func storedCount() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_stored_count(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowSpillPages: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowSpillPages
+
+    public static func lift(_ handle: UInt64) throws -> RowSpillPages {
+        return RowSpillPages(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowSpillPages) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowSpillPages {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowSpillPages, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lift(_ handle: UInt64) throws -> RowSpillPages {
+    return try FfiConverterTypeRowSpillPages.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lower(_ value: RowSpillPages) -> UInt64 {
+    return FfiConverterTypeRowSpillPages.lower(value)
+}
+
+
+
+
+
+
+/**
  * The phone's copy of the Mac's tab list for one link. Make one per Mac; it lives across
  * reconnects so a reconnect resumes from its rev instead of reading the manifest again.
  */
@@ -9830,6 +10041,423 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * Inserts and removals that turn one row order into another.
+ */
+public struct FeedInsertEdit: Equatable, Hashable {
+    public var removed: [String]
+    public var groups: [FeedInsertGroup]
+    /**
+     * New rows after the last kept row.
+     */
+    public var tail: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(removed: [String], groups: [FeedInsertGroup], 
+        /**
+         * New rows after the last kept row.
+         */tail: [String]) {
+        self.removed = removed
+        self.groups = groups
+        self.tail = tail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedInsertEdit: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedInsertEdit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedInsertEdit {
+        return
+            try FeedInsertEdit(
+                removed: FfiConverterSequenceString.read(from: &buf), 
+                groups: FfiConverterSequenceTypeFeedInsertGroup.read(from: &buf), 
+                tail: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedInsertEdit, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.removed, into: &buf)
+        FfiConverterSequenceTypeFeedInsertGroup.write(value.groups, into: &buf)
+        FfiConverterSequenceString.write(value.tail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertEdit_lift(_ buf: RustBuffer) throws -> FeedInsertEdit {
+    return try FfiConverterTypeFeedInsertEdit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertEdit_lower(_ value: FeedInsertEdit) -> RustBuffer {
+    return FfiConverterTypeFeedInsertEdit.lower(value)
+}
+
+
+/**
+ * New rows inserted before a row that was already shown.
+ */
+public struct FeedInsertGroup: Equatable, Hashable {
+    public var before: String
+    public var ids: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(before: String, ids: [String]) {
+        self.before = before
+        self.ids = ids
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedInsertGroup: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedInsertGroup: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedInsertGroup {
+        return
+            try FeedInsertGroup(
+                before: FfiConverterString.read(from: &buf), 
+                ids: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedInsertGroup, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.before, into: &buf)
+        FfiConverterSequenceString.write(value.ids, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertGroup_lift(_ buf: RustBuffer) throws -> FeedInsertGroup {
+    return try FfiConverterTypeFeedInsertGroup.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertGroup_lower(_ value: FeedInsertGroup) -> RustBuffer {
+    return FfiConverterTypeFeedInsertGroup.lower(value)
+}
+
+
+/**
+ * One row order turned into another by moving a few rows.
+ */
+public struct FeedMovePlan: Equatable, Hashable {
+    public var removed: [String]
+    /**
+     * From the last row to the first: each step's `before` row is already in its place.
+     */
+    public var steps: [FeedMoveStep]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(removed: [String], 
+        /**
+         * From the last row to the first: each step's `before` row is already in its place.
+         */steps: [FeedMoveStep]) {
+        self.removed = removed
+        self.steps = steps
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedMovePlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedMovePlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedMovePlan {
+        return
+            try FeedMovePlan(
+                removed: FfiConverterSequenceString.read(from: &buf), 
+                steps: FfiConverterSequenceTypeFeedMoveStep.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedMovePlan, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.removed, into: &buf)
+        FfiConverterSequenceTypeFeedMoveStep.write(value.steps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMovePlan_lift(_ buf: RustBuffer) throws -> FeedMovePlan {
+    return try FfiConverterTypeFeedMovePlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMovePlan_lower(_ value: FeedMovePlan) -> RustBuffer {
+    return FfiConverterTypeFeedMovePlan.lower(value)
+}
+
+
+/**
+ * One step of a move edit: put `id` before `before` (none: after the last
+ * row). `moved`: a shown row moving; else a new row.
+ */
+public struct FeedMoveStep: Equatable, Hashable {
+    public var id: String
+    public var before: String?
+    public var moved: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, before: String?, moved: Bool) {
+        self.id = id
+        self.before = before
+        self.moved = moved
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedMoveStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedMoveStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedMoveStep {
+        return
+            try FeedMoveStep(
+                id: FfiConverterString.read(from: &buf), 
+                before: FfiConverterOptionString.read(from: &buf), 
+                moved: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedMoveStep, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.before, into: &buf)
+        FfiConverterBool.write(value.moved, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMoveStep_lift(_ buf: RustBuffer) throws -> FeedMoveStep {
+    return try FfiConverterTypeFeedMoveStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMoveStep_lower(_ value: FeedMoveStep) -> RustBuffer {
+    return FfiConverterTypeFeedMoveStep.lower(value)
+}
+
+
+/**
+ * What stacking needs to know of one Feed event.
+ */
+public struct FeedStackItem: Equatable, Hashable {
+    public var id: String
+    /**
+     * The chat it belongs to: one Mac's workspace and tab.
+     */
+    public var macId: String?
+    public var workspaceId: String
+    public var tabId: String?
+    /**
+     * An ask waiting on the person, an answer on its way, or a refused
+     * answer: never folded and never leads a stack.
+     */
+    public var keepsOwnRow: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * The chat it belongs to: one Mac's workspace and tab.
+         */macId: String?, workspaceId: String, tabId: String?, 
+        /**
+         * An ask waiting on the person, an answer on its way, or a refused
+         * answer: never folded and never leads a stack.
+         */keepsOwnRow: Bool) {
+        self.id = id
+        self.macId = macId
+        self.workspaceId = workspaceId
+        self.tabId = tabId
+        self.keepsOwnRow = keepsOwnRow
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedStackItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStackItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStackItem {
+        return
+            try FeedStackItem(
+                id: FfiConverterString.read(from: &buf), 
+                macId: FfiConverterOptionString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                tabId: FfiConverterOptionString.read(from: &buf), 
+                keepsOwnRow: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedStackItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.macId, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterOptionString.write(value.tabId, into: &buf)
+        FfiConverterBool.write(value.keepsOwnRow, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackItem_lift(_ buf: RustBuffer) throws -> FeedStackItem {
+    return try FfiConverterTypeFeedStackItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackItem_lower(_ value: FeedStackItem) -> RustBuffer {
+    return FfiConverterTypeFeedStackItem.lower(value)
+}
+
+
+/**
+ * The Feed's rows with each chat's run folded.
+ */
+public struct FeedStacking: Equatable, Hashable {
+    public var rows: [FeedStackRow]
+    /**
+     * The newest event of each stack, in list order.
+     */
+    public var heads: [String]
+    /**
+     * The events folded away, in order.
+     */
+    public var hidden: [String]
+    /**
+     * The stacks open now, by their newest event's id: a stack that got a
+     * newer event stays open under it, and stacks that are gone drop out.
+     */
+    public var expanded: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: [FeedStackRow], 
+        /**
+         * The newest event of each stack, in list order.
+         */heads: [String], 
+        /**
+         * The events folded away, in order.
+         */hidden: [String], 
+        /**
+         * The stacks open now, by their newest event's id: a stack that got a
+         * newer event stays open under it, and stacks that are gone drop out.
+         */expanded: [String]) {
+        self.rows = rows
+        self.heads = heads
+        self.hidden = hidden
+        self.expanded = expanded
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedStacking: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStacking: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStacking {
+        return
+            try FeedStacking(
+                rows: FfiConverterSequenceTypeFeedStackRow.read(from: &buf), 
+                heads: FfiConverterSequenceString.read(from: &buf), 
+                hidden: FfiConverterSequenceString.read(from: &buf), 
+                expanded: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedStacking, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFeedStackRow.write(value.rows, into: &buf)
+        FfiConverterSequenceString.write(value.heads, into: &buf)
+        FfiConverterSequenceString.write(value.hidden, into: &buf)
+        FfiConverterSequenceString.write(value.expanded, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStacking_lift(_ buf: RustBuffer) throws -> FeedStacking {
+    return try FfiConverterTypeFeedStacking.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStacking_lower(_ value: FeedStacking) -> RustBuffer {
+    return FfiConverterTypeFeedStacking.lower(value)
 }
 
 
@@ -14309,6 +14937,91 @@ public func FfiConverterTypeComposerSendOutcome_lower(_ value: ComposerSendOutco
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * One row of the stacked list.
+ */
+
+public enum FeedStackRow: Equatable, Hashable {
+    
+    /**
+     * The event at this index of the input.
+     */
+    case event(index: UInt32
+    )
+    /**
+     * The fold line under the event at `head` (an index of the input),
+     * standing for `count` older events of its chat.
+     */
+    case fold(head: UInt32, count: UInt32, expanded: Bool
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FeedStackRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStackRow: FfiConverterRustBuffer {
+    typealias SwiftType = FeedStackRow
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStackRow {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .event(index: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .fold(head: try FfiConverterUInt32.read(from: &buf), count: try FfiConverterUInt32.read(from: &buf), expanded: try FfiConverterBool.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FeedStackRow, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .event(index):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(index, into: &buf)
+            
+        
+        case let .fold(head,count,expanded):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(head, into: &buf)
+            FfiConverterUInt32.write(count, into: &buf)
+            FfiConverterBool.write(expanded, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackRow_lift(_ buf: RustBuffer) throws -> FeedStackRow {
+    return try FfiConverterTypeFeedStackRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackRow_lower(_ value: FeedStackRow) -> RustBuffer {
+    return FfiConverterTypeFeedStackRow.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Who moves the crop: the camera, or the person (a pinch or a drag).
  */
 
@@ -17168,6 +17881,54 @@ fileprivate struct FfiConverterOptionTypeComposerSendRequest: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFeedInsertEdit: FfiConverterRustBuffer {
+    typealias SwiftType = FeedInsertEdit?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedInsertEdit.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedInsertEdit.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFeedMovePlan: FfiConverterRustBuffer {
+    typealias SwiftType = FeedMovePlan?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedMovePlan.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedMovePlan.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLastPlaceAnchor: FfiConverterRustBuffer {
     typealias SwiftType = LastPlaceAnchor?
 
@@ -17829,6 +18590,81 @@ fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFeedInsertGroup: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedInsertGroup]
+
+    public static func write(_ value: [FeedInsertGroup], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedInsertGroup.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedInsertGroup] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedInsertGroup]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedInsertGroup.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedMoveStep: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedMoveStep]
+
+    public static func write(_ value: [FeedMoveStep], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedMoveStep.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedMoveStep] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedMoveStep]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedMoveStep.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedStackItem: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedStackItem]
+
+    public static func write(_ value: [FeedStackItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedStackItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedStackItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedStackItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeKeychainDelete: FfiConverterRustBuffer {
     typealias SwiftType = [KeychainDelete]
 
@@ -18121,6 +18957,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedStackRow: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedStackRow]
+
+    public static func write(_ value: [FeedStackRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedStackRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedStackRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedStackRow.read(from: &buf))
         }
         return seq
     }
@@ -18745,6 +19606,61 @@ public func cloudWakeVersion() -> UInt32  {
 })
 }
 /**
+ * The edit that moves `movers` (an ask that was answered leaves the pinned
+ * group for its place in time, one that opened again goes back), with
+ * inserts and removals beside them; none when any other row changes place
+ * too (a re-sort), or when no mover or more than `limit` move at once.
+ */
+public func feedMoveEdit(old: [String], new: [String], movers: [String], limit: UInt32) -> FeedMovePlan?  {
+    return try!  FfiConverterOptionTypeFeedMovePlan.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_move_edit(
+        FfiConverterSequenceString.lower(old),
+        FfiConverterSequenceString.lower(new),
+        FfiConverterSequenceString.lower(movers),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+/**
+ * The steps applied to `old` (what the list does to its snapshot).
+ */
+public func feedMoveEditApplied(edit: FeedMovePlan, old: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_move_edit_applied(
+        FfiConverterTypeFeedMovePlan_lower(edit),
+        FfiConverterSequenceString.lower(old),$0
+    )
+})
+}
+/**
+ * The edit when the rows both orders keep stay in the same order (a live
+ * event, a done swipe); none when they do not (a re-sort), so the list
+ * rebuilds the section instead.
+ */
+public func feedSnapshotEdit(old: [String], new: [String]) -> FeedInsertEdit?  {
+    return try!  FfiConverterOptionTypeFeedInsertEdit.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_snapshot_edit(
+        FfiConverterSequenceString.lower(old),
+        FfiConverterSequenceString.lower(new),$0
+    )
+})
+}
+/**
+ * When one chat posts several events in a row, with no other chat's event
+ * between them, the newest shows as the full row and the older ones fold
+ * into one line under it. `open`: rows that never fold (a reply being
+ * written under them); one may still lead a stack.
+ */
+public func feedStacking(items: [FeedStackItem], expanded: [String], `open`: [String]) -> FeedStacking  {
+    return try!  FfiConverterTypeFeedStacking_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_stacking(
+        FfiConverterSequenceTypeFeedStackItem.lower(items),
+        FfiConverterSequenceString.lower(expanded),
+        FfiConverterSequenceString.lower(`open`),$0
+    )
+})
+}
+/**
  * The folder (in the app's own container) where the LAN direct path keeps
  * this phone's key and what each Mac told it; `None` turns the path off.
  * Call once at launch, before `connect`.
@@ -19088,6 +20004,28 @@ public func rowLayoutFingerprint(text: String) -> UInt64  {
 })
 }
 /**
+ * `scope` (an account or a chat id) as one folder name: letters, digits and `-` stay, every
+ * other character is `_`; nothing left is `default`.
+ */
+public func rowSpillFolderName(scope: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_folder_name(
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+/**
+ * Deletes every folder under `parent` but `keep`: the spills earlier runs of the app left (a
+ * killed app never deleted its spills).
+ */
+public func rowSpillPurgeRuns(parent: String, keep: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_purge_runs(
+        FfiConverterString.lower(parent),
+        FfiConverterString.lower(keep),$0
+    )
+}
+}
+/**
  * Answers one `screen_*` op: `request` and the answer are the op's JSON.
  */
 public func screenJson(operation: String, request: String)throws  -> String  {
@@ -19407,6 +20345,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit() != 55354) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit_applied() != 40757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_snapshot_edit() != 17619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_stacking() != 45213) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19492,6 +20442,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_folder_name() != 50651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_purge_runs() != 11957) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_screen_json() != 9471) {
@@ -20055,6 +21011,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_stats() != 34123) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_pop() != 21658) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_push() != 40061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_reset() != 27453) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_rows_in_memory() != 3851) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_stored_count() != 64160) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20227,6 +21198,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowlayoutmemory_new() != 34891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowspillpages_new() != 5551) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {

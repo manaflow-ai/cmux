@@ -220,6 +220,66 @@ def spec_problems(spec: Any) -> list[str]:
     if fixture is not None and not (app == "mac" and isinstance(fixture, dict) and set(fixture) <= {"harnesses", "health"}
                                     and isinstance(fixture.get("harnesses", {}), dict)):
         out.append('harnessFixture: a Mac tour\'s acpmux harness fixture, {"harnesses": {...}}')
+    if app == "mac" and isinstance(steps, list):
+        out += settings_problems([s for s in steps if isinstance(s, dict)])
+    return out
+
+
+# The Settings rows (settings-schema.json, generated): a clip opens a row that is there and never has the tour
+# set a row agents may not change (`agent_settable` false, a `userOnly` policy) — the app refuses the tour's
+# `cmux settings set` as it refuses any agent's, so the clip's step fails on every run.
+SETTINGS_SCHEMA = ROOT / "schemas/settings/settings-schema.json"
+# Actions that open an internal page tab: over the control socket (`rpc` action.run) the tab opens behind the
+# window unless the run asks for `"focus": true` (ActionInvocation.allowsViewChange), so the clip shows none of it.
+PAGE_ACTIONS = {"openSettings", "openDebugSettings"}
+
+
+def settings_rows(schema: Path | None = None) -> dict[str, dict]:
+    path = SETTINGS_SCHEMA if schema is None else schema  # read at call time, so a test can point it elsewhere
+    try:
+        rows = json.loads(path.read_text()).get("rows", [])
+    except (OSError, ValueError):
+        return {}
+    return {row["key"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("key"), str)}
+
+
+def settings_cards(schema: Path | None = None) -> set[str]:
+    """The card ids Settings can open as `card.<id>` (webviews settingsLinks.ts): each category's lead and trail."""
+    path = SETTINGS_SCHEMA if schema is None else schema
+    try:
+        categories = json.loads(path.read_text()).get("page", {}).get("categories", [])
+    except (OSError, ValueError, AttributeError):
+        return set()
+    return {card for category in categories if isinstance(category, dict)
+            for card in (category.get("lead") or []) + (category.get("trail") or []) if isinstance(card, str)}
+
+
+def settings_target_exists(key: str, rows: dict, cards: set[str]) -> bool:
+    if key.startswith("card."):
+        return key[len("card."):].split(".", 1)[0] in cards  # card.customizeDoctor.recover focuses inside its card
+    return key in rows
+
+
+def settings_problems(steps: list[dict], schema: Path | None = None) -> list[str]:
+    rows, cards, out = settings_rows(schema), settings_cards(schema), []
+    for step in steps:
+        title, rpc, command = step.get("title"), step.get("rpc"), step.get("cmux")
+        if isinstance(rpc, dict) and rpc.get("method") == "action.run" and isinstance(rpc.get("params"), dict):
+            params = rpc["params"]
+            if params.get("action") in PAGE_ACTIONS and params.get("focus") is not True:
+                out.append(f'step {title!r}: {params["action"]} over the socket opens its tab behind the window; '
+                           'give the rpc params "focus": true')
+            arguments = params.get("arguments") or params.get("args") or {}
+            key = arguments.get("setting") if isinstance(arguments, dict) else None
+            if params.get("action") == "openSettings" and rows and isinstance(key, str) and not settings_target_exists(key, rows, cards) \
+                    and not step.get("optional"):
+                out.append(f"step {title!r}: Settings has no row or card {key}")
+        if isinstance(command, list) and len(command) >= 3 and command[:1] == ["settings"] \
+                and command[1] in ("set", "reset") and isinstance(command[2], str):
+            row = rows.get(command[2])
+            if row is not None and row.get("agent_settable") is False:
+                out.append(f"step {title!r}: agents may not change {command[2]} ({row.get('agent_refusal') or 'userOnly'}); "
+                           "show its row, the tour cannot flip it")
     return out
 
 

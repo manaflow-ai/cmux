@@ -1,6 +1,6 @@
 //! `_acpmux/surgery {sessionId, keepTurns?, minChars?, dryRun?}` (`hub/surgery.rs`): mask a
-//! Claude chat's old tool output and resume it on the masked copy, with no model call. Answers
-//! `{applied, ...}`; a chat mid-turn, not on Claude or with nothing to mask answers
+//! Claude or Codex chat's old tool output and resume it on the masked copy, with no model call. Answers
+//! `{applied, ...}`; a chat mid-turn, not on Claude or Codex or with nothing to mask answers
 //! `applied: false` and its reason. The app, the person's CLI and other agents on this machine
 //! call it (cold wake picks it instead of `/compact`); a remote WebSocket device and a peer are
 //! refused.
