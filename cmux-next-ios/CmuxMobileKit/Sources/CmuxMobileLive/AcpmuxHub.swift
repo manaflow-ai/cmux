@@ -715,7 +715,7 @@ public final class AcpmuxHub {
     /// the phone holds, and only a new connection resets the Mac's side (its rows go whole
     /// again). The channel is recovered once, as for a stalled read (one recovery for every gap
     /// that came on it); until then the row shown stays the last one applied. A hub with nothing
-    /// to recover its channel (``onStall`` nil: Cloud chats, tests) keeps that row until the
+    /// to recover its channel (``onStall`` nil) keeps that row until the
     /// chat's next whole row (an attach, a detach).
     private func rowGap(_ sessionID: String) {
         ConnectivityTelemetry.shared.record(.hub, "row_patch_gap", outcome: .failure)

@@ -486,25 +486,17 @@ impl LinkHandle {
         // A daemon channel asks for pseq stamps and, with the gate on and an
         // overlay, viewport sync; its receiver turns synced screens into
         // `output` lines.
-        // hostd's acpmux MessageAssembler consumes one JSON message at a time. Its data frames
-        // carry no request identifier until assembled, so two RPC writes must not interleave.
-        let message_lock = (service == "acpmux").then(|| Arc::new(tokio::sync::Mutex::new(())));
         let daemon = service == "daemon";
         if daemon {
             self.viewport.merge_daemon_args(&mut args);
         }
         let hub = (daemon && self.viewport.requests_sync()).then(|| self.viewport.clone());
         let link = self.link.clone();
-        let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
-        let id = channel.id();
-        let (sender, receiver) = channel.split();
-        Ok(Arc::new(ChannelHandle {
-            id,
-            sender: Arc::new(sender),
-            message_lock,
-            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
-            closed: Arc::new(Mutex::new(None)),
-        }))
+        Ok(on_runtime(async move {
+            let channel = link.open_on(&service, args, lane).await?;
+            Ok::<_, cmux_mobile_link::LinkError>(ChannelHandle::from_channel(&service, channel, hub))
+        })
+        .await?)
     }
 }
 
@@ -844,64 +836,59 @@ mod channel_write_tests {
     use super::*;
     use cmux_mobile_link::{Link, Role};
 
-    async fn open(link: &Link) -> Arc<ChannelHandle> {
-        let channel = link.open("acpmux", serde_json::json!({})).await.unwrap();
-        let id = channel.id();
-        let (sender, receiver) = channel.split();
-        Arc::new(ChannelHandle {
-            id,
-            message_lock: Some(Arc::new(tokio::sync::Mutex::new(()))),
-            sender: Arc::new(sender),
-            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, None))),
-            closed: Arc::new(Mutex::new(None)),
-        })
+    async fn open(link: &Link, service: &str) -> Arc<ChannelHandle> {
+        let channel = link.open(service, serde_json::json!({})).await.unwrap();
+        ChannelHandle::from_channel(service, channel, None)
     }
 
     #[tokio::test]
     async fn a_concurrent_rpc_follows_every_chunk_of_the_observed_prompt() {
-        tokio::time::timeout(Duration::from_secs(15), async {
-            let (local, peer) = tokio::io::duplex(4096);
-            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
-            let handle = open(&phone).await;
-            let prompt = serde_json::to_vec(&serde_json::json!({"prompt": "a".repeat(2 << 20)})).unwrap();
-            let other = serde_json::to_vec(&serde_json::json!({"other": "b".repeat(1 << 20)})).unwrap();
-            let watch = ChannelWriteWatch::new();
-            let first = tokio::spawn({
-                let (handle, data, watch) = (handle.clone(), prompt.clone(), watch.clone());
-                async move { handle.send_observed(data, watch).await }
-            });
-            while !watch.take_progress() {
-                tokio::task::yield_now().await;
-            }
-            let second = tokio::spawn({
-                let (handle, data) = (handle.clone(), other.clone());
-                async move { handle.send(data).await }
-            });
-            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
-            let mut incoming = mac.accept().await.unwrap().channel;
-            let mut received = Vec::new();
-            while received.len() < prompt.len() + other.len() {
-                match incoming.recv().await {
-                    Some(ChannelEvent::Data(bytes)) => received.extend_from_slice(&bytes),
-                    value => panic!("incomplete RPC messages: {value:?}"),
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                let (local, peer) = tokio::io::duplex(4096);
+                let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+                let handle = open(&phone, service).await;
+                let prompt = serde_json::to_vec(&serde_json::json!({"prompt": "a".repeat(2 << 20)})).unwrap();
+                let other = serde_json::to_vec(&serde_json::json!({"other": "b".repeat(1 << 20)})).unwrap();
+                let watch = ChannelWriteWatch::new();
+                let first = tokio::spawn({
+                    let (handle, data, watch) = (handle.clone(), prompt.clone(), watch.clone());
+                    async move { handle.send_observed(data, watch).await }
+                });
+                while !watch.take_progress() {
+                    tokio::task::yield_now().await;
                 }
-            }
-            first.await.unwrap().unwrap();
-            second.await.unwrap().unwrap();
-            assert_eq!(&received[..prompt.len()], prompt);
-            assert_eq!(&received[prompt.len()..], other);
-            assert_eq!(watch.accepted.load(Ordering::Relaxed), prompt.len() as u64);
-        })
-        .await
-        .expect("the two full messages arrive and the writes return");
+                let second = tokio::spawn({
+                    let (handle, data) = (handle.clone(), other.clone());
+                    async move { handle.send(data).await }
+                });
+                let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+                let mut incoming = mac.accept().await.unwrap().channel;
+                let mut received = Vec::new();
+                while received.len() < prompt.len() + other.len() {
+                    match incoming.recv().await {
+                        Some(ChannelEvent::Data(bytes)) => received.extend_from_slice(&bytes),
+                        value => panic!("incomplete RPC messages: {value:?}"),
+                    }
+                }
+                first.await.unwrap().unwrap();
+                second.await.unwrap().unwrap();
+                assert_eq!(&received[..prompt.len()], prompt);
+                assert_eq!(&received[prompt.len()..], other);
+                assert_eq!(watch.accepted.load(Ordering::Relaxed), prompt.len() as u64);
+            })
+            .await
+            .expect("the two full messages arrive and the writes return");
+        }
     }
 
     #[tokio::test]
     async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
-        tokio::time::timeout(Duration::from_secs(15), async {
+        for service in ["acpmux", "cloud-acpmux"] {
+            tokio::time::timeout(Duration::from_secs(15), async {
             let (local, peer) = tokio::io::duplex(4096);
             let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
-            let handle = open(&phone).await;
+            let handle = open(&phone, service).await;
             let watch = ChannelWriteWatch::new();
             let writing = tokio::spawn({
                 let handle = handle.clone();
@@ -938,7 +925,7 @@ mod channel_write_tests {
             }
 
             // Reopen on the very same link. Cancellation before any bytes keeps it usable.
-            let reopened = open(&phone).await;
+            let reopened = open(&phone, service).await;
             let cancelled = ChannelWriteWatch::new();
             cancelled.cancel();
             assert!(reopened.send_observed(b"skip".to_vec(), cancelled).await.is_err());
@@ -948,6 +935,7 @@ mod channel_write_tests {
         })
         .await
         .expect("write cancellation and recovery must complete");
+        }
     }
 }
 
@@ -959,6 +947,27 @@ pub struct ChannelHandle {
     sender: Arc<ChannelSender>,
     receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
+}
+
+impl ChannelHandle {
+    fn from_channel(
+        service: &str,
+        channel: cmux_mobile_link::Channel,
+        hub: Option<PhoneViewport>,
+    ) -> Arc<Self> {
+        let id = channel.id();
+        let (sender, receiver) = channel.split();
+        // Both local and cloud ACP assemble one JSON message at a time from untagged data frames.
+        let message_lock =
+            matches!(service, "acpmux" | "cloud-acpmux").then(|| Arc::new(tokio::sync::Mutex::new(())));
+        Arc::new(Self {
+            id,
+            message_lock,
+            sender: Arc::new(sender),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
+            closed: Arc::new(Mutex::new(None)),
+        })
+    }
 }
 
 #[uniffi::export]
