@@ -735,7 +735,11 @@ def run_pair(a, note, share):
                         # The row needs live data (ShellModel.attach): say whether this launch reached it.
                         raise RuntimeError(f"{error}; {launch_live_state(phone_log, launched)}") from error
                     before_tap = time.monotonic()
-                    phone.request_share(target["deviceName"], target["deviceId"])
+                    try:
+                        phone.request_share(target["deviceName"], target["deviceId"])
+                    except RuntimeError as error:
+                        # A row that never reads Not shared: whether the host's own link was up, and its log.
+                        raise RuntimeError(f"{error}; {host.summary()}; {host.share_log()}") from error
                     share.pass_step()
                     signed = phone_log.wait_at(re.compile(r"pair-e2e signed Share nonce digest ([0-9a-f]{64})"),
                                                30, since=before_tap)

@@ -70,8 +70,10 @@ class TaggedShareHost:
             return f"share host: {error}"
         sessions = status.get("sessions")
         count = len(sessions) if isinstance(sessions, (list, dict)) else sessions if isinstance(sessions, int) else "?"
-        return (f"share host: sharing {status.get('sharing')}, app attached {status.get('appAttached')}, "
-                f"sessions {count}")
+        # state and linkUp say whether its User DO socket is up (the phone's row reads Offline without one).
+        state = status.get("state") if isinstance(status.get("state"), str) and status.get("state").isidentifier() else "?"
+        return (f"share host: state {state}, link up {status.get('linkUp')}, sharing {status.get('sharing')}, "
+                f"app attached {status.get('appAttached')}, sessions {count}")
 
     def share_log(self, limit=12):
         """The daemon log's share-host lines since the detached baseline (the share host and its
