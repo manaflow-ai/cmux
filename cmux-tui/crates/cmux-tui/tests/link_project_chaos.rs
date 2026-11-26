@@ -25,7 +25,7 @@
 //! file (`CMUX_CHAOS_REPORT_ONLY=1` prints the rows without failing, for the table).
 //!
 //! ```text
-//! cargo test -p cmux-tui --test link_project_chaos -- --nocapture --test-threads 1
+//! cargo test -p cmux-tui --test it -- link_project_chaos:: --nocapture --test-threads 1
 //! ```
 #![cfg(target_os = "linux")]
 

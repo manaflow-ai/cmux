@@ -283,6 +283,9 @@ impl App {
                 if let Some(t) = self.transcripts.get_mut(&id) {
                     let added = t.prepend_events(&events);
                     self.shift_folds(&id, added);
+                    if let Some(line) = self.new_line.as_mut() {
+                        line.shift(&id, added);
+                    }
                     // `offset` counts rows: keep the rows on screen where they are by keeping
                     // the distance to the end, which the prepended rows do not change.
                     if let Some(v) = self.viewport.get_mut(&id)

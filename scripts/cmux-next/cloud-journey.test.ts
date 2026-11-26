@@ -14,19 +14,43 @@ import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbe
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
+import { platformVerdict, waitRunning } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
+    // Prod journey 45767907054: the journey deleted the machine at 300 s, before the platform's never_bound sweep
+    // probed the guest, so no run said why. The rows below are what cloud.machine.get answers, one per read.
+    const reads = (rows: unknown[]) => {
+      let i = 0;
+      return { read: async () => rows[Math.min(i++, rows.length - 1)] } as unknown as Api;
+    };
+    const stuck = { status: "provisioning", host: null };
+    const failed = { status: "failed", host: null, error: { code: "cloud.machine.never_bound" } };
+    await expect(waitRunning(reads([stuck, stuck, stuck, failed]), "vm_x", 20, 5_000, 1)).rejects
+      .toThrow(/last status provisioning host null; platform verdict cloud\.machine\.never_bound$/);
+    await expect(waitRunning(reads([stuck]), "vm_x", 20, 50, 5)).rejects.toThrow(/platform verdict none within \d+ s$/);
+    expect(await platformVerdict(reads([stuck, { status: "failed", error: "cloud.machine.create_overdue" }]), "vm_x", 5_000, 1))
+      .toBe("cloud.machine.create_overdue");
+    expect(await platformVerdict(reads([{ status: "running", host: "h" }]), "vm_x", 5_000, 1)).toBeNull();
+    // A machine that has a host but never got to running is not this case: its timeout stands as it was.
+    await expect(waitRunning(reads([{ status: "starting", host: "h1" }]), "vm_x", 20, 5_000, 1)).rejects
+      .toThrow(/^timed out after 20 ms; last status starting host h1$/);
+    expect(await waitRunning(reads([{ status: "running", host: "h2" }]), "vm_x", 5_000, 0)).toEqual({ status: "running", host: "h2" });
+  });
+
   test("a missed idle pause names what held the machine", async () => {
     const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
     expect(await idleHeldBy(api({ status: "running", last_active_at: null, idle_policy: { idle_seconds: 120 } }), "vm_x", 1_000_000))
       .toBe("idle clock not running (last_active_at null: no report speaks for its activity); idle policy 120 s");
     expect(await idleHeldBy(api({ status: "running", last_active_at: 940_000, idle_policy: { idle_seconds: 120 }, activity: { active_sessions: 1 } }), "vm_x", 1_000_000))
       .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 1_000_000, idle_policy: { idle_seconds: 120 }, idle_kept: { why: "workload", running_s: 900, report_age_s: 20, daemon: "1.0.0", workload: { busy: 0, listening: 1, ports: [5173] } } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 0 s ago; idle policy 120 s; kept by {"why":"workload","workload":{"busy":0,"listening":1,"ports":[5173]}}');
     const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
     expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
   });
@@ -38,6 +62,9 @@ describe("cloud journey", () => {
 
   test("parses warm-home answers and unsupported images", () => {
     expect(parseWarmHomeAnswer('{"accepted":true,"state":"ready"}')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    // acpmux --json pretty-prints (cli/output.rs print_json): prod's stub leg read this as "no JSON answer".
+    expect(parseWarmHomeAnswer('{\n  "accepted": true,\n  "state": "ready",\n  "shapes": [\n    {\n      "harness": "claude"\n    }\n  ]\n}\n')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    expect(parseWarmHomeAnswer('note: dialing\n{\n  "accepted": false,\n  "state": "busy"\n}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
     expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });
@@ -71,7 +98,10 @@ describe("cloud journey", () => {
     expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
     expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
     expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
-    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
+    // A record with both fields: the top-level idle_seconds wins.
+    expect(await machineIdleSeconds(api({ idle_seconds: 120, idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(120);
+    // No policy fails at once instead of waiting out the 24 h backstop.
+    expect(() => idlePauseDeadlineMs(null, 600)).toThrow(/names no idle policy/);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -978,6 +1008,27 @@ describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
       await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
       expect(sent.length).toBe(2);
     });
+  });
+
+  test("op() asks a keyed op again under its key after the client timeout, and an unkeyed op not at all", async () => {
+    const real = globalThis.fetch;
+    const sent: any[] = [];
+    // The first request never answers in time (what AbortSignal.timeout throws); the next answers.
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      if (sent.length === 1) throw new DOMException("The operation timed out.", "TimeoutError");
+      return new Response(JSON.stringify(ok.body), { status: 200 });
+    }) as typeof fetch;
+    try {
+      expect(await api().op("cloud.machine.create", { name: "n" }, "tag-parent-1")).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      sent.length = 0;
+      await expect(api().op("cloud.machine.create", { name: "n" })).rejects.toThrow("timed out");
+      expect(sent.length).toBe(1);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 
   test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
@@ -3546,5 +3597,18 @@ describe("send trace after the first token", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("requestTimedOut", () => {
+  test("is a client timeout, so a keyed op is asked again under its key", () => {
+    expect(requestTimedOut(new DOMException("The operation timed out.", "TimeoutError"))).toBe(true);
+    expect(requestTimedOut(new Error("The operation timed out."))).toBe(true);
+    expect(requestTimedOut(new Error("wrapped", { cause: new DOMException("x", "TimeoutError") }))).toBe(true);
+  });
+  test("is not any other failure", () => {
+    expect(requestTimedOut(new DOMException("aborted", "AbortError"))).toBe(false);
+    expect(requestTimedOut(Object.assign(new Error("reset"), { code: "ECONNRESET" }))).toBe(false);
+    expect(requestTimedOut(undefined)).toBe(false);
   });
 });

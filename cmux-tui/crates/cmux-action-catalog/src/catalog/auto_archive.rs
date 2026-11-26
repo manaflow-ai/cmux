@@ -17,7 +17,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "archivebox",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 105).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 105)], ..SurfacePlan::DEFAULT },
         cli_name: "workspace archive-idle",
         ..Action::DEFAULT
     },
@@ -29,7 +29,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "archivebox",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 107).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "workspace archive-settled",
         ..Action::DEFAULT
     },
@@ -41,7 +41,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "archivebox.circle",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 106).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "organize", 106)], ..SurfacePlan::DEFAULT },
         arguments: &[args::ITEM_2],
         cli_name: "workspace restore-archived",
         ..Action::DEFAULT

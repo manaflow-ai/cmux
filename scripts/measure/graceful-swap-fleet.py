@@ -156,7 +156,7 @@ class Scenario:
         log(f"GSW-FLEET session: {json.dumps(session, default=str)[:400]}")
         if not session.get("ok"):
             sys.exit(f"graceful-swap-fleet: no GUI session on this host ({bl.no_session_detail(session)})")
-        for d in (self.home / "Library", self.harnesses, self.work, self.scratch / "tmp"):
+        for d in (self.home / "Library", self.config.parent, self.harnesses, self.work, self.scratch / "tmp"):
             d.mkdir(parents=True, exist_ok=True)
         fake = ROOT / "cmux-tui/crates/acpmux/tests/fake_agent.py"
         (self.harnesses / f"{HARNESS_ID}.toml").write_text(
