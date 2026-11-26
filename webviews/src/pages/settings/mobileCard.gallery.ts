@@ -17,7 +17,7 @@ const base: IPhoneHostState = {
   space_title: "Space",
   space: "Personal",
   how_title: "How to Connect",
-  how: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight.",
+  how: "Install cmux on your iPhone (beta, through TestFlight) and sign in with this Mac's account. This Mac then appears under Workspaces.",
   phones_title: "Phones",
   phones_empty: "No phone has connected with this account yet.",
   phones: [],
