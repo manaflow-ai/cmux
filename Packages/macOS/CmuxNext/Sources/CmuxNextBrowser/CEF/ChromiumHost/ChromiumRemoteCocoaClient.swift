@@ -10,9 +10,12 @@ import Darwin
 /// in-process engine uses, ``CEFRuntime/preload(layout:)``, off the main thread) but `CefInitialize` never runs for
 /// it. `cmux_rc_client_connect` starts only what the bridges need (mojo, an IO thread, a main-thread task runner
 /// on a run loop source) and connects to the host's bootstrap name.
+///
+/// One per process (the bridges' runtime is the process's): ``ChromiumHostPrototype`` makes it and hands it to
+/// each remote session.
 @MainActor
-final class ChromiumRemoteCocoaClient {
-    static let shared = ChromiumRemoteCocoaClient()
+public final class ChromiumRemoteCocoaClient {
+    public init() {}
 
     private typealias Connect = @convention(c) (UnsafePointer<CChar>?) -> Int32
     private typealias Connected = @convention(c) (Int32) -> Int32
@@ -47,7 +50,7 @@ final class ChromiumRemoteCocoaClient {
     func prepare() async -> String? {
         if calls != nil { return nil }
         if let loading { return await loading.value }
-        let task = Task { @MainActor [weak self] () -> String? in
+        let task = Task { [weak self] () -> String? in
             guard let self else { return "gone" }
             let started = ContinuousClock.now
             let runtime = CEFRuntime.shared
@@ -73,19 +76,16 @@ final class ChromiumRemoteCocoaClient {
                 }
             }
             self.loadMilliseconds = Self.milliseconds(ContinuousClock.now - started)
-            // Already mapped: RTLD_NOLOAD returns its handle without loading.
-            guard let handle = dlopen(binary.path, RTLD_NOLOAD | RTLD_LAZY | RTLD_LOCAL) else {
-                return "framework not mapped: \(dlerror().map { String(cString: $0) } ?? "no dlerror")"
+            let addresses: [UInt]
+            switch await Self.resolve(binary.path, names: Self.symbolNames) {
+            case .success(let found): addresses = found
+            case .failure(let error): return error.message
             }
-            func symbol<T>(_ name: String, _: T.Type) -> T? {
-                dlsym(handle, name).map { unsafeBitCast($0, to: T.self) }
+            func call<T>(_ index: Int, _: T.Type) -> T {
+                unsafeBitCast(UnsafeRawPointer(bitPattern: addresses[index]), to: T.self)
             }
-            guard let connect = symbol("cmux_rc_client_connect", Connect.self),
-                  let connected = symbol("cmux_rc_client_connected", Connected.self),
-                  let register = symbol("cmux_rc_client_register_view", Register.self),
-                  let adopt = symbol("cmux_rc_client_adopt_page", Adopt.self)
-            else { return "this Chromium framework has no remote Cocoa pages (fork API 37)" }
-            self.calls = Calls(connect: connect, connected: connected, register: register, adopt: adopt)
+            self.calls = Calls(connect: call(0, Connect.self), connected: call(1, Connected.self),
+                               register: call(2, Register.self), adopt: call(3, Adopt.self))
             return nil
         }
         loading = task
@@ -121,6 +121,31 @@ final class ChromiumRemoteCocoaClient {
     func adopt(page: NSView, in container: NSView) -> Bool {
         guard let calls else { return false }
         return calls.adopt(Unmanaged.passUnretained(container).toOpaque(), Unmanaged.passUnretained(page).toOpaque()) == 1
+    }
+
+    private static let symbolNames = ["cmux_rc_client_connect", "cmux_rc_client_connected", "cmux_rc_client_register_view",
+                                      "cmux_rc_client_adopt_page"]
+
+    private nonisolated struct ResolveError: Error, Sendable {
+        var message: String
+    }
+
+    /// The addresses of `names` in the framework at `path`, which the load above already mapped (RTLD_NOLOAD returns
+    /// its handle without loading). Off the main thread: dlopen takes dyld's loader lock.
+    @concurrent
+    private nonisolated static func resolve(_ path: String, names: [String]) async -> Result<[UInt], ResolveError> {
+        // concurrency-allow: @concurrent, so never on the main thread; RTLD_NOLOAD of the framework the load task already mapped
+        guard let handle = dlopen(path, RTLD_NOLOAD | RTLD_LAZY | RTLD_LOCAL) else {
+            return .failure(ResolveError(message: "framework not mapped: \(dlerror().map { String(cString: $0) } ?? "no dlerror")"))
+        }
+        var addresses: [UInt] = []
+        for name in names {
+            guard let symbol = dlsym(handle, name) else {
+                return .failure(ResolveError(message: "this Chromium framework has no \(name) (remote Cocoa pages, fork API 37)"))
+            }
+            addresses.append(UInt(bitPattern: symbol))
+        }
+        return .success(addresses)
     }
 
     private static func milliseconds(_ duration: Duration) -> Double {

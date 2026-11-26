@@ -476,15 +476,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .mainActor("debug.chromium_host") { [weak services] call in
                         let controller = services?.windows.controllers.first
                         let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                         over: pane?.view.contentHost, key: call.params["pane"]?.stringValue,
-                                                         focus: call.params["focus"]?.boolValue != false,
-                                                         remote: call.params["remote"]?.boolValue == true)
+                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue, over: pane?.view.contentHost,
+                                                         key: call.params["pane"]?.stringValue, focus: call.params["focus"]?.boolValue != false, remote: call.params["remote"]?.boolValue == true)
                         return .value(JSONValue(foundation: fields) ?? .null)
                     },
                     .async("debug.chromium_host.measure") { call in
-                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue,
-                                                                      key: call.params["pane"]?.stringValue)
+                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue, key: call.params["pane"]?.stringValue)
                         else { return ["error": "no running Chromium host"] }
                         return .object(fields.mapValues(JSONValue.number))
                     }.withDeadline(.fixed(.seconds(60))),

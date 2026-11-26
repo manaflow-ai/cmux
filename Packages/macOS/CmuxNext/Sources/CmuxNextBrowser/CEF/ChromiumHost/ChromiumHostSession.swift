@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import Darwin
 import Observation
 
@@ -41,7 +42,9 @@ public final class ChromiumHostSession {
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
     /// Remote Cocoa (fork API 37): the page's own views live in ``view`` (``ChromiumRemoteCocoaClient``).
-    public let remoteCocoa: Bool
+    public var remoteCocoa: Bool { remoteClient != nil }
+    /// Remote Cocoa: the process's bridges (``ChromiumHostPrototype`` owns it); nil for a layer-hosted page.
+    private let remoteClient: ChromiumRemoteCocoaClient?
     /// Remote Cocoa: the id ``view`` is registered under, the connection to the running host, and whether the
     /// page's views are in ``view``.
     public private(set) var remoteViewID: UInt64 = 0
@@ -67,9 +70,9 @@ public final class ChromiumHostSession {
     private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
     private var tasks: [Task<Void, Never>] = []
 
-    public init(configuration: ChromiumHostConfiguration, remoteCocoa: Bool = false) {
+    public init(configuration: ChromiumHostConfiguration, remoteClient: ChromiumRemoteCocoaClient? = nil) {
         self.configuration = configuration
-        self.remoteCocoa = remoteCocoa
+        self.remoteClient = remoteClient
         launcher = ChromiumHostLauncher()
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
@@ -79,7 +82,7 @@ public final class ChromiumHostSession {
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
          policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant) {
         self.configuration = configuration
-        remoteCocoa = false
+        remoteClient = nil
         self.launcher = launcher
         self.policy = policy
         self.now = now
@@ -91,7 +94,7 @@ public final class ChromiumHostSession {
             view.remoteCocoa = true
             view.onPageView = { [weak self] page in
                 guard let self else { return }
-                ChromiumRemoteCocoaClient.shared.adopt(page: page, in: self.view)
+                self.remoteClient?.adopt(page: page, in: self.view)
                 self.mark("page_view")
             }
         }
@@ -108,7 +111,7 @@ public final class ChromiumHostSession {
     /// Remote Cocoa: the page's key view becomes first responder now, or once the page's views arrive.
     public func focusRemotePage() {
         if let key = view.pageKeyView {
-            view.window?.makeFirstResponder(key)
+            FocusRoute(.person, "debug.chromium_host focus: the remote page's key view").moveKeyboard(in: view.window, to: key)
         } else {
             pendingRemoteFocus = true
         }
@@ -186,19 +189,19 @@ public final class ChromiumHostSession {
             "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
             "exits": exits, "error": lastError ?? "",
         ]
-        if remoteCocoa {
+        if let remoteClient {
             let key = view.pageKeyView
             fields["remote_cocoa"] = [
                 "view_id": String(remoteViewID), "connection": Int(remoteConnection),
-                "connected": ChromiumRemoteCocoaClient.shared.isConnected(remoteConnection), "attached": remoteAttached,
+                "connected": remoteClient.isConnected(remoteConnection), "attached": remoteAttached,
                 "subviews": view.subviews.map { NSStringFromClass(type(of: $0)) },
                 "key_view": key.map { NSStringFromClass(type(of: $0)) } ?? "",
                 "key_view_is_first_responder": key != nil && view.window?.firstResponder === key,
                 "key_view_frame": key.map { NSStringFromRect($0.convert($0.bounds, to: nil)) } ?? "",
                 "start_ms": startTimings, "unhandled_keys": unhandledKeys, "unhandled_keys_taken": unhandledKeysTaken,
-                "connect_ms": ChromiumRemoteCocoaClient.shared.connectMilliseconds,
-                "framework_load_ms": ChromiumRemoteCocoaClient.shared.loadMilliseconds ?? -1,
-                "runtime": ChromiumRemoteCocoaClient.shared.runtimeMode,
+                "connect_ms": remoteClient.connectMilliseconds,
+                "framework_load_ms": remoteClient.loadMilliseconds ?? -1,
+                "runtime": remoteClient.runtimeMode,
             ] as [String: Any]
         }
         return fields
@@ -252,7 +255,7 @@ public final class ChromiumHostSession {
 
     /// Remote Cocoa: connects to the host's bootstrap name and names ``view`` to it.
     private func connectRemote(_ name: String, connection current: ChromiumHostConnection) async {
-        let client = ChromiumRemoteCocoaClient.shared
+        guard let client = remoteClient else { return }
         if let error = await client.prepare() {
             lastError = error
             return
@@ -302,7 +305,7 @@ public final class ChromiumHostSession {
                 mark("attached")
                 if pendingRemoteFocus, let key = view.pageKeyView {
                     pendingRemoteFocus = false
-                    view.window?.makeFirstResponder(key)
+                    FocusRoute(.person, "debug.chromium_host focus: the remote page's key view arrived").moveKeyboard(in: view.window, to: key)
                 }
             }
         case .unhandledKey:

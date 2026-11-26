@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
 /// (DEBUG builds, `browserHost.helperPrototype` on): one
@@ -14,6 +15,8 @@ public final class ChromiumHostPrototype {
     private var sessions: [String: ChromiumHostSession] = [:]
     private var order: [String] = []
     private let makeConfiguration: () -> ChromiumHostConfiguration?
+    /// The process's remote_cocoa bridges, for every remote session (made at the first).
+    private var remoteClient: ChromiumRemoteCocoaClient?
 
     /// - Parameter makeConfiguration: the host app of this build, or nil when it has none.
     public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?) {
@@ -43,7 +46,11 @@ public final class ChromiumHostPrototype {
         case "kill": return kill(key)
         case "focus":
             guard let session = sessions[key] else { return ["error": "no session \(key)"] }
-            if session.remoteCocoa { session.focusRemotePage() } else { session.view.window?.makeFirstResponder(session.view) }
+            if session.remoteCocoa {
+                session.focusRemotePage()
+            } else {
+                FocusRoute(.person, "debug.chromium_host focus").moveKeyboard(in: session.view.window, to: session.view)
+            }
             return report(key)
         case "list":
             return ["sessions": order.map { report($0) }, "app_pid": Int(ProcessInfo.processInfo.processIdentifier)]
@@ -71,7 +78,9 @@ public final class ChromiumHostPrototype {
             }
             // The first session keeps the old data folder; later ones get their own (one browser process each).
             let suffix = order.isEmpty ? nil : "\(order.count)"
-            session = ChromiumHostSession(configuration: configuration.variant(suffix: suffix, remoteCocoa: remote), remoteCocoa: remote)
+            let client = remote ? (remoteClient ?? ChromiumRemoteCocoaClient()) : nil
+            if let client { remoteClient = client }
+            session = ChromiumHostSession(configuration: configuration.variant(suffix: suffix, remoteCocoa: remote), remoteClient: client)
             sessions[key] = session
             order.append(key)
         }
@@ -82,7 +91,11 @@ public final class ChromiumHostPrototype {
         }
         session.open(url)
         if focus {
-            if session.remoteCocoa { session.focusRemotePage() } else { container.window?.makeFirstResponder(session.view) }
+            if session.remoteCocoa {
+                session.focusRemotePage()
+            } else {
+                FocusRoute(.person, "debug.chromium_host open").moveKeyboard(in: container.window, to: session.view)
+            }
         }
         return report(key)
     }
