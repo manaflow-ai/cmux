@@ -50,7 +50,7 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
                 const style = getComputedStyle(shortcut);
                 return {
                   visible: style.opacity === "1" && style.display !== "none",
-                  caps: [...shortcut.querySelectorAll("kbd")].map((cap) => cap.textContent),
+                  caps: [...shortcut.querySelectorAll(".ui-key-hint-key")].map((cap) => cap.textContent),
                 };
               }),
               overflow: list.scrollWidth > list.clientWidth + 1,
