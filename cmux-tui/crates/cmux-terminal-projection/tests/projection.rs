@@ -699,3 +699,31 @@ fn flush_on_the_alternate_screen_paints_nothing() {
     let _ = host.feed(b"\x1b[?1049l$ ", false);
     assert!(!host.flush().is_empty(), "back on the primary: one paint");
 }
+
+/// The host's reset and replay (`TerminalProjectingSession` on iOS: `ESC c`
+/// fed unpainted, `request_reset`, the replay fed and painted) paint a window
+/// of the scrollback, not the whole of it: the replay's rows were never
+/// streamed to the phone (the iOS kit's `scrollingUpReachesLineOne`). Rows a
+/// backlog pushed after the replay still all paint.
+#[test]
+fn the_hosts_replay_paints_a_window_not_the_whole_scrollback() {
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let _ = host.feed(b"\x1bc", false);
+    host.request_reset();
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.feed(&numbered(3_000), true));
+    assert!(
+        host.older_rows() > 2_000,
+        "the replay painted a window ({} older rows)",
+        host.older_rows()
+    );
+    assert_same(&host, &phone, "replay window");
+    // A clear and a backlog streamed after the replay, painted once, hold every row.
+    let _ = host.feed(b"\x1b[H\x1b[2J\x1b[3J", false);
+    let _ = host.feed(&numbered(300), false);
+    phone.apply(host.flush());
+    assert_eq!(host.older_rows(), 0, "the backlog after the replay is all on the phone");
+    assert_same(&host, &phone, "a backlog after the replay");
+}

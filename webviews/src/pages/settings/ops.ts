@@ -2090,6 +2090,9 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
+   * absent when the platform does not say. The card offers Reconnect a few days before. */
+  expiresAt?: string | null;
   /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
    * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
   loopback: boolean;

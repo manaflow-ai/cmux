@@ -845,8 +845,8 @@ note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 t0=$SECONDS
 # The FFI comes from the worker's source-keyed cache when an earlier step built the same
 # inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
-# miss builds it as before, and a build of landed inputs (the same trees as feat-cmux-next's
-# tip, probed beside the build) is published for the next step. The cache never fails the
+# miss builds it and publishes it under its own key for the next step with the same inputs,
+# a branch's build as well as a landed one (the probe beside the build only records which). The cache never fails the
 # step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
 # store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
 ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
@@ -893,12 +893,12 @@ if [[ -z "$ffi_how" ]]; then
     ffi_how="built, cache miss ${ffi_key:0:12}"
     ffi_rc=0
     wait "$ffi_probe" || ffi_rc=$?
-    if [[ $ffi_rc -eq 0 ]]; then
-      "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
-        ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
-    else
-      ffi_warn "probe of the feat-cmux-next tip failed, nothing stored" "$ffi_rc"
+    if [[ $ffi_rc -ne 0 ]]; then
+      ffi_warn "probe of the feat-cmux-next tip failed, stored as a branch build" "$ffi_rc"
+      rm -f "$work/ffi-tip.json"
     fi
+    "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
+      ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
   fi
 fi
 grep -h '^ios-ffi cache:' "$ffi_log" || true
@@ -931,10 +931,14 @@ if [[ "$mode" == pair-e2e ]]; then
   # A tagged dev Mac's hostd registers in the build space dev:<tag> (CMUX_BUILD_SPACE, #43648), and a
   # phone lists only the Macs of its own space: the plain Demo build (no CMUX_MOBILE_DEV_TAG) is in the
   # default space, lists 0 Macs, refuses the Mac's code ("pairing code for a space this account is not
-  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag (not its bundle id, which
-  # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
+  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag: both are in dev:<tag>, as a
+  # hand-off's same-tag Mac and iPhone are. It is that tag's app too (`dev.cmux.mobile.<tag>`, as a
+  # hand-off's): the tagged Mac's dev auto-approve pairs only its own tag's phone (IPhoneDevAutoApprove),
+  # the one way a phone pairs with no person since the QR code went (#48532). The rig installs by the
+  # bundle id the build reports (CFBundleIdentifier, below).
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
   build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+  build_settings+=("CMUX_MOBILE_TAG=.$mac_tag")
 fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the

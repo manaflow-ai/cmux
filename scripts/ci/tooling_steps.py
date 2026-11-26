@@ -27,7 +27,17 @@ routing step did not run or failed) is != 'false', so it runs everything. `--sum
 per skipped step with why.
 
     python3 tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
-        --changed-files FILE --event EVENT [--github-output F] [--summary F] [--root DIR] [--json]
+        --changed-files FILE --event EVENT [--pr-scope] [--github-output F] [--summary F] [--root DIR] [--json]
+
+`run` executes the job's selected `tt-` steps side by side, one bounded pool of processes, instead of one GitHub step
+after another (cmux#55649's head, job 139156353605: 7.3 min for about 70 steps, the longest 89 s). Each step keeps
+its own env (a `${{ }}` value is taken from the runner step's env under the same key), shell, working directory and
+timeout; its output is printed as one `::group::` block when it ends, with its time, and the job fails naming every
+step that failed. It writes `ran=true` to `--github-output` before it starts, so each step's own `if:` skips it; when
+it cannot read the job it exits before that, and the steps run one by one as before.
+
+    python3 tooling_steps.py run --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
+        [--selection TOOLING_OUT] [--jobs N] [--github-output F] [--summary F] [--root DIR]
 """
 from __future__ import annotations
 
@@ -349,8 +359,23 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     return False, f"none of its {len(inputs)} inputs changed ({', '.join(tests[:2])}{' ...' if len(tests) > 2 else ''})"
 
 
+# A reason that selects a step only through how wide its inputs reach: a glob a file lists, a directory it reads, a
+# whole-tree list, a file name some input spells out. Not a changed file the step's tests read, a declared input, or a
+# step the walker cannot read (those keep running on a pull request).
+BROAD_REASON = re.compile(r"^\S+ (?:lists |reads directory |names )")
+DEFERRED = "post-merge batch only (--pr-scope), not by a changed input: "
+
+
+def narrow(decision: Decision) -> Decision:
+    """The pull request's own steps: a step selected only by a broad reason is left to the post-merge batch
+    (cmux-next-tooling-tests-batch.yml runs every step at the merged tip)."""
+    steps = [StepVerdict(s.key, s.name, False, DEFERRED + s.reason) if s.run and s.key and BROAD_REASON.match(s.reason)
+             else s for s in decision.steps]
+    return Decision(decision.all, decision.reason, steps)
+
+
 def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str,
-          added_deleted: list[str] | None = None) -> Decision:
+          added_deleted: list[str] | None = None, pr_scope: bool = False) -> Decision:
     repo = Repo.load(root)
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
@@ -390,7 +415,8 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
         run, reason = judge_step(repo, walker, step, env, workdir, changed_set, declared.get(key),
                                  None if added_deleted is None else set(added_deleted), key in traced)
         verdicts.append(StepVerdict(key, name, run, reason))
-    return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    decision = Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    return narrow(decision) if pr_scope else decision
 
 
 STRACE_CALL = re.compile(r'^(\d+)\s+(?:<\.\.\. )?(\w+)\((.*)\)\s+=\s+(-?\d+(?: \w+)?|\?)')
@@ -613,6 +639,156 @@ def write_outputs(decision: Decision, github_output: Path | None, summary: Path 
             stream.write("\n".join(lines) + "\n")
 
 
+RUN_PREFIX = "tt-"
+SHELLS = {
+    None: ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+    "bash": ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+    "sh": ["sh", "-e"],
+    "python": ["python3"],
+}
+
+
+@dataclass
+class RunStep:
+    key: str
+    name: str
+    run: str
+    env: dict[str, str]
+    cwd: Path
+    shell: list[str]
+    timeout: float
+
+
+@dataclass
+class RunResult:
+    step: RunStep
+    code: int
+    seconds: float
+    output: str
+
+
+def read_selection(path: Path | None) -> set[str] | None:
+    """The route step's `tooling_steps`, or None (every step) when the file is missing or says tooling_all != false."""
+    if not path or not path.is_file():
+        return None
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key.strip()] = value
+    if values.get("tooling_all", "").strip() != "false":
+        return None
+    return set(values.get("tooling_steps", "").split())
+
+
+def plan_run(root: Path, workflow: str, job_name: str, selection: set[str] | None,
+             environ: dict[str, str]) -> list[RunStep]:
+    """The job's `tt-` run steps the selection keeps, in workflow order. Raises ValueError on a step this runner cannot
+    run as GitHub would (an unknown shell, a `${{ }}` in its run text, working directory or timeout, or an env value
+    that is an expression the runner step does not carry), so the caller falls back to the steps one by one."""
+    from workflow_paths_cover_inputs import load_yaml as _load  # noqa: PLC0415
+
+    document = _load(root / workflow)
+    job = mapping(mapping(document.get("jobs")).get(job_name))
+    if not job.get("steps"):
+        raise ValueError(f"{workflow}: no job {job_name} with steps")
+    default_timeout = float(job.get("timeout-minutes") or 360) * 60
+    planned = []
+    for step in job["steps"]:
+        if not selectable(step):
+            continue
+        key = str(step.get("id") or "")
+        if not key.startswith(RUN_PREFIX):
+            raise ValueError(f"{step.get('name')}: a selectable step without a {RUN_PREFIX} id")
+        if selection is not None and key not in selection:
+            continue
+        run = str(step["run"])
+        if gh_expressions.contents(run):
+            raise ValueError(f"{key}: a ${{{{ }}}} in its run text")
+        shell = step.get("shell")
+        if shell not in SHELLS:
+            raise ValueError(f"{key}: shell {shell!r}")
+        cwd = str(step.get("working-directory") or ".")
+        timeout = step.get("timeout-minutes")
+        if gh_expressions.contents(cwd) or gh_expressions.contents(str(timeout or "")):
+            raise ValueError(f"{key}: a ${{{{ }}}} in its working directory or timeout")
+        env = {}
+        for name, value in mapping(step.get("env")).items():
+            text = "" if value is None else str(value).lower() if isinstance(value, bool) else str(value)
+            if gh_expressions.contents(text):
+                if name not in environ:
+                    raise ValueError(f"{key}: env {name} is an expression; give the runner step the same {name}")
+                text = environ[name]
+            env[str(name)] = text
+        planned.append(RunStep(key, str(step.get("name") or key), run, env, root / cwd, SHELLS[shell],
+                               float(timeout) * 60 if timeout else default_timeout))
+    return planned
+
+
+def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
+    import time  # noqa: PLC0415
+
+    script = scratch / f"{step.key}.sh"
+    script.write_text(step.run, encoding="utf-8")
+    log = scratch / f"{step.key}.log"
+    started = time.monotonic()
+    with log.open("wb") as out:
+        proc = subprocess.Popen([*step.shell, str(script)], cwd=step.cwd, env={**environ, **step.env},
+                                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = proc.wait(timeout=step.timeout)
+        except subprocess.TimeoutExpired:
+            import signal  # noqa: PLC0415
+
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            code = 124
+            with log.open("ab") as tail:
+                tail.write(f"\n{step.key}: timed out after {step.timeout:.0f} s\n".encode())
+    return RunResult(step, code, time.monotonic() - started, log.read_text(encoding="utf-8", errors="replace"))
+
+
+def run_steps(steps: list[RunStep], jobs: int, environ: dict[str, str], out=None) -> list[RunResult]:
+    """Runs every step, at most `jobs` at a time, printing each one's output as one group when it ends."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
+
+    out = out or sys.stdout
+    results = []
+    with tempfile.TemporaryDirectory(prefix="tooling-run-") as tmp, ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = [pool.submit(run_one, step, environ, Path(tmp)) for step in steps]
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            verdict = "ok" if result.code == 0 else f"FAILED, exit {result.code}"
+            out.write(f"::group::{result.step.name} ({result.seconds:.1f} s, {verdict})\n{result.output}")
+            if result.output and not result.output.endswith("\n"):
+                out.write("\n")
+            out.write("::endgroup::\n")
+            if result.code:
+                out.write(f"::error title=tooling-tests {result.step.key}::{result.step.name} failed (exit {result.code})\n")
+            out.flush()
+    order = {step.key: i for i, step in enumerate(steps)}
+    return sorted(results, key=lambda r: order[r.step.key])
+
+
+def write_run_summary(results: list[RunResult], wall: float, summary: Path | None, out) -> None:
+    failed = [r for r in results if r.code]
+    total = sum(r.seconds for r in results)
+    head = f"{len(results)} steps side by side: {wall:.0f} s wall, {total:.0f} s of step time"
+    out.write(head + (f"; {len(failed)} failed:\n" if failed else "; all passed\n"))
+    for r in failed:
+        out.write(f"  FAILED {r.step.key}: {r.step.name} (exit {r.code})\n")
+    if summary:
+        lines = ["### tooling-tests: steps side by side", "", head + ".", ""]
+        if failed:
+            lines += ["Failed:"] + [f"- `{r.step.key}` {r.step.name} (exit {r.code})" for r in failed] + [""]
+        lines += ["| step | s | |", "|---|---:|---|"]
+        lines += [f"| {r.step.name} | {r.seconds:.1f} | {'ok' if r.code == 0 else 'failed'} |"
+                  for r in sorted(results, key=lambda r: -r.seconds)[:15]]
+        with summary.open("a", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -627,13 +803,44 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--event", required=True)
     cmd.add_argument("--github-output", type=Path)
     cmd.add_argument("--summary", type=Path)
+    cmd.add_argument("--pr-scope", action="store_true",
+                     help="leave a step selected only by a broad reason (a listed glob, a directory read, a whole-tree "
+                          "list, a spelled-out name) to the post-merge batch")
     cmd.add_argument("--json", action="store_true")
     ver = sub.add_parser("verify", help="trace each declared step (strace -f) and fail on a read its inputs miss")
     ver.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
     ver.add_argument("--workflow", required=True)
     ver.add_argument("--job", required=True)
     ver.add_argument("--step", action="append")
+    run = sub.add_parser("run", help="run the job's selected tt- steps side by side")
+    run.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
+    run.add_argument("--workflow", required=True)
+    run.add_argument("--job", required=True)
+    run.add_argument("--selection", type=Path, help="the route step's output file; missing: every step runs")
+    run.add_argument("--jobs", type=int, default=min(os.cpu_count() or 2, 16))
+    run.add_argument("--github-output", type=Path)
+    run.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
+    if args.command == "run":
+        import time  # noqa: PLC0415
+
+        environ = dict(os.environ)
+        try:
+            steps = plan_run(Path(args.root), args.workflow, args.job, read_selection(args.selection), environ)
+        except ValueError as error:
+            print(f"::warning title=tooling-tests side by side::{error}; the steps run one by one")
+            return 0
+        if args.github_output:
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("ran=true\n")
+        print(f"{len(steps)} steps, {args.jobs} at a time")
+        started = time.monotonic()
+        results = run_steps(steps, args.jobs, environ)
+        write_run_summary(results, time.monotonic() - started, args.summary, sys.stdout)
+        if args.github_output:  # each step's own outcome is skipped now: tooling_reuse.py record reads these
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("passed= " + " ".join(r.step.key for r in results if r.code == 0) + " \n")
+        return 1 if any(r.code for r in results) else 0
     if args.command == "verify":
         problems = verify(Path(args.root), args.workflow, args.job, args.step)
         for problem in problems:
@@ -647,7 +854,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.added_deleted and args.added_deleted.is_file():
         added_deleted = [line.strip() for line in args.added_deleted.read_text(encoding="utf-8").splitlines()
                          if line.strip()]
-    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted)
+    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted, args.pr_scope)
     write_outputs(decision, args.github_output, args.summary, args.job)
     if args.json:
         print(json.dumps({"all": decision.all, "reason": decision.reason,

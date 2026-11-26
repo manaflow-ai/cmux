@@ -20,6 +20,9 @@
   "chatmux_relay::session": {
    "todo": true
   },
+  "cmux_autocloud::login": {
+   "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_secrets_ride_only_where_stack_needs_them"
+  },
   "cmux_cloud_api::http": {
    "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
   },
@@ -80,6 +83,9 @@
   "cmux_tui::cli::cloud_journey": {
    "todo": true
   },
+  "cmux_tui::cli::cloud_start_chat::direct": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
+  },
   "cmux_tui::cli::customize::pr": {
    "todo": true
   },
@@ -110,9 +116,6 @@
   "cmux_tui::cloud_conversations_backend": {
    "todo": true
   },
-  "cmux_tui::coderouter_usage": {
-   "todo": true
-  },
   "cmux_tui::devices::setup::verbs": {
    "todo": true
   },
@@ -133,6 +136,9 @@
   },
   "cmux_tui_core::apps::egress": {
    "todo": true
+  },
+  "cmux_tui_core::apps::git_source": {
+   "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
   },
   "cmux_tui_core::blob_fetch": {
    "todo": true

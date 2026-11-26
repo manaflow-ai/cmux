@@ -126,6 +126,8 @@ ENV = {
 ENV.pop(claude_login_cache.TOKEN_ENV, None)
 # The cached login entries this run stored, removed in finish().
 CACHED_LOGINS: list[str] = []
+# The Claude connections this run added (claude_login_cache.connect), removed in finish().
+ADDED_CONNECTIONS: list[dict] = []
 
 
 def claude_chat(agent: str) -> bool:
@@ -160,6 +162,7 @@ BROWSER_PROOF_REPLY = f"{BROWSER_PROOF_MARKER} title=Example Domain h1=Example D
 FOLDER_PROOF_FILE = "cmux-folder-proof.txt"
 FOLDER_PROOF_WORD = f"folder{secrets.token_hex(6)}"
 FOLDER_PROOF_DIR = None
+FOLDER_TRUSTED = False
 if args.from_folder and not args.cleanup_machine:
     FOLDER_PROOF_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-folder-"))
     Path(FOLDER_PROOF_DIR, FOLDER_PROOF_FILE).write_text(FOLDER_PROOF_WORD + "\n", encoding="utf-8")
@@ -264,6 +267,10 @@ def _remove_cached_logins_on_exit() -> None:
         code, err = claude_login_cache.remove(CLI, ENV, CACHED_LOGINS.pop())
         if code != 0:
             print(f"cached claude login NOT removed: exit {code} ({err.strip()[:200]})", file=sys.stderr, flush=True)
+    while ADDED_CONNECTIONS:
+        code, err = claude_login_cache.disconnect(CLI, ENV, ADDED_CONNECTIONS.pop())
+        if code != 0:
+            print(f"claude connection NOT removed: exit {code} ({err.strip()[:200]})", file=sys.stderr, flush=True)
 
 
 atexit.register(_remove_cached_logins_on_exit)
@@ -277,6 +284,15 @@ def finish(result: str) -> None:
         record("remove cached claude login", code, "", err)
         if code != 0 and result == "pass":
             result = "fail: cached claude login not removed"
+    while ADDED_CONNECTIONS:
+        code, err = claude_login_cache.disconnect(CLI, ENV, ADDED_CONNECTIONS.pop())
+        record("remove claude connection", code, "", err)
+        if code != 0 and result == "pass":
+            result = "fail: claude connection not removed"
+    if FOLDER_TRUSTED:
+        # Forget the run's trust record while the app's daemon still answers, so an owned Mac keeps none.
+        code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "unknown", timeout=60)
+        record("forget proof folder trust", code, out, err)
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -901,6 +917,14 @@ if args.cache_claude_login:
         if code != 0:
             finish("fail: cache claude login")
     evidence["claude_login"]["cached"] = True
+    # A cached login is not a connection: the start gate runs a Claude chat only when one serves Cloud (or the
+    # team's gateway does). Add the token as this account's Claude connection, as Settings > Cloud's Set up Claude.
+    code, err, added = claude_login_cache.connect(CLI, ENV, CLAUDE_TOKEN, f"proof {args.tag}")
+    if added:
+        ADDED_CONNECTIONS.append(added)
+    record("add claude connection", code if code != 0 or added else 1, "", err or ("" if added else "no connection in the answer"),
+           connection=added and {"id": added["id"], "serves_cloud": added["serves_cloud"]})
+    evidence["claude_login"]["connection"] = bool(added)
 
 # 2. A VM agent key at the selected environment's issuer.
 started = time.monotonic()
@@ -922,6 +946,14 @@ if START_LOGIN:
         record("cloud start-chat takes no --login (dropped)", 0, "", "")
         evidence["claude_login"]["login"] = None
         START_LOGIN = ()
+# A Cloud start refuses a folder this Mac doesn't trust (#41079), and the proof's folder is a new temp
+# directory, so the proof trusts it the person's way first (run 45750166181 failed on that refusal).
+if FOLDER_PROOF_DIR:
+    code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "trusted", timeout=60)
+    record("trust proof folder", code, out, err)
+    if code != 0:
+        finish("fail: trust proof folder")
+    FOLDER_TRUSTED = True
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made

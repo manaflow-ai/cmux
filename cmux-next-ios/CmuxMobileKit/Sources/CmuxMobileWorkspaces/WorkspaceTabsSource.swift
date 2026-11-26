@@ -5,6 +5,7 @@ import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileModel
+import CmuxMobileTransport
 import CmuxMobileScreenSharing
 import Observation
 import QuartzCore
@@ -34,8 +35,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
+    /// Read from every listed tab, not the overview's filtered `tabs`: a tab the filter hides can
+    /// still be the one on screen (it opened from a notification or Search).
     public var activeTabID: String? {
-        if let selectedTabID, tabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
+        flushStale()
+        if let selectedTabID, listedTabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
         return openingTabID
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
@@ -182,11 +186,51 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// and the next read rebuilds it, so code that changes the store and
     /// reads the tabs in the same turn sees the change; otherwise the
     /// rebuild runs on the next turn.
+    ///
+    /// The overview's pane filter (`PaneFilterSetting`, Rust's `pane_filter_apply`) applies here, so
+    /// the grid, its zoom, the toolbar's swipe between tabs and Close All all see the same tabs.
+    /// The tab on screen always shows. Every listed tab stays reachable from Search and the Panes page.
     public var tabs: [TabsKitTab] {
+        flushStale()
+        return shownTabs().tabs
+    }
+    /// Every tab the workspace lists, before the pane filter.
+    var allTabs: [TabsKitTab] {
         flushStale()
         return listedTabs
     }
-    private var listedTabs: [TabsKitTab] = []
+    /// What the pane filter hides now (the header's "3 of 7").
+    public var paneFilterResult: PaneFilterResult {
+        flushStale()
+        return shownTabs().result
+    }
+    private var listedTabs: [TabsKitTab] = [] {
+        didSet { listVersion &+= 1 }
+    }
+    /// The pane filter's choice (shared by every workspace; tests pass their own).
+    @ObservationIgnored var paneFilter = PaneFilterSetting.shared
+    @ObservationIgnored private var listVersion = 0
+    @ObservationIgnored private var shown: (key: ShownKey, tabs: [TabsKitTab], result: PaneFilterResult)?
+    private struct ShownKey: Equatable {
+        var listVersion: Int
+        var active: String?
+        var filter: PaneFilter
+    }
+
+    /// The filtered list, rebuilt only when the list, the tab on screen or the filter changes:
+    /// one linear pass, so its cost per pane stays constant however many the Mac has.
+    private func shownTabs() -> (tabs: [TabsKitTab], result: PaneFilterResult) {
+        let filter = paneFilter.filter
+        let active = activeTabID
+        let key = ShownKey(listVersion: listVersion, active: active, filter: filter)
+        if let shown, shown.key == key { return (shown.tabs, shown.result) }
+        let kinds = listedTabs.map { PaneKind(entries[$0.id]?.tab.kind) }
+        let activeIndex = active.flatMap { id in listedTabs.firstIndex { $0.id == id } }.map(UInt32.init)
+        let result = paneFilterApply(kinds: kinds, active: activeIndex, filter: filter)
+        let tabs = result.filtering ? result.shown.map { listedTabs[Int($0)] } : listedTabs
+        shown = (key, tabs, result)
+        return (tabs, result)
+    }
     /// The workspace's list changed since the last `refreshTabs()` (set synchronously by
     /// the observation, before the rebuild task runs).
     @ObservationIgnored private var listStale = false
@@ -591,8 +635,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // A working agent or a program running in the tab: a phone close ends
         // its terminal with no way back. Ask first, exactly as the Mac's tab
         // close does (TabCloseGuard), from the Mac's own process state.
-        guard await confirmClose([tab], in: workspace) else { return false }
-        return await closeConfirmed(tab, in: workspace)
+        // One trace per Close Tab (PhoneTrace): its question's read and the close, against the
+        // one round trip a close needs.
+        return (try? await PhoneTrace.action("close-tab", floorRoundTrips: 1) {
+            guard await confirmClose([tab], in: workspace) else { return false }
+            return await closeConfirmed(tab, in: workspace)
+        }) ?? false
     }
 
     /// The tabs Close Tabs to the Left (`left`) or to the Right closes for `tab`, in order: the
@@ -623,16 +671,28 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
+        // The tab leaves the grid at once, as on the Mac; the Mac's answer only confirms it. A
+        // refusal puts it back where it was, still selected if it was.
+        let position = store.workspace(id: workspaceID)?.tabs.firstIndex { $0.id == id }
+        let wasSelected = selectedTabID == id
+        let movesSelection = wasSelected || selectedTabID == nil
+        let next = removeTabHere(id)
+        // The kit reads `tabs` as soon as this returns (Safari's timing).
+        refreshTabs()
+        // Only the closed tab moves the choice: one that is only missing for now (a partial
+        // list) comes back on screen when it is listed again.
+        if movesSelection { selectedTabID = next?.id }
         do {
             try await creator.backend.closeTab(tab, in: workspace)
         } catch {
+            removedHere.remove(id)
+            if let position { store.insertTab(tab, at: position, in: workspaceID) }
+            if wasSelected { selectedTabID = id }
+            refreshTabs()
             show(TabNotice(action: .close(title: tab.title), macName: macName, reason: Self.message(error)))
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = removeTabHere(id)
-        // The kit reads `tabs` as soon as this returns (Safari's timing).
-        refreshTabs()
         dropDraft(id)
         surfaces[id] = nil
         browsers[id] = nil
@@ -641,12 +701,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        // Only the closed tab moves the choice: one that is only missing for now (a partial
-        // list) comes back on screen when it is listed again.
-        if selectedTabID == id || selectedTabID == nil {
-            selectedTabID = next?.id
-            if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
-        }
+        if movesSelection, let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
         return true
     }
@@ -934,6 +989,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let id = tab.id
         if tab.kind == .browser, !streamed.isLive, browsers[id] == nil { browsers[id] = BrowserTabModel(url: tab.url) }
+        if tab.kind == .browser, streamed.isLive { placeNewBrowserTab(tab, announce: true) }
         refreshTabs()
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
@@ -1092,6 +1148,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: opened.url) }
+            if streamed.isLive { placeNewBrowserTab(opened, announce: !request.opensInBackground) }
             if request.opensInBackground {
                 show("Opened in a new tab.")
             } else {
@@ -1172,8 +1229,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A grid card's width over the page's (TabsKit's column card, or a
     /// lone tab's larger card): the resolution an agent card's picture is drawn at.
     /// TabsKit's own geometry decides it (`TabsKitOverviewGeometry`), from the tabs the grid
-    /// lists and its column count: a fixed two-column guess drew an unfolded screen's three-
-    /// and four-column cards too large, and a lone card on a wide page past TabsKit's cap.
+    /// shows (after the pane filter) and its column count: a fixed two-column guess drew an
+    /// unfolded screen's three- and four-column cards too large, and a lone card on a wide
+    /// page past TabsKit's cap.
     var cardScale: CGFloat {
         let w = max(1, pageWidth)
         let shown = tabs
@@ -1357,6 +1415,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// the grid's opening, a page left by a swipe kept the blank globe (or the picture of an
     /// older visit) on its card, since an off-screen web view takes no snapshot. At the grid's
     /// opening the streams freeze between keeping and taking, so the picture is the held frame.
+    /// The picture is also kept as the tab's last-known one (`keepSnapshots`).
     func snapshotPage(_ id: String?, freezingStreams: Bool = false) {
         guard let id, let tab = workspaceTab(id) else { return }
         let model: (any BrowserTabState)?
@@ -1632,6 +1691,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: url) }
+            if streamed.isLive {
+                var typed = opened
+                if typed.url == nil { typed.url = url }
+                placeNewBrowserTab(typed, announce: true)
+            }
             return opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
             show(named(error.message))
@@ -1661,6 +1725,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(created, to: workspaceID)
             }
             if created.kind == .browser, !streamed.isLive, browsers[created.id] == nil { browsers[created.id] = BrowserTabModel(url: created.url) }
+            if created.kind == .browser, streamed.isLive { placeNewBrowserTab(created, announce: true) }
             refreshTabs()
             if created.kind == .agent { surface(created.id).composerFocused = true }
             activate(created.id)
@@ -1737,6 +1802,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
                 store.appendTab(opened, to: workspaceID)
             }
+            // The terminal sent it to the Mac on purpose (Open on Mac, a Mac-only address): no rule moves it.
+            native.keepWhereItIs(tab: opened.id, macID: workspace.macID)
             activate(opened.id)
             openedTab = opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
@@ -1767,10 +1834,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
     /// tab it lands on); a refusal puts it back.
+    /// The grid lists only the tabs the pane filter shows: a drop on its slot `index` takes the
+    /// Mac position of the shown tab there (after the last shown tab past the end).
+    func workspaceIndex(forGridIndex index: Int, in workspace: Workspace) -> Int {
+        let shown = tabs
+        guard shown.count != listedTabs.count else { return index }
+        let anchor = shown.indices.contains(index) ? shown[index].id : shown.last?.id
+        return anchor.flatMap { id in workspace.tabs.firstIndex { $0.id == id } } ?? index
+    }
+
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
         // The Screen Sharing tab lists after the Mac's tabs: a drop on its slot is the Mac's last.
         guard let workspace, !workspace.tabs.isEmpty else { return }
-        let index = min(index, workspace.tabs.count - 1)
+        let index = min(workspaceIndex(forGridIndex: index, in: workspace), workspace.tabs.count - 1)
         guard let creator, let tab = workspaceTab(id),
               let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
               workspace.tabs.indices.contains(index) else { return }
@@ -2559,7 +2635,15 @@ struct WorkspaceTabPage: View {
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: context.isOnPage)
                 }
+                // Every tab page turns with the phone while it is full screen (Leo, 2026-11-23:
+                // "why do we not have a horizontal mode?"): a swipe to a browser or chat tab,
+                // or an address-bar edit, keeps the phone sideways; the tab grid is portrait.
+                .onChange(of: context.isOnPage) { _, onPage in
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: onPage)
+                }
+                .onDisappear { ScreenSharingOrientation.shared.tabPage(tabID, shows: false) }
         }
     }
 

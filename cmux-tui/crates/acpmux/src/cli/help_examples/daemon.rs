@@ -139,4 +139,12 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
         ],
     ),
+    ("daemon felt", &[("Show felt-latency p50, p90 and p99", "acpmux daemon felt")]),
+    (
+        "daemon placement",
+        &[(
+            "Tell the tailnet front the workspace moved",
+            r#"acpmux daemon placement '{"kind":"moved","workspace":"default","placement":{"ssh":"10.0.0.5:22"}}'"#,
+        )],
+    ),
 ];

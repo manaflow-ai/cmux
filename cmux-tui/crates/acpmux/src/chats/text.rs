@@ -296,6 +296,58 @@ impl Doc {
     }
 }
 
+/// Fewer held bytes than this are searched on the calling thread: below it, starting threads
+/// costs about what the pass does.
+const PAR_MIN_BYTES: usize = 4 * 1024 * 1024;
+/// The most threads one pass takes.
+const PAR_MAX_THREADS: usize = 8;
+/// Docs a thread claims at a time: small enough that one thread left with the largest docs does
+/// not hold the pass up, large enough that the shared counter is not contended.
+const PAR_CHUNK: usize = 16;
+
+/// `f` over every doc, on up to [`PAR_MAX_THREADS`] threads when they hold at least
+/// [`PAR_MIN_BYTES`] of text: a query's first key reads all held text (up to [`TOTAL_BYTES`]),
+/// one core's pass over which is most of a keystroke's time. Threads claim [`PAR_CHUNK`] docs
+/// at a time, so a few large docs do not leave the rest idle. The order of the results is not
+/// the docs' order (the caller collects them into a map).
+fn par_filter_map<R: Send>(
+    docs: &[(&String, &Arc<Doc>)],
+    f: impl Fn(&(&String, &Arc<Doc>)) -> Option<R> + Sync,
+) -> Vec<R> {
+    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(PAR_MAX_THREADS)
+        .min(docs.len().div_ceil(PAR_CHUNK));
+    if threads <= 1 || bytes < PAR_MIN_BYTES {
+        return docs.iter().filter_map(&f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work = || {
+        let mut out = Vec::new();
+        loop {
+            let from = next.fetch_add(PAR_CHUNK, std::sync::atomic::Ordering::Relaxed);
+            let Some(chunk) = docs.get(from..(from + PAR_CHUNK).min(docs.len())) else {
+                break;
+            };
+            if chunk.is_empty() {
+                break;
+            }
+            out.extend(chunk.iter().filter_map(&f));
+        }
+        out
+    };
+    std::thread::scope(|scope| {
+        let helpers: Vec<_> = (1..threads).map(|_| scope.spawn(work)).collect();
+        let mut out = work();
+        for helper in helpers {
+            // A panicking `f` panics the caller, as the one-thread pass would.
+            out.extend(helper.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+        }
+        out
+    })
+}
+
 /// At most the last `max` bytes of `text`, cut on a character boundary.
 fn newest_tail(text: &str, max: usize) -> &str {
     let start = (text.len().saturating_sub(max)..=text.len())
@@ -692,10 +744,12 @@ impl ChatText {
             let matched = doc.find(needle, &matcher)?;
             Some((key.clone(), Found { doc: doc.clone(), matched }))
         };
-        let found: HashMap<String, Found> = match &narrowed {
-            Some(last) => last.iter().filter_map(|(key, found)| search(key, &found.doc)).collect(),
-            None => inner.docs.iter().filter_map(|(key, doc)| search(key, doc)).collect(),
+        let docs: Vec<(&String, &Arc<Doc>)> = match &narrowed {
+            Some(last) => last.iter().map(|(key, found)| (key, &found.doc)).collect(),
+            None => inner.docs.iter().collect(),
         };
+        let found: HashMap<String, Found> =
+            par_filter_map(&docs, |&(key, doc)| search(key, doc)).into_iter().collect();
         #[cfg(test)]
         {
             inner.scanned += narrowed.as_ref().map_or(inner.docs.len(), |last| last.len());
