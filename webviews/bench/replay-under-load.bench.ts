@@ -25,7 +25,14 @@
 //   renderer_main_busy_pct  the renderer main thread's task time over the window's wall time (CDP TaskDuration), %
 //   long_tasks              tasks of 50 ms or more in the window, and longest_task_ms
 //   records                 the records sent in the window
+//   split                   the same window's renderer main thread by CDP metric, % of wall: task (TaskDuration, the
+//                           busy number), cpu (ThreadTime: the CPU the thread really ran; under load task - cpu is
+//                           time the thread was runnable but descheduled), script, layout, style (Script/Layout/
+//                           RecalcStyleDuration)
+// With --work, frame_work_p50/p95/p99_ms: each frame's work from its animation frame callback until the page rendered
+// it (a message posted in the callback), orchestrator-16.bench.ts's measure, so the two benches read the same thing.
 //   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]
+//     [--work]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -50,6 +57,14 @@ const SECONDS = Number(flag("--seconds") ?? 60);
 const WARM = Number(flag("--warm") ?? 5);
 const OUT = flag("--out");
 const PROFILE = argv.includes("--profile");
+const WORK = argv.includes("--work");
+/// `--experiment ID=ARM` (repeatable): the arm the pane runs, as the gallery's override sets it
+/// (experiments/experiment.ts `globalThis.cmuxExperiments`), for a before/after on one harness.
+const EXPERIMENTS: Record<string, string> = Object.fromEntries(
+  argv.flatMap((arg, at) =>
+    arg === "--experiment" && argv[at + 1]?.includes("=") ? [argv[at + 1]!.split("=", 2)] : [],
+  ),
+);
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -112,13 +127,37 @@ type Reading = {
   renderer_main_busy_pct: number | null;
   long_tasks: number;
   longest_task_ms: number;
+  split: Split;
+  frame_work_p50_ms?: number | null;
+  frame_work_p95_ms?: number | null;
+  frame_work_p99_ms?: number | null;
   chromium: string;
   at: string;
 };
 
-async function taskSeconds(cdp: CDPSession): Promise<number> {
+const SPLIT = {
+  task: "TaskDuration",
+  cpu: "ThreadTime",
+  script: "ScriptDuration",
+  layout: "LayoutDuration",
+  style: "RecalcStyleDuration",
+} as const;
+export type Split = Record<keyof typeof SPLIT, number | null>;
+
+async function mainMetrics(cdp: CDPSession): Promise<Record<string, number>> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
-  return metrics.find((m) => m.name === "TaskDuration")?.value ?? 0;
+  return Object.fromEntries(metrics.map((m) => [m.name, m.value]));
+}
+
+/** Each split metric's seconds between two reads as % of wallMs, one decimal (pure). */
+export function splitOf(before: Record<string, number>, after: Record<string, number>, wallMs: number): Split {
+  const out = {} as Split;
+  for (const [key, name] of Object.entries(SPLIT) as [keyof typeof SPLIT, string][]) {
+    const a = after[name];
+    const b = before[name];
+    out[key] = wallMs > 0 && a !== undefined && b !== undefined ? Math.round(((a - b) * 1e6) / wallMs) / 10 : null;
+  }
+  return out;
 }
 
 async function run(): Promise<Reading> {
@@ -197,13 +236,15 @@ async function run(): Promise<Reading> {
     const browser = await chromium.launch({ headless: true });
     releases.push(() => browser.close());
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
-    await page.addInitScript(() => {
+    await page.addInitScript((arms) => {
+      if (Object.keys(arms).length > 0)
+        (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = arms;
       const w = window as unknown as { __long: { at: number; ms: number }[] };
       w.__long = [];
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
       }).observe({ type: "longtask", buffered: true });
-    });
+    }, EXPERIMENTS);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     if (PROFILE) {
@@ -250,11 +291,43 @@ async function run(): Promise<Reading> {
     if (served >= log.events.length) throw new Error(`${log.name}: the log ran out in the warm-up; lower --rate`);
     measuring = true;
     const pageStart = await page.evaluate(() => performance.now());
-    const taskBefore = await taskSeconds(cdp);
+    if (WORK)
+      await page.evaluate(() => {
+        const w = window as unknown as { __work: number[]; __workOn: boolean };
+        w.__work = [];
+        w.__workOn = true;
+        const step = () => {
+          if (!w.__workOn) return;
+          const start = performance.now();
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => {
+            channel.port1.close();
+            w.__work.push(performance.now() - start);
+          };
+          channel.port2.postMessage(0);
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    const metricsBefore = await mainMetrics(cdp);
+    const taskBefore = metricsBefore.TaskDuration ?? 0;
     const wallBefore = performance.now();
     await page.waitForTimeout(SECONDS * 1000);
-    const taskAfter = await taskSeconds(cdp);
+    const metricsAfter = await mainMetrics(cdp);
+    const taskAfter = metricsAfter.TaskDuration ?? 0;
     const wallMs = performance.now() - wallBefore;
+    const work = WORK
+      ? ((await page.evaluate(() => {
+          const w = window as unknown as { __work: number[]; __workOn: boolean };
+          w.__workOn = false;
+          return w.__work;
+        })) as number[])
+      : [];
+    const workQ = (p: number) => {
+      if (work.length === 0) return null;
+      const sorted = [...work].sort((a, b) => a - b);
+      return Math.round(sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)]! * 10) / 10;
+    };
     if (PROFILE) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, "replay", wallMs);
     const pageEnd = await page.evaluate(() => performance.now());
     clearInterval(timer);
@@ -291,6 +364,10 @@ async function run(): Promise<Reading> {
       renderer_main_busy_pct: wallMs > 0 ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10 : null,
       long_tasks: long.length,
       longest_task_ms: Math.round(Math.max(0, ...long.map((t) => t.ms))),
+      split: splitOf(metricsBefore, metricsAfter, wallMs),
+      ...(WORK
+        ? { frame_work_p50_ms: workQ(0.5), frame_work_p95_ms: workQ(0.95), frame_work_p99_ms: workQ(0.99) }
+        : {}),
       chromium: browser.version(),
       at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
     };
