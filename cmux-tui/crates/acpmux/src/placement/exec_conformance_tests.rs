@@ -50,7 +50,8 @@ impl ForkLink for ShellLink {
         let mut job = job.clone();
         let asked = job.cwd.clone().unwrap_or_else(|| self.parent.clone());
         let rel = asked.strip_prefix(&self.parent).unwrap_or(Path::new(""));
-        let cwd = disk.join(rel);
+        // `disk.join("")` would end in a `/` that `sh` drops from `$PWD`: the root is `disk`.
+        let cwd = if rel.as_os_str().is_empty() { disk.clone() } else { disk.join(rel) };
         self.remapped.lock().unwrap().push((cwd.clone(), asked));
         job.cwd = Some(cwd);
         job.checkout = disk;
@@ -116,10 +117,15 @@ impl Runner for FakeRunner {
             restore(before.path(), dir);
         }
         let exit = if self.fault == Fault::ZeroExit { 0 } else { exit };
+        // `sh` sets `$PWD` from getcwd(), the canonical path, when the one it inherits is not its
+        // directory: map that form too, to what the local side's getcwd() reads.
         for (fork_cwd, asked) in link.remapped.lock().unwrap().iter() {
-            let (from, to) = (pwd_entry(fork_cwd), pwd_entry(asked));
-            stdout = replace_all(&stdout, &from, &to);
-            stderr = replace_all(&stderr, &from, &to);
+            let to = pwd_entry(&std::fs::canonicalize(asked).unwrap_or_else(|_| asked.clone()));
+            let canonical = std::fs::canonicalize(fork_cwd).ok();
+            for from in [Some(fork_cwd.clone()), canonical].into_iter().flatten() {
+                stdout = replace_all(&stdout, &pwd_entry(&from), &to);
+                stderr = replace_all(&stderr, &pwd_entry(&from), &to);
+            }
         }
         Ok(Outcome { exit, stdout, stderr, ran, cause })
     }
