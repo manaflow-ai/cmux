@@ -40,6 +40,10 @@ public enum DeveloperOptions {
     public static let slowApprovalKey = "cmuxMobile.dev.slowApproval"
     /// The key of builds that called it slow mock Face ID; removed with the others.
     static let retiredSlowFaceIDKey = "cmuxMobile.dev.slowFaceID"
+    /// `UserDefaults` key: the terminal shows Mac redraw to iPhone paint, live, with p50/p95
+    /// and the clock error (`-cmuxMobile.dev.paintLatencyOverlay YES`). The same string as
+    /// `TerminalPaintOverlay.key`; read when a terminal opens.
+    public static let paintLatencyOverlayKey = "cmuxMobile.dev.paintLatencyOverlay"
     /// `UserDefaults` key: wake on intent (hidden, default off). The app becoming active with a
     /// Cloud machine's chat in front forwards `unlock`, so a paused machine starts waking before
     /// the first key; the rules are Rust's (cmux-mobile-link-ffi `cloud_wake.rs`). No Settings row:
@@ -54,7 +58,7 @@ public enum DeveloperOptions {
     public static let storedKeys = [
         mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
         browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey, wakeOnIntentKey, CloudBackendOverride.storedKey,
+        slowApprovalKey, retiredSlowFaceIDKey, paintLatencyOverlayKey, wakeOnIntentKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
