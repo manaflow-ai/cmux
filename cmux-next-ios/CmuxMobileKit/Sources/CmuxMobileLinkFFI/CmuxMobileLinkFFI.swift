@@ -11865,6 +11865,11 @@ public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
  */
 public struct TabsRow: Equatable, Hashable {
     public var tabId: String
+    /**
+     * The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+     * only within one epoch, this one stays the tab's across them. Empty when unknown.
+     */
+    public var tabKey: String
     public var title: String
     /**
      * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
@@ -11896,7 +11901,11 @@ public struct TabsRow: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(tabId: String, title: String, 
+    public init(tabId: String, 
+        /**
+         * The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+         * only within one epoch, this one stays the tab's across them. Empty when unknown.
+         */tabKey: String, title: String, 
         /**
          * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
          */kind: String, faviconHash: String?, thumbHash: String?, thumbW: UInt32, thumbH: UInt32, 
@@ -11913,6 +11922,7 @@ public struct TabsRow: Equatable, Hashable {
          * Every blob the card shows is on the phone.
          */filled: Bool) {
         self.tabId = tabId
+        self.tabKey = tabKey
         self.title = title
         self.kind = kind
         self.faviconHash = faviconHash
@@ -11945,6 +11955,7 @@ public struct FfiConverterTypeTabsRow: FfiConverterRustBuffer {
         return
             try TabsRow(
                 tabId: FfiConverterString.read(from: &buf), 
+                tabKey: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 kind: FfiConverterString.read(from: &buf), 
                 faviconHash: FfiConverterOptionString.read(from: &buf), 
@@ -11963,6 +11974,7 @@ public struct FfiConverterTypeTabsRow: FfiConverterRustBuffer {
 
     public static func write(_ value: TabsRow, into buf: inout [UInt8]) {
         FfiConverterString.write(value.tabId, into: &buf)
+        FfiConverterString.write(value.tabKey, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterString.write(value.kind, into: &buf)
         FfiConverterOptionString.write(value.faviconHash, into: &buf)
@@ -16258,6 +16270,100 @@ public func FfiConverterTypeRowLayoutDiff_lower(_ value: RowLayoutDiff) -> RustB
 }
 
 
+
+/**
+ * Why `screen_json` gave no answer. A refusal the rules make (a bad ticket)
+ * is an answer (`{"error": ...}`), not this.
+ */
+public enum ScreenJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * No `screen_*` op of that name.
+     */
+    case UnknownOperation(operation: String
+    )
+    /**
+     * The request is not the op's JSON.
+     */
+    case Invalid(detail: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension ScreenJsonError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenJsonError: FfiConverterRustBuffer {
+    typealias SwiftType = ScreenJsonError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenJsonError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .UnknownOperation(
+            operation: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Invalid(
+            detail: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ScreenJsonError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .UnknownOperation(operation):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(operation, into: &buf)
+            
+        
+        case let .Invalid(detail):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenJsonError_lift(_ buf: RustBuffer) throws -> ScreenJsonError {
+    return try FfiConverterTypeScreenJsonError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenJsonError_lower(_ value: ScreenJsonError) -> RustBuffer {
+    return FfiConverterTypeScreenJsonError.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -18982,6 +19088,17 @@ public func rowLayoutFingerprint(text: String) -> UInt64  {
 })
 }
 /**
+ * Answers one `screen_*` op: `request` and the answer are the op's JSON.
+ */
+public func screenJson(operation: String, request: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeScreenJsonError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_screen_json(
+        FfiConverterString.lower(operation),
+        FfiConverterString.lower(request),$0
+    )
+})
+}
+/**
  * The approval for the tap happening now, unsigned: call it only from the tap.
  */
 public func shareApprovalDraft(ask: ShareAsk)throws  -> ShareApprovalDraft  {
@@ -19375,6 +19492,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_screen_json() != 9471) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
