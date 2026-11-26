@@ -49,8 +49,9 @@ import { declared } from "../do-stub.ts"
  *        sleeps (not woken for a look), 404 with no computer
  *   POST /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: {action: start | finish | cancel, loginId?, code?}
  *   GET  /v1/chiefs/<agent>/slack-awake?days=<1..31>   the owner: RFD 0123's Slack awake time, {allowance_seconds,
- *        default_seconds, max_seconds, days, senders: [{slack_team, slack_user, sender_is_owner, day, seconds, turns}]}
- *        ("who spent my hours", newest UTC day first; default 7 days)
+ *        default_seconds, max_seconds, days, senders: [{slack_team, slack_user, sender_is_owner, day, seconds, turns}],
+ *        names: {<slack_user>: <Slack name>}} ("who spent my hours", newest UTC day first; default 7 days; a sender
+ *        with no recorded name is absent from names)
  *   PUT  /v1/chiefs/<agent>/slack-awake     the owner's human session: {allowance_seconds: 0..86400 | null}, each
  *        non-owner's daily awake allowance (null: the 2 h default; 0: non-owners never wake it) -> the GET's value
  *

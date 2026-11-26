@@ -17,7 +17,8 @@
 //! cmux-platform's `/v1/machines/{id}/chat-access` and `/v1/machines/{id}/chat-grants/{user}`
 //! (who may start app chats on a team machine, and Share with Me; [`chat`]); a `stack` call is
 //! refused before any request. `vm.scp_endpoint` is cmux-platform's
-//! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
+//! `/v1/cloud/machines/{id}/ssh-endpoint` and `machine.setup_desktop` its
+//! `/v1/cloud/machines/{id}/desktop` (a `stack` call of either is refused before any request).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
 //! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
@@ -130,13 +131,14 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
 
 /// Runs one call.
 pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Value, Failure> {
-    // The GitHub App status and repository list send Authorization alone: their team is in the
-    // query. Connect GitHub names its team in the team header, as every op does.
+    // The GitHub App status, repository list and clone token send Authorization alone: their team
+    // is in the query or the body. Connect GitHub names its team in the team header, as every op
+    // does: `team` when given, else the request's.
     let http = match request.call.as_str() {
-        "owner.github_app" | "owner.github_repos" => {
+        "owner.github_app" | "owner.github_repos" | "owner.github_clone_token" => {
             Http::new(&Request { team: None, ..request.clone() })?
         }
-        "owner.github_connect" => {
+        "owner.github_connect" if request.args.contains_key("team") => {
             let team = owner::team_id(text(&request.args, "team")?)?;
             Http::new(&Request { team: Some(team.to_owned()), ..request.clone() })?
         }
@@ -156,6 +158,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        "machine.setup_desktop" => machine::setup_desktop(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
         }
@@ -206,7 +209,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 44] = [
+pub const CALLS: [&str; 48] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -239,6 +242,9 @@ pub const CALLS: [&str; 44] = [
     "owner.github_app",
     "owner.github_repos",
     "owner.github_connect",
+    "owner.github_complete",
+    "owner.github_list",
+    "owner.github_clone_token",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",
@@ -250,6 +256,7 @@ pub const CALLS: [&str; 44] = [
     "machine.share_chat",
     "machine.chief_start",
     "machine.chief_resize",
+    "machine.setup_desktop",
     "machine.fork",
 ];
 

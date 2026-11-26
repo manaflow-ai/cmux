@@ -303,6 +303,10 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxHomeRender
+    CmuxMobileBilling
+    CmuxMobileSupport
+    CmuxMobileTunnel
+    CmuxPushRegistration
     CmuxRemote
     CmuxScreenKit
     CmuxVNCWebRTC
@@ -650,9 +654,10 @@ run_package_tests() {
     package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
-    # share global process resources; run each suite in its own Swift
-    # Testing process.
-    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
+    # share global process resources (CmuxPushRegistration: its URLProtocol
+    # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
+    # own Swift Testing process.
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
@@ -919,8 +924,21 @@ ensure_mobile_link_ffi() {
 }
 
 run_suite() {
+  local app_ffi_link=()
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
+    # CmuxNext's Linux shape links CCmuxAppFFI as libcmux_app_ffi.a built here (scripts/ci/app_ffi_linux.py).
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      local app_ffi_lib
+      echo "::group::libcmux_app_ffi.a for Linux"
+      if ! app_ffi_lib="$(python3 scripts/ci/app_ffi_linux.py build)"; then
+        echo "::endgroup::"
+        echo "::error title=CCmuxAppFFI build failed::package-test-lane.sh: scripts/ci/app_ffi_linux.py build failed; no CmuxNext test ran" >&2
+        exit 1
+      fi
+      echo "::endgroup::"
+      app_ffi_link=(-Xlinker -L -Xlinker "$app_ffi_lib")
+    fi
   else
     select_xcode
     echo "Xcode: $DEVELOPER_DIR"
@@ -934,7 +952,8 @@ run_suite() {
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"}
+    ${app_ffi_link[@]+"${app_ffi_link[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.
@@ -947,8 +966,8 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: three targets that
-  # read neither the web bundles nor cmux-tui), and the swift container has no curl to fetch bun.
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: targets that read
+  # neither the web bundles nor cmux-tui's daemon), and the swift container has no curl to fetch bun.
   if [ "$lane_os" != Linux ]; then
     case "$suite_package" in
       Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
