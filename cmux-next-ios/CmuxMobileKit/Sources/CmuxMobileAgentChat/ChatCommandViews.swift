@@ -110,12 +110,21 @@ struct SessionStatusSheet: View {
     let store: AgentChatStore
     @State private var load: Load = .loading
     @State private var copied: String?
+    @State private var autoRetry = AutoRetry()
     @Environment(\.dismiss) private var dismiss
 
     enum Load: Equatable {
         case loading
         case loaded(AgentSessionStatus)
+        /// The chat has no status (deterministic): said once, not retried.
+        case unavailable(String)
+        /// A transient failure (the link dropped): retried on its own.
         case failed(String)
+
+        var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
 
     var body: some View {
@@ -124,14 +133,24 @@ struct SessionStatusSheet: View {
                 switch load {
                 case .loading:
                     CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .failed(let message):
+                case .unavailable(let message):
                     ContentUnavailableView {
                         Label("Status is unavailable", systemImage: "exclamationmark.triangle")
                     } description: {
                         Text(message)
-                    } actions: {
-                        // read() swaps this view for the spinner first; keep it out of the button's task.
-                        RetryButton("Try Again") { Task { await read() } }
+                    }
+                case .failed(let message):
+                    // Read again on its own (AutoRetry): the spinner stays, then one quiet line.
+                    if autoRetry.isQuietLineShown {
+                        ContentUnavailableView {
+                            Label("Status is unavailable", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(message)
+                        } actions: {
+                            AutoRetryQuietLine(autoRetry)
+                        }
+                    } else {
+                        CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 case .loaded(let status):
                     List {
@@ -176,14 +195,19 @@ struct SessionStatusSheet: View {
         }
         .presentationDetents([.medium, .large])
         .task { await read() }
+        .autoRetry(autoRetry, failing: load.isFailed) { await read() }
     }
 
+    /// Keeps the failed state (its spinner) while it reads again, so a retry never flashes.
     private func read() async {
-        load = .loading
         do {
             load = .loaded(try await store.source.sessionStatus())
+        } catch let error as AgentFeatureUnavailable where !store.source.isOffline {
+            // The Mac answered no (or the chat has no status): said once. A dropped link
+            // (`isOffline`) falls through to `.failed`, which reads again on its own.
+            load = .unavailable(error.message)
         } catch {
-            load = .failed(UserFacingError.message(error, fallback: "Couldn't read the session status. Try again."))
+            load = .failed(UserFacingError.message(error, fallback: "Couldn't read the session status."))
         }
     }
 }
