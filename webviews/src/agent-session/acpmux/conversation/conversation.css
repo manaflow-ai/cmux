@@ -7737,14 +7737,6 @@ a.cv-sha:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
-.acpmux-shell-block kbd {
-  font-style: normal;
-  font-weight: 400;
-  font-size: calc(var(--cv-font-size) * 11 / 14);
-  line-height: calc(var(--cv-font-size) * 16 / 14);
-  font-family: var(--cv-font);
-  color: var(--cv-text-muted);
-}
 .acpmux-shell-block-output {
   display: flex;
   flex-direction: column;
