@@ -544,6 +544,9 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
+    # check-state-roots.sh's Classic ids check: path, text, count. Left out, a push that removed a Classic site
+    # and deleted its row was refused (goal next-zero-classic-footprint-all-surfaces: 41 stale rows on base).
+    "classic-ids-baseline.tsv": ((0, 1), 2),
     "raw-spawn-baseline.tsv": ((0,), 1),
     "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
@@ -765,7 +768,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
-    # Two batch reads, not a `git show` a file: each cost about 0.5 s on big-red's cmux mirror (2026-11-21: 11 s).
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:
@@ -2568,17 +2571,24 @@ def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path |
 def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """`<export>: ...` per settings export the range leaves without a key the base's export had and the head's sources
     declare, or with a key no head source declares (SETTINGS_KEYS_CHECK). Git objects only, and only when the range
-    changes a settings source or export."""
+    changes a settings source or export. Compared with HEAD's merge base with feat-cmux-next, like xcstrings_rewrites:
+    a base merge that takes the base's export (CI's generated-drift check demands that copy) brings back keys the
+    branch's previous push removed, and those are the base's, not this push's (cmux#55721)."""
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
     if not any(p.startswith(SETTINGS_KEYS_PATHS) for p in names.split("\0") if p):
         return []
+    # When BASE already descends from the merge base (no base merge in the range), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
     script = check_script(repo, head, SETTINGS_KEYS_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-settings-keys-") as tmp:
         check = absolute(Path(tmp)) / "settings-export-key-drift.py"
         check.write_bytes(script)
-        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", fork, "--head", head],
                         absolute(Path(tmp)), timeout=120)
     found = [line.removeprefix("drift: ") for line in out.splitlines() if line.startswith("drift: ")]
     stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)

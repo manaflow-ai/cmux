@@ -78,6 +78,9 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+/* Whose subagent a subagent's own pane shows, beside its name on the same line (PaneBody.tsx, subagentPanes.ts
+   paneHeading): muted metadata, never wider than the room left. */
+.acpmux-subagent-of{flex:0 1 auto;min-width:3ch;max-width:min(42vw,360px);padding:0 var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
 /* Header Path (agentPane.display.headerBreadcrumb, off by default; Taste Board #20): repo / branch / title
    as one monospace path. The leading parts are muted and shrink first; the slashes are fainter still. */
 .acpmux-thread-crumbs{display:flex;align-items:baseline;min-width:0;max-width:60vw;padding:0 4px;font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--text-control);line-height:var(--acpmux-header-control-height,26px);white-space:nowrap;overflow:hidden;cursor:default;user-select:none}
