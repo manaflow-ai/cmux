@@ -75,6 +75,15 @@ These are the places where the public API could not express the reference app:
 - **One customize app per look.** A look's `customize/` is the one `local/customize` app, and
   `implements` holds each interface once. So `../threads`' Activity section (`cmux.section/1`) can't
   ship next to the Chats section. This look keeps Chats and turns on cmux's own priority view instead.
+- **Sidebar sections the look cannot name.** Nightly 4572038238101 (hq `goals/customize-app-profiles.parity.json`,
+  codex-app `sidebar`) still draws Priority, Chief, a Chats header with Organize and a No Folder section where the
+  reference app draws a workspace switcher header, Active work and Recents. `sidebar.sections.hidden` and
+  `sidebar.sections.order` (docs/cmux-next/sidebar-customization.md) take section ids, but no document lists the ids
+  of those four sections, so this look sets none rather than guess; the ids need reading from a live sidebar
+  document (`cmux-layout-reducer` `sidebar_section_customization.rs` takes `id` or `keys`). Renaming a section
+  (Priority to Active work) has no setting.
+- **Settings nav and section rows.** `sidebar.nav` styles the sidebar only; no setting restyles the Settings window's
+  nav or rows (the `settingsSections` look is not a key), so the Settings gap stays.
 - **No motion timings.** A look can switch animations on or off and pick a speed. It cannot set a
   duration or an easing for any one transition.
 - **No "next chat that needs you" action** to bind a key to.
