@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.macScreen.shareWithoutAsking.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يشغّل سطر أوامر cmux والوكلاء وأجهزتك المشاركة دون نافذة. يظل وصول كل جهاز ساريًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tvoj cmux CLI, agenti i uređaji uključuju dijeljenje bez prozora. Pristup svakog uređaja i dalje važi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dit eget cmux CLI, agenter og enheder slår deling til uden et ark. Hver enheds adgang gælder stadig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine eigene cmux-CLI, Agenten und Geräte schalten die Freigabe ohne Dialog ein. Der Zugriff jedes Geräts gilt weiterhin."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu propia CLI de cmux, tus agentes y dispositivos activan el uso compartido sin ventana. El acceso de cada dispositivo sigue aplicándose."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre CLI cmux, vos agents et vos appareils activent le partage sans fenêtre. L’accès de chaque appareil s’applique toujours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La tua CLI cmux, i tuoi agenti e dispositivi attivano la condivisione senza finestra. L’accesso di ogni dispositivo resta valido."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自分の cmux CLI、エージェント、デバイスがシートなしで共有をオンにします。各デバイスのアクセス設定は引き続き適用されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux CLI ភ្នាក់ងារ និងឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នកបើកការចែករំលែកដោយគ្មានផ្ទាំង។ សិទ្ធិចូលប្រើរបស់ឧបករណ៍នីមួយៗនៅតែអនុវត្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "내 cmux CLI, 에이전트, 기기가 시트 없이 공유를 켭니다. 각 기기의 접근 권한은 그대로 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ditt eget cmux CLI, agenter og enheter slår på deling uten et ark. Hver enhets tilgang gjelder fortsatt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twoje cmux CLI, agenci i urządzenia włączają udostępnianie bez okna. Dostęp każdego urządzenia nadal obowiązuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sua própria CLI do cmux, agentes e dispositivos ativam o compartilhamento sem janela. O acesso de cada dispositivo continua valendo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш cmux CLI, агенты и устройства включают общий доступ без окна. Доступ каждого устройства по-прежнему действует."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux CLI เอเจนต์ และอุปกรณ์ของคุณเปิดการแชร์ได้โดยไม่มีหน้าต่าง สิทธิ์การเข้าถึงของแต่ละอุปกรณ์ยังคงมีผล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kendi cmux CLI'ın, ajanların ve cihazların paylaşımı pencere olmadan açar. Her cihazın erişimi yine geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш cmux CLI, агенти та пристрої вмикають спільний доступ без вікна. Доступ кожного пристрою й далі діє."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLI cmux, tác tử và thiết bị của bạn bật chia sẻ mà không cần hộp thoại. Quyền truy cập của từng thiết bị vẫn áp dụng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你自己的 cmux CLI、代理和设备无需弹窗即可开启共享。每台设备的访问权限仍然适用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你自己的 cmux CLI、代理和裝置無需彈窗即可開啟分享。每台裝置的存取權限仍然適用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

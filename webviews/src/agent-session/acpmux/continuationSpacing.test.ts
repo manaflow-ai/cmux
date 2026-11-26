@@ -1,6 +1,7 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { ROW_METRIC } from "./rowMetric";
 import { expect, test } from "bun:test";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { SUBAGENT_DONE } from "./subagents/subagentRows";
 import {
@@ -51,8 +52,10 @@ const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 // A reply's footer is a row of its own, as ChatGPT's (design/transcript-spacing.md "Reply footer";
 // Leo, 2026-11-02: "didn't i always say we can do it like chatgpt"): its 32 line of buttons 8 under
 // the reply, then the block gap (a prompt's turn gap) to what follows, past bookkeeping that draws
-// nothing, never a second gap.
-test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) under the footer", () => {
+// nothing, never a second gap. Another agent's line there opens the next turn and stands the run gap (16),
+// as the next turn's Working for does (transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS; Leo, 2026-11-25: "did we identify
+// the cause between the gap here? betwen the copy branch etc buttons and the next working for?").
+test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32, another agent's line 16) under the footer", () => {
   for (const next of [
     row("reply", "assistant", { text: "Next." }),
     row("prompt", "user", { text: "Next." }),
@@ -65,7 +68,8 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
     expect(layout.tops[1]! - layout.heights[0]!).toBe(TRANSCRIPT_FOOTER_GAP);
     expect(layout.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
     expect(layout.heights[2]).toBe(0);
-    const gap = next.id === "prompt" ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP;
+    const gap =
+      next.id === "prompt" ? TRANSCRIPT_TURN_GAP : next.id === "peer" ? TRANSCRIPT_RUN_GAP : TRANSCRIPT_BLOCK_GAP;
     expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
     expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
@@ -76,11 +80,11 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
 // "Background task finished", "Subagent finished") is that turn's tail: 8 under its footer row, as
 // the footer is under the reply, and the turn gap to the next prompt. A block gap above and the
 // turn gap below left it floating alone in the band (Leo, 2026-11-04: "this bare background update
-// tool call floating in teh air is so weird loking proportionally"). Another agent's line there
-// keeps the block gap (the test above).
+// tool call floating in teh air is so weird loking proportionally"). Another agent's line or a tool
+// row there opens the next turn: the run gap (16, the test above).
 test("a lone status line under a footer row is its turn's tail, 8 under it", () => {
   expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
-  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STATUS, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
   const lone = [
     row("bg", BACKGROUND_TURN, { background: { id: "bg", trigger: "system", running: false, quiet: true } }),
@@ -170,9 +174,11 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
   }
 });
 
-// Review at b1de39a: row estimates built from grid lengths (the action row, a tool row) scale with
-// the Interface Size like the CSS tokens, so first placement does not jump when rows are measured.
-test("estimated grid rows follow the Interface Size", () => {
+// Review at b1de39a: row estimates built from grid lengths (the action row) scale with the Interface Size
+// like the CSS tokens, so first placement does not jump when rows are measured. A one-line tool row does
+// not: `--cv-tool-row-height` is 22px at every Interface Size, and Chromium and WebKit draw a run of two
+// shell calls as two 22 px rows at Interface Size 1 and at 1.25 alike (review of #46650).
+test("estimated grid rows follow the Interface Size; tool rows keep their drawn line height", () => {
   const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
@@ -184,7 +190,7 @@ test("estimated grid rows follow the Interface Size", () => {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
     ] as unknown as AcpmuxRow[];
-    // Two shell calls: two tool rows and the block gap between them, all grid lengths.
+    // Two shell calls: two one-line tool rows, flush.
     const run = [
       {
         id: "run",
@@ -197,15 +203,26 @@ test("estimated grid rows follow the Interface Size", () => {
         ],
       },
     ] as unknown as AcpmuxRow[];
-    for (const rows of [received, run]) {
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    for (const [rows, factor] of [
+      [received, 1.25],
+      [run, 1],
+    ] as const) {
       scale = "1";
       const atOne = layoutConversation(rows, 720).heights[0]!;
       scale = "1.25";
       const atLarger = layoutConversation(rows, 720).heights[0]!;
       expect(atOne).toBeGreaterThan(0);
-      expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+      expect(atLarger).toBeCloseTo(atOne * factor, 5);
     }
+    setExperimentSwitches({});
+    scale = "1.25";
+    // Expanded Edits Estimate off (the default): tool rows scale with the grid, as before.
+    expect(layoutConversation(run, 720).heights[0]).toBeCloseTo(2 * TRANSCRIPT_LINE_ROW * 1.25, 5);
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    expect(layoutConversation(run, 720).heights[0]).toBe(2 * TRANSCRIPT_LINE_ROW);
   } finally {
+    setExperimentSwitches({});
     if (saved.document === undefined) delete g.document;
     else g.document = saved.document;
     if (saved.getComputedStyle === undefined) delete g.getComputedStyle;

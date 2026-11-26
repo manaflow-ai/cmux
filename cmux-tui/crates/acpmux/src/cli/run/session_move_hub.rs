@@ -333,7 +333,7 @@ impl Timing {
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
-            for key in ["dialMs", "pagesMs", "finishMs"] {
+            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }

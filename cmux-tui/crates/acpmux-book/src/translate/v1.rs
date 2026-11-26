@@ -80,8 +80,6 @@ struct Update<'a> {
     #[serde(borrow)]
     state: Cow<'a, str>,
     #[serde(borrow)]
-    entries: Option<&'a RawValue>,
-    #[serde(borrow)]
     raw_input: Option<&'a RawValue>,
     #[serde(rename = "_meta", borrow)]
     meta: Meta<'a>,
@@ -439,20 +437,6 @@ fn agent(
                 kind == "tool_call",
                 out,
             )?;
-        }
-        "plan" => {
-            state.close_text(out);
-            if let Some(raw) = u.entries {
-                let mut row = if let Some(row) = state.plan.take() {
-                    row
-                } else {
-                    state.row(RowKind::Plan, out)?
-                };
-                row.fields.insert("hidden".into(), (raw.get() == "[]").to_string());
-                out.row(&row);
-                out.body(row.id, BodyField::Entries, false, raw);
-                state.plan = Some(row);
-            }
         }
         "compaction" => {
             let mut row = if let Some(row) = state.compaction.take() {

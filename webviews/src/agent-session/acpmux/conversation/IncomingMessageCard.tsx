@@ -60,7 +60,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
@@ -466,14 +466,11 @@ export function IncomingMessageLine({
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: opened, set: show } = useDisclosure({ message: id, sessionId: session });
   const open = whole || opened;
   const lineLook = useMessageLineLook();
   const inPlace = useReceivedLook() === "card";
-  const show = (next: boolean) => {
-    setMessageOpened(session, id, next);
-    setOpen(next);
-  };
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
   // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.
