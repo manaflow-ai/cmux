@@ -119,6 +119,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                         # no Tier B skip clause: a routed pull request runs it (a guard it breaks must go red on it)
                         group["if"])
         self.assertNotIn("startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')", group["if"])
+        # The route feeds the group and own-change-checks, which now run on a routed pull request into feat-cmux-next,
+        # so the route carries no Tier B skip clause either (else they would never be routed there).
+        self.assertNotIn("startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')", jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]

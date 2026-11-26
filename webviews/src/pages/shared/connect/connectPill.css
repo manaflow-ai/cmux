@@ -1,0 +1,51 @@
+/* The status pill (ConnectPill.tsx): a dot in the state's tone and its words, on a faint wash of the
+ * same tone. Numbers come from the design scale (--ds-*), colours from the design colours with
+ * Settings' names as fallbacks, like signIn.css. */
+.connect-pill {
+  --connect-tone: var(--muted-text, var(--ds-color-muted, GrayText));
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--ds-space-1, 4px);
+  max-width: 60%;
+  padding: 0 var(--ds-space-2, 8px);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--connect-tone) 12%, transparent);
+  color: var(--text, CanvasText);
+  font-size: var(--text-detail);
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.connect-pill[data-tone="success"] {
+  --connect-tone: var(--success, var(--ds-color-success));
+}
+
+.connect-pill[data-tone="warning"] {
+  --connect-tone: var(--warning, var(--ds-color-attention));
+}
+
+.connect-pill[data-tone="danger"] {
+  --connect-tone: var(--danger, var(--ds-color-danger));
+}
+
+.connect-pill[data-tone="accent"] {
+  --connect-tone: var(--cmux-accent, var(--accent, var(--ds-color-accent)));
+}
+
+.connect-pill[data-tone="quiet"] {
+  color: var(--muted-text, var(--ds-color-muted, GrayText));
+}
+
+.connect-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connect-dot {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border: 3px solid var(--connect-tone);
+  border-radius: 50%;
+}
