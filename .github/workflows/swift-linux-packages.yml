@@ -281,12 +281,15 @@ jobs:
           fi
 
       # Every fallback is logged: a warning on this run, the table in its summary, and the artifact the
-      # mac-fallback job reads, so the Linux logic gets fixed rather than living on the Mac.
+      # mac-fallback job reads, so the Linux logic gets fixed rather than living on the Mac. The step tests
+      # the file itself: hashFiles() sees only the workspace, never runner.temp, so a hashFiles() gate
+      # here skipped every handoff and a red Linux suite passed this run green with no Mac rerun.
       - name: Hand Linux failures to the Mac fallback
         id: handoff
-        if: always() && env.MAC_FALLBACK == '1' && hashFiles(format('{0}/linux-failed.tsv', runner.temp)) != ''
+        if: always() && env.MAC_FALLBACK == '1'
         run: |
           set -euo pipefail
+          [[ -s "$RUNNER_TEMP/linux-failed.tsv" ]] || { echo "no Linux failures to hand over"; exit 0; }
           echo "handed=1" >> "$GITHUB_OUTPUT"
           {
             echo "### Linux failures handed to the Mac fallback (${{ matrix.group }})"

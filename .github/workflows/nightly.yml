@@ -8329,6 +8329,20 @@ jobs:
           TRACK: ${{ needs.decide.outputs.track || needs.published-build.outputs.track || inputs.nightly_next_post_publish != '' && 'nightly-next' || '' }}
         with:
           script: |
+            // A rate-limited request waits for its reset and goes again (run 45776501690 lost its report to one); a
+            // refused request did nothing, so a write retries safely. 50 min of waits in all, as decide does.
+            const deadline = Date.now() + 50 * 60 * 1000;
+            github.hook.wrap('request', async (request, options) => {
+              for (let attempt = 1; ; attempt += 1) {
+                try { return await request(options); } catch (error) {
+                  const h = (error.response && error.response.headers) || {};
+                  if (!((error.status === 403 || error.status === 429) && (h['x-ratelimit-remaining'] === '0' || h['retry-after'] !== undefined || /rate limit/i.test(String(error.message)))) || Date.now() >= deadline) throw error;
+                  const ms = Math.max(5000, Math.min(Number(h['retry-after']) * 1000 || Number(h['x-ratelimit-reset']) * 1000 - Date.now() + 2000 || 60000 * attempt, deadline - Date.now()));
+                  core.warning(`GitHub API rate limited (${error.status}) on ${options.method} ${options.url}; retrying in ${Math.round(ms / 1000)} s`);
+                  await new Promise((resolve) => setTimeout(resolve, ms));
+                }
+              }
+            });
             const { owner, repo } = context.repo;
             // One label per release track (nightly, rc, nightly-next), so a
             // cmux-next result never opens or closes main's NIGHTLY incident.
