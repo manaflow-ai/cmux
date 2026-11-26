@@ -156,13 +156,13 @@ fn toast_ops() {
     assert_eq!(ok(c"handlers_close_recent_overflow", r#"{"count":10}"#), json!({"drop": 2}));
     assert_eq!(
         ok(c"handlers_close_toast_message", r#"{"tabs":2}"#),
-        json!({"tabsClosed": {"count": 2}})
+        json!({"kind": "tabsClosed", "count": 2})
     );
     assert_eq!(
         ok(c"handlers_close_toast_message", r#"{"tabs":1,"title":"x"}"#),
-        json!({"tabClosed": {"title": "x"}})
+        json!({"kind": "tabClosed", "title": "x"})
     );
-    assert_eq!(ok(c"handlers_close_toast_message", r#"{"tabs":1}"#), json!("untitled"));
+    assert_eq!(ok(c"handlers_close_toast_message", r#"{"tabs":1}"#), json!({"kind": "untitled"}));
     assert_eq!(ok(c"handlers_close_one_group", r#"{"daemons":[1,1]}"#), json!({"oneGroup": true}));
     assert_eq!(ok(c"handlers_close_one_group", r#"{"daemons":[1,2]}"#), json!({"oneGroup": false}));
 }
