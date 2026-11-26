@@ -3019,7 +3019,7 @@ class IOSRouting(unittest.TestCase):
         self.assertTrue(route.persistent)
         # glaeda knows these jobs, so they take the pool label even with a root count.
         self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
-        # mobile-core-package needs no simulator.
+        # A host-only SwiftPM job needs no simulator.
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
@@ -3753,8 +3753,15 @@ class IOSRouting(unittest.TestCase):
                                (ios_pool.ephemeral(SMALL), {"requested": SMALL}),
                                (ios_pool.ephemeral(LARGE), {"variable": LARGE}),
                                (ios_pool.ephemeral("macos-26"), {}),
-                               (ios_pool.ephemeral(SMALL), {"overflow": SMALL})):
+                               (ios_pool.ephemeral(SMALL), {"overflow": SMALL}),
+                               (ios_pool.ephemeral(SMALL), {"event": "push"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "workflow_dispatch"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "schedule"})):
             self.assertIs(ios_pool.granted_default(route, **{**base, **changes}), route, changes)
+        # A pull request run takes the grant: the controller's bound re-runs it off a starved label.
+        for event in ("pull_request", "pull_request_target"):
+            self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
+                             "cmux-mac", event)
 
     def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
         def run(args, env):
@@ -3771,6 +3778,7 @@ class IOSRouting(unittest.TestCase):
         # A fork, an outage's overflow label and another repository keep the simple picker's Blacksmith pool.
         for extra, env in ((["--fork", "true"], {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}),
                            ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "CI_OVERFLOW_MAC": SMALL}),
+                           ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_NAME": "push"}),
                            ([], {})):
             runs_on = json.loads(run(args + extra, env)["runs_on"])
             self.assertIsInstance(runs_on, str, (extra, env))
@@ -4322,13 +4330,14 @@ class IOSWiring(unittest.TestCase):
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
-        self.assertEqual(runs_on_of(jobs["mobile-core-package"]), self.TEST_IOS_RUNS_ON.replace(
-            "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
+        # The mobile-core packages test on Linux; no macOS job reads package_runs_on.
+        self.assertNotIn("mobile-core-package", jobs)
+        self.assertNotIn("package_runs_on", jobs["runner"]["outputs"])
         # ios-simulator-build reads its own output first (Build placement), runs_on when a picker has none.
         self.assertEqual(runs_on_of(jobs["ios-simulator-build"]), self.TEST_IOS_RUNS_ON.replace(
             "|| needs.runner.outputs.runs_on)", "|| needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on)"))
         self.assertEqual(jobs["runner"]["outputs"]["build_runs_on"], "${{ steps.pool.outputs.build_runs_on }}")
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertIn("runner", jobs[name]["needs"], name)
             self.assertIn("needs.runner.result == 'success'", jobs[name]["if"], name)
         self.assertIn("runner", jobs["ios-tests"]["needs"])
@@ -4350,7 +4359,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
         pin = IOS_XCODE_PIN
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertEqual(env_of(jobs[name])["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]

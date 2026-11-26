@@ -65,7 +65,11 @@ fn config_json_comes_before_the_settings() {
 
 #[test]
 fn capacity_fallback_reads_its_key_held_to_its_range() {
-    assert_eq!(settings_fallback_after(&json!({})), DEFAULT_CAPACITY_FALLBACK_AFTER);
+    // Off unless the person turns it on: a chat never leaves its model on its own (cmux#57784).
+    assert_eq!(DEFAULT_CAPACITY_FALLBACK_AFTER, 0);
+    assert_eq!(settings_fallback_after(&json!({})), 0);
+    let on = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 1}}});
+    assert_eq!(settings_fallback_after(&on), 1);
     let off = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 0}}});
     assert_eq!(settings_fallback_after(&off), 0);
     let dotted = json!({"agents.autoRetry.capacityFallbackAfter": 5.7});
