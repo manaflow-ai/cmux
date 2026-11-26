@@ -1,5 +1,5 @@
 import React from "react";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT, type Translate } from "./i18n";
 import { sandboxFailureKey, sandboxRetryable, type SandboxReceipt, type SandboxRun } from "./sandboxRun";
 import "./sandboxRun.css";
@@ -42,7 +42,7 @@ export function SandboxRunView({
       </div>
       {run.state === "running" ? (
         <output className="acpmux-sandbox-running">
-          <Spinner size={14} loading />
+          <WaitSpinner size={14} loading />
           <span>{t("sandbox.running")}</span>
           {unread && onCheckAgain && (
             <>

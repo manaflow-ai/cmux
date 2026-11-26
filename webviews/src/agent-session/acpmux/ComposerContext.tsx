@@ -8,7 +8,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -1609,7 +1609,7 @@ export function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={12} loading className="acpmux-env-live-spinner" />
+          <WaitSpinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}

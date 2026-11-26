@@ -24,7 +24,7 @@ import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS, nearestLevel } from "./composerPickerModel";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
@@ -2035,7 +2035,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={refreshCatalog}
                 >
                   {refreshStatus === "fetching" ? (
-                    <Spinner size={14} loading />
+                    <WaitSpinner size={14} until={<Icon name="action.reload" size={14} />} />
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}

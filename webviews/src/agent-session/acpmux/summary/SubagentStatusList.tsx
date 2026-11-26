@@ -18,7 +18,7 @@ import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/s
 import { type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import {
   SUBSESSION_STATE_LABEL,
   subsessionDisplayName,
@@ -233,7 +233,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
       <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {retry && <Spinner size={12} loading />}
+        {retry && <WaitSpinner size={12} loading />}
         {retry ? retryLabel(t, retry) : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -469,7 +469,7 @@ export function HarnessesScreen({
               {/* One group: when the words need the row's width, the actions move under them together. */}
               {(spinning || label || secondFix) && (
                 <span className="acpmux-harness-actions">
-                  {spinning && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+                  {spinning && <WaitSpinner size={12} className="acpmux-harness-spinner" />}
                   {label && (
                     <button
                       type="button"
