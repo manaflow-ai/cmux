@@ -277,6 +277,7 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
             && let Some(owners) = hub.config.read().await.lane_gh_carrier.clone()
         {
             crate::cli::host_broker_forward::hold(
+                &hub.scope,
                 &owners,
                 crate::cli::host_broker_forward::held_socket_path(),
             );

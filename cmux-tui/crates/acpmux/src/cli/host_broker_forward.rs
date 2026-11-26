@@ -233,8 +233,8 @@ pub fn held_socket_path() -> PathBuf {
 
 /// Start the daemon-held forward to `owners` at `socket`, once per daemon: a second call (a
 /// re-join) leaves the first. False when one is held already, there are no owners, or the socket
-/// cannot be bound (logged).
-pub fn hold(owners: &[String], socket: PathBuf) -> bool {
+/// cannot be bound (logged). The forward is one of `scope`'s tasks (the hub's), so it ends with it.
+pub fn hold(scope: &cmux_scope::Scope, owners: &[String], socket: PathBuf) -> bool {
     if owners.is_empty() || HELD.get().is_some() {
         return false;
     }
@@ -255,7 +255,7 @@ pub fn hold(owners: &[String], socket: PathBuf) -> bool {
         owners.order().join(", then ")
     );
     let daemon = crate::config::socket_path();
-    tokio::spawn(async move {
+    scope.spawn_until_cancelled("lane-gh carrier forward", async move {
         if let Err(e) = serve(listener, owners, daemon).await {
             tracing::warn!("lane-gh carrier forward ended: {e:#}");
         }
