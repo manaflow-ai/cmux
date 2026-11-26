@@ -22,7 +22,7 @@ on:
       after:
         description: After ref (branch or SHA)
         required: false
-        default: d04607cef7046138aabe5bd5d01d517dc9450078
+        default: e7eded41698d630186cf2082662e2c0d066fad0d
 
 permissions:
   contents: read
@@ -41,9 +41,9 @@ jobs:
       matrix:
         include:
           - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'd35ce4616930f56c1dcd2fa588a4b012ad9903b7' }}
           - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'd04607cef7046138aabe5bd5d01d517dc9450078' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'e7eded41698d630186cf2082662e2c0d066fad0d' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
