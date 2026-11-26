@@ -149,7 +149,9 @@ test(
   faked(async () => {
     const sent: { sessionId: string; on: boolean }[] = [];
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         return params.on ? Promise.resolve({}) : refused();
       },
@@ -170,7 +172,9 @@ test(
     const sent: { sessionId: string; on: boolean }[] = [];
     let refusals = 1;
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         if (!params.on && refusals > 0) {
           refusals -= 1;
@@ -227,7 +231,9 @@ test(
     const sent: { sessionId: string; on: boolean }[] = [];
     let refuse: () => void = () => {};
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         if (params.on) return Promise.resolve({});
         // The first off's answer comes back late: after the pane shows s2.

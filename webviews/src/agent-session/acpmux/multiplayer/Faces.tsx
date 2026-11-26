@@ -238,7 +238,6 @@ export function ActivityLine({ strip }: { strip: RoomStrip }) {
   else if (typers.length === 2)
     parts.push(t("multiplayer.typing.two", { first: typers[0]!.name, second: typers[1]!.name }));
   for (const worker of workers) parts.push(t("multiplayer.agentWorking", { name: worker.name }));
-  if (line.more > 0) parts.push(signed(t("multiplayer.more", { count: line.more })));
   return (
     <output className="cv-typing" data-look="dots" data-strip="" aria-live="polite">
       <span className="cv-typing__faces">
@@ -246,7 +245,10 @@ export function ActivityLine({ strip }: { strip: RoomStrip }) {
           <Face key={actor.id} person={actor} />
         ))}
       </span>
-      <span className="cv-typing__words">{parts.join(" · ")}</span>
+      <span className="cv-typing__words">
+        {parts.join(" · ")}
+        {line.more > 0 && <> · {signed(t("multiplayer.more", { count: line.more }))}</>}
+      </span>
       <span className="cv-typing__dots" aria-hidden="true">
         <i />
         <i />
