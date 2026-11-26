@@ -700,6 +700,105 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assertEqual(self.served(self.POINTER), first)
         self.assertEqual(self.verified(self.POINTER)["sequence"], 20261109080000)
 
+    NIGHTLY = "cmux-tui/channels/linux-nightly.json"
+
+    def follow(self, commit, *, min_sequence=None, run_id="9"):
+        """cmux-linux-nightly-channel.yml: repoint the commit's published release.json at linux-nightly."""
+        release = self.r2 / f"cmux-tui/{commit}/release.json"
+        if min_sequence is None:
+            min_sequence = (self.verified(self.NIGHTLY)["sequence"] + 1) if self.served(self.NIGHTLY) else 0
+        out = self.tmp / f"nightly-{len(list(self.tmp.iterdir()))}.json"
+        made = subprocess.run([sys.executable, str(ROOT / "scripts/ci/cmux-machine-channel.py"), "repoint",
+                               "--release", str(release), "--keys", str(self.repo / KEYS_PATH), "--channel",
+                               "nightly", "--commit", commit, "--min-sequence", str(min_sequence), "--out", str(out)],
+                              text=True, capture_output=True)
+        if made.returncode != 0:
+            return made
+        return self.point(out, "--channel-only", run_id=run_id)
+
+    def test_the_nightly_channel_follows_a_published_build_and_never_rewrites_its_files(self):
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload()))
+        release, feat = self.served(self.RELEASE), self.served(self.POINTER)
+        self.assert_ok(self.follow(RELEASE_COMMIT))
+        self.assertEqual(self.served(self.RELEASE), release)
+        self.assertEqual(self.served(self.POINTER), feat)
+        nightly = self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")
+        build = self.verified(self.RELEASE, None, "cmux-linux-release", False)
+        self.assertEqual(nightly["commit"], RELEASE_COMMIT)
+        self.assertEqual(nightly["targets"], build["targets"])
+        self.assertEqual(nightly["committed_at"], build["committed_at"])
+        self.assertTrue(nightly["version"].endswith(f"{nightly['sequence']}.{RELEASE_COMMIT[:12]}"))
+        # The same commit again: kept, so no installer updates to the same build.
+        before = self.served(self.NIGHTLY)
+        result = self.follow(RELEASE_COMMIT, run_id="10")
+        self.assert_ok(result)
+        self.assertIn("names cccccccccccc already", result.stderr)
+        self.assertEqual(self.served(self.NIGHTLY), before)
+
+    def test_the_nightly_channel_moves_back_with_a_nightly_rollback_and_its_sequence_still_rises(self):
+        self.only_linux_release()
+        newer = "e" * 40
+        self.assert_ok(self.point(self.payload()))
+        self.assert_ok(self.point(self.payload(commit=newer, committed_at=COMMITTED_AT + 60), run_id="2"))
+        self.assert_ok(self.follow(newer))
+        first = self.verified(self.NIGHTLY)["sequence"]
+        self.assert_ok(self.follow(RELEASE_COMMIT, run_id="11"))
+        value = self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")
+        self.assertEqual(value["commit"], RELEASE_COMMIT)
+        self.assertGreater(value["sequence"], first)
+
+    def test_the_nightly_channel_needs_a_published_signed_build(self):
+        self.only_linux_release()
+        missing = self.follow(RELEASE_COMMIT)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIsNone(self.served(self.NIGHTLY))
+        # An unsigned release.json (a bucket writer) never gets signed for the channel.
+        path = self.r2 / self.RELEASE
+        path.parent.mkdir(parents=True)
+        path.write_bytes(self.payload().read_bytes())
+        forged = self.follow(RELEASE_COMMIT)
+        self.assertNotEqual(forged.returncode, 0)
+        self.assertIn("does not verify", forged.stderr)
+        self.assertIsNone(self.served(self.NIGHTLY))
+
+    def run_follow(self, appcast_commit, run_id="20"):
+        """scripts/ci/cmux-linux-nightly-follow.sh with the NIGHTLY appcast served from the fake R2."""
+        for name in ("cmux-linux-nightly-follow.sh", "cmux-machine-channel.py", "screen_sharing_helper_release.py"):
+            shutil.copy(ROOT / "scripts/ci" / name, self.repo / "scripts/ci/")
+        for extra in ROOT.joinpath("scripts/ci").glob("nightly_version*.py"):
+            shutil.copy(extra, self.repo / "scripts/ci/")
+        item = f"<item><cmux:sourceCommit>{appcast_commit}</cmux:sourceCommit></item>" if appcast_commit else "<item/>"
+        (self.r2 / "nightly-appcast.xml").write_text(f"<rss><channel>{item}<item>"
+                                                     f"<cmux:sourceCommit>{'0' * 40}</cmux:sourceCommit></item></channel></rss>")
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id,
+               "NIGHTLY_APPCAST": "https://files.cmux.com/nightly-appcast.xml"}
+        return subprocess.run(["bash", "scripts/ci/cmux-linux-nightly-follow.sh", str(self.tmp / f"follow-{run_id}")],
+                              cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_the_follow_script_points_linux_nightly_at_the_nightlys_first_commit(self):
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload()))
+        result = self.run_follow(RELEASE_COMMIT)
+        self.assert_ok(result)
+        self.assertEqual(self.verified(self.NIGHTLY, "nightly", "cmux-linux-release")["commit"], RELEASE_COMMIT)
+
+    def test_the_follow_script_keeps_the_channel_without_a_signed_build_or_a_commit(self):
+        self.only_linux_release()
+        for commit, text in ((RELEASE_COMMIT, "has no signed Linux build"), (None, "names no source commit")):
+            result = self.run_follow(commit)
+            self.assert_ok(result)
+            self.assertIn(text, result.stdout)
+            self.assertIsNone(self.served(self.NIGHTLY))
+
+    def test_channel_only_is_for_a_linux_release(self):
+        self.only_linux_release()
+        result = self.point(self.payload(purpose="cmux-cloud-machine-update"), "--channel-only")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--channel-only is for a Linux release channel", result.stdout)
+
     def test_another_build_of_a_published_commit_fails_loud(self):
         self.assert_ok(self.point(self.payload()))
         first = self.served(self.RELEASE)
