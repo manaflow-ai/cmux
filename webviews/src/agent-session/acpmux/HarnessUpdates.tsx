@@ -77,6 +77,7 @@ export function HarnessUpdatesSection({
     <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
       {all && (
         <div className="acpmux-harness-updates-head">
+          {/* tooltip-allow: Lawrence 2026-11-21 put the reason in the heading's tooltip, not a line of its own. */}
           <span className="acpmux-harness-updates-title" title={t("harness.updatesHint")}>
             {title}
           </span>

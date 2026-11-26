@@ -37,6 +37,8 @@ fn no_delete_path() {
         include_str!("schedule.rs"),
         include_str!("plan.rs"),
         include_str!("http.rs"),
+        include_str!("runner.rs"),
+        include_str!("runner_cli.rs"),
     ];
     for source in sources {
         for banned in ["Method::DELETE", "/delete", "/stop\"", "\"stop\"", "/retire"] {
@@ -509,4 +511,23 @@ fn providers_read_the_schedule_opt_in() {
     assert!(gce::parse_instance(&inst).is_some_and(|m| m.schedule_pause));
     let inst = json!({"name": "cmux-runner-pool-w", "status": "RUNNING", "labels": {"purpose": "cmux-runner-pool"}});
     assert!(gce::parse_instance(&inst).is_some_and(|m| !m.schedule_pause));
+}
+
+mod runner_tests;
+
+#[test]
+fn no_floor_by_default_every_idle_machine_pauses() {
+    // No minimum number of VMs (Leo: "you shouldnt need to set minimums in the first place"): a detector for a
+    // non-zero keep_idle default.
+    assert_eq!(Policy::default().keep_idle, 0);
+    let machines = vec![
+        machine(Provider::Freestyle, "fsp-a", Power::Running, 1),
+        machine(Provider::Freestyle, "fsp-b", Power::Running, 1),
+    ];
+    let roster = vec![runner("fsp-a", true, false), runner("fsp-b", true, false)];
+    let mut s = Scheduler::new(Policy { idle_ms: 1_000, ..Policy::default() });
+    assert!(s.tick(0, &machines, &roster, Demand::Jobs(0)).pause.is_empty());
+    let mut paused = s.tick(1_000, &machines, &roster, Demand::Jobs(0)).pause;
+    paused.sort();
+    assert_eq!(paused, vec!["id-fsp-a".to_owned(), "id-fsp-b".to_owned()]);
 }

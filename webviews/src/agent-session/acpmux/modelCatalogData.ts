@@ -1,6 +1,7 @@
 import { isDefaultChoice } from "./defaultChoice";
 import { FEED_PROVIDERS } from "./feedHarnesses";
 import { isModelRouterKind } from "./routerKinds";
+import { CLAUDE_STDIO_KIND } from "./modelPickerModel";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
@@ -355,6 +356,12 @@ export function buildPickerCatalog({
   // folder profile must never stand in for a catalog harness of its family.
   // A router can report the same family as a real launcher. Exclude it before choosing that
   // family's representative, so it cannot replace or hide the actual harness.
+  // A catalog harness whose own profile acpmux lists as no picker choice (`pickerHidden`: the cmux
+  // model router, Claude Code's automatic fallback, whose catalog entry is the router's model list)
+  // is no harness of the picker either: it drew a second Claude Code tab under DeepSeek.
+  const hiddenProfiles = new Set(
+    acpmux.filter((entry) => !entry.folder && entry.pickable === false).map((entry) => entry.id),
+  );
   acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
@@ -367,10 +374,11 @@ export function buildPickerCatalog({
   };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
-  const harnesses = layered.harnesses.map((harness) => {
+  const harnesses = layered.harnesses.flatMap((harness) => {
     const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
     for (const member of members) covered.add(member.id);
-    return catalogHarness(harness, members, join);
+    if (hiddenProfiles.has(harness.id) && !members.some(entryPickable)) return [];
+    return [catalogHarness(harness, members, join)];
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
@@ -462,9 +470,26 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const probed = chosen?.models ?? (harness.modelSource === "probe" ? feedModels(harness.id, join.catalog) : []);
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  // An ACP harness that reported its own menu lists only the catalog models it reported, as acpmux
+  // does (models_view.rs `offered`): Codex names what this account runs, and on a ChatGPT account it
+  // refuses the catalog's gpt-5.6 and gpt-5.5 ("not supported when using Codex with a ChatGPT
+  // account"). Claude Code reports only its current aliases, and its older catalog releases run.
+  const ownMenu =
+    chosen?.topModels !== undefined &&
+    chosen.kind !== CLAUDE_STDIO_KIND &&
+    (harness as CatalogHarness & { runsAnyModel?: boolean }).runsAnyModel !== true
+      ? new Set(probed.map((probe) => probe.id))
+      : undefined;
+  const reportedHere = (model: HarnessModel) =>
+    !ownMenu ||
+    [model.id, ...(model.aliases ?? [])].some((id) => ownMenu.has(id)) ||
+    model.id === runs ||
+    userDeclaresModel(model.id, chosen?.id, harness.id, join);
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs, harness.id, join))
+      ? harness.models.filter(
+          (model) => includeCatalogIdentity(model, chosen, runs, harness.id, join) && reportedHere(model),
+        )
       : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);

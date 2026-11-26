@@ -25,12 +25,15 @@ mod host_state;
 mod input;
 mod local_output;
 mod metadata;
+mod mirror_park;
+pub(crate) use mirror_park::TerminalMirror;
 mod mouse_input;
 mod options;
 mod pending_bells;
 mod pty_surface;
 mod render_tap;
 mod render_view;
+pub(crate) mod resume_ring;
 mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
@@ -120,6 +123,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(any(unix, windows))]
 mod hosted_reader;
+#[cfg(unix)]
+mod idle_links;
 #[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(any(unix, windows))]
@@ -307,6 +312,16 @@ pub struct AttachStream {
     pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
+    /// Where the output stream stood at the replay (`terminal-resume-v1`).
+    pub(crate) stamp: resume_ring::StreamStamp,
+}
+
+/// A `terminal-resume-v1` reattach the daemon could answer exactly: the bytes
+/// after the viewer's offset, and an attach stream with no replay, whose live
+/// tap follows them.
+pub(crate) struct ResumeAttach {
+    pub missing: Vec<u8>,
+    pub attach: AttachStream,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,6 +367,11 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
     ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+/// The most replay bytes a respawned terminal is seeded with: the replay
+/// budget less room for the respawn's mode reset and marker line. Every
+/// replay on the restore path (snapshot, tail rebuild, full-mode rebuild,
+/// exit snapshot) is bounded by it, so none is too large to seed.
+pub(crate) const SEED_REPLAY_MAX_BYTES: usize = VT_REPLAY_MAX_BYTES - 64 * 1024;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
 const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
 const _: () = assert!(
@@ -845,7 +865,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -1053,6 +1073,15 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    /// The terminal runs on the holder (its PTY master lives in the holder process).
+    #[cfg(test)]
+    pub(crate) fn runs_on_holder(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+        })
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

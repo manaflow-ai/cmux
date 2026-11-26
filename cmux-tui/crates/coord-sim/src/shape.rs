@@ -125,8 +125,10 @@ pub struct Shape {
     pub attachment_bytes: Hist,
 }
 
-/// The shape built in: a lane host's own coordinators (gcp lane, 2026-11-19), until Leo's Mac histograms land.
-pub const DEFAULT_SHAPE: &str = include_str!("../shapes/default.json");
+/// The shape built in: Leo's coordinator sessions (his Mac, 2026-11-19, histograms only): 556 sessions, the largest
+/// 6.1 GB / 4.55M events, one session at 9,063 events in a second, up to 105 sessions active in a minute.
+/// "1x" in the driver means this shape's rates. `shapes/lane-host.json` is a GCP lane host's, for comparison.
+pub const DEFAULT_SHAPE: &str = include_str!("../shapes/leo-peak.json");
 
 impl Shape {
     pub fn parse(text: &str) -> Result<Shape, String> {

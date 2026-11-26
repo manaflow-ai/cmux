@@ -107,30 +107,72 @@ export function matchingModels<Model>(
 
 export type QueryModel = { id: string; name: string; efforts?: string[]; fast?: boolean };
 
-/// Whether `model` of `harnessName` fits the query: every word in its name, id or harness name;
-/// the named effort among its efforts and fast mode among its options, when the catalog lists them.
-export function fitsQuery(model: QueryModel, harnessName: string, query: ParsedQuery): boolean {
-  const text = `${model.name} ${model.id} ${harnessName}`.toLowerCase();
+/// What a query matches a model against: its name, id and harness name, lowercased (`text`) and
+/// with only their letters and digits (`flat`). A search index (modelSearch.ts) makes these once per
+/// catalog, so a typed key reads them rather than making them again for every model.
+export type SearchKeys = { text: string; flat: string };
+
+export function searchKeys(model: QueryModel, harnessName: string): SearchKeys {
+  return {
+    text: `${model.name} ${model.id} ${harnessName}`.toLowerCase(),
+    flat: `${compact(model.name)} ${compact(model.id)} ${compact(harnessName)}`,
+  };
+}
+
+/// A query's words compacted, once per query rather than once per model.
+export function queryFlatWords(query: ParsedQuery): string[] {
+  return query.words.map(compact);
+}
+
+/// A family followed by a version ("astra-6.2"), which also names the id that ends "6.2-astra".
+const FAMILY_VERSION = /^([a-z]+)-(\d+(?:\.\d+)*)$/;
+
+/// `fitsQuery` on a model's `keys`, with the query's `flatWords` (queryFlatWords).
+export function fitsKeys(
+  keys: SearchKeys,
+  model: QueryModel,
+  query: ParsedQuery,
+  flatWords: readonly string[],
+): boolean {
   // A word matches as typed, or with spaces, dots and dashes ignored on both sides ("opus55", "gpt5.5", "4-5").
-  const flat = `${compact(model.name)} ${compact(model.id)} ${compact(harnessName)}`;
-  if (
-    !query.words.every((word) => {
-      const normalized = compact(word);
-      if (!normalized) return false;
-      if (text.includes(word) || flat.includes(normalized)) return true;
-      // A family followed by a version ("astra-6.2") also names "gpt-6.2-astra".
-      const reversed = /^([a-z]+)-(\d+(?:\.\d+)*)$/.exec(word);
-      return (
-        !!reversed &&
-        model.id.toLowerCase().split("/").at(-1)?.split("-").slice(-2).join("-") === `${reversed[2]}-${reversed[1]}`
-      );
-    })
-  )
-    return false;
+  for (let index = 0; index < query.words.length; index += 1) {
+    const word = query.words[index]!;
+    const flatWord = flatWords[index]!;
+    if (keys.text.includes(word) || (flatWord !== "" && keys.flat.includes(flatWord))) continue;
+    // A family followed by a version ("astra-6.2") also names "gpt-6.2-astra".
+    const reversed = FAMILY_VERSION.exec(word);
+    if (!reversed) return false;
+    if (model.id.toLowerCase().split("/").at(-1)?.split("-").slice(-2).join("-") !== `${reversed[2]}-${reversed[1]}`)
+      return false;
+  }
   if (query.effort && model.efforts && !model.efforts.some((effort) => effort.toLowerCase() === query.effort))
     return false;
   if (query.fast && model.fast === false) return false;
   return true;
+}
+
+/// Whether `model` of `harnessName` fits the query: every word in its name, id or harness name;
+/// the named effort among its efforts and fast mode among its options, when the catalog lists them.
+export function fitsQuery(model: QueryModel, harnessName: string, query: ParsedQuery): boolean {
+  return fitsKeys(searchKeys(model, harnessName), model, query, queryFlatWords(query));
+}
+
+/// Whether every model `next` fits also fits `previous`, so `next`'s matches are among
+/// `previous`'s: each earlier word is inside the word typed at its place (its letters and digits
+/// too, never none), and the earlier effort and fast mode still hold. Typing on narrows; a deleted
+/// letter or a word that became an effort ("hi") does not.
+export function narrows(previous: ParsedQuery, next: ParsedQuery): boolean {
+  if (next.words.length < previous.words.length) return false;
+  if (previous.effort !== undefined && previous.effort !== next.effort) return false;
+  if (previous.fast && !next.fast) return false;
+  // A family-version word matches by its reversed id too, which a shorter word typed before it
+  // ("astra-6") never did: its matches are not among the earlier's.
+  if (next.words.some((word) => FAMILY_VERSION.test(word))) return false;
+  return previous.words.every((word, index) => {
+    const typed = next.words[index]!;
+    const flat = compact(word);
+    return typed.includes(word) && flat !== "" && compact(typed).includes(flat);
+  });
 }
 
 /// The effort id as the model lists it (its case), for the pick.

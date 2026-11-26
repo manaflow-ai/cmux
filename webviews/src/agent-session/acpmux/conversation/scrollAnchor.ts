@@ -117,17 +117,37 @@ export function preserveScrollAnchorTop({
   // therefore the anchor; rows below it are irrelevant to this correction. A simple prepend or
   // stream resolves in constant time. Build an id index only after that fast path misses, which
   // handles a mixed prepend/removal without making normal token updates scan every row.
+  //
+  // A row that left its neighbours is no anchor: it moved to its own place and the rows the reader
+  // sees did not go with it. A far rail jump lands on a page read below the held tail, with the rows
+  // of the turns not read yet drawn above it; once the gap between them is read, those rows move to
+  // where they belong, the chat's end, and anchoring on the one at the view's top took the reader
+  // there too, 160,000 px from the prompt just clicked (Leo, 2026-11-21: "load without like
+  // unnecessary movement"). The anchor is then the next visible row whose next row still comes after it.
   let indexById: Map<string, number> | undefined;
+  const shift = newRows.length - oldRows.length;
+  const find = (id: string, at: number) => {
+    let index = movedIndex(newRows, id, at, shift);
+    if (index < 0) {
+      indexById ??= new Map(newRows.map((row, index) => [row.id, index]));
+      index = movedIndex(newRows, id, at, shift, indexById);
+    }
+    return index;
+  };
+  let fallback: number | undefined;
   for (let oldIndex = first; oldIndex < Math.min(oldRows.length, first + 32); oldIndex += 1) {
     const id = oldRows[oldIndex]?.id;
     if (!id) continue;
-    let newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length);
-    if (newIndex < 0) {
-      indexById ??= new Map(newRows.map((row, index) => [row.id, index]));
-      newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length, indexById);
-    }
+    const newIndex = find(id, oldIndex);
     if (newIndex < 0) continue;
-    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex) - shown(oldIndex);
+    const top = anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex) - shown(oldIndex);
+    const nextId = oldRows[oldIndex + 1]?.id;
+    // It left when its next row now comes before it. Its next row still after it (rows inserted
+    // between them, a streamed tool row), gone, or none (the last row) keeps it the anchor.
+    const nextAt =
+      nextId === undefined ? -1 : newRows[newIndex + 1]?.id === nextId ? newIndex + 1 : find(nextId, oldIndex + 1);
+    if (nextAt < 0 || nextAt > newIndex) return top;
+    fallback ??= top;
   }
-  return undefined;
+  return fallback;
 }

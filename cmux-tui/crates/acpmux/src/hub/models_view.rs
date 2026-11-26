@@ -84,6 +84,20 @@ fn reported_json((id, name): &(String, String), catalog: &Catalog) -> Value {
     v
 }
 
+/// The reasoning levels the agent's model list names (`known_efforts`) on each row that declares
+/// none: a profile's or the catalog's own `efforts` win.
+fn add_variant_efforts(
+    models: &mut [Value],
+    levels: &std::collections::HashMap<String, Vec<String>>,
+) {
+    for model in models {
+        let Some(found) = model["id"].as_str().and_then(|id| levels.get(id)) else { continue };
+        if model.get("efforts").is_none() {
+            model.set("efforts", json!(found));
+        }
+    }
+}
+
 /// Adds `entry` unless its id is listed; a listed declared model gets the curated fields it lacks.
 fn push_or_fill(models: &mut Vec<Value>, entry: Value) {
     let Some(existing) = models.iter_mut().find(|m| m["id"] == entry["id"]) else {
@@ -247,6 +261,7 @@ impl Hub {
     pub async fn models_catalog(&self) -> Value {
         let cfg = self.config.read().await;
         let known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let efforts = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
@@ -298,6 +313,9 @@ impl Hub {
                         added.push(id.clone());
                     }
                 }
+            }
+            if let Some(levels) = efforts.get(name) {
+                add_variant_efforts(&mut models, levels);
             }
             let disabled: &[String] = curated.as_ref().map_or(&[], |c| &c.disabled);
             drop_disabled(&mut models, disabled);
@@ -365,167 +383,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod picker_models_tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn harness_picker_order_survives_catalog_order_and_aliases() {
-        let models = vec![
-            json!({"id": "release-b", "aliases": ["b"]}),
-            json!({"id": "release-a", "aliases": ["a"]}),
-            json!({"id": "older"}),
-        ];
-        let reported = [("default", "Default"), ("a", "A"), ("b", "B"), ("a", "A")]
-            .map(|(id, name)| (id.to_owned(), name.to_owned()));
-        assert_eq!(picker_models(&reported, &models), vec!["release-a", "release-b"]);
-    }
-
-    /// Gemini CLI's ACP menu is fixed in each release (0.69.0 names no Gemini 4 model) while it
-    /// runs any Gemini API id: its catalog models are offered, and the ones newer than its whole
-    /// menu lead it (user 2026-11-19: "gemini neon didn't automatically appear in model picker").
-    fn gemini_catalog(runs_any_model: bool) -> Catalog {
-        crate::catalog::schema::parse(
-            &serde_json::to_vec(&json!({
-                "schemaVersion": 1, "generatedAt": "2026-11-19T00:00:00.000Z", "source": "live",
-                "harnesses": [{
-                    "id": "gemini", "name": "Gemini CLI", "brand": "gemini", "families": ["gemini"],
-                    "modelSource": "catalog", "runsAnyModel": runs_any_model,
-                    "models": [
-                        {"id": "gemini-4-neon", "ref": "google/gemini-4-neon", "name": "Gemini 4 Neon", "shortName": "4 Neon"},
-                        {"id": "gemini-3.1-pro-preview", "ref": "google/gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview", "shortName": "3.1 Pro Preview"},
-                        {"id": "gemini-2.5-pro", "ref": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "shortName": "2.5 Pro"}
-                    ]
-                }],
-                "models": {
-                    "google/gemini-4-neon": {"name": "Gemini 4 Neon", "releaseDate": "2026-11-18"},
-                    "google/gemini-3.1-pro-preview": {"name": "Gemini 3.1 Pro Preview", "releaseDate": "2026-02-19"},
-                    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro", "releaseDate": "2025-06-17"}
-                },
-                "providers": {"google": {"name": "Google"}}
-            }))
-            .unwrap(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn a_disabled_model_never_shows_even_when_the_harness_reports_it() {
-        let mut models = vec![
-            json!({"id": "gemini-4-neon", "name": "Gemini 4 Neon"}),
-            json!({"id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview"}),
-        ];
-        drop_disabled(&mut models, &["gemini-4-neon".to_owned()]);
-        let ids: Vec<&str> = models.iter().filter_map(|m| m["id"].as_str()).collect();
-        assert_eq!(ids, ["gemini-3.1-pro-preview"]);
-    }
-
-    fn gemini_menu() -> Vec<(String, String)> {
-        [
-            ("auto-gemini-3", "Auto (Gemini 3)"),
-            ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
-            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
-        ]
-        .map(|(id, name)| (id.to_owned(), name.to_owned()))
-        .to_vec()
-    }
-
-    #[test]
-    fn a_harness_that_runs_any_model_offers_catalog_models_its_menu_lacks() {
-        let catalog = gemini_catalog(true);
-        let curated = &catalog.harnesses[0];
-        let offered = offered(&HarnessKind::Acp, Some(curated), &catalog, &gemini_menu(), false);
-        let ids: Vec<&str> = offered.iter().filter_map(|m| m["id"].as_str()).collect();
-        assert!(ids.contains(&"gemini-4-neon"), "{ids:?}");
-        assert!(ids.contains(&"auto-gemini-3"), "the harness's own choices stay: {ids:?}");
-        assert_eq!(newer_than_menu(curated, &catalog, &gemini_menu()), ["gemini-4-neon"]);
-    }
-
-    #[test]
-    fn a_harness_whose_menu_is_the_account_list_keeps_only_what_it_reports() {
-        let catalog = gemini_catalog(false);
-        let curated = &catalog.harnesses[0];
-        let offered = offered(&HarnessKind::Acp, Some(curated), &catalog, &gemini_menu(), false);
-        assert!(!offered.iter().any(|m| m["id"] == "gemini-4-neon"));
-        assert!(newer_than_menu(curated, &catalog, &gemini_menu()).is_empty());
-    }
-
-    /// A menu with no dated model gives nothing to compare: no catalog model is promoted.
-    #[test]
-    fn an_undated_menu_promotes_nothing() {
-        let catalog = gemini_catalog(true);
-        let menu = vec![("auto-gemini-3".to_owned(), "Auto".to_owned())];
-        assert!(newer_than_menu(&catalog.harnesses[0], &catalog, &menu).is_empty());
-    }
-
-    #[test]
-    fn a_new_harness_model_needs_no_cmux_top_list_update() {
-        let models = vec![json!({"id": "new-family"}), json!({"id": "existing"})];
-        let reported = [("existing", "Existing"), ("new-family", "New")]
-            .map(|(id, name)| (id.to_owned(), name.to_owned()));
-        assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
-    }
-
-    /// A hub with Claude Code and the `cmux` router profile, discovered or user-written.
-    fn router_hub(discovered: bool) -> std::sync::Arc<Hub> {
-        use crate::config::{Config, StoreMode};
-        let mut found = BTreeMap::new();
-        crate::config::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
-        let claude = HarnessProfile {
-            env: BTreeMap::new(),
-            description: None,
-            models: vec![],
-            model: None,
-            ..found["cmux"].clone()
-        };
-        let mut cfg = Config::default();
-        cfg.harnesses.insert("claude".into(), claude);
-        if discovered {
-            cfg.join_discovered(found);
-        } else {
-            cfg.harnesses.insert("cmux".into(), found["cmux"].clone());
-        }
-        cfg.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        Hub::new(cfg, store)
-    }
-
-    fn models_row(reply: &Value, name: &str) -> Value {
-        reply["harnesses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|h| h["harness"] == name)
-            .cloned()
-            .unwrap()
-    }
-
-    /// The discovered `cmux` profile is Claude's automatic fallback to the cmux model router,
-    /// not an agent a person picks: pickers showed it as a "Cmux" harness above Claude Code
-    /// (user, 2026-10-28). Both replies keep its row (a chat that failed over to it still needs
-    /// its name, icon and models) and mark it `pickerHidden`.
-    #[tokio::test]
-    async fn the_discovered_cmux_router_fallback_is_hidden_from_pickers() {
-        let hub = router_hub(true);
-        assert_eq!(
-            hub.config.read().await.harnesses["claude"].fallback.as_deref(),
-            Some("cmux"),
-            "the router stays Claude's fallback"
-        );
-        let models = hub.models_catalog().await;
-        assert_eq!(models_row(&models, "cmux")["pickerHidden"], json!(true));
-        assert!(models_row(&models, "cmux")["models"].as_array().is_some_and(|m| !m.is_empty()));
-        assert_eq!(models_row(&models, "claude").get("pickerHidden"), None);
-        let view = hub.harnesses_view().await;
-        assert_eq!(view["harnesses"]["cmux"]["pickerHidden"], json!(true));
-        assert_eq!(view["harnesses"]["claude"].get("pickerHidden"), None);
-    }
-
-    /// A `cmux` profile the person wrote in their config is theirs to pick.
-    #[tokio::test]
-    async fn a_user_written_cmux_profile_stays_in_pickers() {
-        let hub = router_hub(false);
-        assert_eq!(models_row(&hub.models_catalog().await, "cmux").get("pickerHidden"), None);
-        assert_eq!(hub.harnesses_view().await["harnesses"]["cmux"].get("pickerHidden"), None);
-    }
-}
+#[path = "models_view_picker_models_tests.rs"]
+mod picker_models_tests;

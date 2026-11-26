@@ -19,9 +19,18 @@ nonisolated extension AcpmuxPaneMethods {
               let value = meta.removeValue(forKey: gestureTicketKey) else { return (object, nil, false) }
         let prompt = object["method"] as? String == "session/prompt"
         let otherMeta = meta.keys.contains { !(prompt && $0 == "acpmux") }
+        // Keep in step with ``otherMetaKeys(_:)``.
         if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
         var object = object
         object["params"] = params
         return (object, value as? String ?? "", otherMeta)
+    }
+
+    /// The keys of a frame's `params._meta` besides the gesture ticket that break R1 (a prompt's
+    /// `acpmux` is its own): the gesture_meta refusal's log cause, names only.
+    static func otherMetaKeys(_ object: [String: Any]) -> [String] {
+        guard let meta = (object["params"] as? [String: Any])?["_meta"] as? [String: Any] else { return [] }
+        let prompt = object["method"] as? String == "session/prompt"
+        return meta.keys.filter { $0 != gestureTicketKey && !(prompt && $0 == "acpmux") }.sorted()
     }
 }

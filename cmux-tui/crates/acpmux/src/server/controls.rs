@@ -8,8 +8,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub(crate) const METHOD: &str = "_acpmux/controls";
-pub(crate) const NOTICE: &str = "_acpmux/control";
+pub(crate) use crate::rpc::method::{MUX_CONTROL as NOTICE, MUX_CONTROLS as METHOD};
 pub(crate) const FEATURE: &str = "linkControls";
 pub(crate) const BOUND: usize = 256 << 10;
 pub(crate) const PAGE: usize = 64 << 10;
@@ -57,7 +56,6 @@ struct Open {
     staged: VecDeque<Line>,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Request {
     kinds: Option<Vec<String>>,
     stream: Option<String>,
@@ -178,7 +176,8 @@ impl Controls {
     pub(super) fn reply(&self, conn: &Conn, msg: &Message, line: String) {
         conn.out.settle();
         if let Some(ticket) = self.budget.take(line.len(), false) {
-            if !conn.out.push_control(Line { text: line, ticket: Some(ticket) }) {
+            if !conn.out.push_control(Line { text: line, ticket: Some(ticket), ..Line::default() })
+            {
                 // A closed transport never opens broker readiness, even if the handler had
                 // committed the snapshot before its reply found that the reader was gone.
                 self.open.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -205,7 +204,7 @@ impl Controls {
             self.resync(conn, "overflow");
             return;
         };
-        let line = Line { text: line, ticket: Some(ticket) };
+        let line = Line { text: line, ticket: Some(ticket), ..Line::default() };
         if open.live {
             conn.raise_gate();
             conn.out.push_control(line);
@@ -228,7 +227,7 @@ impl Controls {
         conn.out.settle();
         if let Some(ticket) = self.budget.take(line.len(), true) {
             conn.raise_gate();
-            conn.out.push_control(Line { text: line, ticket: Some(ticket) });
+            conn.out.push_control(Line { text: line, ticket: Some(ticket), ..Line::default() });
         }
     }
 

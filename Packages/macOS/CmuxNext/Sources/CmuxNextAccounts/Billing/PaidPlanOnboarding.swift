@@ -14,6 +14,9 @@ package struct PaidPlanOnboarding {
 
     /// How long a started upgrade waits for the plan to turn paid.
     package static let pendingFor: TimeInterval = 86_400
+    /// The waits between plan reads once the person is back in the app with an upgrade pending: the payment's
+    /// confirmation can arrive after they do. Six reads over about two minutes, then the next activation reads again.
+    package static let rereadAfter: [Duration] = [.seconds(3), .seconds(5), .seconds(10), .seconds(20), .seconds(30), .seconds(60)]
     private static let pendingKey = "cmux.paidPlan.pending"
     private static let pendingAtKey = "cmux.paidPlan.pendingAt"
     private static let welcomedKey = "cmux.paidPlan.welcomed"

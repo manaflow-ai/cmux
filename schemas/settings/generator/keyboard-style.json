@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/keyboard-style.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+KeyboardStyle.generated.swift",
+  "type": "KeyboardStyleSettingsSchema",
+  "lists": {
+    "keyStyle": ["descriptors", "KeyboardStyleSettings"]
+  }
+}
