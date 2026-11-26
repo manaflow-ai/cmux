@@ -20,7 +20,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
-import { keycapLegend } from "./keycapLegend";
+import { KeyHint } from "./KeyHint";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
@@ -168,7 +168,7 @@ export function Tooltip({
                 ? { "data-host-glass": "popover", "data-tooltip-card": "" }
                 : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
-              {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
+              {shortcut && <KeyHint keys={shortcut} className="ui-tooltip-hint" />}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>
               ) : (
