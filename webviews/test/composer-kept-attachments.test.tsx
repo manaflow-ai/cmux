@@ -266,7 +266,8 @@ test("a failed draft read waits for the saved chips before it writes a new paste
   offline = false;
   await act(async () => void jest.advanceTimersByTime(5_000));
   await settle();
-  expect(shown(page).map((chip) => chip.id)).toEqual(["shot-1", "shot-2"]);
+  // Only the new paste has a token in this draft. Wake state lists placed chips before strip chips.
+  expect(shown(page).map((chip) => chip.id)).toEqual(["shot-2", "shot-1"]);
   expect((await host.read("chat-a")).map((chip) => chip.data)).toEqual([screenshot(1).data, screenshot(2).data]);
 });
 
