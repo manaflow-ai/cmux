@@ -25,6 +25,7 @@ changes behaviour -- `#require` returns the unwrapped value either way.
 from __future__ import annotations
 
 import subprocess
+import re
 import sys
 from pathlib import Path
 
@@ -71,6 +72,16 @@ def argument_span(text: str, open_paren: int) -> str:
                 continue
             index += 1
             continue
+        elif text[index] == "#" and re.match(r'#+"', text[index:]):
+            # A raw string (#"<g id="\#(w)"[^>]*>"#): its quotes and parentheses are text.
+            hashes = len(re.match(r'#+', text[index:]).group())
+            body = index + hashes
+            close = ('"""' if text.startswith('"""', body) else '"') + "#" * hashes
+            end = text.find(close, body + (3 if close.startswith('"""') else 1))
+            if end == -1:
+                return text[open_paren + 1 :]
+            index = end + len(close)
+            continue
         elif text.startswith('"""', index):
             quote = '"""'
             index += 3
@@ -96,6 +107,8 @@ SELF_CHECKS = (
     ('let a = try #require(parse("""\n  x\n  """, try #require(y)))\n', [1]),
     ('let id = try #require(s.firstMatch(of: /"id":"([^"]+)"/)).1\nlet b = try #require(t)\n', []),
     ('let a = try #require(x / 2 > 1 ? f(try #require(y)) : 0)\n', [1]),
+    ('let g = try #require(s.firstMatch(of: try Regex(#"<g id="\\#(w)"[^>]*>"#)), "no")\nlet d = try #require(g)\n', []),
+    ('let a = try #require(f(#"x"#, try #require(y)))\n', [1]),
 )
 
 
