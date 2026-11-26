@@ -1247,7 +1247,7 @@ pub mod method {
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
-    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// agent request or answer, `server/delivery.rs` `deliver`): `{sessionId, seq}`, so the owner's
     /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
     pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
