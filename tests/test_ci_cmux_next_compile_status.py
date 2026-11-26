@@ -484,7 +484,7 @@ class Placement(unittest.TestCase):
                        "contains(github.event.pull_request.labels.*.name, 'full-ci')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
-        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight"])
+        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce"])
         self.assertEqual(job()["outputs"]["handoff"], "${{ steps.wait.outputs.handoff }}")
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.
@@ -680,8 +680,10 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 15)  # two probes 1 s apart, not 40 minutes
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "handoff=HTTP 530")
-        self.assertEqual(len(self.server.reads), 2)
-        self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads), self.server.reads)
+        # A pull request's first read is the land-deferral tip read (phase=tip), then the two probes.
+        self.assertTrue(self.server.reads[0].endswith("&pr=40600&phase=tip"), self.server.reads)
+        self.assertEqual(len(self.server.reads), 3)
+        self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads[1:]), self.server.reads)
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         down = output.strip().split("=", 1)[1]
         # A fallback's red is a red (exit 1); with no fallback run it is the needs_verdict rule's no verdict (exit 3),
