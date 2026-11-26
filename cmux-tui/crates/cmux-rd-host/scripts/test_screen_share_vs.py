@@ -660,15 +660,15 @@ class AppViewerHelpers(unittest.TestCase):
         self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
         self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
 
-    def test_launch_refuses_a_release_app_at_once(self):
-        # A NIGHTLY answers system.ping but not debug.mac_screen: launch says so, no 120 s wait.
+    def launch_release(self, has_state):
+        # A NIGHTLY answers system.ping but not debug.mac_screen.
         calls = []
 
         def fake_call(paths, method, params=None, timeout=60):
             calls.append(method)
-            if method == "debug.mac_screen":
-                return {"error": {"code": "method_not_found", "message": "debug.mac_screen"}}
-            return {"pong": True}
+            if method == "debug.mac_screen" or (method == "mac_screen.state" and not has_state):
+                return {"error": {"code": "method_not_found", "message": method}}
+            return {"pong": True} if method == "system.ping" else {"tabs": []}
 
         orig, vs.app_call = vs.app_call, fake_call
         orig_id, vs.app_bundle_id = vs.app_bundle_id, lambda app: "com.cmuxterm.app.nightly"
@@ -680,11 +680,17 @@ class AppViewerHelpers(unittest.TestCase):
                     vs.cmd_app(a)
         finally:
             vs.app_call, vs.app_bundle_id = orig, orig_id
-        got = json.loads(out.getvalue().strip().splitlines()[-1])
-        self.assertIn("is a Release build", got["error"])
-        self.assertIn("mac_screen.state", got["error"])
-        self.assertTrue(got["reused"])
-        self.assertEqual(calls, ["system.ping", "debug.mac_screen"])
+        return json.loads(out.getvalue().strip().splitlines()[-1]), calls
+
+    def test_launch_takes_a_release_app_and_says_so(self):
+        got, calls = self.launch_release(True)
+        self.assertTrue(got["release"] and got["reused"])
+        self.assertNotIn("error", got)
+        self.assertEqual(calls, ["system.ping", "debug.mac_screen", "mac_screen.state"])
+
+    def test_launch_refuses_a_release_app_without_the_state_read(self):
+        got, _ = self.launch_release(False)
+        self.assertIn("is a Release build without mac_screen.state", got["error"])
 
     def test_locate_output(self):
         self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
@@ -811,6 +817,68 @@ class AppViewerRun(unittest.TestCase):
         self.assertNotIn("short_window", b["app_timings"])
         self.assertIn("app viewer timings p50/p95: decode 2.1/3 (n 120), glass 9.4/14 (n 120), "
                       "decode_present 11.5/16.5 (n 120)", text)
+
+    def release_viewer(self, opened, window=True):
+        """A NIGHTLY viewer: no debug.*; mac_screen.state carries the hub and the window fields."""
+        dev = self.viewer_answer(opened)
+        row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242, "window_id": 99,
+               "session_scope": "full", "hub_session": "s1", "transport": "rd_wg", "path": "direct",
+               "window_on_primary_display": True,
+               "decode_present_ms": {"count": 120, "p50": 11.5, "p95": 16.5, "max": 22.0}}
+        if not window:
+            del row["window_id"]
+
+        def answer(cmd):
+            argv = shlex.split(cmd)
+            if argv[2:3] == ["app"] and argv[3] == "launch":
+                return {"socket": "/tmp/s", "reused": False, "release": True}
+            if argv[2:3] == ["app"] and argv[3] == "rpc":
+                method, params = argv[4], json.loads(argv[5])
+                if method.startswith("debug."):
+                    return {"error": {"code": "method_not_found", "message": method}}
+                if method == "action.run" and params.get("action") == "macScreen.open":
+                    opened.append(params)
+                    return {"status": "done"}
+                if method == "mac_screen.state":
+                    hub = {"running": True, "registered": True, "this_device": "V", "devices": [
+                        {"id": "H", "name": "cmux20", "online": True, "shared": True, "this": False}]}
+                    return {"tabs": [row] if opened else [], "hub": hub}
+            return dev(cmd)
+        return answer
+
+    def test_a_release_viewer_opens_through_macscreen_open(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools)
+            opened = []
+            o.viewer = FakeMac("cmux17", self.release_viewer(opened))
+            o.host = FakeMac("cmux20", lambda cmd: {})
+            o.rig = lambda req, timeout=30: {"ok": True}
+            orig, vs.time.sleep = vs.time.sleep, lambda s: None
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    ms = o.run_presented()
+            finally:
+                vs.time.sleep = orig
+        self.assertEqual(ms, [40.0, 50.0, 60.0])
+        self.assertEqual(opened, [{"action": "macScreen.open", "origin": "cli",
+                                   "args": {"device": "H", "scope": "full", "autoconnect": True}}])
+        self.assertFalse(any("debug.device_hub" in c and '"end"' in c for c in o.viewer.calls))
+        self.assertEqual((o.presented_source["pid"], o.presented_source["window"]), (4242, 99))
+        self.assertEqual(o.app_timings["decode_present_ms"]["p50"], 11.5)
+
+    def test_a_release_viewer_without_window_fields_says_so(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--timeout", "1")
+            o.viewer = FakeMac("cmux17", self.release_viewer([], window=False))
+            o.host = FakeMac("cmux20", lambda cmd: {})
+            o.rig = lambda req, timeout=30: {"ok": True}
+            orig, vs.time.sleep = vs.time.sleep, lambda s: None
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertIsNone(o.run_presented())
+            finally:
+                vs.time.sleep = orig
+        self.assertIn("no window_id", o.presented_source["null"])
 
     def test_host_app_approves_and_names_the_device(self):
         with tempfile.TemporaryDirectory() as tools:

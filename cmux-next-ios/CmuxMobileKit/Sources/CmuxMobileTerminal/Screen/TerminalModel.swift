@@ -312,6 +312,8 @@ public final class TerminalModel {
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
+    /// The composer's text view, for the controller's inset (`stripOverlap`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
 
     public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
                 quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -1038,7 +1040,12 @@ public final class TerminalModel {
             index += 1
             if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
-        return String(text.prefix(count))
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
@@ -1058,7 +1065,18 @@ public final class TerminalModel {
     }
     #endif
 
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: how many key-row keys fired and the last
+    /// one's identifier ("3:ctrl-c"), read through the composer's `terminal.keyBar.fired` probe.
+    var keyBarFired = "0"
+    @ObservationIgnored private var keyBarFiredCount = 0
+    #endif
+
     func keyBar(_ key: KeyBarKey) {
+        #if DEBUG
+        keyBarFiredCount += 1
+        keyBarFired = "\(keyBarFiredCount):\(key.identifier)"
+        #endif
         guard let surface = controller?.surface else { return }
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.

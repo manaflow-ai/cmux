@@ -216,10 +216,14 @@ extension TerminalTabPage {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// A picture of the tab from elsewhere (the Mac's thumbnail, kept across launches), drawn in place
+    /// of the labeled placeholder: a card never blanks while any picture of its tab is known.
+    let fallback: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, fallback: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.fallback = fallback
     }
 
     public var body: some View {
@@ -272,8 +276,14 @@ public struct TerminalTabCard: View {
                         .opacity(content.drawnOpacity)
                     }
                 case .nothing:
-                    // Nothing known yet: the terminal's background, no stand-in.
-                    EmptyView()
+                    // Nothing of the terminal known yet: a picture of the tab from elsewhere (the Mac's
+                    // thumbnail) when there is one, else the terminal's background, no stand-in.
+                    if let fallback {
+                        Image(uiImage: fallback).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * fallback.size.height / max(1, fallback.size.width))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    }
                 }
             }
         }

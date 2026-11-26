@@ -35,6 +35,7 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `panefilter`: the tab overview's pane filter, A (the one the grid shows), B and C (`PaneFilterGallery`).
 /// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
 ///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
@@ -120,6 +121,8 @@ public struct RecoveryGalleryRoot: View {
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "panefilter":
+                PaneFilterGallery()
             case "stills":
                 // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
                 StillPictureGallery()
