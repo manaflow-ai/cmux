@@ -10,6 +10,9 @@
 //! - `focus_ui_cross_window`: a key's windows → `{drops}`.
 //! - `focus_ui_creation_hold`: `{hold?, live?, op}` → `{hold, reply?, facts,
 //!   dropped?}` (crate::creation_hold).
+//! - `focus_ui_typing_park`, `focus_ui_given_back`, `focus_ui_held_keys`,
+//!   `focus_ui_page_first_key`, `focus_ui_awaited_content`,
+//!   `focus_ui_browser_chord`: the key rules (crate::focus_ui_keys).
 
 use crate::ERR_INVALID;
 use cmux_focus_core::ui::guards::{self, KeyWindows, ResponderMove};
@@ -131,6 +134,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: crate::creation_hold::Request = parse(request)?;
             reply(&crate::creation_hold::respond(request))
         }
-        _ => Err(ERR_INVALID),
+        _ => crate::focus_ui_keys::respond(operation, request).unwrap_or(Err(ERR_INVALID)),
     }
 }
