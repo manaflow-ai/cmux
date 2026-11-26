@@ -239,8 +239,8 @@ struct ChatComposer: View {
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
                 for file in pasted.files {
-                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
-                    if image == nil {
+                    let isImage = file.type.conforms(to: .image)
+                    if !isImage {
                         attachments.append(AgentAttachment(kind: .file, name: file.name, data: file.data,
                                                            fileURL: file.fileURL, byteCount: file.byteCount))
                     } else if let original = file.data {
@@ -287,6 +287,7 @@ struct ChatComposer: View {
                 return
             }
             attachments[index].data = optimized
+            attachments[index].fileURL = nil
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
             optimizingImageIDs.remove(id)
@@ -301,21 +302,22 @@ struct ChatComposer: View {
         attachments.append(AgentAttachment(id: id, kind: .image, name: name, fileURL: fileURL, byteCount: byteCount))
         optimizingImageIDs.insert(id)
         Task {
-            let data = await Task.detached(priority: .userInitiated) {
-                try? ScopedFile(fileURL).withAccess { url in
-                    try Data(contentsOf: url, options: .mappedIfSafe)
-                }
-            }.value
-            guard let data,
-                  let index = attachments.firstIndex(where: { $0.id == id }) else {
+            guard attachments.contains(where: { $0.id == id }) else {
                 optimizingImageIDs.remove(id)
                 syncPreparedAttachments()
                 return
             }
-            let optimized = await AgentImageOptimizer.optimizeAsync(data)
-            attachments[index].data = optimized
-            attachments[index].byteCount = optimized.count
-            attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
+            if let optimized = await AgentImageOptimizer.optimizeAsync(fileURL: fileURL, byteCount: byteCount) {
+                guard let finalIndex = attachments.firstIndex(where: { $0.id == id }) else {
+                    optimizingImageIDs.remove(id)
+                    syncPreparedAttachments()
+                    return
+                }
+                attachments[finalIndex].data = optimized
+                attachments[finalIndex].fileURL = nil
+                attachments[finalIndex].byteCount = optimized.count
+                attachments[finalIndex].name = AgentImageOptimizer.filename(attachments[finalIndex].name, for: optimized)
+            }
             optimizingImageIDs.remove(id)
             syncPreparedAttachments()
         }

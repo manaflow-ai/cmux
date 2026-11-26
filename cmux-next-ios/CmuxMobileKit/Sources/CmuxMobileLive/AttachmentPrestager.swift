@@ -16,7 +16,7 @@ import OSLog
 final class AttachmentPrestager {
     enum Result: Sendable, Equatable {
         case path(String)
-        case prompt(uploadID: String, fileName: String)
+        case prompt(uploadID: String, fileName: String, ownerToken: String?)
     }
 
     typealias Upload = @Sendable (LinkUpload.Payload, String) async throws -> Result
@@ -34,8 +34,11 @@ final class AttachmentPrestager {
 
     /// Whether `attachment` goes to the Mac by upload when sent (``AcpmuxSessionSource/promptBlocks``'s
     /// rule): not an image the prompt carries, not a PDF small enough to go inline, and with bytes here.
-    nonisolated static func uploadsAtSend(_ attachment: AgentAttachment) -> Bool {
-        guard attachment.imageMIMEType == nil else { return false }
+    nonisolated static func uploadsAtSend(_ attachment: AgentAttachment, promptUploads: Bool = false) -> Bool {
+        if attachment.kind == .image {
+            guard promptUploads else { return false }
+            return attachment.data != nil || attachment.fileURL != nil
+        }
         guard attachment.data != nil || attachment.fileURL != nil else { return false }
         if attachment.isPDF, (attachment.byteCount ?? attachment.data?.count ?? .max) <= AgentAttachment.maxDocumentBytes {
             return false
@@ -61,7 +64,7 @@ final class AttachmentPrestager {
             let name = attachment.name
             let bytes = attachment.byteCount ?? attachment.data?.count ?? 0
             let started = ContinuousClock.now
-            let task = Task<String, any Error> {
+            let task = Task<Result, any Error> {
                 do {
                     let result = try await upload(payload, name)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=true")
