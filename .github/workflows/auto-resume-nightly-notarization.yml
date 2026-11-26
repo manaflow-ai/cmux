@@ -1529,7 +1529,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --head "$SOURCE_HEAD_SHA" --branch "$SOURCE_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" \
+            --feeds appcast-arm64.xml
           python3 - "$NIGHTLY_BUILD" <<'PY'
           from pathlib import Path
           import sys
