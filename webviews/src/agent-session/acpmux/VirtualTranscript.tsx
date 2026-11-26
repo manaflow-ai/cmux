@@ -30,6 +30,7 @@ import {
   layoutGeometry,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -113,11 +114,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
-  type ReferenceScope,
-  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
+  type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -133,6 +134,7 @@ import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
   clickFold,
+  cssName,
   FOLD_HOLD_MIN_MS,
   opensBody,
   FOLD_SETTLE_MS,
@@ -178,7 +180,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
+import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -190,7 +192,7 @@ import {
   noteUnreadNews,
   noteUnreadCount,
 } from "./conversation/unreadState";
-import { type HeldSpan, SinceTurnHold, sinceNews, sinceCount } from "./conversation/sinceNews";
+import { sinceNews, type HeldSpan, SinceTurnHold, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -1375,7 +1377,7 @@ function TranscriptView({
     for (let index = shown.length - 1; index >= Math.max(0, shown.length - 6); index -= 1) {
       const row = shown[index]!;
       if (row.kind !== "assistant") continue;
-      const name = typeof CSS === "undefined" ? row.id.replace(/["\\]/g, "\\$&") : CSS.escape(row.id);
+      const name = cssName(row.id);
       const node = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
       return node ? { id: row.id, height: node.offsetHeight } : undefined;
     }
@@ -1441,7 +1443,7 @@ function TranscriptView({
       return Number.isFinite(y) ? y : 0;
     };
     const rowTop = (id: string, drawn: number) => {
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+      const name = cssName(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
       return row ? row.getBoundingClientRect().top - drawn : undefined;
     };
@@ -6463,7 +6465,7 @@ function TranscriptView({
     // scroll write over at step 10.
     const motionList: MotionList = {
       offsetOf: (rowId) => {
-        const row = node.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        const row = node.querySelector<HTMLElement>(`[data-row-id="${cssName(rowId)}"]`);
         return row ? row.getBoundingClientRect().top - node.getBoundingClientRect().top : undefined;
       },
       scrollBy: () => {},
@@ -7005,7 +7007,7 @@ function TranscriptView({
     markedTurn.current = null;
     const host = thread.current;
     if (id === undefined || !host) return;
-    const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+    const name = cssName(id);
     const row = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
     row?.setAttribute("data-turn-revealed", "");
     markedTurn.current = row;
