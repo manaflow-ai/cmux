@@ -40,13 +40,18 @@ public enum LinkUpload {
         try await upload(.file(url), name: name, cwd: cwd, over: link)
     }
 
+    /// How many of the upload's bytes went, of its size: told after each chunk.
+    public typealias Progress = @Sendable (_ sent: Int, _ total: Int) async -> Void
+
     /// Uploads `payload` as `name` and returns the file's absolute path on the Mac.
-    /// Nonisolated async: the file reads run off the caller's actor.
+    /// Nonisolated async: the file reads run off the caller's actor. `progress` hears the
+    /// bytes sent after each chunk.
     public static func upload(_ payload: Payload, name: String, cwd: String?, over link: any MacLink,
-                              scope: any SecurityScope = SystemSecurityScope()) async throws -> String {
+                              scope: any SecurityScope = SystemSecurityScope(),
+                              progress: Progress? = nil) async throws -> String {
         switch payload {
         case .data(let data):
-            return try await send(name: name, size: data.count, cwd: cwd, over: link) { offset, count in
+            return try await send(name: name, size: data.count, cwd: cwd, over: link, progress: progress) { offset, count in
                 data.subdata(in: data.startIndex + offset..<data.startIndex + offset + count)
             }
         case .file(let url):
@@ -64,7 +69,7 @@ public enum LinkUpload {
                 throw unreadable(name)
             }
             defer { try? handle.close() }
-            return try await send(name: name, size: size, cwd: cwd, over: link) { _, count in
+            return try await send(name: name, size: size, cwd: cwd, over: link, progress: progress) { _, count in
                 try handle.read(upToCount: count) ?? Data()
             }
         }
@@ -76,7 +81,7 @@ public enum LinkUpload {
 
     /// Opens the channel with `size`, sends `nextChunk(offset, count)` until
     /// `size` bytes went, then reads the Mac's one reply.
-    private static func send(name: String, size: Int, cwd: String?, over link: any MacLink,
+    private static func send(name: String, size: Int, cwd: String?, over link: any MacLink, progress: Progress?,
                              nextChunk: (_ offset: Int, _ count: Int) throws -> Data) async throws -> String {
         var args = ["name": name, "size": String(size)]
         if let cwd, cwd.hasPrefix("/") { args["cwd"] = cwd }
@@ -106,6 +111,7 @@ public enum LinkUpload {
                 }
                 do { try await channel.send(chunk) } catch { break }
                 offset += chunk.count
+                await progress?(offset, size)
             }
             var reply = Data()
             while let chunk = try await channel.receive() {

@@ -19523,6 +19523,92 @@ public func FfiConverterTypeVideoRecompressReason_lower(_ value: VideoRecompress
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Which part of a video's send the phone is in, for [`video_send_fraction`].
+ */
+
+public enum VideoSendStage: Equatable, Hashable {
+    
+    /**
+     * No export in this send: the bar is the upload's bytes alone.
+     */
+    case upload
+    /**
+     * The export is running: `export_fraction` of it is done.
+     */
+    case exporting
+    /**
+     * The export finished (or was not kept): the upload of `sent` of `total` bytes.
+     */
+    case uploadAfterExport
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension VideoSendStage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVideoSendStage: FfiConverterRustBuffer {
+    typealias SwiftType = VideoSendStage
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VideoSendStage {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .upload
+        
+        case 2: return .exporting
+        
+        case 3: return .uploadAfterExport
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VideoSendStage, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .upload:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .exporting:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .uploadAfterExport:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoSendStage_lift(_ buf: RustBuffer) throws -> VideoSendStage {
+    return try FfiConverterTypeVideoSendStage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoSendStage_lower(_ value: VideoSendStage) -> RustBuffer {
+    return FfiConverterTypeVideoSendStage.lower(value)
+}
+
+
 
 /**
  * Why [`vnc_json`] gave no answer.
@@ -22701,6 +22787,21 @@ public func videoRecompressPlan(enabled: Bool, source: VideoSource) -> VideoReco
 })
 }
 /**
+ * The pending bubble's one bar for a video's send, 0 to 1: the export fills the first
+ * [`EXPORT_SHARE_PER_MILLE`], the upload's bytes the rest, so the bar only moves forward
+ * from pick to sent (Leo: "with visible progress and can be cancelled mid-send").
+ */
+public func videoSendFraction(stage: VideoSendStage, exportFraction: Double, sent: UInt64, total: UInt64) -> Double  {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_video_send_fraction(
+        FfiConverterTypeVideoSendStage_lower(stage),
+        FfiConverterDouble.lower(exportFraction),
+        FfiConverterUInt64.lower(sent),
+        FfiConverterUInt64.lower(total),$0
+    )
+})
+}
+/**
  * Answers one `vnc_*` op: `request` and the answer are JSON.
  */
 public func vncJson(operation: String, request: String)throws  -> String  {
@@ -23135,6 +23236,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_video_recompress_plan() != 37017) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_video_send_fraction() != 14369) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_vnc_json() != 29563) {

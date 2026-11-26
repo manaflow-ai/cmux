@@ -97,7 +97,8 @@ pub use terminal_fit::{
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use video_recompress::{
-    VideoRecompressPlan, VideoRecompressReason, VideoSource, video_recompress_keep, video_recompress_plan,
+    VideoRecompressPlan, VideoRecompressReason, VideoSendStage, VideoSource, video_recompress_keep,
+    video_recompress_plan, video_send_fraction,
 };
 pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};

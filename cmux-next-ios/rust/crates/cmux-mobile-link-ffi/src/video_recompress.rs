@@ -98,6 +98,38 @@ pub fn video_recompress_keep(source_bytes: u64, output_bytes: u64) -> bool {
         && u128::from(output_bytes) * 1000 <= u128::from(source_bytes) * u128::from(KEEP_AT_MOST_PER_MILLE)
 }
 
+/// The share of a recompressed video's send bar (per mille) its export takes; the upload
+/// takes the rest. Set from the 1-minute 4K estimate (an export of tens of seconds against an
+/// LTE upload of about 90 s); the measured export time replaces it.
+pub const EXPORT_SHARE_PER_MILLE: u64 = 300;
+
+/// Which part of a video's send the phone is in, for [`video_send_fraction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum VideoSendStage {
+    /// No export in this send: the bar is the upload's bytes alone.
+    Upload,
+    /// The export is running: `export_fraction` of it is done.
+    Exporting,
+    /// The export finished (or was not kept): the upload of `sent` of `total` bytes.
+    UploadAfterExport,
+}
+
+/// The pending bubble's one bar for a video's send, 0 to 1: the export fills the first
+/// [`EXPORT_SHARE_PER_MILLE`], the upload's bytes the rest, so the bar only moves forward
+/// from pick to sent (Leo: "with visible progress and can be cancelled mid-send").
+#[uniffi::export]
+#[must_use]
+pub fn video_send_fraction(stage: VideoSendStage, export_fraction: f64, sent: u64, total: u64) -> f64 {
+    let share = EXPORT_SHARE_PER_MILLE as f64 / 1000.0;
+    let bytes = if total == 0 { 0.0 } else { (sent.min(total) as f64) / (total as f64) };
+    let export = if export_fraction.is_finite() { export_fraction.clamp(0.0, 1.0) } else { 0.0 };
+    match stage {
+        VideoSendStage::Upload => bytes,
+        VideoSendStage::Exporting => share * export,
+        VideoSendStage::UploadAfterExport => share + (1.0 - share) * bytes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +200,22 @@ mod tests {
         assert!(!video_recompress_keep(100, 91));
         assert!(!video_recompress_keep(170 * MB, 0));
         assert!(!video_recompress_keep(0, 0));
+    }
+
+    #[test]
+    fn the_send_bar_runs_export_then_upload_and_only_forward() {
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(close(video_send_fraction(VideoSendStage::Upload, 0.0, 50, 100), 0.5));
+        assert!(close(video_send_fraction(VideoSendStage::Exporting, 0.0, 0, 0), 0.0));
+        assert!(close(video_send_fraction(VideoSendStage::Exporting, 0.5, 0, 0), 0.15));
+        assert!(close(video_send_fraction(VideoSendStage::Exporting, 1.0, 0, 0), 0.3));
+        assert!(close(video_send_fraction(VideoSendStage::UploadAfterExport, 1.0, 0, 62), 0.3));
+        assert!(close(video_send_fraction(VideoSendStage::UploadAfterExport, 1.0, 31, 62), 0.65));
+        assert!(close(video_send_fraction(VideoSendStage::UploadAfterExport, 1.0, 62, 62), 1.0));
+        // Out-of-range inputs stay on the bar.
+        assert!(close(video_send_fraction(VideoSendStage::Exporting, f64::NAN, 0, 0), 0.0));
+        assert!(close(video_send_fraction(VideoSendStage::Exporting, 7.0, 0, 0), 0.3));
+        assert!(close(video_send_fraction(VideoSendStage::Upload, 0.0, 200, 100), 1.0));
+        assert!(close(video_send_fraction(VideoSendStage::Upload, 0.0, 5, 0), 0.0));
     }
 }
