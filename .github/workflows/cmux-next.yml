@@ -6202,6 +6202,8 @@ jobs:
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
           CMUX_NEXT_RELEASE_FLEET_CAS: ${{ vars.CMUX_NEXT_RELEASE_FLEET_CAS == 'off' && 'off' || 'read' }}
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
@@ -6775,6 +6777,8 @@ jobs:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/scheme/summary.md
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
