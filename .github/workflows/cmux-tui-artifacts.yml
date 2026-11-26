@@ -435,9 +435,11 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
@@ -473,6 +475,7 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
@@ -2273,6 +2276,24 @@ jobs:
       - name: Set up pinned Rust
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # This job's own disk need, before the caches land. A pool runner's start hook cleans in line only under
+      # one job's need (17 GiB, CMUX_DISK_JOB_BYTES); this job's build is more: job 139544478509 (warm) had a
+      # 17 GiB cmux-tui/target after dropping incremental state and its strip removed 18.4 GiB of workspace
+      # output, and every cold run on 2026-11-26 (jobs 139822655314 139828684050 139840540957 139842323699
+      # 139853990320 139880904479) lost its runner "No space left on device" 10-17 min into cargo test. So the
+      # pool's own clean runs again here at 24 GiB (that target, the registry, the save archive), within its
+      # own 120 s bound; it keeps this job's checkout, refuses nothing, and is absent off the pool. It runs before
+      # the disk floor below, which frees only this workspace's target: the other runners' leftovers go first.
+      - name: Free this job's build need on a pool runner
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          if [ -x /opt/cmux-disk-floor.sh ]; then
+            CMUX_DISK_JOB_BYTES=$((24 << 30)) /opt/cmux-disk-floor.sh started || true
+          fi
+          df -h "$GITHUB_WORKSPACE" || true
 
       # A disk floor before any cache lands: a reused pool workspace ran out of disk 14 min into
       # the build (No space left on device, an ld Bus error; run 45737327859), which left 35
