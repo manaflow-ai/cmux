@@ -58,6 +58,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deadline_http  # noqa: E402
+import gh_http  # noqa: E402
 
 BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -95,7 +96,8 @@ def github_fetch(token: str, api: str = "https://api.github.com") -> Fetch:
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-ci-receipt"})
         # Each call ends by its deadline as a whole, not per socket wait (tests/test_ci_no_bare_urlopen.py).
         try:
-            status, body, headers = deadline_http.request(request, 30, follow_redirects=False)
+            # Asked again on a passing refusal (gh_http); a redirect is an answer (follow_redirects=False).
+            status, body, headers = gh_http.request(request, 30, follow_redirects=False)
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise Rejected(f"GitHub did not answer for {path}: {error}") from error
         if status < 300:
