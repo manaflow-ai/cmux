@@ -720,7 +720,7 @@ const INDEX_FRESH: Duration = Duration::from_secs(60);
 
 /// How old a URL index's last answer may be and still stand in when the index can't be read (the
 /// controller restarting, or its tailnet identity lookup stalling past the 2 s deadline: on
-/// gcp-codex-lane-10, 2026-11-26, every mount from 07:44Z to 12:17Z sent all its missing blobs to
+/// one lane VM, 2026-11-26, every mount from 07:44Z to 12:17Z sent all its missing blobs to
 /// git, while 14 of 25 seeds would have served them). A peer is untrusted transport and every
 /// answer is checked against its git id, so an old list costs a deadline per seed that has since
 /// gone, never a wrong byte.
