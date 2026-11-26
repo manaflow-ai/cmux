@@ -2,7 +2,8 @@
 // open terminal (New Cloud Workspace, or a window on a paused machine's workspace). It shows the
 // stage, the time so far and what happens next; past CLOUD_PROGRESS_SLOW_MS it says so and offers
 // Retry and Dismiss while the machine keeps coming up; a failure shows its reason with Retry, Copy Error and
-// Dismiss, a paused machine Resume. The layout is the `cloud-progress-look` arm. Every element keeps
+// Dismiss, a paused machine Resume (retry-prompt-ok: Retry starts a Cloud machine again, which costs
+// money, so it stays the person's click). The layout is the `cloud-progress-look` arm. Every element keeps
 // its place across stages: the buttons and the typing note reserve their room while hidden, and only
 // the marks and words change, so a failure or a pause moves nothing (Leo, 2026-11-04: "we move all
 // our affected, possibly affected elements in the cohesive way").
@@ -101,6 +102,7 @@ export function CloudProgressView({
       {ask.body}
     </>
   ) : state.failure ? (
+    // retry-prompt-ok: "Click Retry" names the kept button (a paid start of the machine).
     format("cloudProgress.failed", state.failure)
   ) : slow ? (
     <>
@@ -154,6 +156,7 @@ export function CloudProgressView({
         </>
       ) : (
         <>
+          {/* retry-prompt-ok: Retry (Resume) starts a Cloud machine again, a paid action the person chooses. */}
           <Button variant="solid" onClick={() => onAction("retry")}>
             {t(paused ? "cloudProgress.button.resume" : "cloudProgress.button.retry")}
           </Button>
@@ -267,7 +270,7 @@ function useElapsed(state: CloudProgressState | undefined, receivedAt: number): 
 /**
  * Keys typed before the terminal exists go nowhere: the note under the steps says so and turns to
  * the primary text color on the first key. While a question is open Return answers yes and Escape
- * no; while the buttons show Return is Retry (Resume).
+ * no; while the buttons show Return is Retry (Resume) (retry-prompt-ok: the person's own key starts a paid machine).
  */
 function useTypedNote(
   state: CloudProgressState | undefined,
@@ -287,7 +290,7 @@ function useTypedNote(
         return;
       }
       if (shown) {
-        if (event.key === "Enter" && !onButton) onAction("retry");
+        if (event.key === "Enter" && !onButton) onAction("retry"); // retry-prompt-ok: the person's own key.
         return;
       }
       if (event.key.length === 1 || event.key === "Enter" || event.key === "Backspace") setTyped(true);
