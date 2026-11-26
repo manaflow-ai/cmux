@@ -161,17 +161,10 @@ pub fn stored(row: &Row, root: &Value, arts: &Map<String, Value>) -> Read {
     if let Some(value) = value_at(root, &row.path) {
         return Read::Value(Some(value.clone()));
     }
-    let mut replaced = crate::schema::replaced_by_row(&row.path).peekable();
-    if replaced.peek().is_some() {
-        // The first retired key that holds a value, as the retired-keys table maps it; any other
-        // old value is the row's default. A plain rename (no `values`) reads the old value as is.
-        return Read::Value(
-            replaced
-                .find_map(|replaced| {
-                    value_at(root, &replaced.old).map(|old| replaced.read(old).cloned())
-                })
-                .flatten(),
-        );
+    if crate::schema::replaced_by_row(&row.path).next().is_some() {
+        // As the retired-keys table maps it, the first listed old key winning; any other old
+        // value is the row's default. A plain rename (no `values`) reads the old value as is.
+        return Read::Value(crate::schema::replaced_value(&row.path, root).cloned());
     }
     if row.key != BACKGROUND {
         return Read::Value(None);
