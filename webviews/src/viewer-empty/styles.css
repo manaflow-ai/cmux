@@ -521,13 +521,8 @@
   font-size: var(--text-caption);
 }
 
-.ve-hint kbd {
-  margin-right: var(--ds-space-1);
-  padding: 0 var(--ds-space-1);
-  border: 1px solid var(--ve-line);
-  border-radius: var(--ui-row-radius, 4px);
-  color: var(--ve-fg-2);
-  font: var(--text-caption) / var(--text-caption--line-height) var(--ve-font);
+.ve-hint .ui-key-hint {
+  margin-inline-end: var(--ds-space-1);
 }
 
 .ve-picker-actions {

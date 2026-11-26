@@ -3018,6 +3018,13 @@ PR_ONLY_PEERS = 3  # other PRs' heads that must fail the same job at the same st
 PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed runs of the red run's event listed
 PR_ONLY_PEER_READS = 10  # job lists read among them at most
 PR_ONLY_RED = frozenset({"failure", "timed_out", "startup_failure"})
+# A peer run that ended with no verdict (skipped: a labeled or edited event the workflow's own `if:` turns away;
+# cancelled: superseded by the PR's next push) is passed over: it neither spends one of PR_ONLY_PEER_READS nor stands
+# for its PR's newest run. pr-router.yml (no feat-cmux-next run) had 17 skipped and 1 cancelled among its 30 newest
+# completed pull_request runs on 2026-11-26 12:58Z, so the ten reads met few failed runs, and #58337 and #58408 needed
+# LAND_JUDGE_OVERRIDE for a 'pr pipeline / linux' red that failed the same way on #56579, #58486 and #58590.
+# land-judge's pr_only_peer_excuse got the same rule (leo-workspace#12031).
+PR_ONLY_NO_VERDICT_RUN = frozenset({"skipped", "cancelled", "neutral", "stale", "action_required"})
 # A repo path a workflow names: two or more segments, not a variable's ($RUNNER_TEMP/x), a URL's or another path's
 # tail. Kept when it is under .github/ or scripts/, or names a script or config file (its extension).
 WORKFLOW_PATH = re.compile(r"(?<![\w$/.:@{}-])(?:\./)?((?:[\w-][\w.-]*/)+[\w.-]*[\w-])")
@@ -3100,6 +3107,8 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
     for run in runs[:PR_ONLY_PEER_RUNS]:
         if len(matched) >= PR_ONLY_PEERS or reads >= PR_ONLY_PEER_READS:
             break
+        if str(run.get("conclusion") or "").lower() in PR_ONLY_NO_VERDICT_RUN:
+            continue  # no verdict: no read spent, and the PR's newest run with one still stands for it
         theirs = [str(pull.get("number")) for pull in run.get("pull_requests") or [] if isinstance(pull, dict)
                   and ((pull.get("base") or {}).get("ref")) == base]
         tested = str(run.get("head_sha") or "")
@@ -4100,7 +4109,6 @@ FAST_GATES_STATUS = "cmux-next/fast-gates"
 # base's newest status of the same context beside it and the pool's own rerun as the next step (land-judge's
 # pool_rerun_note makes that POST once per head). Its description names no failure, so the base sharing it excuses
 # nothing.
-POOL_RERUN = re.compile(r"\brerun: POST /v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40})\b")
 POOL_CONTROLLER_DEFAULT = "http://100.89.225.106:18765"  # scripts/ci/expected_wait.py DEFAULT_CONTROLLER
 
 
@@ -4110,10 +4118,8 @@ def pool_controller() -> str:
     return (base if base.startswith(("http://", "https://")) else POOL_CONTROLLER_DEFAULT).rstrip("/")
 
 
-def pool_status_refusal(repo: str, base: str | None, sha: str, name: str, state: str, description: str, github,
-                        evidence: "Evidence | None" = None) -> str:
-    """The refusal of required-checks pool status NAME red at SHA: the base's newest status of NAME (or why it is
-    unread) and the pool's rerun, never an Actions rerun."""
+def pool_base_seen(repo: str, base: str, name: str, github, evidence: "Evidence | None" = None) -> str:
+    """The base's newest commit status NAME (or why it is unread), for a pool red's refusal."""
     seen = ""
     if base:
         try:
@@ -4127,10 +4133,8 @@ def pool_status_refusal(repo: str, base: str | None, sha: str, name: str, state:
                 seen = f"; no recent {base} commit has a status '{name}'"
         except (Refused, RuntimeError, OSError, ValueError, AttributeError) as why:
             seen = f"; its {base} status is unread ({str(why)[:160]})"
-    return (f"'{name}': the required-checks pool's status is {state} at {sha[:12]} ({description}){seen}. It is "
-            "the pool's verdict, not an Actions job's (an Actions rerun of its twin comes back skipped), and its "
-            f"description names no failure to compare with the base: rerun the pool: POST {pool_controller()}"
-            f"/v1/required-checks/rerun?head={sha}")
+    return seen
+
 
 # cmux-tui-artifacts.yml's darwin-fallback-plan posts `cmux-tui/linux-cross` = failure when the Linux cross build of
 # the macOS targets ended badly, and the same run then rebuilds those targets on a Mac (build-darwin-fallback). Its
@@ -4188,9 +4192,9 @@ def linux_cross_covered(repo: str, sha: str, name: str, state: str, status: dict
 POOL_RERUN = re.compile(r"\brerun: POST (?P<path>/v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40}))")
 
 
-def pool_status_refusal(sha: str, name: str, status: dict | None) -> "Refused | None":
+def pool_status_refusal(sha: str, name: str, status: dict | None, seen: str = "") -> "Refused | None":
     """The refusal for STATUS, the head's commit status NAME, when it is a failed required-checks pool status for SHA
-    (POOL_RERUN in its description), else None."""
+    (POOL_RERUN in its description), else None. SEEN is pool_base_seen's note of the base's own status of NAME."""
     if not isinstance(status, dict) or status.get("state") not in ("failure", "error"):
         return None
     description = str(status.get("description") or "")
@@ -4203,8 +4207,10 @@ def pool_status_refusal(sha: str, name: str, status: dict | None) -> "Refused | 
     return Refused(f"'{name}': pool status red at {sha[:12]} ({status.get('state')}: {description[:160]}): its verdict "
                    "is the controller's required-checks pool, not an Actions job (one of that name, if any, has no "
                    "verdict to give: path routing left it out); rerun it through the controller (POST "
-                   f"{post})" + (f", its log is at {url}" if url else "") + "; the pool posts nothing on the base, so "
-                   "no base verdict is compared")
+                   f"{post})" + (f", its log is at {url}" if url else "") + (
+                       f"{seen}. Its description names no failure to compare with the base: rerun the pool: POST "
+                       f"{pool_controller()}/v1/required-checks/rerun?head={sha}" if seen else
+                       "; the pool posts nothing on the base, so no base verdict is compared"))
 
 
 def head_status(repo: str, sha: str, name: str, github) -> dict | None:
@@ -4222,7 +4228,7 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     if status is None:
         return None
     if (pool := pool_status_refusal(sha, name, status)) is not None:
-        raise pool
+        raise pool_status_refusal(sha, name, status, pool_base_seen(repo, base, name, github, evidence)) if base else pool
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
@@ -4250,10 +4256,6 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
             return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github, evidence)
-    if state in ("failure", "error") and (pool := POOL_RERUN.search(status.get("description") or "")) \
-            and sha.lower().startswith(pool["head"].lower()):
-        raise Refused(pool_status_refusal(repo, base, sha, name, state, status.get("description") or "", github,
-                                          evidence))
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -5971,6 +5973,12 @@ GUARD_WORKFLOWS = {
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
+        "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
+                          "(scripts/static-analysis/ratchet.py), not a declared tree read",
+        "static-checks-traced-audit": "push-only shadow audit of static-checks' traced inputs (its `if:`): no pull "
+                                      "request's red is its",
+        "tooling-tests-base-red": "decides whether tooling-tests skips while the base is red (base_red_skip.py); "
+                                  "it checks nothing itself",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -5988,12 +5996,16 @@ GUARD_WORKFLOWS = {
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
                          "cmux-scheme-compile-fleet", "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo",
-                         "swift-test",
+                         "swift-test", "fast-tier-fleet-mac",
                          "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
                          "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
         **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
                          "push-attribution", "same-tree-status-daemon", "same-tree-status-scheme"), _PUBLISH),
+        "pure-checks-coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the pure checks, "
+                                "reads no tree",
+        "generated-files-base-red": "decides whether generated-files skips while the base is red (base_red_skip.py); "
+                                    "it checks nothing itself",
     },
 }
 GUARD_JOBS_FILE = Path(__file__).with_name("base_red_guard_jobs.json")
@@ -6093,7 +6105,27 @@ PACKAGE_JOBS = {
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
                   "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
                   # the kit's Swift tests read the shared specs from the repository root at run time
-                  "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
+                  "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json",
+                  # the crates cmux-next-ios/rust reaches since (cargo_crates at feat-cmux-next, 2026-11-26)
+                  "cmux-tui/crates/cmux-auto-session/", "cmux-tui/crates/cmux-braid-carrier/",
+                  "cmux-tui/crates/cmux-braid-class/", "cmux-tui/crates/cmux-braid-path/",
+                  "cmux-tui/crates/cmux-bundle/", "cmux-tui/crates/cmux-cloud-disk/",
+                  "cmux-tui/crates/cmux-cloud-handlers/", "cmux-tui/crates/cmux-cloud-start-core/",
+                  "cmux-tui/crates/cmux-cloud-wire/", "cmux-tui/crates/cmux-composer-send/",
+                  "cmux-tui/crates/cmux-deadline/", "cmux-tui/crates/cmux-egress/", "cmux-tui/crates/cmux-fault/",
+                  "cmux-tui/crates/cmux-felt/", "cmux-tui/crates/cmux-follow-cam/",
+                  "cmux-tui/crates/cmux-mobile-core/", "cmux-tui/crates/cmux-mobile-last-place/",
+                  "cmux-tui/crates/cmux-output-paint/", "cmux-tui/crates/cmux-process/",
+                  "cmux-tui/crates/cmux-relay-snapshot/", "cmux-tui/crates/cmux-remote-protocol/",
+                  "cmux-tui/crates/cmux-share-approval/", "cmux-tui/crates/cmux-tab-snapshots/",
+                  "cmux-tui/crates/cmux-tailnet-join/", "cmux-tui/crates/cmux-tailnet/",
+                  "cmux-tui/crates/cmux-terminal-sizing/", "cmux-tui/crates/ghostty-vt-sys/",
+                  "cmux-tui/crates/ghostty-vt/",
+                  # files those crates include_str! and paths the kit's Swift names as literals (same date)
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
+                  "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
+                  "schemas/notice-timing/notice-timing.json", "schemas/settings/source/browser.json",
+                  "schemas/terminal-sizing/fixtures.json")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
@@ -7394,6 +7426,29 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     return sorted(errors)[0].strip()
 
 
+def lost_runner_notes(repo: str, job: dict, github) -> list:
+    """JOB's check-run annotations for lost_runner_log, or [] when they cannot be read."""
+    try:
+        notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+    except (Refused, KeyError, ValueError):
+        return []
+    return notes if isinstance(notes, list) else []
+
+
+def worker_crash(repo: str, name: str, job: dict, github, notes: list | None = None) -> None:
+    """Refuses JOB, a red with no step failed, as one its runner refused when its annotations (NOTES, else read now)
+    say its runner's worker crashed under it (test_reds.runner_worker_crashed: cmux#50809's and cmux#50827's
+    react-apps-base-check, the runner's disk full). In merge_hold's words for a job its runner refused at setup, the
+    red glaeda-gh reruns once per (head, run): Infra's words stopped the land own_red."""
+    if any(step.get("conclusion") == "failure" for step in job.get("steps") or [] if isinstance(step, dict)):
+        return  # a failed step keeps its verdict, and costs no annotations read
+    if notes is None:
+        notes = lost_runner_notes(repo, job, github)
+    if why := test_reds.runner_worker_crashed(job, notes):
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: {why}); it gets re-run, "
+                      "never excused")
+
+
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
@@ -7401,15 +7456,14 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     question: a runner shut down under a job prints its notice there and leaves a failed step behind
     (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
+        worker_crash(repo, name, job, github)
         raise infra(name, job, why)
     try:
         text = github.log(repo, job)
     except Refused as error:
-        try:
-            notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
-        except (Refused, KeyError, ValueError):
-            notes = []
-        if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
+        notes = lost_runner_notes(repo, job, github)
+        worker_crash(repo, name, job, github, notes)
+        if why := test_reds.lost_runner(job, notes, str(error)):
             raise infra(name, job, why) from None
         raise
     if why := test_reds.lost_runner(job, (), text):
@@ -9302,6 +9356,27 @@ class Head(NamedTuple):
     compile: "CompileErrors | None" = None
 
 
+def checkout_death(repo: str, base: str, sha: str, job: dict, log: str | None, github) -> str | None:
+    """Why red JOB's LOG is a checkout that died before any step of the change ran (test_reds.died_in_checkout: its
+    first error is inside actions/checkout and no other step ran after it), when the change at SHA cannot have made
+    it fail: it changes neither .gitmodules nor a gitlink against BASE (runs_no_pr_code's rule), read in full. Else
+    None, and the red is judged as before. cmux#51655 at fd3c0b17: 'changes' died fetching from github.com in
+    actions/checkout ("Operation too slow", git exit 128) and land-judge stopped the land on it as the PR's own red;
+    it is the same red leo-workspace tools/ws-check reruns (failed_in_checkout, leo-workspace#11281)."""
+    error = test_reds.died_in_checkout(log)
+    if error is None:
+        return None
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha or job.get('head_sha')}")
+    files = diff.get("files") if isinstance(diff, dict) else None
+    if not isinstance(files, list) or len(files) >= COMPARE_FILES_CAP:
+        return None  # which paths the change touches is not known in full: its red stays its own
+    changed = {str(path) for found in files if isinstance(found, dict)
+               for path in (found.get("filename"), found.get("previous_filename")) if path is not None}
+    if ".gitmodules" in changed or compare_gitlinks(files):
+        return None  # a submodule pin the change moves can fail the checkout on its own (#43915)
+    return f"actions/checkout step, which died before any step of this change ran ({error[:300]})"
+
+
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
               evidence: "Evidence") -> Head:
     """The one reader of red head JOB's raw log for judge(), which reads only its failed_view. Raw, it is read only
@@ -9316,6 +9391,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
+        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
