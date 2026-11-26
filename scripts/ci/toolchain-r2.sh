@@ -9,6 +9,8 @@
 # steps took (p50 / p90 s): Setup Node 190 / 697, Setup Bun 96 / 580, Set up pinned Rust 522 / 1357,
 # Set up pinned cmux-tui Rust 377 / 1445, about 14,000 runner minutes a day.
 #
+# restore bun on a Mac (any runner): from the Mac's own store of versions, else one pinned download
+#   (restore_bun_darwin); never the bucket.
 # restore: runs only on a Freestyle runner (RUNNER_NAME fsr-*; TOOLCHAIN_R2_ALL=1 runs anywhere) that lacks
 #   the exact version, and puts it where the real installer looks first, so the installer then downloads
 #   nothing: node in RUNNER_TOOL_CACHE/node/VERSION/ARCH (actions/setup-node), bun at ~/.bun/bin/bun
@@ -45,7 +47,12 @@ say() { echo "toolchain-r2: $*"; }
 scratch=()
 trap 'for d in ${scratch[@]+"${scratch[@]}"}; do rm -rf "$d"; done' EXIT
 
-if [[ "$mode" == restore ]]; then
+# A Mac restores bun from its own store, not the bucket (restore_bun_darwin); TOOLCHAIN_R2_TEST_OS is for the test.
+os="${TOOLCHAIN_R2_TEST_OS:-$(uname -s)}"
+darwin_bun=""
+if [[ "$mode" == restore && "$kind" == bun && "$os" == Darwin ]]; then darwin_bun=1; fi
+
+if [[ "$mode" == restore && -z "$darwin_bun" ]]; then
   if [[ -z "$url" ]]; then say "no cache URL; nothing to restore"; exit 0; fi
   case "${RUNNER_NAME:-}" in
     fsr-*) ;;
@@ -53,7 +60,7 @@ if [[ "$mode" == restore ]]; then
   esac
 fi
 
-case "$(uname -s)" in Linux) ;; *) say "Linux only"; exit 0 ;; esac
+case "$os" in Linux) ;; Darwin) [[ -n "$darwin_bun" ]] || { say "Linux only"; exit 0; } ;; *) say "Linux only"; exit 0 ;; esac
 case "$(uname -m)" in
   x86_64) node_arch=x64 bun_arch=x64 triple=x86_64-unknown-linux-gnu ;;
   aarch64 | arm64) node_arch=arm64 bun_arch=aarch64 triple=aarch64-unknown-linux-gnu ;;
@@ -161,6 +168,62 @@ PY
   cp "$work/out/bun" "$bin.tmp.$$" && mv -f "$bin.tmp.$$" "$bin" && say "bun $ver restored to $bin"
 }
 
+unzip_bun() { # ZIP OUTDIR: the one top-level */bun of a bun release zip, as OUTDIR/bun
+  python3 -I - "$1" "$2" <<'PY'
+import sys, zipfile, os
+z = zipfile.ZipFile(sys.argv[1])
+members = [m for m in z.namelist() if m.endswith("/bun") and m.count("/") == 1]
+if len(members) != 1:
+    raise SystemExit("no bun in the zip")
+os.makedirs(sys.argv[2])
+with z.open(members[0]) as src, open(os.path.join(sys.argv[2], "bun"), "wb") as dst:
+    dst.write(src.read())
+PY
+  chmod 755 "$2/bun"
+}
+
+# A self-hosted Mac shares ~/.bun/bin/bun between its runner instances, and workflows that pin different bun
+# versions swap it (scripts/cmux-next/private-bun.sh), so setup-bun downloaded a release from github.com on
+# many jobs. Those downloads are anonymous: they spend the one budget every Mac behind the office address
+# shares, and when it runs out GitHub answers 403 and the job fails (nightly runs 45756842046, 45763487534,
+# "Unexpected HTTP response: 403"). So keep each version the Mac has held in a store keyed by version, and put
+# the asked one back at ~/.bun/bin/bun, where setup-bun takes it with no download. Only a version the store
+# lacks is downloaded, once per Mac, and checked against its pin. Every miss exits 0: setup-bun still runs.
+restore_bun_darwin() {
+  local ver="$version" bin="$HOME/.bun/bin/bun" store have arch name expected work src
+  store="${TOOLCHAIN_BUN_STORE:-$HOME/.bun/cmux-versions}"
+  [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { say "bun $ver is not an exact version; setup-bun resolves it"; return 0; }
+  have=""
+  if [[ -x "$bin" ]]; then have="$("$bin" --version 2>/dev/null || true)"; fi
+  if [[ "$have" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && ! -x "$store/$have/bun" ]]; then
+    # Keep the bun that is there before it is replaced, so the job that wants it next downloads nothing.
+    if mkdir -p "$store/$have" && cp "$bin" "$store/$have/bun.tmp.$$" && mv -f "$store/$have/bun.tmp.$$" "$store/$have/bun"; then
+      say "kept bun $have in $store"
+    else
+      rm -f "$store/$have/bun.tmp.$$"
+    fi
+  fi
+  if [[ "$have" == "$ver" ]]; then say "bun $ver is at $bin"; return 0; fi
+  if [[ ! -x "$store/$ver/bun" || "$("$store/$ver/bun" --version 2>/dev/null || true)" != "$ver" ]]; then
+    case "$(uname -m)" in arm64 | aarch64) arch=aarch64 ;; x86_64) arch=x64 ;; *) say "unsupported arch $(uname -m)"; return 0 ;; esac
+    name="bun-v$ver-darwin-$arch.zip"
+    expected="$(pin_of "$name")"
+    [[ -n "$expected" ]] || { say "no pin for $name; setup-bun downloads it"; return 0; }
+    work="$(mktemp -d)"; scratch+=("$work")
+    src="${TOOLCHAIN_BUN_RELEASE_BASE:-https://github.com/oven-sh/bun/releases/download}/bun-v$ver/bun-darwin-$arch.zip"
+    curl -fsSL --retry 2 --connect-timeout 20 --max-time 300 -o "$work/$name" "$src" \
+      || { say "could not download $name; setup-bun tries"; return 0; }
+    [[ "$(sha256_of "$work/$name")" == "$expected" ]] || { say "$name does not match its pin; setup-bun downloads it"; return 0; }
+    unzip_bun "$work/$name" "$work/out" || { say "$name would not unpack; setup-bun downloads it"; return 0; }
+    [[ "$("$work/out/bun" --version 2>/dev/null || true)" == "$ver" ]] || { say "$name is not bun $ver; setup-bun downloads it"; return 0; }
+    mkdir -p "$store/$ver" && cp "$work/out/bun" "$store/$ver/bun.tmp.$$" && mv -f "$store/$ver/bun.tmp.$$" "$store/$ver/bun" \
+      || { say "could not store bun $ver"; return 0; }
+    say "downloaded bun $ver once into $store (sha256 matches the pin)"
+  fi
+  mkdir -p "$(dirname "$bin")"
+  cp "$store/$ver/bun" "$bin.tmp.$$" && mv -f "$bin.tmp.$$" "$bin" && say "bun $ver restored to $bin from $store"
+}
+
 restore_rust() {
   local rustup_home="${RUSTUP_HOME:-$HOME/.rustup}" work t0 f
   rust_pin "${version:-}" || return 0
@@ -189,7 +252,7 @@ restore_rust() {
 }
 
 restore_one() {
-  case "$kind" in node) restore_node ;; bun) restore_bun ;; rust) restore_rust ;; esac
+  case "$kind" in node) restore_node ;; bun) if [[ -n "$darwin_bun" ]]; then restore_bun_darwin; else restore_bun; fi ;; rust) restore_rust ;; esac
 }
 
 seed_archive() { # KIND VERSION
