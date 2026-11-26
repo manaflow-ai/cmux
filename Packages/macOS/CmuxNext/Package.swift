@@ -2499,8 +2499,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The request types cmux-tui/bindings/codegen/swift_app/bindings.json lists, generated from
+            // cmux-tui/spec/sdk-schema.json by every build (never committed, RFD 0048).
+            plugins: [.plugin(name: "DaemonWireTypesPlugin")]
         ),
+        // Runs cmux-tui/bindings/codegen/swift_app/generate.py --out into its work directory.
+        .plugin(name: "DaemonWireTypesPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextDaemonTests",
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a

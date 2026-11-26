@@ -2692,6 +2692,12 @@
       "packages": [],
       "reads": []
     },
+    "DaemonWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin",
+      "targets": [],
+      "packages": []
+    },
     "DesignScalePlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Plugins/DesignScalePlugin",
