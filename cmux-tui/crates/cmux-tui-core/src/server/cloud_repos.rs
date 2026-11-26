@@ -145,22 +145,6 @@ fn a_full_worker_pool_is_waited_for_instead_of_refused() {
     assert!(!take_slot(&workers, 2, std::time::Duration::from_millis(150)));
 }
 
-#[test]
-fn duplicate_destination_waits_before_worker_admission() {
-    let key = format!("gate-test-{}", std::process::id());
-    let first = destination_lock(&key);
-    let first_guard = first.lock().unwrap_or_else(|e| e.into_inner());
-    let (sent, received) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let second = destination_lock(&key);
-        let _second = second.lock().unwrap_or_else(|e| e.into_inner());
-        sent.send(()).unwrap();
-    });
-    assert!(received.recv_timeout(std::time::Duration::from_millis(100)).is_err());
-    drop(first_guard);
-    assert!(received.recv_timeout(std::time::Duration::from_secs(1)).is_ok());
-}
-
 /// Local user and linked Mac requests retain their existing access. A
 /// presented agent identity, however, may address only its own chat, and a
 /// linked Mac frame must name the chat its surface currently shows.

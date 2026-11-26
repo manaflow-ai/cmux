@@ -10,6 +10,17 @@ fn client(mux: &Mux, transport: ClientTransport) -> (u64, MessageWriter, Arc<Bou
 }
 
 #[test]
+fn duplicate_destinations_share_one_lock_while_other_folders_proceed() {
+    let first = destination_lock("gate-test/folder");
+    let held = first.lock().unwrap();
+    let duplicate = destination_lock("gate-test/folder");
+    assert!(matches!(duplicate.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+    assert!(destination_lock("gate-test/other").try_lock().is_ok());
+    drop(held);
+    assert!(duplicate.try_lock().is_ok());
+}
+
+#[test]
 fn cloud_repo_destination_key_normalizes_raw_urls_once() {
     assert_eq!(
         destination_key(&json!({"session":"chat","repo":"https://github.com/owner/tool.git"})),
