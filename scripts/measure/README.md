@@ -235,6 +235,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-engine.sh` | Agent chat engine spike: open time, memory, flings, typing per engine. | - | 2026-10-27 | active |
 | `chat-typing-ab.sh` | Agent chat typing A/B, base vs head, in one step. | - | 2026-11-14 | active |
 | `acpmux-overhead.sh` | acpmux against each harness run raw (Claude Code, Codex and others). | #2758 | 2026-10-29 | active |
+| `capacity-resume-outcomes.py` | What acpmux's capacity continuations do once they wake a chat, from this host's Claude transcripts: work (acted or read-only), no tool call, failed again; whether the cut turn had worked yet. | ask-ec4bc6dc7d | 2026-11-26 | active |
 | `agent-loop.sh` | Agent loop on a published NEXT nightly: scripted UI change applied live. | hq#7149 L8 | 2026-11-05 | active |
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
@@ -303,7 +304,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `ext-reload-nightly.py` | App half of ext-reload-nightly.sh. | - | 2026-11-19 | active |
 | `look-keys-readback.sh` | Look keys read back on a published NIGHTLY side instance (`build=VERSION` or `dmg=URL`): each case of a cases file (`look-keys-readback/cases.json`: theme file keys, chat stylesheet tokens) applied live, every theme key read through `settings.get`, window and desktop shots before and after, and a color probe for what no socket method reads. | goals/look-keys-land | 2026-11-24 | active |
 | `look-keys-readback.py` | App half of look-keys-readback.sh (`prepare`, `run`). | goals/look-keys-land | 2026-11-24 | active |
-| `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing. | - | 2026-11-19 | active |
+| `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing, extension settings, `ext add` and git references, toolbar items, overlays. | - | 2026-11-19 | active |
 | `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `meet-browser.sh` | What a video-call page needs, on a published NIGHTLY side instance (Chromium, WebKit) against Google Chrome on the same Mac: getUserMedia with and without fake-device switches, getDisplayMedia, Picture-in-Picture, notifications, a loopback 720p WebRTC call with CPU, meet.google.com load cold and warm, hidden-tab timer drift. | - | 2026-11-22 | active |
 | `meet-browser.py` | Driver half of meet-browser.sh: the local test page, cmux over its control socket, Chrome over DevTools. | - | 2026-11-22 | active |
