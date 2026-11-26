@@ -111,14 +111,22 @@ jobs:
         run: python3 -I scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
       - name: Run the routed linux steps (ci/steps.toml)
         id: run
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." --pr-scope runs the steps
+        # the change reaches through an input that names their files; a step it reaches only through a whole-directory
+        # input (`web/**`, `cmux-tui/**`) or the pipeline's own files runs in the post-merge batch, every linux step at
+        # the merged tip (cmux-next-pr-pipeline-linux-batch.yml, whose judge bisects a new red).
+        # vars.CI_PR_PIPELINE_LINUX_PR_SCOPE=0 runs the whole route on the pull request again.
         env:
+          CI_PR_PIPELINE_LINUX_PR_SCOPE: ${{ github.event_name == 'pull_request' && (vars.CI_PR_PIPELINE_LINUX_PR_SCOPE || '1') || '0' }}
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
         run: |
+          scope=()
+          [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
           only=""
-          if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+          if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${scope[@]}" \
               | python3 -I -c 'import json, re, sys
           print(" ".join(n for n in json.load(sys.stdin).get("linux", []) if not re.fullmatch(r"tooling-tests-\d+", n)))')"; then
             if [ -z "$only" ]; then
@@ -126,7 +134,7 @@ jobs:
               exit 0
             fi
           fi
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"}
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -537,6 +545,9 @@ jobs:
         env:
           CI_PATHS_FILE: ${{ env.PATHS_FILE }}
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
+          # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: python3 -I scripts/ci/mac_tiers.py route --github-output "$GITHUB_OUTPUT"
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
