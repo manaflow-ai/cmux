@@ -11,12 +11,14 @@ import CmuxNextDesign
 /// until just after Core Animation's commit observer), `open=0` after. Within `open=1`, the step's `step_precommit`
 /// line (just before that observer) splits an update made in cmux's layout pass (before it) from one the fork makes
 /// once per turn after the commit (after it): lines of the main thread keep their order in the log. `what=` names the
-/// notice (`resize`, `move`).
+/// notice (`resize`, `move`); `win=` the window (its object identity, hex), so a step's updates count per page.
 enum CEFPageWindowGeometryProbe {
     @MainActor static func windowMoved(_ window: NSWindow, resized: Bool) {
         guard isChromiumPageWindow(window) else { return }
         let open = ResizeStepTimes.openStep != nil
-        ResizeStepTimes.note("page_window_geometry", ms: 0, detail: " open=\(open ? 1 : 0) what=\(resized ? "resize" : "move")")
+        let win = String(UInt(bitPattern: ObjectIdentifier(window).hashValue), radix: 16)
+        ResizeStepTimes.note("page_window_geometry", ms: 0,
+                             detail: " open=\(open ? 1 : 0) what=\(resized ? "resize" : "move") win=\(win)")
     }
 
     /// A Chromium page window: an embedded `CefNSWindow`, or any Views widget window (`NativeWidgetMac*`, the
