@@ -680,7 +680,7 @@
       "type" : "number"
     },
     "agents.autoRetry.capacityFallbackAfter" : {
-      "default" : 1,
+      "default" : 0,
       "description" : "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
       "maximum" : 12,
       "minimum" : 0,
