@@ -263,7 +263,8 @@ enum ControlTopologyMapper {
                                              panes: screen.panes.map { model in
                                                  var info = pane(from: model, selectedTab: selectedTab, pages: pages)
                                                  let handle = model.handle
-                                                 info.column = placed.isEmpty ? 0 : placed.firstIndex { $0.panes.contains(handle) }
+                                                 // A pane a split tree does not list yet is in its one column.
+                                                 info.column = placed.firstIndex { $0.panes.contains(handle) } ?? (screen.columns.isEmpty ? 0 : nil)
                                                  info.dock = placed.first { $0.panes.contains(handle) }?.dock
                                                  return info
                                              })
@@ -274,23 +275,6 @@ enum ControlTopologyMapper {
         info.resourceID = model.resourceID?.rawValue
         info.kind = model.kind
         return info
-    }
-
-    /// `screen`'s columns as the window draws them, left to right: left
-    /// docks, the scrolling strip, right docks. Top and bottom bands span the
-    /// screen and are no column. Empty for a screen stored as one split tree.
-    static func columns(of screen: ScreenModel) -> [(panes: Set<PaneID>, dock: String?)] {
-        let order: (ColumnSnapshot) -> Int? = { column in
-            switch column.dock?.edge {
-            case .left: 0
-            case nil: 1
-            case .right: 2
-            case .top, .bottom: nil
-            }
-        }
-        let placed = screen.columns.compactMap { column in order(column).map { (rank: $0, column: column) } }
-        return placed.enumerated().sorted { ($0.element.rank, $0.offset) < ($1.element.rank, $1.offset) }
-            .map { (panes: Set($0.element.column.layout.paneIDs), dock: $0.element.column.dock?.edge.rawValue) }
     }
 
     static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?,

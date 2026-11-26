@@ -34,7 +34,6 @@
         "tests/test_issue_11257_prompt_command_export.py",
         "tests/test_issue_734_shell_integration_none_respected.py",
         "tests/test_memory_resource_diagnostics.py",
-        "tests/test_mobile_stability_soak_attach_contract.py",
         "tests/test_reconcile_entitlements_with_profile.py",
         "tests/test_reload_tag_lock.py",
         "tests/test_shell_histfile_ghostty_zdotdir_regression.py",
@@ -72,7 +71,7 @@
       ]
     },
     {
-      "reason": "Lawrence 2026-10-23: no new CI tests. web-validation.yml runs it on main pushes only. On feat-cmux-next the wrapper it tests (scripts/ci/webviews-tests-new-reds.sh) runs on every push, with no base, in cmux-next-web.yml's react-apps-check, so a break shows there on the next push. Run python3 tests/test_webviews_tests_new_reds.py yourself after changing the wrapper, guards_new_reds.py or webviews_test_results.py (about 20 s, a fake bun).",
+      "reason": "Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18. web-validation.yml runs it on main pushes only. On feat-cmux-next the wrapper it tests (scripts/ci/webviews-tests-new-reds.sh) runs on every push, with no base, in cmux-next-web.yml's react-apps-check, so a break shows there on the next push. Run python3 tests/test_webviews_tests_new_reds.py yourself after changing the wrapper, guards_new_reds.py or webviews_test_results.py (about 20 s, a fake bun).",
       "tests": [
         "tests/test_webviews_tests_new_reds.py"
       ]

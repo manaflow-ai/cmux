@@ -49,6 +49,37 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertIn("::error title=check failed::exit 3", result.stdout)
         self.assertIn("2 passed, 1 failed", result.stdout)
 
+    def test_a_passing_commands_error_lines_print_inert_and_a_failing_ones_stay_live(self):
+        # cmux#45463: a passing script test printed a fixture `::error::` line; the runner made it a live
+        # `##[error]`, so the Script tests step read as errored and merge_hold quoted that fixture as the red
+        # (hq docs/handbook/red-quoted-from-a-passing-step.md). A passing command's error lines print as text
+        # between ::stop-commands:: and its resume token; a failing command's stay live, and warnings stay live.
+        result = run("printf '::error::fixture says no\\n::warning::kept live\\nfine\\n'\n"
+                     "printf '::error::real red\\n'; exit 4\n", "--jobs", "1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        live = None
+        for line in lines:
+            if live is None and line.startswith("::stop-commands::"):
+                live = "::" + line[len("::stop-commands::"):] + "::"
+                continue
+            if live is not None and line == live:
+                live = None
+                continue
+            if live is None:
+                self.assertNotEqual(line, "::error::fixture says no", result.stdout)
+        self.assertIsNone(live, "a stop-commands block was never resumed:\n" + result.stdout)
+        self.assertIn("::error::fixture says no", lines)
+        self.assertIn("::warning::kept live", lines)
+        index = lines.index("::error::fixture says no")
+        self.assertTrue(lines[index - 1].startswith("::stop-commands::check-pool-inert-"), result.stdout)
+        self.assertEqual(lines[index + 1], "::" + lines[index - 1][len("::stop-commands::"):] + "::")
+        # The failing command's own line is live in its group and again in the summary at the end.
+        real = [i for i, line in enumerate(lines) if line == "::error::real red"]
+        self.assertEqual(len(real), 2, result.stdout)
+        for i in real:
+            self.assertFalse(lines[i - 1].startswith("::stop-commands::"), result.stdout)
+
     def test_the_job_cpu_share_caps_the_pool(self):
         # A mini's runner hook grants a job its cores (CMUX_CI_CPU_BUDGET). The checks job asked for one check per
         # core of the whole 14-core mini while it held 5 (job 131984422217: prepush gate 693 s there, 238 s on a
@@ -150,6 +181,39 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
         self.assertIn('"$GITHUB_EVENT_PATH"', start["run"])
         self.assertIn("POOL_TAIL_SECONDS", start["run"])
+
+
+class AffectedSkipsWhatTheChangeCannotReach(unittest.TestCase):
+    """--affected BASE: a command whose inputs the change leaves as they were passes as skipped, unrun."""
+
+    # Exits 2 (its usage) when run, so a pass proves it was skipped; tracked, so its inputs are known.
+    UNREACHED = "bash scripts/ci/timeout.sh"
+
+    def test_an_unreached_command_is_skipped_and_an_unreadable_one_runs(self):
+        # HEAD...HEAD changes nothing: the tracked script is unreached; `echo` is no test invocation, so it runs.
+        result = run(f"{self.UNREACHED}\necho ran\n", "--jobs", "2", "--affected", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"skipped (inputs unchanged): {self.UNREACHED}", result.stdout)
+        self.assertIn("ran", result.stdout)
+        self.assertIn("1 passed, 0 failed, 1 skipped (inputs unchanged)", result.stdout)
+
+    def test_no_base_or_an_unreadable_one_runs_everything(self):
+        for base in ("", "no-such-revision-xyz"):
+            with self.subTest(base=base):
+                result = run(f"{self.UNREACHED}\n", "--jobs", "1", "--affected", base)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(f"::error title=check failed::{self.UNREACHED}", result.stdout)
+
+    def test_a_name_whose_commands_all_skipped_waits_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pool = os.path.join(tmp, "pool")
+            started = run(f"[a]\n{self.UNREACHED}\n[b]\necho b\n", "--start", pool, "--jobs", "2", "--affected", "HEAD")
+            self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+            self.assertIn("1 of 2 commands started", started.stdout)
+            for name in ("a", "b"):
+                waited = subprocess.run(["bash", str(RUNNER), "--wait", pool, name], capture_output=True, text=True,
+                                        timeout=60, cwd=ROOT)
+                self.assertEqual(waited.returncode, 0, waited.stdout + waited.stderr)
 
 
 if __name__ == "__main__":

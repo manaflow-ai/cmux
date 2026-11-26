@@ -40,6 +40,17 @@ fn a_named_pane_keeps_its_parents_and_gets_the_current_tab() {
 }
 
 #[test]
+fn only_a_workspace_or_screen_with_no_pane_named_leaves_the_pane_to_the_app() {
+    let route = object(json!({"session": "current"}));
+    let names = |params: Value| names_no_pane(&route, &object(params));
+    assert!(names(json!({"workspace": "ws_a"})));
+    assert!(names(json!({"screen": "screen_b"})));
+    assert!(!names(json!({"workspace": "ws_a", "pane": "pane_c"})));
+    assert!(!names(json!({"pane": "pane_c"})));
+    assert!(!names(json!({"url": "https://a.test"})));
+}
+
+#[test]
 fn the_created_tab_is_the_first_tab_id_in_created() {
     let reply = json!({"created": ["ws_x", "tab_new", "tab_other"]});
     assert_eq!(created_tab(&reply).as_deref(), Some("tab_new"));

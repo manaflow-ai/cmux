@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
     public var shortcut: String?
+    /// A caller-supplied tooltip, used for transient rows whose title is only a short state word.
+    public var tooltip: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
@@ -70,12 +72,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var accessibilityTitle: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
                 emoji: String? = nil) {
         self.icon = icon
         self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
+        self.tooltip = tooltip
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -153,7 +156,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "house"
+        case .home: "house" // the Chief's row keeps Home's house (Lucas 2026-11-23)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -167,11 +170,15 @@ extension SidebarBuiltIn {
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
+        case .forum: "text.bubble"
         }
     }
 
-    /// The built-in's cmux icon.
-    public var icon: IconName {
+    /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
+    ///
+    /// The Chief Activity item draws the sparkles symbol, not the cmux pack's `agent.chief` crown (Lawrence
+    /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
+    public var icon: IconName? {
         switch self {
         case .home: .home
         case .settings: .settings
@@ -185,8 +192,9 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: .agentChief
+        case .chief: nil
         case .automations: .automation
+        case .forum: .agentChatList
         }
     }
 
@@ -212,6 +220,7 @@ extension SidebarBuiltIn {
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
+        case .forum: SectionStrings.forum
         }
     }
 
@@ -224,13 +233,27 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
+    /// experiment is off.
+    /// - Parameters:
+    ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
+    ///   when `showsForum` is false.
+    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
+        var info = defaultInfo
+        if self == .appStore, !showsStore { info.isHidden = true }
+        if self == .forum, !showsForum { info.isHidden = true }
+        return info
+    }
 }
 
 extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
     /// ("Settings (⌘,)").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        tooltip ?? shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
     }
 }
 

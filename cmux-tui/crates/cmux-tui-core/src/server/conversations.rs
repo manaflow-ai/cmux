@@ -18,6 +18,7 @@ use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::attachments::AttachmentRejected;
 use crate::conversation_store::inbox::InboxOp;
 use crate::conversation_store::runs::RunRejected;
+use crate::conversation_store::scheduled::ScheduleRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -78,6 +79,14 @@ pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-perso
 /// (kind, display name, unread count, preview, a Chief's live state, the
 /// caller's pins and marks, list order), so every view shows the same list.
 pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
+/// `home-inbox` takes `since` (a revision) for `owners: ["local"]`: the reply
+/// carries `revision` and the rows changed and ids removed since, or the
+/// whole list with `full: true` when the change log does not reach back.
+pub const HOME_INBOX_SINCE_CAPABILITY: &str = "home-inbox-since-v1";
+/// `home-inbox` takes `offset`+`limit` or `ids` for `owners: ["local"]`: the
+/// owner builds only those rows; the reply carries `window: true`, `total`,
+/// and `offset` (a range) or `order` (ids; each row has its `index`).
+pub const HOME_INBOX_WINDOW_CAPABILITY: &str = "home-inbox-window-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -130,6 +139,65 @@ pub(super) struct LinkResolveParams {
 pub(super) struct HomeInboxParams {
     #[serde(default)]
     owners: Option<Vec<String>>,
+    /// The revision of the rows the caller holds (`home-inbox-since-v1`,
+    /// local rows only): the reply is the rows changed and the ids removed
+    /// since, or the whole list (`full`). `0` asks for the whole list and its
+    /// revision. Absent: the reply is exactly the one without this field.
+    #[serde(default)]
+    since: Option<u64>,
+    /// A window of the local rows (`home-inbox-window-v1`, owners
+    /// `["local"]`): `limit` (1-500) rows from `offset` (default 0), or the
+    /// rows of up to 64 conversations (`ids`, each row with its `index`),
+    /// never both. Only the window's rows are built; the reply says `total`
+    /// (and `offset`, or `order` with `ids`: the list order's digest).
+    /// Absent: the whole list, exactly as before.
+    #[serde(default)]
+    offset: Option<u64>,
+    #[serde(default)]
+    limit: Option<u64>,
+    #[serde(default)]
+    ids: Option<Vec<String>>,
+    /// With a window: `"agents"` lists only conversations between
+    /// `user_local` and plain `agent_` ids (a paired phone's scope), so the
+    /// window's positions, `total` and `order` are that list's.
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+/// The most rows one windowed `home-inbox` reply carries.
+pub(super) const HOME_INBOX_WINDOW_MAX: u64 = 500;
+/// The most conversations one `home-inbox` `ids` read names.
+pub(super) const HOME_INBOX_IDS_MAX: usize = 64;
+
+impl HomeInboxParams {
+    /// The window asked for, if any; a malformed one is refused.
+    fn window(&self) -> anyhow::Result<Option<cmux_conversation::HomeWindow>> {
+        if let Some(ids) = &self.ids {
+            anyhow::ensure!(
+                self.offset.is_none() && self.limit.is_none(),
+                "bad request: ids takes no offset or limit"
+            );
+            anyhow::ensure!(
+                !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX,
+                "bad request: ids must be 1-{HOME_INBOX_IDS_MAX} conversation ids"
+            );
+            return Ok(Some(cmux_conversation::HomeWindow::Ids(ids.clone())));
+        }
+        match (self.offset, self.limit) {
+            (None, None) => Ok(None),
+            (_, None) => anyhow::bail!("bad request: offset needs a limit"),
+            (offset, Some(limit)) => {
+                anyhow::ensure!(
+                    (1..=HOME_INBOX_WINDOW_MAX).contains(&limit),
+                    "bad request: limit must be 1-{HOME_INBOX_WINDOW_MAX}"
+                );
+                Ok(Some(cmux_conversation::HomeWindow::Range {
+                    offset: usize::try_from(offset.unwrap_or(0)).unwrap_or(usize::MAX),
+                    limit: usize::try_from(limit).unwrap_or(usize::MAX),
+                }))
+            }
+        }
+    }
 }
 
 impl HomeInboxParams {
@@ -147,6 +215,10 @@ impl HomeInboxParams {
 pub(super) struct InboxOpParams {
     conversation: String,
     op: Value,
+    /// Optional (`conversation-inbox-op-once-v1`): a resend with the same id answers the
+    /// first result and writes nothing.
+    #[serde(default)]
+    op_id: Option<String>,
 }
 
 /// Default page of `conversation-thread`.
@@ -244,6 +316,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<ScheduleRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_details` of a conversation reject that has them: the keyed
@@ -264,6 +337,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     if error.downcast_ref::<RunRejected>().is_some() {
         return Some(RunRejected::CODE.to_string());
     }
+    if error.downcast_ref::<ScheduleRejected>().is_some() {
+        return Some(ScheduleRejected::CODE.to_string());
+    }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
@@ -278,7 +354,7 @@ fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+pub(super) fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"
@@ -328,13 +404,39 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 /// (`cmux_conversation::home_inbox`): the same summaries as
 /// `conversation-list`, with the caller's pins and marks, the Chief
 /// registry's current names and who types now.
-pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> anyhow::Result<Value> {
+pub(super) fn home_inbox(
+    mux: &Mux,
+    client: u64,
+    mut params: HomeInboxParams,
+) -> anyhow::Result<Value> {
     require_local(mux, client)?;
-    let owners = params.owners.unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
+    let window = params.window()?;
+    let owners = params.owners.take().unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
     anyhow::ensure!(
         owners.iter().all(|owner| owner == "local" || owner == "cloud"),
         "bad request: owners"
     );
+    anyhow::ensure!(
+        params.since.is_none() || owners.iter().all(|owner| owner == "local"),
+        "bad request: since needs owners [\"local\"]"
+    );
+    anyhow::ensure!(
+        window.is_none() || owners.iter().all(|owner| owner == "local"),
+        "bad request: offset, limit and ids need owners [\"local\"]"
+    );
+    anyhow::ensure!(
+        window.is_none() || params.since.is_none(),
+        "bad request: since takes no offset, limit or ids"
+    );
+    let scope = match params.scope.as_deref() {
+        None => cmux_conversation::HomeScope::All,
+        Some("agents") if window.is_some() => cmux_conversation::HomeScope::OwnerAndAgents,
+        Some("agents") => anyhow::bail!("bad request: scope needs offset and limit, or ids"),
+        Some(_) => anyhow::bail!("bad request: scope must be \"agents\""),
+    };
+    if let Some(window) = window {
+        return home_inbox_window(mux, client, &window, scope);
+    }
     let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
         cloud_home_rows(mux, client)
     } else {
@@ -355,29 +457,141 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
     })?;
     let input = cmux_conversation::HomeInboxInput {
         me: &principal,
-        states: states
-            .into_iter()
-            .map(|(id, state)| {
-                (
-                    id,
-                    cmux_conversation::HomeListState {
-                        pinned: state.pinned,
-                        pin_position: state.pin_position,
-                        marked_unread: state.marked_unread,
-                    },
-                )
-            })
-            .collect(),
+        states: home_list_states(states),
         chief_names: super::chief_registry_resource::chief_names(mux),
         typing: mux.conversation_typing_all(),
         running,
         deleted_chiefs: super::chief_registry_resource::deleted_chiefs(mux),
+        preview_words: preview_words(),
     };
     let rows = cmux_conversation::merge_rows(
         cmux_conversation::home_inbox(&conversations, &input),
         cloud_rows,
     );
-    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+    let Some(since) = params.since else {
+        return Ok(json!({"me": principal, "rows": rows, "cloud": cloud}));
+    };
+    let (revision, delta) =
+        mux.with_home_changes(&principal, now_ms, &rows, |log| (log.revision(), log.since(since)));
+    home_inbox_delta(&principal, rows, cloud, revision, delta)
+}
+
+/// A `since` reply: the whole list (`full: true`), or (`full: false`) in
+/// `rows` only the changed rows, each with its `index` in the whole list,
+/// plus the removed ids and the list's `total`. Only the changed rows are
+/// serialized.
+fn home_inbox_delta(
+    principal: &str,
+    rows: Vec<cmux_conversation::HomeRow>,
+    cloud: &str,
+    revision: u64,
+    delta: cmux_conversation::HomeDelta,
+) -> anyhow::Result<Value> {
+    let (changed, removed) = match delta {
+        cmux_conversation::HomeDelta::Full => {
+            return Ok(json!({
+                "me": principal, "rows": rows, "cloud": cloud, "revision": revision, "full": true,
+            }));
+        }
+        cmux_conversation::HomeDelta::Since { changed, removed } => (changed, removed),
+    };
+    let wanted: std::collections::HashSet<&str> = changed.iter().map(String::as_str).collect();
+    let changed = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| wanted.contains(row.id.as_str()))
+        .map(|(index, row)| {
+            let mut value = serde_json::to_value(row)?;
+            if let Value::Object(fields) = &mut value {
+                fields.insert("index".into(), Value::from(index));
+            }
+            Ok(value)
+        })
+        .collect::<anyhow::Result<Vec<Value>>>()?;
+    Ok(json!({
+        "me": principal,
+        "rows": changed,
+        "removed": removed,
+        "total": rows.len(),
+        "cloud": cloud,
+        "revision": revision,
+        "full": false,
+    }))
+}
+
+/// The caller's pins and marks as the Home projection reads them.
+fn home_list_states(
+    states: std::collections::HashMap<String, crate::conversation_store::inbox::InboxState>,
+) -> std::collections::HashMap<String, cmux_conversation::HomeListState> {
+    states
+        .into_iter()
+        .map(|(id, state)| {
+            (
+                id,
+                cmux_conversation::HomeListState {
+                    pinned: state.pinned,
+                    pin_position: state.pin_position,
+                    marked_unread: state.marked_unread,
+                },
+            )
+        })
+        .collect()
+}
+
+/// A window of the caller's local Home rows (`home-inbox-window-v1`): only
+/// the window's rows are built (`ConversationStore::home_window`), from an
+/// order kept until the store changes.
+fn home_inbox_window(
+    mux: &Mux,
+    client: u64,
+    window: &cmux_conversation::HomeWindow,
+    scope: cmux_conversation::HomeScope,
+) -> anyhow::Result<Value> {
+    let principal = mux.conversation_principal(client);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    let chief_names = super::chief_registry_resource::chief_names(mux);
+    let deleted_chiefs = super::chief_registry_resource::deleted_chiefs(mux);
+    let typing = mux.conversation_typing_all();
+    let read = mux.with_conversations(|store| {
+        let running = store.running_run_authors(now_ms)?;
+        // The caller's pins and marks: the store reads its own.
+        let mut input = cmux_conversation::HomeInboxInput {
+            me: &principal,
+            states: Default::default(),
+            chief_names,
+            typing,
+            running,
+            deleted_chiefs,
+            preview_words: preview_words(),
+        };
+        store.home_window(&mut input, window, scope)
+    })?;
+    let total = read.order.total();
+    let ids = matches!(window, cmux_conversation::HomeWindow::Ids(_));
+    let rows: Vec<Value> = read
+        .rows
+        .into_iter()
+        .map(|(index, row)| {
+            let mut value = serde_json::to_value(row)?;
+            if ids && let Value::Object(fields) = &mut value {
+                fields.insert("index".into(), Value::from(index));
+            }
+            Ok(value)
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let mut reply = json!({
+        "me": principal, "rows": rows, "cloud": "not_asked", "total": total, "window": true,
+    });
+    let (key, extra) = match window {
+        cmux_conversation::HomeWindow::Range { offset, .. } => ("offset", Value::from(*offset)),
+        cmux_conversation::HomeWindow::Ids(_) => ("order", Value::from(read.order.digest())),
+    };
+    if let Value::Object(fields) = &mut reply {
+        fields.insert(key.into(), extra);
+    }
+    Ok(reply)
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and
@@ -437,12 +651,34 @@ pub(super) fn cloud_rows_failure(error: &anyhow::Error) -> &'static str {
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
 /// a conversation it takes part in, and publishes `conversation-inbox-changed`
 /// to the caller's connections. Not a conversation op: no rev, no ledger
-/// (values are absolute, so a retry writes the same state).
+/// (values are absolute, so a retry writes the same state). With an `op_id`
+/// (`conversation-inbox-op-once-v1`) a resend answers the first result and
+/// writes and publishes nothing (`conversation_inbox_once.rs`).
 pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
-    let InboxOpParams { conversation, op } = params;
-    let op: InboxOp = decode(op, "op")?;
+    let InboxOpParams { conversation, op, op_id } = params;
     let actor = mux.conversation_principal(client);
+    let key = match op_id {
+        None => None,
+        Some(id) if !id.is_empty() && id.len() <= crate::conversation_inbox_once::OP_ID_MOST => {
+            Some(format!("{actor}\0{id}"))
+        }
+        Some(_) => anyhow::bail!(
+            "bad request: op_id must be a non-empty string of at most {} bytes",
+            crate::conversation_inbox_once::OP_ID_MOST
+        ),
+    };
+    let once = format!("{conversation}\0{op}");
+    mux.inbox_op_once(key, once, || inbox_op_run(mux, conversation, actor, op))
+}
+
+fn inbox_op_run(
+    mux: &Mux,
+    conversation: String,
+    actor: String,
+    op: Value,
+) -> anyhow::Result<Value> {
+    let op: InboxOp = decode(op, "op")?;
     let state = mux.conversation_write(
         |store| store.apply_inbox_op(&conversation, &actor, &op),
         |state| {
@@ -751,9 +987,26 @@ pub(super) fn agent_token(
     Ok(json!({"participant": params.participant, "token": token}))
 }
 
+/// The words a Home row's preview says for a table or pictures alone, in the
+/// person's language (the apps say the same: `home.preview.*`).
+fn preview_words() -> cmux_conversation::PreviewWords {
+    #[cfg(unix)]
+    {
+        cmux_conversation::PreviewWords::for_locale(crate::apps::person_locale())
+    }
+    #[cfg(not(unix))]
+    {
+        cmux_conversation::PreviewWords::english()
+    }
+}
+
 #[cfg(test)]
 #[path = "conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversation_inbox_once_tests.rs"]
+mod inbox_once_tests;
 
 #[cfg(test)]
 #[path = "conversation_attachment_tests.rs"]

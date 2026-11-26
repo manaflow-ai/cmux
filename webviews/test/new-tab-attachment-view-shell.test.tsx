@@ -162,7 +162,7 @@ test("a file dropped in shell mode waits in the strip: the command holds no atta
   expect(asked.length).toBe(0);
 });
 
-test("the both view shows a draft's attachment in the text and in the strip; the strip's × takes both", async () => {
+test("the both view reads as the strip: a draft's attachment shows once, in the strip", async () => {
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings({ attachmentView: "both" });
   try {
@@ -172,21 +172,11 @@ test("the both view shows a draft's attachment in the text and in the strip; the
     const handle = field.acpmuxMarkdownField!;
     await act(async () => handle.focus());
     await dropZip();
-    await until(() => inlineChips(field) === 1);
-    // Placed in the text, as the inline view places it, and listed in the strip too.
     await until(() => stripChips() === 1);
-    expect(inlineChips(field)).toBe(1);
-    expect(inlineTokenIds(handle.value()).length).toBe(1);
-
-    const remove = host.querySelector<HTMLButtonElement>(".acpmux-attachments .acpmux-attachment-remove");
-    expect(remove).not.toBeNull();
-    await act(async () => remove!.click());
-    await settle();
-    expect(stripChips()).toBe(0);
-    expect(inlineChips(field)).toBe(0);
-    expect(inlineTokenIds(handle.value())).toEqual([]);
+    // The text keeps the attachment's mark, but its chip is not drawn there: one place only.
+    expect(host.querySelector("[data-attachment-view]")?.getAttribute("data-attachment-view")).toBe("strip");
+    expect(stripChips()).toBe(1);
   } finally {
-    // A failure here must not leave the next tests on the both view.
     setComposerSettings({ attachmentView: "inline" });
   }
 });

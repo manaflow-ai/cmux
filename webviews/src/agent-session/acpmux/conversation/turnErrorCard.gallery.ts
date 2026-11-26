@@ -9,6 +9,9 @@ import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
+/// The machine's acpmux runs the agent's own login (`agent-login-v1`), as a current Cloud machine's
+/// does: the card leads with Sign in to Claude, which the gallery showed only Switch model without.
+const AGENT_LOGIN = ["agent-login-v1"];
 /// The 429 acpmux recorded on Leo's coordinator, as its `turn_result` carried it (`errorText`).
 const rateLimit =
   "API Error: Request rejected (429) \u00b7 This request would exceed your account's rate limit. Please try again later.";
@@ -18,7 +21,12 @@ const failed = (error: string, errorCode?: string, fields: Parameters<typeof cha
     [
       user(prompt, 6),
       assistant("Running the sidebar tests first.", 5.8),
-      summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
+      summary(5.5, {
+        status: "failed",
+        durationMs: 662_000,
+        error,
+        ...(errorCode ? { errorCode } : {}),
+      }),
     ],
     fields,
   );
@@ -42,15 +50,21 @@ const deadTurn = (workAt: number, endAt: number, durationMs: number) => [
 ];
 
 /// Claude Code's own /compact, as its `available_commands_update` lists it.
-const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
+const compactCommand = {
+  name: "compact",
+  description: "Clear conversation history but keep a summary in context",
+};
 const contextFull =
   'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
-const cloudFailed = (error: string) => {
-  const snapshot = chat([
-    user(prompt, 6, { id: "cloud-request" }),
-    summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
-  ]);
+const cloudFailed = (error: string, fields: Parameters<typeof chat>[1] = {}) => {
+  const snapshot = chat(
+    [
+      user(prompt, 6, { id: "cloud-request" }),
+      summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
+    ],
+    fields,
+  );
   if (snapshot.summary) {
     delete snapshot.summary.host;
     delete snapshot.summary.hostKind;
@@ -86,23 +100,50 @@ export default agentPaneEntry({
   ],
   variants: {
     "cloud-missing": {
-      note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Owner VM without a Claude login: explains the missing credential and offers the sign-in on the machine. Compare the three existing surfaces; keep the glass card.",
+      ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("Claude failed to authenticate: credential is missing"),
     },
     "cloud-expired": {
-      note: "Expired login: the cause and the same setup action, with no provider output in the sentence.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Expired login: the cause and the same sign-in, with no provider output in the sentence.",
+      ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
     },
     "cloud-rejected": {
-      note: "Rejected login: preserves the HTTP status and offers setup on this Cloud machine.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      note: "Rejected login: preserves the HTTP status and offers the sign-in on this Cloud machine.",
+      ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("HTTP 403 Forbidden"),
+    },
+    "cloud-expired-no-agent-login": {
+      note: "The same expired login on a machine whose acpmux runs no agent login (an older one) and whose chat names no login command: Switch model is the card's way on.",
+      ready: { cloudMachineID: "gallery-vm" },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
+    },
+    "cloud-expired-older-machine": {
+      note: "The same expired login on an older machine (no agent-login-v1) whose agent's login finishes from the Mac's browser (Claude Code's pasted code; Codex's plain codex login is not offered): Sign in again leads, running that login in a terminal on the machine, and one sentence says why.",
+      ready: { cloudMachineID: "gallery-vm" },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)", { catalog: signedOutCatalog }),
+    },
+    "usage-limit-resets": {
+      note: 'Claude Code\'s used-up subscription limit names its reset (`|epoch`): the card says when it resets, not "in a moment".',
+      snapshot: failed("Claude AI usage limit reached|1764003600"),
+    },
+    "usage-limit-included": {
+      note: "The plan's included amount, used up, with its `resets_at`: the same sentence with that date.",
+      snapshot: failed(
+        'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month.","type":"insufficient_quota","details":{"resets_at":"2026-12-01T00:00:00.000Z"}}}',
+      ),
+    },
+    "usage-limit-no-time": {
+      note: "A used-up limit that names its reset only as a span: the account card, with the span as its reset (cmux#55066).",
+      snapshot: failed("usage limit reached, resets in 3h"),
     },
     "cloud-no-team-account": {
       note: "A team Cloud machine whose team has no Codex account: the card names the team's way (cr add), and Use an API key goes on now where the machine signs agents in.",
-      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("Codex needs a team account on this machine: run cr add codex to add one"),
     },
     "trust-pending": {
@@ -165,7 +206,11 @@ export default agentPaneEntry({
       note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error: "API Error: 529 overloaded_error",
+        }),
       ]),
     },
     // c-763204aef8 (asks board: "API-error turn shows an empty 'Worked for Ns'"): the turn's only step
@@ -211,7 +256,11 @@ export default agentPaneEntry({
       note: "The model's server could not be reached before anything ran: Retry leads (filled) and runs acpmux's turn retry, Switch model follows it outlined.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error: "API Error: Connection error.",
+        }),
       ]),
     },
     "server-unreachable-retrying": {
@@ -219,7 +268,11 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 6),
-          summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+          summary(5.9, {
+            status: "failed",
+            durationMs: 4_000,
+            error: "API Error: Connection error.",
+          }),
           row("typing", 0.5, {
             id: TURN_RETRY,
             retry: { attempt: 2, maxRetries: 10, errorStatus: 503, error: "server_error" },

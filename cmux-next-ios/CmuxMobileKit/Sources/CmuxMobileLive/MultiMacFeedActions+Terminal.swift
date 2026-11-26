@@ -13,7 +13,7 @@ extension MultiMacFeedActions {
         guard coordinator.canLink(macID: macID) else {
             throw Unsent(message: "Only the owner of \(name) can answer from a phone. Nothing was sent.")
         }
-        coordinator.touch(macID)
+        coordinator.openSurface(macID: macID)
         guard let session = coordinator.sessions[macID] else { throw Unsent(message: "\(name) is offline. Nothing was sent.") }
         let ready = await coordinator.waitUntil(within: linkTimeout) { session.workspaces.daemon != nil }
         guard ready else { throw Unsent(message: "Couldn't connect to \(name). Nothing was sent.") }

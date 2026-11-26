@@ -381,6 +381,104 @@ fn a_follow_goes_on_from_where_it_was_cut_and_a_lag_follows() {
     assert_eq!(cursor, cursor_at(9));
 }
 
+/// `_acpmux/peer_rows_changed` (a peer's list of `listSeq - afterSeq` rows, in place of a
+/// `session_changed` per row) as acpmux sends it to a watch that asked for batches.
+fn peer_batch(after: u64, through: u64) -> String {
+    format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "method": "_acpmux/peer_rows_changed", "params": {
+            "peer": "vm", "count": through - after, "afterSeq": after, "listSeq": through}})
+    )
+}
+
+/// A local chat's `session_changed` at list position `seq`.
+fn local_push(session: &str, seq: u64) -> String {
+    format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": {
+            "sessionId": session, "kind": "updated", "session": local(session), "listSeq": seq}})
+    )
+}
+
+/// The `afterSeq` of every watch the client asked, in order.
+fn follows_asked(requests: &[Value]) -> Vec<Value> {
+    requests
+        .iter()
+        .filter(|r| r["method"] == "_acpmux/watch")
+        .map(|r| r["params"]["afterSeq"].clone())
+        .collect()
+}
+
+/// The watch asks acpmux for peer batches, and a batch is read by one follow from below its
+/// rows, though a push after it is newer than every one of them: its rows are never skipped.
+#[test]
+fn a_peer_batch_is_read_by_a_follow_from_below_its_rows() {
+    let mux = test_mux("notices-peer-batch");
+    let mut chats = held(&["chat-1"], 4);
+    let mut cursor = cursor_at(5);
+    let peer_row = json!({"sessionId": "p1", "peer": "vm", "title": "p1", "indicator": "idle"});
+    let (client, serve) = fake_acpmux(vec![
+        format!(
+            "{}{}{}{}",
+            initialized(true),
+            follow_reply(2, &[], &[], 5, false),
+            peer_batch(5, 405),
+            local_push("chat-1", 406),
+        ),
+        follow_reply(3, &[peer_row], &[], 406, false),
+    ]);
+    let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+    let requests = serve.join().expect("the fake acpmux");
+    assert_eq!(requests[0]["params"]["_meta"]["acpmux"]["peerRowBatches"], true);
+    assert_eq!(follows_asked(&requests), [json!(5), json!(5)], "{requests:?}");
+    assert_eq!(cursor, cursor_at(406));
+}
+
+/// A batch that comes while a follow older than it is out is read by the follow after it,
+/// from below its rows, not from the older follow's position.
+#[test]
+fn a_peer_batch_during_an_older_follow_is_read_after_it() {
+    let mux = test_mux("notices-peer-batch-during");
+    let mut chats = held(&["chat-1"], 4);
+    let mut cursor = cursor_at(5);
+    let (client, serve) = fake_acpmux(vec![
+        format!(
+            "{}{}{}",
+            initialized(true),
+            peer_batch(5, 405),
+            follow_reply(2, &[local("chat-2")], &[], 6, false),
+        ),
+        follow_reply(3, &[], &[], 405, false),
+    ]);
+    let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+    let requests = serve.join().expect("the fake acpmux");
+    assert_eq!(follows_asked(&requests), [json!(5), json!(6)], "{requests:?}");
+    assert_eq!(cursor, cursor_at(405));
+}
+
+/// A follow of a batch cut at its size (`more`) goes on from where it was cut, and ends once
+/// it reaches the batch's last row: the cap below the batch never makes it read a page twice.
+#[test]
+fn a_cut_follow_of_a_peer_batch_goes_on_and_ends() {
+    let mux = test_mux("notices-peer-batch-cut");
+    let mut chats = held(&["chat-1"], 4);
+    let mut cursor = cursor_at(5);
+    let (client, serve) = fake_acpmux(vec![
+        format!(
+            "{}{}{}",
+            initialized(true),
+            follow_reply(2, &[], &[], 5, false),
+            peer_batch(5, 405)
+        ),
+        follow_reply(3, &[], &[], 200, true),
+        follow_reply(4, &[], &[], 405, false),
+    ]);
+    let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+    let requests = serve.join().expect("the fake acpmux");
+    assert_eq!(follows_asked(&requests), [json!(5), json!(5), json!(200)], "{requests:?}");
+    assert_eq!(cursor, cursor_at(405));
+}
+
 /// A cursor acpmux cannot follow (another run) is answered with the list's first page and
 /// `reset`: it is read as a first list, so a row it leaves out is gone.
 #[test]
@@ -629,8 +727,57 @@ fn a_failed_turn_says_why_it_failed() {
         summary("done", 10, false, Some(("t1", "failed")), false),
     ]);
     assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].title, "Review failed");
+    assert_eq!(notices[0].title, "Review hit a rate limit");
+    assert_eq!(notices[0].subtitle.as_deref(), Some("rate_limit"));
     assert_eq!(notices[0].body, "You've hit your usage limit");
+}
+
+#[test]
+fn an_unclassified_failure_keeps_the_plain_title_and_never_folds() {
+    let mut failed = ended("t1", true, false);
+    failed.last_turn = Some(("t1".into(), "failed".into()));
+    failed.last_error = Some("something odd happened".into());
+    let notice = failed.notices(None).pop().expect("a failed notice");
+    assert_eq!(notice.title, "Review failed");
+    let mut folds = FailureFolds::default();
+    let now = Instant::now();
+    for _ in 0..3 {
+        let posted = fold_failure(&mut folds, &notice, now).expect("each posts");
+        assert_eq!(posted.title, "Review failed");
+    }
+}
+
+#[test]
+fn chats_failing_alike_within_a_minute_are_one_notice() {
+    let failed = |session: &str, text: &str| {
+        let mut chat = ended("t1", true, false);
+        chat.session = session.into();
+        chat.name = session.into();
+        chat.last_turn = Some(("t1".into(), "failed".into()));
+        chat.last_error = Some(text.into());
+        chat.notices(None).pop().expect("a failed notice")
+    };
+    let mut folds = FailureFolds::default();
+    let t = Instant::now();
+    let first = fold_failure(&mut folds, &failed("mango", "429 rate limit"), t).expect("own");
+    assert_eq!(first.title, "mango hit a rate limit");
+    let second =
+        fold_failure(&mut folds, &failed("kiwi", "API Error: 429"), t + Duration::from_secs(3))
+            .expect("the group");
+    assert_eq!(second.title, "2 chats hit a rate limit");
+    assert!(second.key.starts_with("failed-group-rate_limit-"));
+    assert!(
+        fold_failure(&mut folds, &failed("plum", "usage limit"), t + Duration::from_secs(9))
+            .is_none()
+    );
+    // Another class is its own notice.
+    let other = fold_failure(&mut folds, &failed("fig", "Prompt is too long"), t).expect("own");
+    assert_eq!(other.title, "fig ran out of context");
+    // A minute on, a new window starts with a notice of its own.
+    let later =
+        fold_failure(&mut folds, &failed("lime", "rate limit"), t + Duration::from_secs(61))
+            .expect("own");
+    assert_eq!(later.title, "lime hit a rate limit");
 }
 
 #[test]
@@ -649,6 +796,38 @@ fn a_second_ask_while_the_chat_waits_notifies_again() {
     assert_eq!(key(later.asked(&ask("p2", None, 12))), Some("input-12".into()));
     // The same ask heard again is not new.
     assert_eq!(key(later.asked(&ask("p2", None, 12))), None);
+}
+
+#[test]
+fn agent_delivery_classifies_each_ask_even_while_another_kind_is_waiting() {
+    for (first, first_kind, second_request, second_kind) in [
+        ("question", AgentEvent::Question, json!({}), AgentEvent::PermissionRequest),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": []}}}}}),
+            AgentEvent::Question,
+        ),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"claude": {"tool": "AskUserQuestion"}}}}),
+            AgentEvent::Question,
+        ),
+    ] {
+        let mut waiting = Chat::of(&json!({
+            "sessionId": "chat-1", "indicator": "input", "waitingOn": first,
+        }))
+        .unwrap();
+        assert_eq!(waiting.notices(None)[0].event, Some(first_kind));
+        assert!(waiting.asked(&ask("p1", None, 10)).is_none());
+        let mut second = ask("p2", None, 11);
+        second["request"] = second_request;
+        assert_eq!(waiting.asked(&second).unwrap().event, Some(second_kind));
+        assert!(waiting.asked(&second).is_none());
+    }
+    assert_eq!(ended("turn", true, false).notices(None)[0].event, Some(AgentEvent::TaskComplete));
+    assert_eq!(chat("lost", 12).notices(None)[0].event, None);
 }
 
 #[test]
@@ -722,4 +901,17 @@ fn cache_ttl_queue_cancels_on_state_change_and_fires_once() {
     working.works_below = true;
     queue.observe(working, now + Duration::from_secs(1), 200);
     assert!(queue.take_due(now + Duration::from_secs(120)).is_empty());
+}
+
+#[test]
+fn a_given_handle_names_the_notice_before_the_task_title() {
+    let chat = Chat::of(&json!({
+        "sessionId": "chat-1",
+        "name": "claude-sr2-coord-old",
+        "displayName": "Mango",
+        "title": "Fleet and CI capacity",
+        "lastSeq": 1,
+    }))
+    .expect("a local chat");
+    assert_eq!(chat.name, "Mango");
 }

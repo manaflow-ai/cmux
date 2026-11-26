@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.openPullRequestsInGitHubPage.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تفتح روابط طلبات السحب في محادثات الوكلاء صفحة GitHub الخاصة بـ cmux. عند الإيقاف: github.com في علامة تبويب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linkovi na pull requestove u agent chatovima otvaraju cmux-ovu GitHub stranicu. Isključeno: github.com u kartici."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links til pull requests i agentchats åbner cmux' GitHub-side. Fra: github.com i en fane."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pull-Request-Links in Agent-Chats öffnen die GitHub-Seite von cmux. Aus: github.com in einem Tab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los enlaces a pull requests en chats de agentes abren la página de GitHub de cmux. Desactivado: github.com en una pestaña."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les liens de pull request dans les chats d'agent ouvrent la page GitHub de cmux. Désactivé : github.com dans un onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I link alle pull request nelle chat degli agenti aprono la pagina GitHub di cmux. Disattivato: github.com in una scheda."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントチャットのプルリクエストのリンクは cmux の GitHub ページで開きます。オフ: タブで github.com を開きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តំណ pull request ក្នុងការជជែកជាមួយភ្នាក់ងារ បើកទំព័រ GitHub របស់ cmux។ បិទ៖ github.com ក្នុងផ្ទាំង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트 채팅의 풀 리퀘스트 링크는 cmux의 GitHub 페이지에서 열립니다. 끄면 탭에서 github.com을 엽니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pull request-lenker i agentchatter åpner cmux sin GitHub-side. Av: github.com i en fane."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linki do pull requestów w czatach agentów otwierają stronę GitHub w cmux. Wyłączone: github.com w karcie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links de pull request em chats de agentes abrem a página do GitHub do cmux. Desativado: github.com em uma aba."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ссылки на pull request в чатах агентов открывают страницу GitHub в cmux. Выкл.: github.com во вкладке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลิงก์ pull request ในแชทเอเจนต์จะเปิดหน้า GitHub ของ cmux ปิด: เปิด github.com ในแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajan sohbetlerindeki pull request bağlantıları cmux'un GitHub sayfasını açar. Kapalı: bir sekmede github.com."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Посилання на pull request у чатах агентів відкривають сторінку GitHub у cmux. Вимкнено: github.com у вкладці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết pull request trong cuộc trò chuyện với agent mở trang GitHub của cmux. Tắt: github.com trong một tab."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理聊天中的拉取请求链接会打开 cmux 的 GitHub 页面。关闭：在标签页中打开 github.com。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理聊天中的拉取請求連結會開啟 cmux 的 GitHub 頁面。關閉：在分頁中開啟 github.com。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

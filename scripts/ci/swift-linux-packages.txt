@@ -18,3 +18,21 @@ Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARG
 Packages/Shared/CmuxTextConfirmCore  CmuxTextConfirmCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxChiefVoiceCore  CmuxChiefVoiceCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxAgentCursor  CmuxAgentCursorTests  -
+Packages/Shared/CmuxPagePushBound  CmuxPagePushBoundTests  -
+Packages/iOS/CmuxMobileBilling  CmuxMobileBillingTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileRPC  CmuxMobileRPCTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CMUXMobileCore  CMUXMobileCoreTests  -
+Packages/iOS/CmuxMobilePairedMac  CmuxMobilePairedMacTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileShellModel  CmuxMobileShellModelTests  -
+Packages/iOS/CmuxMobileSSH  CmuxMobileSSHTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileTunnel  CmuxMobileTunnelTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileSupport  CmuxMobileSupportTests  -
+Packages/iOS/CmuxTabsKit  CmuxTabsKitTests  -
+Packages/iOS/CmuxConversation  CmuxConversationCoreTests,CmuxConversationGeometryTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/macOS/CmuxNext  CmuxNextHostPressureTests,CmuxNextChromiumRuntimeTests,CmuxNextAgentPanePlacementTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxIrxTransport  CmuxIrxTransportTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/macOS/CmuxUpdater  CmuxUpdaterCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxVNC  CmuxVNCTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxAuthRuntime  CmuxAuthRuntimeTests  CMUX_SWIFTPM_TARGET_LINUX=1
+# The iPhone app's kit: its modules that need no UI framework or binary target (the manifest's Linux shape).
+cmux-next-ios/CmuxMobileKit  CmuxMobileDesignCoreTests,CmuxMobileModelTests,CmuxMobileNotificationsTests,CmuxMobileRealtimeTests,CmuxMobileTransportTests  CMUX_SWIFTPM_TARGET_LINUX=1
