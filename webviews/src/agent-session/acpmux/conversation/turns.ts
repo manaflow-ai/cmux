@@ -9,19 +9,19 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
-  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
+  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -55,7 +55,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
+import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -148,6 +148,15 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
+/// A turn's time on its "Worked for" / "Working for" line: as `formatDuration`, but "<1s" under one
+/// second, never "0s" (Leo, 2026-11-25, on the line that read 0s: "let's just fix forward and improve
+/// it all"). The running line reads "Working for <1s" from its first frame, so its words keep one shape
+/// from the prompt to "Worked for": no "Working" that swaps to a time, and no fold that vanishes at
+/// the end because the turn was quick.
+export function turnSpan(ms: number): string {
+  return ms < 1000 ? "<1s" : formatDuration(ms);
+}
+
 /// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
 /// whose start and end were stamped at one moment, which measured nothing, so no row reads a
 /// floored "0s" (Leo, 2026-11-05: "it always only shows 0s?").
@@ -183,7 +192,7 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
     if (row.toolCount) return toolCalls(t, row.toolCount) + messages;
     return messages.slice(t("toolRun.separator").length);
   }
-  const time = formatDuration(row.durationMs);
+  const time = turnSpan(row.durationMs);
   return turnTimeLabel(t, row, time) + workedCallsText(t, row) + workedMessagesText(t, row);
 }
 
@@ -1835,6 +1844,15 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
   const pieces: { anchor: AcpmuxRow; rows: AcpmuxRow[] }[] = [{ anchor: opener, rows: [] }];
   for (const row of drawn) {
     const piece = pieces.at(-1)!;
+    // A compaction that ended under the person's steer (they steered while it ran: direct.ts puts its
+    // note where its live line stood) stays with the stretch the steer closed, in sight above the
+    // steer's one Worked for, never folded into it (Leo, 2026-11-25: "the worked for collapsing the
+    // compaction and then the next worked for + thinking is weird").
+    const parent = pieces.at(-2);
+    if (inOrder && parent && row.kind === "compaction" && !piece.rows.length && isOwnSteer(piece.anchor)) {
+      parent.rows.push(row);
+      continue;
+    }
     if (!inOrder || !startsFold(row, piece.rows.some(repliesInFold))) piece.rows.push(row);
     else if (isOwnSteer(row)) {
       piece.rows.push(row);
@@ -2352,10 +2370,10 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
-    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
-    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
-    // Claude's and Codex's apps draw a lone subagent.
+    // alone: it draws no fold, its rows in place (`outside`), nor does a turn of subagents alone with
+    // no recorded time. A quick one keeps its fold, "Worked for <1s" (`turnSpan`): the "Working for"
+    // that stood over it while it ran stays, so the end swaps no line for loose rows (Leo, 2026-11-25:
+    // "i think it was replacing the "worked for" as it went", after cmux#55191 dropped its fold).
     const shown = shownAgentNames(body);
     // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
     // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
@@ -2371,8 +2389,7 @@ function shapeTurn(
       compactOnly ||
       (previous === undefined &&
         messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
-          ((durationMs === undefined || durationMs < 1000) && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
     } else if (lone) {
@@ -3465,7 +3482,9 @@ function shapeLiveRows(
   // for for collapsing the compaction and then the next worked for + thinking is weird").
   const steer = compactedSteer(drawn);
   if (steer) {
-    const below = shaped.findIndex((row) => row.id === steer.id);
+    let below = shaped.findIndex((row) => row.id === steer.id);
+    // The note of a compaction that ended under the steer stays over the header, as the ended turn draws it.
+    while (below >= 0 && shaped[below + 1]?.kind === "compaction") below += 1;
     if (below >= 0) {
       header.id = `${WORKED}-${steer.id}`;
       header.at = steer.at + clockOffset;
