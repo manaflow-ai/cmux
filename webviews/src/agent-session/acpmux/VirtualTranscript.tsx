@@ -2,7 +2,6 @@ import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
 import { TRANSCRIPT_COMPOSER_GAP, gridScale } from "./transcriptGrid";
 import React, {
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -2176,20 +2175,12 @@ function TranscriptView({
   const presenceHints = useRef<RowPresenceHints>({});
   useEffect(() => {
     if (sessionChanged) {
-      // A transition: the switch's render already draws the new chat as reset (`sessionChanged` gates the
-      // tab stop, the selection, held rows and entrances), so this render changes nothing the first frame
-      // shows. Sync, it was a second render and commit of the whole transcript inside the switch's long
-      // task, ahead of the frame and of the chat's attach answer queued behind it; now it renders after
-      // that frame, with the answer's rows (test/transcript-return-keeps-layout.test.tsx; Leo, 2026-11-21:
-      // "chat switch ... reach a settled page ... within 2x of a derived bound").
-      startTransition(() => {
-        setSelectionSessionKey(sessionKey);
-        setActiveRowId(rows[0]?.id);
-        setTranscriptRange(undefined);
-        setHeldRows(undefined);
-      });
+      setSelectionSessionKey(sessionKey);
+      setActiveRowId(rows[0]?.id);
+      setTranscriptRange(undefined);
       // A margin drag, or the selection it left, belongs to the chat it was made in.
       gutterRelease.current?.();
+      setHeldRows(undefined);
       pendingFocus.current = undefined;
       if (!tookSession) enteringRows.current.clear();
       return;
