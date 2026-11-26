@@ -14,7 +14,7 @@
 /*
  ABI version. Bump this when a type or function changes. 4: the page-list driver ABI.
  */
-#define ACPMUX_CLIENT_ABI_VERSION 5
+#define ACPMUX_CLIENT_ABI_VERSION 4
 
 /*
  The call succeeded.

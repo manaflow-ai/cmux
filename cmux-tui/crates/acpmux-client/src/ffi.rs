@@ -39,8 +39,8 @@ pub enum FolderChangeJson {
     FolderGone { sid: String, seq: u64, origin: String, folder: String, replay: bool },
 }
 
-/// ABI version. Bump this when a type or function changes. 5: the page-list driver and row-height ABI.
-pub const ACPMUX_CLIENT_ABI_VERSION: u32 = 5;
+/// ABI version. Bump this when a type or function changes. 4: the page-list driver ABI.
+pub const ACPMUX_CLIENT_ABI_VERSION: u32 = 4;
 /// The call succeeded.
 pub const ACPMUX_CLIENT_OK: i32 = 0;
 /// A required pointer was null.
