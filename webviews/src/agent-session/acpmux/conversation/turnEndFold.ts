@@ -1784,7 +1784,18 @@ export function playTurnEnd(
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
-        const from = starts.get(node)?.opacity ?? 0;
+        // It holds at no ink while a kept row sliding into place still crosses its box, as a row that
+        // arrives does (above): the "Worked for" of the work after a steer lands under the steer, and
+        // the steer slides up out of that box as the rows above close the fold. Fading from the
+        // move's start, the line's ink drew inside the steer's box over the first frames (11.5 px
+        // in steer-fold-boundary-browser.test.ts's turn end; Leo, 2026-11-22, ask-6cbe3d05b7: the
+        // fold swept rows up past his steer). Read again each pass, as the arriving row's hold is.
+        const clear = ms * clearFraction(index);
+        const last = moving.get(node);
+        const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
+        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : 0;
+        holds = Math.max(holds, hold);
+        const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
         // Its band is where it lands. Out of view it is drawn there at full ink instead: a fade no one
         // sees is a half-state to whoever scrolls to it (the closed "Worked for" of a turn that ended
         // above the view).
@@ -1792,8 +1803,9 @@ export function playTurnEnd(
           node,
           moving,
           { from: tops[index]!, to: tops[index]!, height: heights[index]! },
-          { delta: 0, fades: true, animations: [] },
+          { delta: 0, fades: true, animations: [], ...(hold > 0 && { hold }) },
           () => [[{ opacity: from }, { opacity: 1 }]],
+          hold > 0 ? { delay: hold, fill: "backwards" } : {},
         );
         return;
       }
