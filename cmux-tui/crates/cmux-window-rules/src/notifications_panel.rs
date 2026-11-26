@@ -17,7 +17,7 @@ pub fn move_selection(selected: Option<&str>, offset: i64, rows: &[String]) -> O
         None if offset < 0 => last,
         None => 0,
     };
-    Some(rows[next].clone())
+    rows.get(next).cloned()
 }
 
 /// The selection after a reload from `old` to `new`: its row when it is
