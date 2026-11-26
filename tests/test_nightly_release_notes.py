@@ -336,10 +336,23 @@ class CollectionTests(unittest.TestCase):
 
 
 class DetailQuerySizeTests(unittest.TestCase):
-    def test_detail_query_is_small(self):
+    def test_every_connection_bound_is_numeric_and_small(self):
         # Run 45858610960 (main) timed out on a 100-label/100-file query.
-        self.assertNotIn("first: 100", NOTES.PR_FIELDS)
+        bounds = {name: int(re.search(name + r"\(first: (\d+)", NOTES.PR_FIELDS).group(1)) for name in ("labels", "files")}
+        self.assertEqual(bounds, {"labels": 20, "files": 30})
         self.assertLessEqual(NOTES.PR_DETAIL_BATCH, 10)
+
+    def test_a_call_label_past_the_first_label_page_is_found(self):
+        pr = {**pull_request(10, "fix: x"), "labels": {"pageInfo": {"hasNextPage": True, "endCursor": "l2"},
+                                                        "nodes": [{"name": f"area-{n}"} for n in range(20)]}}
+        github = Mock(repo=REPO)
+        github.graphql.side_effect = [
+            {"pr10": pr},
+            {"pr": {"labels": {"pageInfo": {"hasNextPage": False}, "nodes": [{"name": "default-call"}]}}},
+        ]
+        [found] = NOTES.pr_details(github, "repository(owner: \"o\", name: \"n\")", [10])
+        self.assertEqual(NOTES.category(found), "Changed defaults")
+        self.assertIn('after: "l2"', github.graphql.call_args.args[0])
 
 
 class AppcastTests(unittest.TestCase):
