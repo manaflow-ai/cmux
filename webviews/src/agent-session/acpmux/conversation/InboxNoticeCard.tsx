@@ -37,7 +37,8 @@ import { AgentMessageRow } from "./AgentMessageRow";
 import { messagePreview } from "./agentMessageRowModel";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { groupSender } from "./messageGroupHeadModel";
-import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
+import { setDigestOpened } from "./incomingOpened";
+import { useDisclosure, useDisclosureRun } from "./useDisclosure";
 import type { IncomingMessage } from "./incomingMessage";
 import {
   inboxCounts,
@@ -199,16 +200,11 @@ function InboxThreadLine({
   const notice = rowLook === "off" ? undefined : thread.notice;
   const session = useContext(PromptMarksSession);
   const id = inboxThreadKey(rowId, thread.threadId);
-  const [open, setOpen] = useState(() => messageOpened(session, id));
-  const show = (next: boolean) => {
-    setMessageOpened(session, id, next);
-    setOpen(next);
-  };
-  const [whole, setWhole] = useState(() => messageOpened(session, newestWholeKey(id)));
-  const showWhole = (next: boolean) => {
-    setMessageOpened(session, newestWholeKey(id), next);
-    setWhole(next);
-  };
+  const { open, set: show } = useDisclosure({ message: id, sessionId: session });
+  const { open: whole, set: showWhole } = useDisclosure({
+    message: newestWholeKey(id),
+    sessionId: session,
+  });
   const [shown, setShown] = useState(THREAD_PAGE);
   // The notice's own copy, else what acpmux has (its new messages, by id), read once for the page
   // (inboxThreadRead.ts). A read belongs to the messages it was for: a later notice for the thread
@@ -480,11 +476,8 @@ export function InboxNoticeCard({
   const t = useT();
   const look = useInboxNoticeLook();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, rowId));
-  const show = (next: boolean) => {
-    setMessageOpened(session, rowId, next);
-    setOpen(next);
-  };
+  const { open, set: show } = useDisclosure({ message: rowId, sessionId: session });
+  const runDisclosure = useDisclosureRun();
   const bodyId = useId();
   const grouped = notice.threads.length > 1 && foldsThreads(look);
   // Find opens the group for a match in one of its threads; the thread's line opens itself.
@@ -544,14 +537,16 @@ export function InboxNoticeCard({
         open={open}
         bodyId={bodyId}
         onToggle={() => {
-          // The head opens the group with every thread's messages open (incomingOpened.ts).
-          setDigestOpened(
-            session,
-            rowId,
-            notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
-            !open,
+          // The head opens the group with every thread's messages open (incomingOpened.ts), as one
+          // transition of the transcript's owner (useDisclosure.ts).
+          runDisclosure(() =>
+            setDigestOpened(
+              session,
+              rowId,
+              notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
+              !open,
+            ),
           );
-          setOpen(!open);
         }}
         className="cv-inbox__head"
         messages={inboxHover(notice.threads)}
