@@ -1060,7 +1060,7 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
 async fn dials_without_a_stamped_user_are_refused() {
     let fixture = fixture(FakeOptions { omit_from_user_id: true, ..FakeOptions::default() }).await;
     for kind in [TransportKind::WebRtc, TransportKind::WireGuard] {
-        let error = connect(&fixture, kind).await.err().expect("refused");
+        let error = connect(&fixture, kind).await.expect_err("refused");
         assert_eq!(error, DialError::Bye("not_admitted".into()));
     }
 }
