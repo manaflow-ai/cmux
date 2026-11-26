@@ -33,8 +33,8 @@ jobs:
           persist-credentials: false
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-      - name: Exercise shared refresh transport and deadlines without credentials
-        run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh'
+      # The Stack SDK's refresh transport, rejection and deadline suites run on Linux (swift-linux-packages.yml's
+      # stack-auth group): they need no Apple framework.
       # Every other CmuxAuthRuntime suite runs on Linux (scripts/ci/swift-linux-packages.txt). These compile only
       # on Apple platforms: the two Stack boundaries need Network, the rest AuthenticationServices, Security,
       # Darwin's URLProtocol redirects or the macOS debug log.
