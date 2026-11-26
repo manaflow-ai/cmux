@@ -120,7 +120,8 @@ class Holder(unittest.TestCase):
 class Notify(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CMUX_OWNER_NOTICES": str(Path(self.tmp.name) / "n.json")})
+        self.env = mock.patch.dict(os.environ, {"CMUX_OWNER_NOTICES": str(Path(self.tmp.name) / "n.json"),
+                                                "ACPMUX_SESSION_ID": "id-pusher"})
         self.env.start()
 
     def tearDown(self):
@@ -146,6 +147,13 @@ class Notify(unittest.TestCase):
     def test_opt_out_sends_nothing(self):
         with mock.patch.dict(os.environ, {"CMUX_OWNER_NOTIFY": "0"}), mock.patch.object(live.subprocess, "run") as run:
             self.assertEqual(live.notify("h/s", "a", "h", "t"), "CMUX_OWNER_NOTIFY=0")
+        run.assert_not_called()
+
+    def test_no_sender_session_sends_nothing(self):
+        # 2026-11-25: a push outside any acpmux session sent "you hold it now" from the bare host, with no Sent-by.
+        env = {k: v for k, v in os.environ.items() if k not in live.SENDER_ENV}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(live.subprocess, "run") as run:
+            self.assertEqual(live.notify("h/s", "a", "h", "t"), live.NO_SENDER)
         run.assert_not_called()
 
     def test_ci_lists_nothing(self):
@@ -211,6 +219,52 @@ class Route(unittest.TestCase):
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
             guardrails.owner_route(repo, [own2], (rows, None), "host-a/coordinator")
         self.assertEqual(sent[1][2], sent[0][2])
+
+    def test_a_base_merge_carries_no_owned_files(self):
+        """2026-11-25: lane/port-46285 (webviews only) merged feat-cmux-next, whose new commit touched
+        Packages/iOS/CmuxTabsKit; the push's base was the old remote head, so the two-tree diff counted CmuxTabsKit
+        and the live iOS lane was told it held it. Only the push's own commits count."""
+        guardrails = _load("cmux_next_guardrails_owner_merge_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args, committer="t@t"):
+            return subprocess.run(["git", *args], cwd=repo, env={**env, "GIT_COMMITTER_EMAIL": committer},
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(path, text, message, committer="t@t"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message, committer=committer)
+
+        git("init", "-q", "-b", "main")
+        commit("plans/cmux-next/OWNERS.md", "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n"
+               "| iOS tabs | `Packages/iOS/` | lanes ios-* | [AGENTS.md](AGENTS.md) |\n", "base")
+        git("checkout", "-qb", "lane/port")
+        commit("webviews/src/a.tsx", "a\n", "own change")
+        old_remote = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        # Upstream's squash merge: GitHub is its committer.
+        commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab\n", "tabs (#1)", committer=guardrails.GITHUB_COMMITTER)
+        git("checkout", "-q", "lane/port")
+        git("merge", "-q", "--no-edit", "main")
+        head = git("rev-parse", "HEAD")
+        own = types.SimpleNamespace(base=old_remote, head=head, before=())
+        rows = [row("host-a/ios-terminal-first-composer", "running")]
+        sent = []
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual((lines, sent), ([], []))
+        # The lane's own edit to the area after the merge still reaches the holder.
+        commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab 2\n", "own tabs edit")
+        own = types.SimpleNamespace(base=old_remote, head=git("rev-parse", "HEAD"), before=())
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
 
 
 if __name__ == "__main__":

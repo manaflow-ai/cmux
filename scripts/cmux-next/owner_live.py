@@ -24,7 +24,7 @@ The pre-push hook prints the holder on the owner line and sends it one `acpmux s
 and pushed head (a stand-in, the Performance Lead or the coordinator, one per area a UTC day, asking for a holder) (deduplicated in ~/.cache/cmux/owner-notices.json), so a push into an area reaches a live session
 without the pusher looking anyone up. Never on CI (`CI` set), never when acpmux is missing, never longer than
 LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or send is one line in the report.
-`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing.
+`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing, as does a push outside an acpmux session (no sender).
 """
 from __future__ import annotations
 
@@ -230,10 +230,25 @@ def _notices_path() -> Path:
     return Path(os.environ.get("CMUX_OWNER_NOTICES") or Path.home() / ".cache/cmux/owner-notices.json")
 
 
+# A notice goes out as the pushing session or not at all. On 2026-11-25 a push run outside any acpmux session sent
+# one from the bare host (thread from:gcp-agent-lane-8, no Sent-by, "no live or closed session named
+# 'gcp-agent-lane-8'"), so its reader could neither answer nor tell who pushed. acpmux names the sender from
+# ACPMUX_SESSION_ID (or a session token); with neither set the push prints the holder and sends nothing.
+SENDER_ENV = ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN")
+NO_SENDER = "no acpmux session to send as (ACPMUX_SESSION_ID unset); tell the holder yourself"
+
+
+def sender() -> str | None:
+    """The pushing session's id or token, or None outside an acpmux session."""
+    return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
+    if not sender():
+        return NO_SENDER
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:
