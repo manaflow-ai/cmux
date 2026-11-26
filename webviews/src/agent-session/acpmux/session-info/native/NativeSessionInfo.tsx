@@ -132,6 +132,7 @@ export type NativeSessionInfoProps = {
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onOpenArtifacts?: () => void;
@@ -412,6 +413,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
+          onRemoveFolder: props.onRemoveFolder,
           failures: sourceFiles.failures,
           onOpenBeside: props.onOpenUrl,
           expanded: state.sourcesAll,
