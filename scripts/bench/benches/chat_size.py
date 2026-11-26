@@ -7,6 +7,7 @@ This adapter only maps its output to the shared ledger schema.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -33,9 +34,11 @@ class ChatSize(Bench):
         if not sha:
             raise BenchError("chat-size: --build SHA must name the pushed PR head")
         out = ctx.workdir / "artifact"
+        sizes = ctx.arg("sizes", "1M,100M,1G,4G")
+        command = (f"set -o pipefail; {{ exec 2>&1; bash {shlex.quote(self.harness)} {shlex.quote(sizes)}; }}"
+                   ' | tee "$FAST_CHECKS_OUT/chat-size-sweep.log"')
         cmd = ["cmux-ci", "test", "--route", "fleet", "--at", sha,
-               "--timeout", "7200", "--artifact", str(out), "--", "bash", self.harness,
-               ctx.arg("sizes", "1M,100M,1G,4G")]
+               "--timeout", "7200", "--artifact", str(out), "--", "bash", "-c", command]
         if ctx.dry_run:
             print(cmd)
             return

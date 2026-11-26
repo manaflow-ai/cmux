@@ -84,14 +84,17 @@ class TuiIdle(Bench):
     def run(self, ctx: Context) -> None:
         args = [f"{k}={v}" for k, v in ctx.args.items() if k in PASS_THROUGH] + self.commits(ctx)
         out = ctx.workdir / "artifact"
-        command = f"set -o pipefail; {HARNESS} {shlex.join(args)}"
+        command = (f"set -o pipefail; {{ exec 2>&1; {HARNESS} {shlex.join(args)}; }}"
+                   ' | tee "$FAST_CHECKS_OUT/tui-idle-ram.log"')
         cmd = ["cmux-ci", "test", "--timeout", "7200", "--artifact", str(out), "--", "bash", "-c", command]
         if ctx.dry_run:
             print("dry run:", shlex.join(cmd))
             raise BenchError("dry run")
         log = ctx.workdir / "tui-idle-ram.log"
         with log.open("w", encoding="utf-8") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+            result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+        if result.returncode:
+            raise BenchError(f"tui-idle failed ({result.returncode}); see {log} and {out}")
         full = out / "tui-idle-ram.log"
         ctx.host.update({"name": "linux-ci", "os": "Linux"})
         self.ingest(ctx, full if full.exists() else log)
