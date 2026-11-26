@@ -42,14 +42,14 @@ public struct HomeMessageRouting: Sendable {
 
     /// The Chief's conversation: the app's choice, else the first Chief conversation listed.
     public var chiefConversation: ConversationID? {
-        let id: String? = HomeComposeRules.call("routing.chiefConversation", routing(), fallback: nil)
+        let id: String? = HomeComposeRules().call("routing.chiefConversation", routing(), fallback: nil)
         return id.map(ConversationID.init)
     }
 
     /// Every conversation a message can go to, as the palette and `--to` list them: Chiefs first,
     /// then the rest in inbox order. `value` is the conversation id, `title` its row title.
     public func recipients() -> [(value: String, title: String)] {
-        let choices: [HomeComposeRules.Choice] = HomeComposeRules.call("routing.recipients", routing(), fallback: [])
+        let choices: [HomeComposeRules.Choice] = HomeComposeRules().call("routing.recipients", routing(), fallback: [])
         return choices.map { (value: $0.value, title: $0.title) }
     }
 
@@ -81,7 +81,7 @@ public struct HomeMessageRouting: Sendable {
     public func compose(_ text: String, into id: ConversationID) -> String? {
         guard store.rows.contains(where: { $0.id == id }) else { return nil }
         let request = ComposeRequest(text: text, own: store.draft(for: id) ?? "")
-        guard let draft: String = HomeComposeRules.call("routing.compose", request, fallback: nil) else { return nil }
+        guard let draft: String = HomeComposeRules().call("routing.compose", request, fallback: nil) else { return nil }
         store.setDraft(draft, for: id)
         return draft
     }
@@ -94,12 +94,12 @@ public struct HomeMessageRouting: Sendable {
     /// Selected text as a Markdown quote ("> " before each line), then an empty line for the
     /// person's own words.
     public static func quoted(_ text: String) -> String {
-        HomeComposeRules.call("routing.quoted", TextRequest(text: text), fallback: text)
+        HomeComposeRules().call("routing.quoted", TextRequest(text: text), fallback: text)
     }
 
     /// A workspace or tab named in a message: a Markdown link Home shows as a link chip, then a space.
     public static func mention(_ title: String, link: String) -> String {
-        HomeComposeRules.call("routing.mention", MentionRequest(title: title, link: link), fallback: "[\(title)](\(link)) ")
+        HomeComposeRules().call("routing.mention", MentionRequest(title: title, link: link), fallback: "[\(title)](\(link)) ")
     }
 
     private struct ComposeRequest: Encodable {

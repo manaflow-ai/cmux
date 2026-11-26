@@ -15,7 +15,7 @@ extension HomeMessageRouting {
     public func suggestions(for source: String, members: @autoclosure () -> [HomeContact],
                             chiefs: @autoclosure () -> [ActionEnumCase] = []) -> [ActionEnumCase]? {
         let members = source == ActionSuggestions.homeMembers ? members() : []
-        let reply: Suggestions? = HomeComposeRules.call(
+        let reply: Suggestions? = HomeComposeRules().call(
             "routing.suggestions", routing(source: source, members: members), fallback: nil)
         guard let reply, let kind = reply.source else { return nil }
         if kind == "chiefs" { return chiefs() }

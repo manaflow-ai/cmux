@@ -29,7 +29,7 @@ nonisolated enum HomeComposerCheck {
             checked = Input(kind: "data", name: nil, identifier: identifier,
                             accepted: HomeAttachmentPolicy.accepts(typeIdentifier: identifier), size: data.count)
         }
-        let found: Problem? = HomeComposeRules.call("composerCheck.problem", Request(input: checked), fallback: nil)
+        let found: Problem? = HomeComposeRules().call("composerCheck.problem", Request(input: checked), fallback: nil)
         guard let found else { return nil }
         let error: HomeAttachmentError = switch found.kind {
         case "folder": .folder(name: found.name)

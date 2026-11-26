@@ -140,7 +140,7 @@ public final class HomeDirectory {
             _ = try Self.value(try await call("v1/ops", body))
             return .archived
         } catch {
-            let outcome: Failure.Answer = HomeComposeRules.call("directory.archiveOutcome", Failure.Request(error),
+            let outcome: Failure.Answer = HomeComposeRules().call("directory.archiveOutcome", Failure.Request(error),
                                                                  fallback: Failure.Answer(kind: "unreachable"))
             return switch outcome.kind {
             case "conflict": .conflict
@@ -353,13 +353,13 @@ public final class HomeDirectory {
     /// do not matter); nil when none or several do.
     public func chiefNamed(_ idOrName: String) -> HomeChiefRecord? {
         let request = ChiefRequest(chiefs: chiefs.map { .init(id: $0.id, name: $0.name) }, text: idOrName)
-        let id: String? = HomeComposeRules.call("directory.chiefNamed", request, fallback: nil)
+        let id: String? = HomeComposeRules().call("directory.chiefNamed", request, fallback: nil)
         return id.flatMap { id in chiefs.first { $0.id == id } }
     }
 
     /// The card's reason for an error of `call` or of the owner.
     public static func renameFailure(_ error: any Error) -> HomeChiefRenameFailure {
-        let failure: Failure.Answer = HomeComposeRules.call("directory.renameFailure", Failure.Request(error),
+        let failure: Failure.Answer = HomeComposeRules().call("directory.renameFailure", Failure.Request(error),
                                                              fallback: Failure.Answer(kind: "noConnection"))
         return switch failure.kind {
         case "signedOut": .signedOut
@@ -379,7 +379,7 @@ public final class HomeDirectory {
         do {
             return try await op()
         } catch FeedServiceError.owner(let code, let message)
-            where HomeComposeRules.call("directory.needsEnsure", ["code": code, "message": message], fallback: false) {
+            where HomeComposeRules().call("directory.needsEnsure", ["code": code, "message": message], fallback: false) {
             let ensure: [String: Any] = ["op": "user.ensure", "params": [String: Any](),
                                          "idempotency_key": "home-user-ensure-" + UUID().uuidString.lowercased(), "origin": "user"]
             _ = try Self.value(try await call("v1/ops", ensure))

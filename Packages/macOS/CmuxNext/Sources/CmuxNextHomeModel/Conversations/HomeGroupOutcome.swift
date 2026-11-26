@@ -44,7 +44,7 @@ public enum HomeGroupOutcome: Hashable, Sendable {
     /// group's owner may. The mapping is `compose.group.outcome`'s.
     public init(rejection: HomeRejection, naming: String, removing: Bool = false) {
         let request = OutcomeRequest(rejection: .init(rejection), naming: naming, removing: removing)
-        let reply: OutcomeReply = HomeComposeRules.call(
+        let reply: OutcomeReply = HomeComposeRules().call(
             "group.outcome", request,
             fallback: OutcomeReply(outcome: .init(kind: "refused", name: nil, reason: "")))
         self = reply.outcome.groupOutcome

@@ -5,12 +5,14 @@ import Foundation
 /// them: the values the ops read (``Contact``, ``Row``), and one call that never throws into a
 /// view. Where a send goes, the attachment check, group outcomes, the team invite's words and the
 /// directory's failure words live in Rust (tests/compose_*.rs); the Swift types keep their APIs
-/// and ask through here. The To: draft, `@` mention runs and routing's name match stay in Swift
+/// and ask through a value of this. The To: draft, `@` mention runs and routing's name match stay in Swift
 /// until the Rust folds text as Foundation does.
-package nonisolated enum HomeComposeRules {
+package nonisolated struct HomeComposeRules: Sendable {
+    package init() {}
+
     /// Runs `compose.NAME` on `input`. A failure (the linked library without the op, a reply that
     /// does not decode) stops a debug build and returns `fallback` in a release one.
-    package static func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In, fallback: @autoclosure () -> Out) -> Out {
+    package func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In, fallback: @autoclosure () -> Out) -> Out {
         do {
             return try HomeRules.call("compose.\(name)", input)
         } catch {
