@@ -53,6 +53,32 @@ struct TerminalSeedTests {
         #expect(try #require(fresh.takeSeed()) == Data("$ top".utf8))
     }
 
+    /// Leo, 2026-11-25: "the layout calculations too". The Mac's screen text is its rows at the
+    /// Mac pane's width (Claude Code's rules across 90 columns); fed to a 53-column surface each
+    /// one wrapped onto a row and a half. Cut at the surface's columns, a Mac row is one row.
+    @Test func theMacsScreenTextIsCutAtTheSurfacesColumnsNeverWrapped() throws {
+        let rule = String(repeating: "\u{2500}", count: 90)
+        let mac = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: "t")
+        mac.cardScreenText = "\(rule)\n\u{276F} \n\(rule)\n  Opus 5.5 | ctx:186.4k/400k(47%) | ~$7304.91 API | 295h7m"
+        let seeded = String(decoding: try #require(mac.takeSeed(columns: 53)), as: UTF8.self)
+        let rows = seeded.components(separatedBy: "\r\n")
+        #expect(rows.count == 4, "one phone row per Mac row: \(rows)")
+        #expect(rows[0] == String(repeating: "\u{2500}", count: 53))
+        #expect(rows[1] == "\u{276F} ")
+        #expect(rows.allSatisfy { $0.count <= 53 })
+
+        // The phone's own kept rows are its own width (and joined soft wraps): never cut.
+        let own = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: "t")
+        own.restoreLastRows(rule)
+        #expect(String(decoding: try #require(own.takeSeed(columns: 53)), as: UTF8.self) == rule)
+    }
+
+    @Test func aCutCountsWideCharactersAsTwoColumns() {
+        #expect(TerminalSeed.rows("日本語テキスト\nabcdef", clippedTo: 5) == "日本\nabcde")
+        #expect(TerminalSeed.rows("a✓b", clippedTo: 2) == "a✓")
+        #expect(TerminalSeed.rows("anything", clippedTo: 0) == "anything", "no grid measured: nothing cut")
+    }
+
     @Test func aLiveOrSeededPageHasNothingOverIt() {
         // Seeded or drawn: the live surface, at full opacity, takes the touches.
         #expect(!TerminalTabPage.showsCover(attached: false, seeded: true, drewLiveOutput: false, heldFrame: true))
