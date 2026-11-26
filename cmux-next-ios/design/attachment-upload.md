@@ -34,7 +34,7 @@ attachment) and `offset` (decimal string, the byte the phone starts at). `size` 
 file's size.
 
 hostd with `upload_id`:
-- keeps the part at `<folder>/.<upload_id>.part` (not a fresh UUID) so a later attempt finds it;
+- keeps the part in a private device-keyed staging directory inside the authorized upload folder, so only the same phone can resume across links;
 - `offset` greater than the part's length: answers `{"error":"resume_gap","have":L}` and closes
   `resume_gap`; the phone reopens at `L`;
 - otherwise truncates the part to `offset` and answers `{"have":offset}` at once, before reading;

@@ -1517,7 +1517,7 @@ fn publish_folder(uploads: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn another_phone_cannot_resume_an_earlier_part() {
+async fn another_phone_cannot_resume_an_earlier_upload_part() {
     const HALF: usize = 1 << 20;
     let fixture = fixture(FakeOptions::default()).await;
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");

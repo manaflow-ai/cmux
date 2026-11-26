@@ -1129,7 +1129,7 @@ sent as an ACP `resource_link` to that path.
   copy. Receipts expire with partial uploads after 24 hours; replaced files are
   refused. `resumable_upload_reports_have_acks_and_path` checks replay at three
   offsets, ID reuse with another name, and replacement of the published inode.
-- **Regression detectors:** `another_phone_cannot_resume_an_earlier_part`,
+- **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
   `resumable_upload_reopens_from_the_last_ack`,
   `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the
   `upload_parts_*` unit tests cover isolation, redial, confinement and permissions.

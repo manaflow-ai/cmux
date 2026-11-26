@@ -1190,7 +1190,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Since 2026-11-24 a resumable upload may also carry `sha256`: the whole file's
   SHA-256, 64 hexadecimal characters (either case; anything else closes
   `bad_request`). The host keeps an index of the finished uploads of each upload
-  folder, `.parts/.sha256-<folder name>/<sha256>`, one file per hash naming the
+  folder, `<device-staging>/.sha256-<folder name>/<sha256>`, one file per hash naming the
   stored file. When the index names a file that is still a regular file in that
   folder with `size` bytes and the same SHA-256 (the host hashes it again), the
   host answers `{"path","size","deduped":true}\n` at once, before any `have`,
