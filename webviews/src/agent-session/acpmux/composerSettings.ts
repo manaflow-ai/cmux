@@ -48,6 +48,8 @@
 // `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
 // sits a chat's composer in the middle of the pane until its first message (styles.css,
 // [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `composerPlaceholder` is `agentPane.composerPlaceholder` ("" by default): the idle prompt's text in
+// every chat; empty keeps cmux's own. A profile sets its reference app's (examples/looks/t3code).
 // `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
 // message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
 // (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
@@ -95,6 +97,7 @@ export type ComposerSettings = {
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
   emptyChatComposerPosition: EmptyChatComposerPosition;
+  composerPlaceholder: string;
   followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
   cloudLeaseOnOpen: boolean;
@@ -120,6 +123,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   composerRing: "context",
   composerLook: "auto",
   emptyChatComposerPosition: "bottom",
+  composerPlaceholder: "",
   followUpMode: "steer",
   cloudEnvironments: true,
   cloudLeaseOnOpen: true,
@@ -154,6 +158,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       ? (raw.dictationSource as DictationSource)
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
+    composerPlaceholder: typeof raw.composerPlaceholder === "string" ? raw.composerPlaceholder : "",
     spellChecking: flag("spellChecking"),
     composerVimKeys: flag("composerVimKeys"),
     attachmentView,
