@@ -598,6 +598,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -655,6 +656,14 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "cmux-sdk",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
