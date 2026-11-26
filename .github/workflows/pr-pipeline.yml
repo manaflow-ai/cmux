@@ -421,6 +421,12 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # GitHub 403s anonymous fetches from the office Macs' address; xcodebuild's SwiftPM clones send the job token.
+      - name: Authenticate github.com fetches with the job token
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/github_fetch_auth.py
       # The kit's simulator tests on the fleet pool (scripts/ci/ios-sim-pool.sh): this Mac builds for testing and
       # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow times both,
       # on uses the pool's verdict with this Mac as the fallback, unset or off skips it (shadow spends Mac minutes). Same-repo pull requests only.
@@ -531,10 +537,13 @@ jobs:
         if: steps.tiers.outputs.fast_tier == 'true' && contains(runner.name, '-glaeda')
         continue-on-error: true
         env:
+          # GitHub 403s anonymous fetches from the office Macs' address: scripts/ci/github_fetch_auth.py
+          GH_TOKEN: ${{ github.token }}
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
       - name: Name the build root
         if: steps.tiers.outputs.fast_tier == 'true'
         env:

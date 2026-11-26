@@ -948,6 +948,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
 
 [[test]]
+path = "tests/test_ci_github_fetch_auth.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_github_fetch_auth.py"
+
+[[test]]
 path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
 

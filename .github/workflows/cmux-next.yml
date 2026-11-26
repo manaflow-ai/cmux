@@ -2983,9 +2983,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) && (contains(runner.name, '-glaeda')) }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       - name: Type-check changed CmuxNext targets
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
@@ -3614,6 +3618,8 @@ jobs:
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           # Why: note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
@@ -3621,6 +3627,7 @@ jobs:
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-401
       - name: Compute fast-tier cache keys
@@ -4250,9 +4257,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-374
       - name: Compute the fast-tier seed keys
@@ -4785,9 +4796,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-378
       - name: Compute the fast-tier seed keys
@@ -5385,12 +5400,15 @@ jobs:
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
           CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-379
       - name: Compute the fast-tier seed keys

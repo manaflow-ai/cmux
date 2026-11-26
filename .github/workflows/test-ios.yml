@@ -669,9 +669,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
+        env:
+          # GitHub 403s anonymous fetches from the office Macs' address: scripts/ci/github_fetch_auth.py
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       - name: Run CMUXMobileCore package tests
         if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
