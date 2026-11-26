@@ -35,7 +35,7 @@ final class PaneTypeMenuButton: NSView {
         }
     }
     /// The trailing controls' shared look.
-    var style: TabTrailingButtons = TabTunables.trailingButtons.value {
+    var style: TabTrailingButtons = TabTunables.effectiveTrailingButtons {
         didSet {
             guard style != oldValue else { return }
             needsLayout = true
