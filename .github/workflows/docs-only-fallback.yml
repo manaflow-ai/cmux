@@ -4,10 +4,12 @@ name: docs-only fallback
 # The workflows in scripts/ci/docs_only_paths.py WORKFLOWS carry the docs-only `paths:` block, and GitHub matches a
 # pull request's `paths:` against only its first 300 changed files: a pull request of 300 prose files and one
 # code file could start none of them. Their filter also filters label events, so `full-ci` or `dev-build` on a
-# docs-only pull request started nothing. The gate runs (one small Linux job) only when the pull request has more
-# than 300 changed files or one of those labels is added; every other event skips it with no runner. It lists the
-# changed files and the head's runs through the API and calls, in this pull_request's own context, each workflow that
-# should have started and shows no run; whatever it cannot read, it calls (tests/test_ci_docs_only_prs.py).
+# docs-only pull request started nothing. And GitHub can create a run that never starts: on cmux#56364 ci.yml ended
+# `failure` with zero jobs, so ci-web.yml never ran. The gate (one small Linux job) runs on every push and on those
+# labels; any other label event skips it with no runner. It lists the changed files and the head's runs through the
+# API and calls, in this pull_request's own context, each workflow that should have started and shows no run or only a
+# settled zero-job run of this event, and names every zero-job run; whatever it cannot read, it calls, except a run it
+# cannot tell never started, which it names (tests/test_ci_docs_only_prs.py).
 #
 # A call passes no secrets: a called step that reads one gets an empty value, as on a fork's pull request. Signing, R2 cache writes
 # and media publishing stay inside the protected environments of the workflows that own them.
@@ -20,7 +22,7 @@ permissions: {}
 # A push supersedes the pull request's older run (and its calls, which tested an older head). Any other event runs in a
 # group of its own, so a label, review-ready or close event never cancels a push's calls in flight.
 concurrency:
-  group: docs-only-fallback-${{ github.event.pull_request.number }}${{ !contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) && format('-{0}-{1}', github.event.action, github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: docs-only-fallback-${{ github.event.pull_request.number }}${{ !contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) && format('-{0}-{1}', github.event.action, github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +30,7 @@ jobs:
     name: docs-only fallback gate
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
-    if: ${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.pull_request.changed_files > 300) || (contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && (github.event.action == 'labeled' || github.event.pull_request.changed_files > 300))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled') || (contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && (github.event.action == 'labeled' || github.event.pull_request.changed_files > 300))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -42,8 +44,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The merge commit's parent too: merge_commit_files lists the changed paths with git when the REST reads fail.
+          # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths
+          # with git, no API call.
           fetch-depth: 2
+          filter: blob:none
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -57,7 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
+          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
         run: python3 scripts/ci/docs_only_paths.py --fallback-plan
 
   ci:
@@ -72,6 +76,8 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
+      # ci.yml's changes job: head_tier.py's land carry rule reads cmux/land-tier.
+      statuses: read
 
   cmux-next-guards:
     name: cmux-next-guards (fallback)
