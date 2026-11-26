@@ -275,7 +275,7 @@ import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
-import { HybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
+import { HybridChip, NewTabHybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -401,7 +401,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
+import { trackEditableTurns, type EditableTurns, trackPromptTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -547,6 +547,7 @@ import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingV
 import { useStatusVerbConfig } from "./statusVerbs";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import {
+  agentLoginSupported,
   cloudAgentLogin,
   type CloudSignIn,
   localAgentLogin,
@@ -3731,6 +3732,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const chatElsewhere =
     cloudMachineID !== undefined ||
     chatMachineOf(snapshot.summary, undefined, snapshot.peerKinds, chatPlace(snapshot)).kind !== "local";
+  // The machine the chat runs on runs its agent's login, not only the acpmux this page talks to.
+  const loginSupported = agentLoginSupported(
+    directClient.current?.supportsAgentLogin === true,
+    snapshot.summary,
+    snapshot.peerKinds,
+    chatPlace(snapshot),
+    directClient.current?.peerAgentLogin,
+  );
   // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
   // important"): its own login, never this Mac's. Its page opens as a link click does here.
   // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
@@ -3744,7 +3753,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: snapshot.sessionId,
       harness: snapshot.summary?.harness,
       model: snapshot.summary?.model,
-      supported: directClient.current?.supportsAgentLogin === true,
+      supported: loginSupported,
       gesture: (intent) =>
         postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
       openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
@@ -3831,6 +3840,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     connected,
     cloudMachineID,
     chatElsewhere,
+    loginSupported,
     snapshot.sessionId,
     snapshot.summary?.harness,
     snapshot.summary?.model,
@@ -10454,6 +10464,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </>
     );
   }, [placeSession, notices.transient]);
+  // The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists: the page's Where pick
+  // drawn as Hybrid (Auto), Only in Cloud and Only on This Mac, written through the Where rows. Only where
+  // AutoCloud is on (the plan and the `cloud.autoCloud` key, default off), as the Where menu's Auto chevron.
+  const newTabWhereMode = useRef(sandboxModeRows.onMode);
+  newTabWhereMode.current = sandboxModeRows.onMode;
+  const newTabHybridShown = autoCloud && autoOffered && !placeSession;
+  const newTabPlaceControl = useMemo(() => {
+    if (!newTabHybridShown) return undefined;
+    return (
+      <NewTabHybridChip
+        where={{ autoPicked, mode: sandbox.mode }}
+        writes={{
+          pickAuto: (on) => pickAutoRef.current(on),
+          onMode: (mode) => newTabWhereMode.current(mode),
+        }}
+      />
+    );
+  }, [newTabHybridShown, autoPicked, sandbox.mode]);
   const composer = drawPaneComposer({
     markDockEdge,
     composerTurnQueue,
@@ -10491,6 +10519,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     switchStillTrying,
     composerHandle,
     placeControl,
+    newTabPlaceControl,
     healthStale,
     connectMachine,
     chooseWorkspaceFolder,
