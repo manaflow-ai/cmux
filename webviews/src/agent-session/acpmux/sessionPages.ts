@@ -401,6 +401,9 @@ export class SessionPager<S extends Summary> {
       this.listedFrom(reply, asked);
       const at = cursorOf(reply);
       if (reply.more !== true || at === undefined) break;
+      // A reply that says more but leaves the cursor where it was asked would be asked again
+      // forever; what it held is laid over the list, and the next lag or reconnect reads on.
+      if (at.seq <= asked) break;
       asked = at.seq;
       reply = await this.request("_acpmux/watch", {
         enabled: true,
