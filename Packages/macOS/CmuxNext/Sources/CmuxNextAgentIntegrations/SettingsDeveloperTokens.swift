@@ -170,17 +170,16 @@ public final class SettingsDeveloperTokens: PageProvider {
 
     /// Reads the list again (and the GitHub rules for a team admin); only the newest read writes it.
     public func refresh() async {
+        generation += 1
+        let mine = generation
+        loading = true
         guard let cli = await cli() else {
-            generation += 1
             list = .null
             githubRules = .null
             loading = false
             problem = "unavailable"
             return
         }
-        generation += 1
-        let mine = generation
-        loading = true
         let reply = try? await awaitConcurrently({ try await runCLI(cli, ["token", "list", "--json"], nil) })
         guard mine == generation else { return }
         guard let reply, let value = SettingsIntegrationsHub.lastLine(reply.1) else {
