@@ -11131,7 +11131,10 @@ export class AcpmuxDirectClient {
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
       else if (
         compaction.state !== "running" &&
-        running?.seq !== undefined &&
+        // A new turn can already have ended the live line. Its visible note keeps its
+        // place when the harness confirms how the earlier compaction ended.
+        running?.compaction?.state === "running" &&
+        running.seq !== undefined &&
         this.rows
           .rowsFrom(running.seq + 1)
           .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
