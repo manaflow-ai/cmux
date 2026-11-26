@@ -22,7 +22,7 @@ package nonisolated struct HomeComposeRules: Sendable {
     }
 
     /// ``HomeContact`` (`compose::types::Contact`).
-    package nonisolated struct Contact: Codable, Sendable {
+    package nonisolated struct Contact: Encodable, Sendable {
         var id: String
         var name: String
         /// `team`, `connection` or `agent`.
@@ -36,15 +36,6 @@ package nonisolated struct HomeComposeRules: Sendable {
             case .connection: "connection"
             case .agent: "agent"
             }
-        }
-
-        package var contact: HomeContact {
-            let source: HomeContact.Source = switch self.source {
-            case "agent": .agent
-            case "connection": .connection
-            default: .team
-            }
-            return HomeContact(id: ParticipantID(id), name: name, source: source)
         }
     }
 
