@@ -67,6 +67,9 @@ fn made(plan_control: bool, effects: &[Vec<P>]) -> Vec<bool> {
     made
 }
 
+const NO_VNC: [V; 0] = [];
+const NO_PAGE: [P; 0] = [];
+
 const LOST: SessionState = SessionState::Ended { reason: SessionEnd::ConnectionLost };
 
 // MARK: - RemoteVNCMappingTests
@@ -185,9 +188,9 @@ fn manual_reconnect_cancels_stale_automatic_retry() {
         [V::CancelRetry, V::ConnectCloud]
     );
     assert!(!session.retry_pending);
-    assert_eq!(session.reduce(VncEvent::Connected), []);
+    assert_eq!(session.reduce(VncEvent::Connected), NO_VNC);
     // The cancelled retry ends without connecting again.
-    assert_eq!(session.reduce(VncEvent::RetryFired), []);
+    assert_eq!(session.reduce(VncEvent::RetryFired), NO_VNC);
 }
 
 #[test]
@@ -199,7 +202,7 @@ fn queued_loss_after_manual_reconnect_schedules_no_retry() {
     );
     session.reduce(VncEvent::Connected);
     // The old session's loss lands while the source streams.
-    assert_eq!(session.reduce(VncEvent::Loss { source: SessionState::Streaming }), []);
+    assert_eq!(session.reduce(VncEvent::Loss { source: SessionState::Streaming }), NO_VNC);
     assert!(!session.retry_pending);
 }
 
@@ -208,7 +211,7 @@ fn queued_loss_after_stop_schedules_no_retry() {
     let mut session = VncSession::new(true, false);
     session.reduce(VncEvent::Reconnect { source: SessionState::Connecting });
     assert_eq!(session.reduce(VncEvent::Stop), [V::StopSource]);
-    assert_eq!(session.reduce(VncEvent::Loss { source: LOST }), []);
+    assert_eq!(session.reduce(VncEvent::Loss { source: LOST }), NO_VNC);
     assert!(!session.retry_pending);
 }
 
@@ -229,7 +232,7 @@ fn losses_back_off_and_a_stream_resets_the_count() {
     assert_eq!(session.lost_tries, 0);
     // A compatibility host (not Cloud) never retries by itself.
     let mut local = VncSession::new(false, false);
-    assert_eq!(local.reduce(VncEvent::Loss { source: LOST }), []);
+    assert_eq!(local.reduce(VncEvent::Loss { source: LOST }), NO_VNC);
 }
 
 #[test]
@@ -238,7 +241,7 @@ fn sign_in_prompts_once_and_connects_only_on_connect() {
     let mut session = VncSession::new(false, false);
     assert_eq!(session.reduce(VncEvent::Connect), [V::ConnectSaved]);
     assert_eq!(session.reduce(VncEvent::Reconnect { source: sign_in.clone() }), [V::PromptSignIn]);
-    assert_eq!(session.reduce(VncEvent::Reconnect { source: sign_in.clone() }), []);
+    assert_eq!(session.reduce(VncEvent::Reconnect { source: sign_in.clone() }), NO_VNC);
     let cancel = VncEvent::SignInAnswer { button: None, dismissal: true, has_password: false };
     assert_eq!(session.reduce(cancel), [V::RepublishStatus]);
     session.reduce(VncEvent::Reconnect { source: sign_in.clone() });
@@ -257,14 +260,14 @@ fn sign_in_prompts_once_and_connects_only_on_connect() {
 fn the_demo_desktop_starts_once_and_close_stops_it() {
     let mut session = VncSession::new(false, true);
     assert_eq!(session.reduce(VncEvent::Connect), [V::StartDemo]);
-    assert_eq!(session.reduce(VncEvent::Connect), []);
+    assert_eq!(session.reduce(VncEvent::Connect), NO_VNC);
     assert_eq!(
         session.reduce(VncEvent::DemoStarted { port: Some(6000) }),
         [V::ConnectDemo { port: 6000 }]
     );
     assert_eq!(session.reduce(VncEvent::Connect), [V::ConnectDemo { port: 6000 }]);
     assert_eq!(session.reduce(VncEvent::Close), [V::StopSource, V::StopDemo]);
-    assert_eq!(session.reduce(VncEvent::Connect), []);
+    assert_eq!(session.reduce(VncEvent::Connect), NO_VNC);
 
     // Closed while the server started: the started server stops.
     let mut closing = VncSession::new(false, true);
@@ -412,7 +415,7 @@ fn the_control_surface_switches_mode_on_a_cloud_desktop() {
     assert_eq!(made(plan.first_control, &log), [false, true]);
     // The mode in force changes nothing.
     log.push(state.select_mode(true).unwrap());
-    assert_eq!(log[2], []);
+    assert_eq!(log[2], NO_PAGE);
     assert_eq!(made(plan.first_control, &log), [false, true]);
     // A session without Take over refuses.
     let mut local = PageSession::new(SessionKind::Rd, false, false);
@@ -460,7 +463,7 @@ fn a_short_hide_keeps_the_cloud_session_and_the_grace_ends_it() {
     let mut local = PageSession::new(SessionKind::Vnc, false, false);
     assert_eq!(local.reduce(PageEvent::Resume), [P::PaneStart, P::VncConnect]);
     assert_eq!(local.reduce(PageEvent::Pause), [P::PaneStop, P::VncStop]);
-    assert_eq!(local.reduce(PageEvent::Pause), []);
+    assert_eq!(local.reduce(PageEvent::Pause), NO_PAGE);
 }
 
 #[test]
@@ -470,7 +473,7 @@ fn stop_holds_until_reconnect() {
     assert_eq!(rd.reduce(PageEvent::StopPressed), [P::RdStop]);
     // A stopped Cloud session does not linger through a hide.
     assert_eq!(rd.reduce(PageEvent::Pause), [P::PaneStop, P::RdStop]);
-    assert_eq!(rd.reduce(PageEvent::Resume), []);
+    assert_eq!(rd.reduce(PageEvent::Resume), NO_PAGE);
     assert_eq!(
         rd.reduce(PageEvent::ReconnectPressed),
         [P::PaneStop, P::ReplaceRdTransport { control: false }, P::PaneStart, P::RdConnect]
