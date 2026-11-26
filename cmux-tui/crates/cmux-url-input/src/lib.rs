@@ -25,6 +25,14 @@ mod uri;
 
 pub use chromium::{ChromiumPageRoute, chromium_internal_url, chromium_page_route};
 pub use typed::{CMUX_APP_PAGE_HOSTS, TypedInput, contains_pairing_link, is_loopback_host};
+pub use uri::Parts as UrlParts;
+
+/// The scheme, host and path of an absolute URL, as written, with
+/// `URLComponents(string:)`'s grammar (RFC 3986): `None` for text it refuses. Other crates that
+/// read a URL the app reports (cmux-browser-rules) parse it here, not with their own parser.
+pub fn parse_url(text: &str) -> Option<UrlParts<'_>> {
+    uri::parse_strict(text)
+}
 
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`

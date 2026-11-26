@@ -11,5 +11,6 @@ description = "The browser pane's rules for the cmux macOS app, out of its Swift
 workspace = true
 
 [dependencies]
+cmux-url-input = { path = "../cmux-url-input" }
 serde.workspace = true
 serde_json.workspace = true
