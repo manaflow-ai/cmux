@@ -16,11 +16,12 @@
 //! ```
 //!
 //! A create forks the template's snapshot: `template_id@<vcpus>x<mem_mib>` first (a snapshot
-//! made at that size), then `template_id`. A snapshot keeps the size it was taken at, so every
-//! view reports the size the VM really has. Every mutating verb is idempotent on its
-//! `request_id`: applied requests are kept in `ownhost/ledger.jsonl` under the daemon root (one
-//! line each, compacted on open), so a retry after a daemon restart replays instead of acting
-//! twice. The owner tag is stored in the machine's labels as `tag:<key>`.
+//! made at that size), then `template_id` when its snapshot has that size. A snapshot keeps the
+//! size it was taken at, so a size no snapshot has is refused (`size_unavailable`), never served
+//! at another size, and every view reports the size the VM really has. Every mutating verb is
+//! idempotent on its `request_id`: applied requests are kept in `ownhost/ledger.jsonl` under the
+//! daemon root (one line each, compacted on open), so a retry after a daemon restart replays
+//! instead of acting twice. The owner tag is stored in the machine's labels as `tag:<key>`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -39,7 +40,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::host::{CreateRequest, ExecRequest, Host, MachineMeta, RunState, VmdError};
+use crate::host::{
+    CreateRequest, ExecRequest, Host, MachineMeta, RunState, SnapshotMeta, VmdError,
+};
 use crate::net::Egress;
 use crate::server::{ApiError, ApiResult};
 use crate::set_field;
@@ -272,12 +275,25 @@ impl OwnHost {
         Ok(())
     }
 
-    fn template_snapshot(&self, template: &str, vcpus: u32, mem_mib: u32) -> Option<String> {
-        [format!("{template}@{vcpus}x{mem_mib}"), template.to_owned()].into_iter().find_map(|t| {
-            let sid = std::fs::read_to_string(self.dir.join("templates").join(t)).ok()?;
-            let sid = sid.trim().to_owned();
-            self.host.snapshot_meta(&sid).map(|_| sid)
-        })
+    /// The template's snapshot at exactly this size, or why there is none. A snapshot keeps the
+    /// size it was taken at, so the bare template serves only a create that asks for its size: a
+    /// fork at any other size would come back at the template's, and the platform's spares claimed
+    /// a 4x8192 VM for every default 2x4096 chat start.
+    fn template_snapshot(
+        &self,
+        template: &str,
+        vcpus: u32,
+        mem_mib: u32,
+    ) -> Result<String, String> {
+        let found = [format!("{template}@{vcpus}x{mem_mib}"), template.to_owned()]
+            .into_iter()
+            .filter_map(|t| {
+                let sid = std::fs::read_to_string(self.dir.join("templates").join(&t)).ok()?;
+                let meta = self.host.snapshot_meta(sid.trim())?;
+                Some((t, meta))
+            })
+            .collect::<Vec<_>>();
+        choose(&found, vcpus, mem_mib)
     }
 
     fn view(&self, m: &MachineMeta) -> Value {
@@ -421,12 +437,25 @@ async fn create(State(own): St, Json(b): Json<CreateBody>) -> ApiResult {
         l.creating_names.insert(b.name.clone());
         Creating { own: &own, request_id: b.request_id.clone(), name: b.name.clone() }
     };
-    let Some(sid) = own.template_snapshot(&b.template_id, b.vcpus, b.mem_mib) else {
-        return Err(ApiError(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "template_not_found",
-            "no snapshot for the template".into(),
-        ));
+    let sid = match own.template_snapshot(&b.template_id, b.vcpus, b.mem_mib) {
+        Ok(sid) => sid,
+        Err(sizes) if sizes.is_empty() => {
+            return Err(ApiError(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "template_not_found",
+                "no snapshot for the template".into(),
+            ));
+        }
+        Err(sizes) => {
+            return Err(ApiError(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "size_unavailable",
+                format!(
+                    "no snapshot of the template at {}x{} ({sizes}); snapshot one and PUT /v1/templates/{}@{}x{}",
+                    b.vcpus, b.mem_mib, b.template_id, b.vcpus, b.mem_mib
+                ),
+            ));
+        }
     };
     let labels = tag.iter().map(|(k, v)| (format!("{TAG_PREFIX}{k}"), v.clone())).collect();
     let req = CreateRequest {
@@ -633,9 +662,57 @@ async fn delete_template(State(own): St, Path(name): Path<String>) -> ApiResult 
     }
 }
 
+/// A fork of `meta` has exactly the asked vcpus and memory.
+fn fits(meta: &SnapshotMeta, vcpus: u32, mem_mib: u32) -> bool {
+    u32::from(meta.vcpus) == vcpus && meta.mem_mib == mem_mib
+}
+
+/// The first found template (name, snapshot) whose snapshot fits, by id; else the sizes there
+/// are (empty when no template was found), for `size_unavailable`.
+fn choose(found: &[(String, SnapshotMeta)], vcpus: u32, mem_mib: u32) -> Result<String, String> {
+    if let Some((_, meta)) = found.iter().find(|(_, m)| fits(m, vcpus, mem_mib)) {
+        return Ok(meta.id.clone());
+    }
+    let sizes = found.iter().map(|(t, m)| format!("{t} is {}x{}", m.vcpus, m.mem_mib));
+    Err(sizes.collect::<Vec<_>>().join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Run 45882763507 (2026-11-26): a default 2x4096 create on the bare `autocloud` template, snapshotted
+    // at 4x8192, came back 4x8192 and the platform claimed it as a default-size spare.
+    fn snap(id: &str, vcpus: u8, mem_mib: u32) -> SnapshotMeta {
+        SnapshotMeta {
+            id: id.into(),
+            source_machine: "m".into(),
+            image: "i".into(),
+            vcpus,
+            mem_mib,
+            egress: Egress::default(),
+            created_unix_ms: 0,
+        }
+    }
+
+    #[test]
+    fn only_a_snapshot_at_the_asked_size_is_chosen() {
+        let bare = ("autocloud".to_owned(), snap("s-bare", 4, 8192));
+        // Only the bare template, at 4x8192: a 2x4096 create is refused and told the size there is.
+        assert_eq!(choose(std::slice::from_ref(&bare), 2, 4096), Err("autocloud is 4x8192".into()));
+        // The bare template still serves a create at its own size.
+        assert_eq!(choose(std::slice::from_ref(&bare), 4, 8192), Ok("s-bare".into()));
+        // A sized template wins; one PUT at the wrong size is named, never used.
+        let sized = ("autocloud@2x4096".to_owned(), snap("s-2x4", 2, 4096));
+        assert_eq!(choose(&[sized, bare.clone()], 2, 4096), Ok("s-2x4".into()));
+        let wrong = ("autocloud@2x4096".to_owned(), snap("s-wrong", 4, 8192));
+        assert_eq!(
+            choose(&[wrong, bare], 2, 4096),
+            Err("autocloud@2x4096 is 4x8192, autocloud is 4x8192".into())
+        );
+        // No template at all is template_not_found (an empty list), not size_unavailable.
+        assert_eq!(choose(&[], 2, 4096), Err(String::new()));
+    }
 
     #[test]
     fn contract_patterns() {

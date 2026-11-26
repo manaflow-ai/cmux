@@ -60,6 +60,11 @@ final class SidebarListDrag {
     var docItems: [String]?
     var docAcceptance: [String: SidebarDocAcceptance] = [:]
     var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
+    /// A lone chat's row: the machines its Move to… reaches (`SidebarModel.chatMoveTargets`), read once at the
+    /// drag's begin, and the slot on one of them the pointer is over, which the document refuses (another machine)
+    /// and the drop sends as a `.reorder` the chat move takes.
+    var chatMoveTargets: [MachineID] = []
+    var chatMove: DropPosition?
     /// The list structure (`SidebarModel.sectionsRevision`) `docGeometry` was built for.
     var geometryRevision: UInt64 = 0
     var docTarget: SidebarDocTarget? {
