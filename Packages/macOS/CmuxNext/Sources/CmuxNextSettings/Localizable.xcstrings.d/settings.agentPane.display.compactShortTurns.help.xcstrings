@@ -5,10 +5,130 @@
       "comment" : "Settings > Chat > Compact Summary for Short Turns: help",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرض الدور القصير ملخصًا من سطر واحد لما فعله، بدلًا من طيّه تحت «Worked for»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kratki potez prikazuje sažetak u jednom redu umjesto da se sklopi pod Worked for."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En kort tur viser et resumé på én linje af, hvad den gjorde, i stedet for at blive foldet sammen under Worked for."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein kurzer Durchgang zeigt eine einzeilige Zusammenfassung seiner Arbeit, statt unter „Worked for“ eingeklappt zu werden."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un turno corto muestra un resumen de una línea de lo que hizo, en lugar de plegarse bajo Worked for."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un tour court affiche un résumé d’une ligne de ce qu’il a fait, au lieu de se replier sous Worked for."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un turno breve mostra un riepilogo di una riga di ciò che ha fatto, invece di comprimersi sotto Worked for."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "短いターンは Worked for の下に折りたたまず、実行内容を 1 行で要約して表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វេនខ្លីបង្ហាញសេចក្ដីសង្ខេបមួយបន្ទាត់អំពីអ្វីដែលវាបានធ្វើ ជំនួសឱ្យការបត់នៅក្រោម Worked for។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "짧은 턴은 Worked for 아래로 접히지 않고 수행한 작업을 한 줄로 요약해 보여줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En kort runde viser et sammendrag på én linje av hva den gjorde, i stedet for å foldes inn under Worked for."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krótka tura pokazuje jednowierszowe podsumowanie tego, co zrobiła, zamiast zwijać się pod Worked for."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um turno curto mostra um resumo de uma linha do que fez, em vez de ficar recolhido em Worked for."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткий ход показывает однострочную сводку сделанного вместо сворачивания под Worked for."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทิร์นสั้นจะแสดงสรุปหนึ่งบรรทัดของสิ่งที่ทำ แทนการพับไว้ใต้ Worked for"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kısa bir tur, Worked for altında katlanmak yerine yaptıklarının tek satırlık özetini gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткий хід показує однорядковий підсумок зробленого замість згортання під Worked for."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lượt ngắn hiển thị tóm tắt một dòng về việc đã làm, thay vì thu gọn dưới Worked for."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "简短轮次显示一行摘要，说明其所做的事，而不是折叠在 Worked for 下。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "簡短輪次顯示一行摘要，說明其所做的事，而不是摺疊在 Worked for 下。"
           }
         }
       }
