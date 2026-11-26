@@ -13,7 +13,7 @@ reuse=unknown
 published_digest=
 if [[ -n "$head_sha" ]]; then
   if [[ -n "$published" ]]; then
-    # --depth only in an already shallow checkout (tests/test_ci_no_shallow_dev_fetch.py).
+    # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
     depth=()
     [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
     bash scripts/ci/timeout.sh 60 git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$published" >/dev/null 2>&1 || true
