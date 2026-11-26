@@ -7,8 +7,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_agent_pane_compile_hints.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_agent_pane_compile_hints.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_appcast_keep_pubdates.py"
@@ -897,6 +896,11 @@ lane = "manual"
 reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml's Slack jobs change; kept manual under the 2026-10-23 no-new-CI rule, since lifted."
 
 [[test]]
+path = "tests/test_stage_table_signin.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_signin.py"
+
+[[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
 
@@ -904,11 +908,6 @@ lane = "linux-guard"
 path = "tests/test_stale_base_readers.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins that each tool measuring a branch's own change from where HEAD meets origin/feat-cmux-next (affected tests, the Rust panic ratchet, build_class, gate-plan, the test-determinism scan, codebase-health, a manual arch-ratchet run) fetches that base first; run python3 -I tests/test_stale_base_readers.py yourself after changing one (a few seconds, no build)."
-
-[[test]]
-path = "tests/test_stage_table_signin.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_signin.py"
 
 [[test]]
 path = "tests/test_static_analysis_ratchet.py"
