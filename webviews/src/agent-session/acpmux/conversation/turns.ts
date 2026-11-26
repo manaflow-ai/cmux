@@ -47,6 +47,7 @@ import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { liveTurnClock } from "./liveTurnClock.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
+import { waitingMessagesOrder } from "./waitingMessagesOrder.experiment";
 import { workedLine } from "./workedLine.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
 import { bareWorkedTurns } from "./bareWorkedTurns.experiment";
@@ -775,6 +776,9 @@ export function turnViewFrom(
   const arms = turnArms(agentFamily);
   const fromStart = lead === 0;
   const pending: AcpmuxRow[] = [];
+  // Unread messages from other agents go to the end group only in its arm; in `arrival` they draw at
+  // their `seq` like the person's steer.
+  const groupWaiting = experimentArm(waitingMessagesOrder) === "group";
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -859,7 +863,8 @@ export function turnViewFrom(
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
-    // the running turn for the one group of waiting messages at the end (pendingMessages.ts).
+    // the running turn for the one group of waiting messages at the end (pendingMessages.ts), unless
+    // it keeps its arrival place (waitingMessagesOrder.experiment.ts `arrival`).
     // Reuse batches while tokens change: only a newly arrived notice computes a new descriptor.
     // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
     let drawn: AcpmuxRow[] = [];
@@ -867,7 +872,7 @@ export function turnViewFrom(
       // The local turn may contain a late done line whose background owner is in a prior
       // prompt. Its original background line still controls disclosure of that completion.
       if (hiddenInBackground(row, turnFolded)) continue;
-      if (last && isWaitingMessage(row)) pending.push(row);
+      if (last && groupWaiting && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
     // A turn that drew only its closed "Worked for" (a wake or another agent's message that the
@@ -910,7 +915,7 @@ export function turnViewFrom(
       );
       for (const row of shapedOpen) {
         if (hiddenInBackground(row, turnFolded)) continue;
-        if (last && isWaitingMessage(row)) pending.push(row);
+        if (last && groupWaiting && isWaitingMessage(row)) pending.push(row);
         else appendLaneNotice(drawn, row.kind === WORKED && row.foldOpen ? inWorkedRun(row, [run], run) : row);
       }
       openRun = run;
