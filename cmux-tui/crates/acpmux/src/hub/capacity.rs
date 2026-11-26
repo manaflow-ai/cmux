@@ -246,12 +246,26 @@ impl Gate {
         !matches!(self.state().phase, Phase::Open)
     }
 
+    /// Whether a turn may start now: the gate is open, or it is pacing and `permit` is this
+    /// gate's paced slot for the current generation (`wait_retry_capacity`).
+    fn admits(&self, state: &State, permit: Option<&Permit>) -> bool {
+        match state.phase {
+            Phase::Open => true,
+            Phase::Closed(_) => false,
+            Phase::Releasing(_) => permit.is_some_and(|permit| {
+                std::ptr::eq(self, Arc::as_ptr(&permit.gate))
+                    && state.generation == permit.generation
+            }),
+        }
+    }
+
     /// Hold the gate state while a caller commits a turn claim. A capacity close that races the
     /// final admission check then waits until the claim is visible, so it cannot let one more turn
-    /// start after the gateway reported exhaustion.
-    pub(super) fn admit_open(&self) -> Option<GateAdmission<'_>> {
+    /// start after the gateway reported exhaustion. A cut-turn retry's paced `permit` admits it
+    /// while the gate releases, as [`Hub::capacity_waits_unless_permitted`] does.
+    pub(super) fn admit(&self, permit: Option<&Permit>) -> Option<GateAdmission<'_>> {
         let state = self.state();
-        matches!(state.phase, Phase::Open).then_some(GateAdmission { _state: state })
+        self.admits(&state, permit).then_some(GateAdmission { _state: state })
     }
 
     pub(super) fn watch_backlog(self: &Arc<Self>) -> Option<Backlog> {
@@ -347,16 +361,7 @@ impl Hub {
         route: Option<&Route>,
         permit: Option<&Permit>,
     ) -> bool {
-        self.capacity.get(route).is_some_and(|gate| {
-            let state = gate.state();
-            match state.phase {
-                Phase::Open => false,
-                Phase::Closed(_) => true,
-                Phase::Releasing(_) => permit.is_none_or(|permit| {
-                    !Arc::ptr_eq(&gate, &permit.gate) || state.generation != permit.generation
-                }),
-            }
-        })
+        self.capacity.get(route).is_some_and(|gate| !gate.admits(&gate.state(), permit))
     }
 
     pub(super) async fn wait_retry_capacity(
@@ -632,12 +637,31 @@ mod capacity_gate_tests {
     fn capacity_gate_admission_holds_state_until_claim() {
         let gate = Arc::new(Gate::new(10));
         gate.state().phase = Phase::Open;
-        let admission = gate.admit_open().expect("open gate admits");
+        let admission = gate.admit(None).expect("open gate admits");
         assert!(gate.state.try_lock().is_err());
         drop(admission);
         assert!(gate.state.try_lock().is_ok());
         gate.state().phase = Phase::Closed(20);
-        assert!(gate.admit_open().is_none());
+        assert!(gate.admit(None).is_none());
+    }
+
+    /// Review F1 on #47897: a cut-turn retry's paced permit admits it while the gate releases;
+    /// a permit of an older generation (the gate closed again since) or of another gate does not.
+    #[test]
+    fn capacity_gate_admission_honours_retry_permit() {
+        let gate = Arc::new(Gate::new(10));
+        let other = Arc::new(Gate::new(10));
+        gate.state().phase = Phase::Releasing(Instant::now());
+        let generation = gate.state().generation;
+        let permit = Permit { gate: Arc::clone(&gate), generation };
+        assert!(gate.admit(None).is_none(), "pacing admits no unpermitted turn");
+        assert!(gate.admit(Some(&permit)).is_some(), "the paced permit admits its retry");
+        let foreign = Permit { gate: Arc::clone(&other), generation };
+        assert!(gate.admit(Some(&foreign)).is_none(), "another gate's permit does not");
+        gate.state().generation += 1;
+        assert!(gate.admit(Some(&permit)).is_none(), "a stale generation does not");
+        gate.state().phase = Phase::Closed(20);
+        assert!(gate.admit(Some(&permit)).is_none(), "a closed gate admits nothing");
     }
 
     #[test]

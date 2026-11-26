@@ -174,6 +174,7 @@ pub(super) struct PromptRun {
 }
 
 /// A prompt asking for its turn (`queue_slot`).
+#[derive(Clone, Copy)]
 pub(super) struct Slot<'a> {
     pub(super) text: &'a str,
     pub(super) blocks: &'a [Value],
@@ -323,6 +324,27 @@ impl Hub {
         session: &'a Arc<Session>,
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
+    ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
+        // A cut-turn retry the gateway closed on again between its paced wait and its claim goes
+        // back to `wait_retry_capacity`: the chat did not move on, so it is never `superseded`
+        // (review F1 on #47897). Each pass awaits the gate, so this never spins.
+        loop {
+            let mut reclosed = false;
+            let attempt = self.queue_slot_attempt(session, p, accept, &mut reclosed).await;
+            if !reclosed {
+                return attempt;
+            }
+        }
+    }
+
+    /// One pass of [`Self::queue_slot`]. Sets `reclosed` (and leaves no count, gather or hold
+    /// behind) when a cut-turn retry found the capacity gate shut at its claim.
+    async fn queue_slot_attempt<'a>(
+        self: &Arc<Self>,
+        session: &'a Arc<Session>,
+        p: Slot<'_>,
+        accept: &mut impl FnMut(Value),
+        reclosed: &mut bool,
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
         let cfg = match p.answer_due {
             Some(due) => tokio::time::timeout_at(due, self.config.read())
@@ -580,9 +602,11 @@ impl Hub {
                     let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance);
                     // Keep the gate state locked through the claim. A concurrent 503 cannot close
-                    // the gate between this final open check and `ClaimedTurn::new` (review F1).
+                    // the gate between this final check and `ClaimedTurn::new` (review F1). A
+                    // retry's paced permit admits it while the gate releases.
+                    let capacity_gate = self.capacity.get(capacity_route);
                     let capacity_admission =
-                        self.capacity.get(capacity_route).map(|gate| gate.admit_open());
+                        capacity_gate.as_ref().map(|gate| gate.admit(retry_permit.as_ref()));
                     let capacity_held = capacity_admission.as_ref().is_some_and(Option::is_none);
                     match guard {
                         Some(guard) if !queues && !capacity_held => {
@@ -594,7 +618,12 @@ impl Hub {
                             }
                             drop(guard);
                             if capacity_held && p.after_turn.is_some() {
+                                // The gateway closed again: wait at the gate once more
+                                // (`queue_slot`), with nothing of this pass left behind.
                                 session.queued.fetch_sub(1, Ordering::SeqCst);
+                                super::digest::end_gather(session, &turn_id);
+                                super::person_hold::end(session, &turn_id);
+                                *reclosed = true;
                                 return Err(Err(super::auto_resume::superseded()));
                             }
                             // Its queued reservation is still counted.
