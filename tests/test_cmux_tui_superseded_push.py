@@ -353,15 +353,14 @@ def check_verdicts():
                 f"{head}:refs/heads/feat-cmux-next-x-current", f"{base}:refs/heads/feat-cmux-next-x-moved",
                 f"{head}:refs/heads/fix/current")
             git(remote, "update-ref", "refs/heads/lane/moved", base)
-            # These cases read the open-PR-head rule over git, which vars.CMUX_TUI_BRANCH_ON_REQUEST=0 keeps; the
-            # default build-on-request rule (#53129) asks the dispatch lookup for any branch head
-            # (tests/test_cmux_tui_branch_on_request.py).
-            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}", "CMUX_TUI_BRANCH_ON_REQUEST": "0"}
+            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}"}
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                ("a current lane/ head with a pull request runs with no API call",
-                 "refs/heads/lane/current", {}, "false", [], head),
+                # Build on request (#53129): a pull request's head alone builds nothing; a dispatch asked for it runs.
+                ("a current lane/ head with a pull request a dispatch asked for runs",
+                 "refs/heads/lane/current", {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 1}]})},
+                 "false", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
