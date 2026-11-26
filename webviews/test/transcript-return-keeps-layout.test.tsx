@@ -156,9 +156,12 @@ test("a chat shown again as it was asks no sync render in its own commit", async
   const render = (sessionId: string, rows: AcpmuxRow[]) =>
     act(async () => {
       root.render(
-        <Profiler id="transcript" onRender={(_id, phase) => {
+        <Profiler
+          id="transcript"
+          onRender={(_id, phase) => {
             if (phase === "nested-update") nested += 1;
-          }}>
+          }}
+        >
           <VirtualTranscript
             rows={rows}
             registry={defaultRegistry}
