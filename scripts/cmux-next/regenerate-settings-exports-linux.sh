@@ -18,13 +18,21 @@ while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^
 cd "$root"
 marker="$(mktemp)"
 trap 'rm -f "$marker"' EXIT
+# What was already changed before the export: check-settings-exports.sh checks the BASE parent's
+# settings sources out in place (schemas/settings/source/*.json among them) before it exports from
+# them, so those show in `git status` without the export writing them.
+dirty_before="$(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)"
 sleep 1 # sleep-ok: an mtime-granularity tick: the marker must be older than anything the export writes
 CMUX_SETTINGS_EXPORTS_LIST="$list" "$here/export-settings-linux.sh"
 listed="$(printf '%s\n' "${exports[@]}")"
-while IFS= read -r path; do
-  [[ -n "$path" ]] || continue
-  grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which $list does not list" >&2; exit 1; }
-done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
+# A path is the export's write when its status line is new, or the file is newer than the marker.
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  path="${line:3}"
+  grep -qxF -- "$path" <<<"$listed" && continue
+  grep -qxF -- "$line" <<<"$dirty_before" && [[ ! "$path" -nt "$marker" ]] && continue
+  echo "::error::the settings export wrote $path, which $list does not list" >&2; exit 1
+done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)
 for file in "${exports[@]}"; do
   rm -f -- "$out/$file"
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
