@@ -103,6 +103,13 @@ fn the_allowlist_is_what_the_page_sends() {
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
+    // Only an enrolled browser's sidebar reads the person's workspaces (direct.ts
+    // `refreshBrowserWorkspaces` returns unless `host.browserDevice`); the macOS pane never sends
+    // it, so its relay does not allow it.
+    assert!(
+        sent.remove("_acpmux/browser_workspaces"),
+        "the page no longer sends _acpmux/browser_workspaces: drop this line"
+    );
     // The relay allows the move picker's targets read (#49141, AcpmuxPaneMethods.swift) before the
     // page sends it; the app's own move commands read it on their own connection.
     assert!(

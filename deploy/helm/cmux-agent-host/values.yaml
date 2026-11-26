@@ -1,0 +1,118 @@
+# Values for the cmux-agent-host chart. One release = one cmux host (one join, many agent slots).
+# GitOps applies it like any other chart: an upgrade is a version or value bump in git.
+
+# The host agent's container image: acpmux, run as `acpmux machine hypervisor serve`.
+# Pin a digest in production; the agent passes the same reference down only if slot.image is empty.
+image:
+  repository: ""
+  tag: ""
+  # sha256:... ; when set it wins over tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# The host agent's command. The subcommand is the one RFD 0100 section 10 decided on.
+agent:
+  command: ["acpmux"]
+  args: ["machine", "hypervisor", "serve", "--driver", "pod"]
+  # The cmux platform the agent joins and heartbeats to.
+  platformUrl: "https://cloud-api.cmux.dev"
+  logLevel: info
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# The single-use join token from "Add machine". GitOps should carry it through its own sealed or external
+# secrets: set existingSecret to that Secret's name (key `token` by default). `token` here is for a quick
+# try only; it lands in the release's values in plain text.
+join:
+  existingSecret: ""
+  existingSecretKey: token
+  token: ""
+
+# After redeeming the join token the agent writes the host credential (cmm_...) into this Secret, the
+# only Secret its Role may read or update. The chart creates it empty and keeps it on uninstall, so a
+# reinstall of the same release does not need a new join token.
+hostCredential:
+  # Defaults to <fullname>-host-credential.
+  secretName: ""
+  keep: true
+
+serviceAccount:
+  # Defaults to <fullname>.
+  name: ""
+  annotations: {}
+
+# Lease defaults, warm pool and the slot image, read by the agent from its ConfigMap (RFD 0100 sections 6 and 8).
+leases:
+  idleMinutes: 30
+  maxHours: 12
+warmPool:
+  size: 0
+
+# One agent slot = one pod the agent creates, with one PVC for its disk. The agent renders this template
+# per slot: it adds the slot labels (cmux.dev/slot=<uuid>, annotation cmux.dev/slot-id=registered:<uuid>)
+# and the pod and PVC names.
+slot:
+  # The guest image (acpmux plus the agent CLIs). Pin a digest.
+  image: ""
+  # "" = plain pods (runc): no VM boundary, acpmux keeps its per-session sandbox.
+  # "kata" (or your Kata RuntimeClass name) = a microVM per pod: needs /dev/kvm on the nodes.
+  runtimeClassName: ""
+  # Whether the slot pod is a VM boundary, so acpmux may turn its own sandbox off (`acpmux machine
+  # dedicated`). "auto" = true exactly when runtimeClassName is set.
+  vmBoundary: auto
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      memory: 8Gi
+  disk:
+    size: 20Gi
+    # "" = the cluster's default StorageClass.
+    storageClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+# Guests: deny all ingress; egress to cluster DNS and to public addresses only (no cluster, node or
+# cloud-metadata addresses). Everything dials out; the chart makes no Service or Ingress.
+networkPolicy:
+  enabled: true
+  dnsNamespace: kube-system
+  dnsPodLabels:
+    k8s-app: kube-dns
+  egressCIDR: 0.0.0.0/0
+  egressExcept:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+  # Extra egress rules (NetworkPolicyEgressRule objects), e.g. an in-cluster proxy the person allows.
+  extraEgress: []
+
+# KubeVirt VirtualMachines instead of pods (RFD 0100 section 9). Only adds the RBAC; the driver comes later.
+kubevirt:
+  enabled: false
+# CSI VolumeSnapshots for warm templates. Only adds the RBAC.
+volumeSnapshots:
+  enabled: false

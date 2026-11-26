@@ -474,6 +474,13 @@ impl Link {
         self.seal(inner::DATAGRAM, datagram)
     }
 
+    /// Whether every queued control record has been acknowledged by the peer.
+    pub fn controls_acknowledged(&self) -> bool {
+        self.is_established()
+            && self.pending_control.is_empty()
+            && self.control_out.next_deadline_us().is_none()
+    }
+
     /// Queues one control record: delivered once and in order. Records queued
     /// before the handshake finished go out when it does.
     pub fn send_control(&mut self, record: Vec<u8>, now_us: u64) -> Result<(), LinkError> {
@@ -576,10 +583,14 @@ impl Link {
     /// endpoint with no route yet has nowhere to send it, and its first route gets the
     /// queued message at once.
     pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
+        // The same gap and count as a sent retry (`poll_handshake_timers`), so the deadline
+        // `next_deadline_us` reports is the one this moves to.
+        let gap = handshake_retry_us(self.handshake_resends);
         if let Some((_, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+            && now_us.saturating_sub(*sent) >= gap
         {
             *sent = now_us;
+            self.handshake_resends = self.handshake_resends.saturating_add(1);
         }
     }
 

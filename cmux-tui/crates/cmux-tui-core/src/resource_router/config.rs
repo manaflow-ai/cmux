@@ -37,6 +37,13 @@ pub(super) fn dispatch(
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
         ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
+        // Newest first, without each entry's file text.
+        ResourceOperation::SettingsHistory => {
+            let entries = mux.settings_history();
+            Ok(json!({
+                "entries": entries.iter().map(cmux_config::HistoryEntry::summary_json).collect::<Vec<_>>(),
+            }))
+        }
         ResourceOperation::SettingsEdit => {
             let file = edit_file(fields)?;
             let op = Op::Edit {
@@ -61,7 +68,10 @@ pub(super) fn dispatch(
         }
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
-        | ResourceOperation::SettingsResetAll => {
+        | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsUndo
+        | ResourceOperation::SettingsRestore
+        | ResourceOperation::SettingsResetGroup => {
             let op = write_op(
                 operation,
                 fields,
@@ -270,8 +280,41 @@ fn write_op(
         ResourceOperation::SettingsReset => {
             Op::Reset { target: target(fields)?, meta: meta(fields, key, actor)? }
         }
+        ResourceOperation::SettingsUndo => Op::Undo { meta: meta(fields, key, actor)? },
+        ResourceOperation::SettingsRestore => {
+            Op::Restore { revision: restore_revision(fields)?, meta: meta(fields, key, actor)? }
+        }
+        ResourceOperation::SettingsResetGroup => Op::ResetGroup {
+            group: fields
+                .get("group")
+                .and_then(Value::as_str)
+                .filter(|group| !group.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    validation_error(
+                        "settings.reset_group needs group (a section or section.group)",
+                        json!({"field":"group"}),
+                    )
+                })?,
+            meta: meta(fields, key, actor)?,
+        },
         _ => Op::ResetAll { meta: meta(fields, key, actor)? },
     })
+}
+
+/// `settings.restore`'s `revision`: a history entry's revision, a decimal string.
+fn restore_revision(fields: &Map<String, Value>) -> Result<u64, ResourceError> {
+    fields
+        .get("revision")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<WireDecimal>(value).ok())
+        .map(WireDecimal::get)
+        .ok_or_else(|| {
+            validation_error(
+                "settings.restore needs revision, a decimal string (see settings.history)",
+                json!({"field":"revision"}),
+            )
+        })
 }
 
 /// `{command, key, when?}`; `default_command` fills a `replaces` that names

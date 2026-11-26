@@ -4,7 +4,6 @@ import CmuxNextPages
 import CmuxNextSettingsWindow
 import Foundation
 import ImageIO
-import UniformTypeIdentifiers
 
 /// The Settings page's wallpaper thumbnails (R82 commit 4): `cmux-page://cmux.settings/backdrop/<id>`
 /// answers a small PNG of that choice. Only ids in the bounded catalog, and the person's own
@@ -56,6 +55,10 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         guard request.prefix == Self.prefix, request.path.count == 1,
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
               allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
+        if case .live(let slug) = selection, let wallpaper = LiveWallpaper.named(slug) {
+            let data = await BackdropImageStore.shared.livePrograms.stillPNG(wallpaper, width: 240, height: 135, tokens: ThemeScope.app.tokens)
+            return data.map { PageResource(data: $0, mimeType: "image/png") }
+        }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
         // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
         // (a photo can be tens of megabytes) decodes off the main actor; the desktop picture,
@@ -85,10 +88,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
             : CGImageSourceCreateWithURL(BackdropShaderRenderer.prepared(url) as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
+        return image.pngData()
     }
 
     /// A 240-point-wide PNG (the grid shows tiles about 112 points wide on a 2x display).

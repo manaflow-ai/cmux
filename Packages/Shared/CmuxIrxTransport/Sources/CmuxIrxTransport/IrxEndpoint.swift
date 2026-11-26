@@ -1,6 +1,11 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
+#if canImport(IrohLib)
 public import IrohLib
+#endif
 import CmuxIrohTransport
 
 public enum IrxEndpointError: Error, Sendable {
@@ -53,6 +58,7 @@ public struct IrxEndpointConfiguration: Sendable {
     }
 }
 
+#if canImport(IrohLib)
 /// Owns one iroh endpoint generation: binds it with the current relay
 /// credentials, reports readiness BEFORE anyone may dial (the old stack's
 /// launch dial race caused 286 field failures), rotates credentials in place
@@ -505,3 +511,4 @@ extension IrxEndpointSupervisor {
         return irx
     }
 }
+#endif

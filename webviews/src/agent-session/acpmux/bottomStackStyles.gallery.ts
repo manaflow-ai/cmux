@@ -118,7 +118,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 620,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["agent-session/acpmux/bottomStack.css"],
+  covers: ["agent-session/acpmux/bottomStack.css", "agent-session/acpmux/composerLocation.css"],
   variants: {
     collapsed: variant(
       "Selected: the turn ended, the tray folded to its Running in background header. The tray and the composer are one glass stack on the card's two edges.",
@@ -130,6 +130,21 @@ export default agentPaneEntry({
       "Alternative stack look (separate cards): the tray keeps its own rounded card on the composer's two edges, one 4px step apart.",
       false,
       { documentAttributes: { "bottom-stack": "cards" } },
+    ),
+    "edge-before": variant(
+      "Before: the tray and composer both use the full-strength edge and floating elevation, making the joined glass read as a doubled rim.",
+      true,
+      { documentAttributes: { "composer-edge": "before" } },
+    ),
+    "edge-chosen": variant(
+      "Chosen: the joined tray and composer share one quiet hairline, with a lighter edge and shadow on the composer.",
+      true,
+      { documentAttributes: { "composer-edge": "chosen" } },
+    ),
+    "edge-minimal": variant(
+      "Alternative: an even quieter edge and shadow; the seam loses too much separation at narrow widths.",
+      true,
+      { documentAttributes: { "composer-edge": "minimal" } },
     ),
   },
 });

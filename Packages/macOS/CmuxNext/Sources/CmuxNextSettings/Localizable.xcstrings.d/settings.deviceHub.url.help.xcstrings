@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.deviceHub.url.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The device hub for Mac Screen sharing. Empty uses the built-in one."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مركز الأجهزة لمشاركة Mac Screen. إذا كان فارغًا فيُستخدم المركز المدمج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Centar uređaja za Mac Screen dijeljenje. Prazno koristi ugrađeni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enhedshubben til Mac Screen-deling. Tom bruger den indbyggede."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Geräte-Hub für das Teilen per Mac Screen. Leer nutzt den eingebauten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El centro de dispositivos para compartir Mac Screen. Vacío usa el integrado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le hub d’appareils pour le partage Mac Screen. Vide utilise le hub intégré."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’hub dispositivi per la condivisione di Mac Screen. Vuoto usa quello integrato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen の共有に使うデバイスハブ。空にすると内蔵のハブを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មជ្ឈមណ្ឌលឧបករណ៍សម្រាប់ចែករំលែក Mac Screen។ ទទេប្រើមជ្ឈមណ្ឌលដែលភ្ជាប់មកជាមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen 공유용 기기 허브입니다. 비워 두면 내장 허브를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enhetshuben for Mac Screen-deling. Tom bruker den innebygde."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Centrum urządzeń do udostępniania ekranu Maca. Puste używa wbudowanego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A central de dispositivos para o compartilhamento do Mac Screen. Vazio usa a integrada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Центр устройств для общего доступа Mac Screen. Если пусто, используется встроенный."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ฮับอุปกรณ์สำหรับแชร์ Mac Screen ว่างไว้จะใช้ฮับในตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen paylaşımı için cihaz merkezi. Boş bırakılırsa yerleşik merkez kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Центр пристроїв для спільного доступу через Mac Screen. Якщо порожньо, використовується вбудований."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trung tâm thiết bị để chia sẻ Mac Screen. Để trống để dùng trung tâm tích hợp sẵn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "用于 Mac Screen 共享的设备中心。留空则使用内置的设备中心。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "用於 Mac Screen 共享的裝置中心。留空則使用內建的裝置中心。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

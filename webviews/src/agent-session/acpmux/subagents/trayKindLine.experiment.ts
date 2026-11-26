@@ -9,9 +9,9 @@ export const trayKindLineLook = defineExperiment({
   title: "Running tray count separator",
   description: "What separates the running tray header's counts: a middot, a slash, a pipe or a backslash.",
   arms: {
-    dot: { label: "Middot", description: "2 subagents running · 1 test run · 2 waits" },
-    slash: { label: "Slash", description: "2 subagents running / 1 test run / 2 waits" },
-    pipe: { label: "Pipe", description: "2 subagents running | 1 test run | 2 waits" },
+    dot: { label: "Middot", description: "2 subagents · 1 test run · 2 waits" },
+    slash: { label: "Slash", description: "2 subagents / 1 test run / 2 waits" },
+    pipe: { label: "Pipe", description: "2 subagents | 1 test run | 2 waits" },
     backslash: { label: "Backslash", description: "2 subagents running \\ 1 test run \\ 2 waits" },
   },
   // The middot is the pane's one meta separator (the turn line, Session Info), so the header reads as

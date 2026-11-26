@@ -19,40 +19,15 @@
 name: cmux-mobile-ffi
 
 #
-# A pull request into feat-cmux-next on the same paths runs the rust job as an advisory check, on the 4 vCPU pool: no
-# ruleset requires it and its name ends "(advisory)" on a pull request, so land-judge and next-autoland neither wait
-# on nor refuse for it; a red there is a follow-up (ci-oops soft class), not a merge block. apple (a macOS runner)
-# and android (two NDK targets) stay on pushes and dispatch.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
     branches:
       - feat-cmux-next
       - "feat-cmux-next-hq39-mobile-*"
       - "feat-cmux-next-object-sync*"
-    paths:
-      - ".github/workflows/cmux-mobile-ffi.yml"
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - ".github/actions/runner-cargo-home/**"
-      - "cmux-tui/Cargo.toml"
-      - "cmux-tui/Cargo.lock"
-      - "cmux-tui/rust-toolchain.toml"
-      - "cmux-tui/crates/cmux-terminal-sizing/**"
-      - "cmux-tui/crates/cmux-mobile-core/**"
-      - "cmux-tui/crates/cmux-mobile-ffi/**"
-      - "cmux-tui/crates/cmux-cloud-wire/**"
-      - "schemas/terminal-sizing/**"
-      # The generated wire types (cmux-cloud-wire) and their vector gate.
-      - "backend/catalog/cloud-operations.json"
-      - "backend/catalog/cloud-vectors.json"
-      - "backend/packages/protocol/scripts/export-rust-client.ts"
-      # The ownership mirror (cmux-cloud-wire::mirror) and its trace vectors.
-      - "schemas/ownership-mirror/**"
-      - "backend/packages/ownership/src/**"
-      - "backend/packages/ownership/scripts/export-mirror-vectors.ts"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - feat-cmux-next
     paths:
       - ".github/workflows/cmux-mobile-ffi.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -101,7 +76,7 @@ jobs:
   rust:
     name: rust (fmt, clippy, tests)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -118,17 +93,23 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-rust
+          key: cmux-mobile-ffi-rust-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Generated wire types match the catalog
         working-directory: backend/packages/protocol
@@ -180,11 +161,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-apple
+          key: cmux-mobile-ffi-apple-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Build static libraries
         working-directory: cmux-tui
@@ -408,7 +390,7 @@ jobs:
   android:
     name: android (cargo-ndk, AAR, Kotlin tests)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -434,11 +416,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-android
+          key: cmux-mobile-ffi-android-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1

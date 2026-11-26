@@ -293,6 +293,10 @@ pub(super) enum Phase {
     Reconnect,
     /// The established session's carrier reattach.
     Resume,
+    /// A failed search for an established session's next route
+    /// (`CarrierRoutes::next_group`): the session's next resume runs on the
+    /// carrier it had, so this line says why no other one took over.
+    Discover,
 }
 
 impl Phase {
@@ -301,6 +305,7 @@ impl Phase {
             Self::Connect => "connect",
             Self::Reconnect => "reconnect",
             Self::Resume => "resume",
+            Self::Discover => "discover",
         }
     }
 
@@ -372,11 +377,35 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         return Some(if token { code } else { "other".into() });
     }
     let word = [
+        // The session's own resume errors (`ConnectionError`, `SessionError`):
+        // a resume that ends on one names it, not `other`.
+        ("reconnect deadline expired", "resume_deadline"),
+        ("stale connection generation", "stale_generation"),
+        ("connection generation changed", "generation_changed"),
+        ("generation exhausted", "generation_exhausted"),
+        ("no longer has the requested logical session", "session_gone"),
+        ("too many connected clients", "daemon_full"),
+        ("replay buffer is full", "replay_full"),
+        ("delivery window is full", "window_full"),
+        ("outbound queue is full", "queue_full"),
+        ("sequence gap", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame", "invalid_frame"),
         ("ssh bootstrap failed", "ssh_bootstrap"),
         ("does not support", "unsupported_auth"),
         ("no reconnect routes", "no_routes"),
         ("no such route", "no_route"),
         ("no transport provider handles", "no_provider"),
+        ("ssh connection group is closed", "ssh_group_closed"),
+        ("could not start ssh", "ssh_spawn"),
+        ("link closed during handshake", "handshake_closed"),
+        ("link is closed", "link_closed"),
+        ("did not finish within", "open_timeout"),
+        ("network changed", "network_changed"),
+        ("link protocol failed", "link_protocol"),
+        ("noise handshake", "noise"),
+        ("authorization failed", "unauthorized"),
         ("connection is closed", "closed"),
         ("connection refused", "connect_refused"),
         ("tls error", "tls"),
@@ -474,10 +503,27 @@ pub(super) fn routes_line(
     outcome: Option<Step>,
     detail: Option<&str>,
 ) -> String {
+    routes_line_on(machine, phase, ssh, carrier, None, outcome, detail)
+}
+
+/// [`routes_line`] of a failed resume that ran on route `tried` (`relay:0`,
+/// `ssh:0`): each `why` code the failure's text does not place on a route
+/// is placed on `tried` (`relay_link_closed`), so a resume that kept
+/// failing on a dead carrier says which one.
+pub(super) fn routes_line_on(
+    machine: &str,
+    phase: Phase,
+    ssh: Option<&str>,
+    carrier: Option<&str>,
+    tried: Option<&str>,
+    outcome: Option<Step>,
+    detail: Option<&str>,
+) -> String {
     let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    let tried = tried.and_then(route_word);
     let why = detail
         .filter(|_| outcome.is_some())
-        .and_then(why_codes)
+        .and_then(|detail| why_codes_on(detail, tried))
         .map_or_else(String::new, |why| format!(" why={why}"));
     let said = detail
         .and_then(cmux_remote::provider::ssh_stderr_of)
@@ -502,7 +548,14 @@ pub(super) fn routes_line(
 /// is its [`detail_code`], after the route it failed on when the route
 /// runner named one ([`route_of`]). A captured ssh
 /// stderr tail is left out: it has its own quoted field.
+#[cfg(test)]
 pub(super) fn why_codes(detail: &str) -> Option<String> {
+    why_codes_on(detail, None)
+}
+
+/// [`why_codes`], with `tried` (`relay` or `ssh`) the route of every code
+/// the text names no route for.
+pub(super) fn why_codes_on(detail: &str, tried: Option<&'static str>) -> Option<String> {
     const MAX_WHY_CODES: usize = 4;
     let mut rest = detail;
     let mut text = String::new();
@@ -530,7 +583,7 @@ pub(super) fn why_codes(detail: &str) -> Option<String> {
             None => code.to_string(),
         })
         .or_else(|| {
-            detail_code(part).map(|code| match route_of(&lower) {
+            detail_code(part).map(|code| match route_of(&lower).or(tried) {
                 Some(route) if !code.starts_with(route) => format!("{route}_{code}"),
                 _ => code,
             })
@@ -558,6 +611,16 @@ fn route_of(lower: &str) -> Option<&'static str> {
         Some("relay")
     } else {
         None
+    }
+}
+
+/// The route word of a connect log carrier (`relay:0` is `relay`, `ssh:0`
+/// is `ssh`; `none` and anything else is none).
+fn route_word(carrier: &str) -> Option<&'static str> {
+    match carrier.split(':').next() {
+        Some("relay") => Some("relay"),
+        Some("ssh") => Some("ssh"),
+        _ => None,
     }
 }
 

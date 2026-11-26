@@ -170,7 +170,7 @@ struct CmuxToastStyleTests {
         let standard = CmuxToastView(toast: Self.everyKind[0], reduceTransparency: .alwaysOpaque, style: .standard)
         standard.setFrameSize(standard.fittingSize)
         standard.layoutSubtreeIfNeeded()
-        #expect(standard.cornerRadius == standard.geometry.outerRadius)
+        #expect(standard.cornerRadius == standard.geometry.outerRadius(fitting: standard.bounds.size))
         #expect(standard.cornerRadius < standard.bounds.height / 2, "a card, not a capsule")
     }
 
@@ -191,7 +191,11 @@ struct CmuxToastStyleTests {
         capsule.setFrameSize(capsule.fittingSize)
         capsule.layoutSubtreeIfNeeded()
         #expect(abs(capsule.cornerRadius - capsule.bounds.height / 2) < 0.5)
-        #expect(CmuxToastStyle.standard.look.corner == .concentric)
+        #expect(CmuxToastStyle.standard.look.corner == .points(12))
+        let hint = CmuxToastView(toast: CmuxToast(id: "hint", message: "Option or Shift + drag selects text"), reduceTransparency: .alwaysOpaque, style: .standard)
+        hint.setFrameSize(hint.fittingSize)
+        hint.layoutSubtreeIfNeeded()
+        #expect(hint.cornerRadius < hint.bounds.height / 2 - 2, "the one-line hint reads as a pill")
     }
 
     /// Every Corner row variant draws, light and dark, with the samples it names.

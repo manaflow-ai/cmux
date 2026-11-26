@@ -72,14 +72,12 @@ import Testing
 /// one) shows the Mac's screen text once it is newer than its snapshot.
 @Suite struct TerminalCardFresherTextTests {
     @Test func newerScreenTextBeatsAnOlderSnapshotOfAStartedTab() {
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: "$ seq 200\n200", screenTextIsNewer: true) == .screenText)
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: "$ seq 200\n200", screenTextIsNewer: false) == .snapshot)
-        // Connecting still wins, and blank text is not content.
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: true, hasSnapshot: true,
-                                           screenText: "x", screenTextIsNewer: true) == .connecting)
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        // Blank text is not content.
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: " \n", screenTextIsNewer: true) == .snapshot)
     }
 

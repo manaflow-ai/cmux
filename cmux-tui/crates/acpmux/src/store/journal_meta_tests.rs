@@ -1799,3 +1799,24 @@ fn a_change_after_an_image_kept_aside_is_whole() {
         "the chat read back after a kill is not its last image"
     );
 }
+
+/// An idle daemon writes nothing (idle-gpu-disk; Leo, 2026-11-18: "disk growth too i feel
+/// like"): the same image saved again journals nothing, also right after a checkpoint wrote its
+/// `session.json`.
+#[test]
+fn the_same_metadata_saved_twice_journals_once() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(83);
+    let store = open(home.path(), &journal);
+    let m = busy(CHAT);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(written_meta() > before, "the first save journaled nothing");
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(written_meta() - before, 0, "the same image saved again journaled");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(written_meta() - before, 0, "the same image saved after a checkpoint journaled");
+}

@@ -151,3 +151,12 @@ test("the editor types through its textarea, never Chromium's EditContext", () =
   });
   expect(options.editContext).toBe(false);
 });
+
+test("editor.vimMode turns vim on; anything but a boolean keeps it off", () => {
+  expect(EDITOR_DEFAULTS.vimMode).toBe(false);
+  expect(resolveEditorSettings({}).vimMode).toBe(false);
+  expect(resolveEditorSettings({ vimMode: true }).vimMode).toBe(true);
+  expect(resolveEditorSettings({ vimMode: false }).vimMode).toBe(false);
+  expect(resolveEditorSettings({ vimMode: "true" }).vimMode).toBe(false);
+  expect(resolveEditorSettings({ vimMode: 1 }).vimMode).toBe(false);
+});
