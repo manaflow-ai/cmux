@@ -23,7 +23,15 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let focus = composerFocusTarget(app)
         XCTAssertFalse(keyboard.exists)
         window("keyboard-show", in: app) { focus.tap() }
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        // The first keyboard of a fresh simulator can take past 10 s, and the demo's
+        // "Reply to Claude" card can turn the first tap into expanding the field
+        // (cmux#52369 gate run, line 26). Keep the state, then focus the field itself.
+        if !keyboard.waitForExistence(timeout: 30) {
+            attachState(app, "keyboard-show")
+            XCTAssertTrue(field.waitForExistence(timeout: 10))
+            field.tap()
+        }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 30), "the composer tap raised the keyboard")
         XCTAssertTrue(field.waitForExistence(timeout: 10))
 
         app.typeText("one")
