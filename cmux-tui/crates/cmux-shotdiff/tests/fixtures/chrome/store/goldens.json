@@ -1,0 +1,55 @@
+{
+  "schema": "cmux-shotdiff.goldens/v1",
+  "goldens": {
+    "web/clock": {
+      "hash": "e8bcb3922de6ef336c4094e843621d9b8d388994b8854a660a39acaf3fdad0f2",
+      "width": 390,
+      "height": 844,
+      "spec": {
+        "channel_tolerance": 16,
+        "max_changed_ratio": 0.01,
+        "min_ssim": 0.98,
+        "min_tile_ssim": 0.9,
+        "scale": 1,
+        "ignore": [
+          {
+            "x": 300,
+            "y": 0,
+            "w": 90,
+            "h": 44,
+            "why": "the clock text changes every capture"
+          }
+        ],
+        "regions": []
+      }
+    },
+    "web/settings": {
+      "hash": "e8bcb3922de6ef336c4094e843621d9b8d388994b8854a660a39acaf3fdad0f2",
+      "width": 390,
+      "height": 844,
+      "spec": {
+        "channel_tolerance": 16,
+        "max_changed_ratio": 0.01,
+        "min_ssim": 0.98,
+        "min_tile_ssim": 0.9,
+        "scale": 1,
+        "ignore": [],
+        "regions": []
+      }
+    },
+    "web/settings-swiftshader": {
+      "hash": "e8bcb3922de6ef336c4094e843621d9b8d388994b8854a660a39acaf3fdad0f2",
+      "width": 390,
+      "height": 844,
+      "spec": {
+        "channel_tolerance": 16,
+        "max_changed_ratio": 0.01,
+        "min_ssim": 0.98,
+        "min_tile_ssim": 0.9,
+        "scale": 1,
+        "ignore": [],
+        "regions": []
+      }
+    }
+  }
+}

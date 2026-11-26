@@ -31,7 +31,7 @@ jobs:
           && github.event.workflow_run.event == 'push'
           && github.event.workflow_run.head_branch == 'feat-cmux-next'
           && github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -63,7 +63,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.good != '' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The build-fleet gateway runner: it only hands each probe to the controller with cmux-ci run.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # At most MAX_PROBES (8) simulator steps of up to an hour each, plus their queue.
     timeout-minutes: 600
     permissions:
@@ -77,7 +77,9 @@ jobs:
           ref: ${{ needs.plan.outputs.red }}
           fetch-depth: 0
           filter: blob:none
-          sparse-checkout: scripts/ci/ios_base_bisect.py
+          sparse-checkout: |
+            scripts/ci/ios_base_bisect.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Bisect the merges on the fleet simulator
         env:
