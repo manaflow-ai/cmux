@@ -43,9 +43,10 @@
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
         exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
         of them, else 1
-    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
+    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH [--cached FILE]
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
-        one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
+        one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read). With FILE (the
+        Actions cache's copy), FILE first when it holds runs: no API request
     webviews_test_history.py shared-name --inputs KEY --runner DIR --workflow FILE
         print the artifact name a base check shares its replay under: SHARED_ARTIFACT, the merge parent's inputs KEY and
         the key of the replay's tools (the head's runner copies in DIR and ci-web.yml)
@@ -656,6 +657,30 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
     return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})", True
 
 
+def fetch_cached_first(cached: str | Path | None, repo: str, branch: str, token: str | None,
+                       get=_get) -> tuple[list[dict], str, bool]:
+    """fetch, with a route that costs no API quota first: CACHED, the copy of the same history that every push's
+    webviews-test-history job saves to the Actions cache beside its artifact (restored by actions/cache, which is not
+    the REST API). Only a cached copy that holds runs answers; a missing, empty or unreadable one falls back to the
+    artifact's list and download, and a refusal there names both routes.
+
+    Why: the job's GITHUB_TOKEN draws on the repository's hourly pool, which every workflow in the repository spends.
+    On cmux#51403 (base checks 137470886310 and 137525210651, 2026-11-23 03:42Z and 06:30Z) the listing answered 403
+    with 0 calls left, so the base check read no history, answered none of its 48 red files from it and replayed
+    every one, past its budget."""
+    tried = ""
+    if cached:
+        if not Path(cached).is_file():
+            tried = "no Actions cache copy"
+        else:
+            runs = load(cached)
+            if runs:
+                return runs, "the Actions cache's copy (no API request)", True
+            tried = "the Actions cache's copy holds no runs"
+    found, said, read = fetch(repo, branch, token, get)
+    return found, f"{said}; {tried}" if tried and not read else said, read
+
+
 # A pull request shard's passes, uploaded as they come (also when a newer head cancels its run), for the same shard at
 # the next head. An artifact, not a cache: a cache a pull request saves is read by that ref alone and fills the store
 # (tests/test_ci_no_run_scoped_cache_keys.py).
@@ -852,6 +877,8 @@ def main(argv: list[str]) -> int:
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
     fe.add_argument("--branch", required=True)
+    fe.add_argument("--cached", help="the Actions cache's copy of the history: read first, with no API request; "
+                                     "missing, empty or unreadable falls back to the artifact")
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
     pb = sub.add_parser("passed-before")
@@ -903,7 +930,7 @@ def main(argv: list[str]) -> int:
         print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
         return 0
     if args.command == "fetch":
-        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
+        found, said, read = fetch_cached_first(args.cached, args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": found}, separators=(",", ":")) + "\n", encoding="utf-8")
         print(f"webview test history: {len(found)} push runs ({said})")
@@ -996,7 +1023,10 @@ def main(argv: list[str]) -> int:
         if not isinstance(known_now, dict):
             return 1
         merged, left = early_known(early, args.sha, replay, known_now)
-        print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
+        # No artifact at all is not an early run that answered nothing: the job runs only on full-ci pull requests
+        # (ci-web.yml, #48528), so say which, and what did answer (known, before this) stays in the step's last line.
+        none = "" if early else " (no react-apps-base-early results: it runs on full-ci pull requests only)"
+        print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay{none}")
         known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
         replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0
