@@ -257,6 +257,9 @@ fn remote_confirm_takes_only_the_four_changes() {
     assert_eq!(share["timeoutSeconds"], 600);
     assert_eq!(confirm(json!({"action": "share", "device": "mini"}))["ok"]["kind"], "shareOther");
     assert_eq!(confirm(json!({"action": "allow_agents"}))["ok"]["kind"], "allowAgents");
+    assert_eq!(confirm(json!({"action": "allow_agents"}))["ok"]["on"], true);
+    assert_eq!(confirm(json!({"action": "allow_agents", "on": false}))["ok"]["on"], false);
+    assert_eq!(confirm(json!({"action": "allow_agents", "on": "no"}))["ok"]["on"], true);
     let unshare = confirm(json!({"action": "unshare", "agent_ticket": "t"}))["ok"].clone();
     assert_eq!(
         (unshare["kind"].clone(), unshare["redeemsTicket"].clone()),

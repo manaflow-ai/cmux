@@ -350,6 +350,8 @@ fn confirm_request(params: &Value) -> Result<Value, String> {
         "scope": scope,
         "ticket": ticket,
         "redeemsTicket": redeems,
+        // allow_agents: on unless the request says off.
+        "on": params.get("on").and_then(Value::as_bool).unwrap_or(true),
         "timeoutSeconds": 600,
     }))
 }
