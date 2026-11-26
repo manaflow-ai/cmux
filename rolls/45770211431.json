@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45770211431",
+  "recorded_at": "2026-11-26T06:51:17Z",
+  "reason": "cmux-tui 25dd74b0bbb4 changes the image's cmux-tui (pinned 6fde033d9d34)",
+  "dry_run": false,
+  "cmux_tui": "25dd74b0bbb4b0ef0784d62a4e7c671b5df68c9c",
+  "fixes": [
+    {
+      "sha": "25dd74b0bbb4b0ef0784d62a4e7c671b5df68c9c",
+      "mergedAt": "2026-11-26T06:06:01Z",
+      "subject": "acpmux chats text: search a query's first key on up to 8 threads (#57723)"
+    },
+    {
+      "sha": "19a767c7c0b19b55cf2134310ea31bc456c5a2ba",
+      "mergedAt": "2026-11-26T05:37:27Z",
+      "subject": "cmux-url-input joins the app FFI (BrowserURLResolver step A) (#57119)"
+    },
+    {
+      "sha": "99557d504dba8272a7474a6f3e236432abf4509e",
+      "mergedAt": "2026-11-26T05:29:56Z",
+      "subject": "projection: chat candidate set, cold-tier aging, one logical-bytes number (#56632)"
+    },
+    {
+      "sha": "bd5a342bf712461dec700e84cc516f8540783cfe",
+      "mergedAt": "2026-11-26T05:26:37Z",
+      "subject": "acpmux: first-turn guidance in fewer words, 1,215 -> 846 and 1,939 -> 1,462 bytes (#57308)"
+    },
+    {
+      "sha": "ddc6e0bb33fd44f9ca463bb8e96bdc800b03f159",
+      "mergedAt": "2026-11-26T05:11:13Z",
+      "subject": "cmux-rd-screen: the WebRTC screen stream's rules in Rust (step A) (#57598)"
+    },
+    {
+      "sha": "6dd85302fe1e128ea68e346449b13cee12d67d42",
+      "mergedAt": "2026-11-26T05:09:55Z",
+      "subject": "acpmux bench: the size sweep compares a fixed prompt-index page, not one holding every prompt (#55138)"
+    },
+    {
+      "sha": "7db48fd36f3b0f4d0fa5fa59300d21f1bb9a3c10",
+      "mergedAt": "2026-11-26T04:55:59Z",
+      "subject": "cmux-tui: netns bench for the fast fallback off a dead direct path (#57052)"
+    },
+    {
+      "sha": "562c26a53f472e725cf6c4690d0a1cfa60ae35a3",
+      "mergedAt": "2026-11-26T04:49:20Z",
+      "subject": "cmux.com installer: --nightly/--server on Linux read the signed nightly channel (#57584)"
+    },
+    {
+      "sha": "e3b11701695bd1c1de125e2d03f1fa706db6ab79",
+      "mergedAt": "2026-11-26T04:45:17Z",
+      "subject": "acpmux: move peer requests out of peer_runtime_io.rs (101,759 -> 82,500 bytes) (#57545)"
+    },
+    {
+      "sha": "28d5115b235fa7086649aa004aa4c8837ab2117e",
+      "mergedAt": "2026-11-25T20:44:33-08:00",
+      "subject": "acpmux: keep a chat on its model through capacity errors; failover opt-in (#57784) (#57795)"
+    },
+    {
+      "sha": "248c88b00fc7c2c9bfd521ff87ce55e858683401",
+      "mergedAt": "2026-11-26T04:41:19Z",
+      "subject": "cmux-next: settings doctor stops calling our own keys unknown; line-free fingerprints (#55493)"
+    },
+    {
+      "sha": "2d1d7f07fa807f7c5a83623f33c6935e3fc21b65",
+      "mergedAt": "2026-11-26T04:38:18Z",
+      "subject": "Cloud start gate: hand the CLI the install token it holds; a refusal names the gateway read (#51384)"
+    },
+    {
+      "sha": "46448ede8d9f0f9cd5a0887f531aeb9cd750ec9a",
+      "mergedAt": "2026-11-26T04:32:21Z",
+      "subject": "ChatGPT sign-in pages: a centered card that says Signed in to ChatGPT (#56041)"
+    },
+    {
+      "sha": "dd3134850babcc7604ca91b6c0332dadd227bfec",
+      "mergedAt": "2026-11-25T20:04:53-08:00",
+      "subject": "acpmux chats: a new chat's first turn no longer waits 1-3 s on its MCP tool lists (cmux#57487) (#57670)"
+    },
+    {
+      "sha": "1e541eba5afe5f4515ffe0a80d6d4b3c1bf87acb",
+      "mergedAt": "2026-11-25T19:55:42-08:00",
+      "subject": "customize: the customization notice and ignored-value toasts are off by default (#57694)"
+    },
+    {
+      "sha": "f97924f50b297494f266049fe231f3431c8c353b",
+      "mergedAt": "2026-11-26T03:40:50Z",
+      "subject": "acpmux: fix the MCP, help, skill, protocol and v1-list reds that merged while lib tests did not compile (#56851)"
+    },
+    {
+      "sha": "ef68ea7178d64f242575491750ef141829696c6a",
+      "mergedAt": "2026-11-26T03:18:45Z",
+      "subject": "cmux-rd-host: move linux_host tests and join_consent_tests out of mod.rs (102 -> 61 KB) (#57390)"
+    },
+    {
+      "sha": "b3d189715e70b0cf0021d0ec8da2fc72b0e5d1c3",
+      "mergedAt": "2026-11-26T03:13:11Z",
+      "subject": "acpmux builds on Windows again; cmux-tui tests compile on base again (#54573)"
+    },
+    {
+      "sha": "03e0cd3790eda60e9587ab491eb4669f86186a4a",
+      "mergedAt": "2026-11-26T03:03:08Z",
+      "subject": "cmux-config: shortcut bindings as settings ops (shortcut.*), step A (#57065)"
+    },
+    {
+      "sha": "68e896cf8905cfdd32f8f9eed17c666a40ce9fd1",
+      "mergedAt": "2026-11-25T19:02:53-08:00",
+      "subject": "cmux-tui: move host cleanup off close workers (#56823)"
+    },
+    {
+      "sha": "651d5a6ebd4763214f3f12c07cf147f32ee3b0bd",
+      "mergedAt": "2026-11-26T02:47:55Z",
+      "subject": "acpmux: reach other-zone GCP lanes direct, not via the hub relay (#57128)"
+    },
+    {
+      "sha": "fd5e0d30026a5fa8b2443013c17d414ffb54e8e9",
+      "mergedAt": "2026-11-26T02:43:58Z",
+      "subject": "ext sdk: generate the scene DSL scales from the app's design scales (component kit item 12) (#56876)"
+    },
+    {
+      "sha": "235f32fa1d981bdbfa59ce9ad0846813c8c1525e",
+      "mergedAt": "2026-11-26T02:42:40Z",
+      "subject": "cmux-tui: daemon holds the Cloud machine state sockets, Swift push deleted (5a) (#52583)"
+    },
+    {
+      "sha": "ab9a8f7cbcc7c1d1cb6716d13d18cd21f05c8677",
+      "mergedAt": "2026-11-26T02:39:31Z",
+      "subject": "Link 7420: count ACKs past a closed receive window for the 60 s timeout (#57093)"
+    },
+    {
+      "sha": "d6b9cfacfc5f60d7259f13340d48ce5366706f28",
+      "mergedAt": "2026-11-25T18:28:01-08:00",
+      "subject": "cmux next: model picker: every listed model runs, harness tabs re-arrange, antigravity joins the gemini tab (#57474)"
+    },
+    {
+      "sha": "3312fa5cef88295c6ba4ff1a4510d4453268a550",
+      "mergedAt": "2026-11-26T02:13:13Z",
+      "subject": "feat(cmux-tui): cmux-team-messaging, RFD 0170 phase 0 message contract (#57316)"
+    },
+    {
+      "sha": "ab0103ac99e64a22c90db9da66e68fb7083ac7f4",
+      "mergedAt": "2026-11-26T02:08:14Z",
+      "subject": "acpmux: surgery first at every compaction trigger, /compact as fallback (RFD 0149) (#57385)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T06:51:17Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
