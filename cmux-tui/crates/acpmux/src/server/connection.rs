@@ -447,6 +447,8 @@ pub(super) async fn serve_connection_from(
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
                 let mut ticket = conn.in_flight.begin(&id, &m, slot, dual_key);
+                // A pane's stall check: its answer stays behind the records queued before it.
+                let in_order = outbound::asks_in_order(&m, params.as_ref());
                 #[cfg(test)]
                 cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
@@ -462,7 +464,11 @@ pub(super) async fn serve_connection_from(
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
                             }
                             if conn.in_flight.finish(&ticket) {
-                                conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                                conn.send_reply(
+                                    &dual_requests::reply(id, answer),
+                                    Some(&m),
+                                    in_order,
+                                );
                             }
                             return;
                         }
@@ -472,7 +478,7 @@ pub(super) async fn serve_connection_from(
                     if ticket.refused() {
                         let answer = Err(shutdown_drain::restarting_error());
                         dual_requests::finish(first, Some(&answer));
-                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        conn.send_reply(&dual_requests::reply(id, answer), Some(&m), in_order);
                         return;
                     }
                     // One span per request, with the caller's end-to-end trace id
@@ -501,9 +507,10 @@ pub(super) async fn serve_connection_from(
                         // answer here is still owed, and is the cancel's.
                         if conn.in_flight.finish(&ticket) {
                             let cancelled = Err(crate::request_cancel::cancelled_error());
-                            conn.send_replying(
+                            conn.send_reply(
                                 &dual_requests::reply(id.clone(), cancelled),
                                 Some(&m),
+                                in_order,
                             );
                         }
                         tracing::debug!(
@@ -541,7 +548,7 @@ pub(super) async fn serve_connection_from(
                             e
                         });
                         dual_requests::finish(first, Some(&answer));
-                        conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                        conn.send_reply(&dual_requests::reply(id, answer), Some(&m), in_order);
                     } else {
                         dual_requests::finish(first, None);
                     }

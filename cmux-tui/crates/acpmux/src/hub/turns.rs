@@ -345,6 +345,9 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A chat a past capacity switch left on a smaller model runs this prompt on its own one
+        // while switching is off (`auto_resume/capacity_failover.rs`).
+        self.restore_capacity_fallback_if_off(session).await;
         // An Auto chat another holder runs takes the prompt through its Cloud inbox
         // (`auto_hold.rs`); nothing starts here.
         if self.auto_held(session) {
