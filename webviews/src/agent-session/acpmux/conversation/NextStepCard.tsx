@@ -5,7 +5,8 @@ import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
 import { CardDismiss } from "../question/CardDismiss";
-import { hasCustomizeRunner, idleRun, runCustomize, runReducer, type CustomizeRun } from "./customizeRun";
+import { copyTextResult } from "./clipboard";
+import { hasCustomizeRunner, idleRun, runCustomize, runReducer, shareLine, type CustomizeRun } from "./customizeRun";
 import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import type { AnswerBlock } from "../subagents/restart";
 import {
@@ -114,6 +115,8 @@ export const NextStepCard = memo(function NextStepCard({
   // A typed answer (`{label, run}`, customizeRun.ts) runs `cmux customize`: Try it on, then Keep
   // or Revert. The card's own state: the run is the person's click here, not a reply.
   const [run, dispatchRun] = useReducer(runReducer, idleRun);
+  // Share copies the one-line install of what was tried on; the card says whether it copied.
+  const [copied, setCopied] = useState<"copied" | "failed">();
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const shown = answer ?? givenAnswer(state);
   const settled = shown !== undefined || superseded;
@@ -203,16 +206,26 @@ export const NextStepCard = memo(function NextStepCard({
   // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
   const tried = run.phase === "tried";
   const done = run.phase === "kept" || run.phase === "reverted";
+  // Save is Keep: a kept try-on stays in the person's library (RFD 0150). Share copies the line
+  // that tries the same code on another cmux, while it is on and once it is kept.
+  const line = tried || run.phase === "kept" ? shareLine(run.target) : undefined;
+  const share: NextStepOption[] = line ? [{ label: t("liveCustomize.share"), share: line }] : [];
   const shownOptions: NextStepOption[] = tried
     ? [
         { label: t("liveCustomize.keep"), run: { customize: "keep" } },
         { label: t("liveCustomize.revert"), run: { customize: "revert" } },
+        ...share,
       ]
     : done
-      ? ask.options.filter((option) => !option.run)
+      ? [...share, ...ask.options.filter((option) => !option.run)]
       : ask.options;
+  const copy = (text: string) => void copyTextResult(text).then((ok) => setCopied(ok ? "copied" : "failed"));
   const click = (option: NextStepOption) =>
-    option.run && hasCustomizeRunner() ? customize(option.run) : send(option.label);
+    option.share !== undefined
+      ? copy(option.share)
+      : option.run && hasCustomizeRunner()
+        ? customize(option.run)
+        : send(option.label);
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       <div className="acpmux-question-bar acpmux-next-step__bar">
@@ -244,6 +257,11 @@ export const NextStepCard = memo(function NextStepCard({
             : run.failed
               ? t("liveCustomize.failed")
               : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+        </output>
+      )}
+      {line && copied && (
+        <output className="acpmux-next-step__detail">
+          {t(copied === "copied" ? "liveCustomize.shared" : "liveCustomize.shareFailed")} <code>{line}</code>
         </output>
       )}
       {onAnswer ? (
