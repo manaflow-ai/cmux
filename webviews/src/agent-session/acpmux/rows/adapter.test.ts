@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { turnView } from "../conversation/turns";
-import { bookRevision } from "./bookRevision";
+import { bookEdition, bookRevision } from "./bookRevision";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { ChatRowStore } from "./store";
@@ -44,8 +44,28 @@ async function chat(rows: ChatRow[], open: ChatRow[] = []) {
   });
   const op = (body: Record<string, unknown>) =>
     send({ kind: "chatOp", sid: "c", replay: false, op: { seq: 11, ...body } });
-  return { snapshot: () => store.snapshot("c")!, op };
+  return { snapshot: () => store.snapshot("c")!, op, send };
 }
+
+test("replacement rows keep their book edition through renderer copies", async () => {
+  const { snapshot, send } = await chat([row(7, { body: { text: "abcde" } })]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const old = adapter.adapt(snapshot()).rows[0]!;
+  send({
+    kind: "chatWindow",
+    replaces: true,
+    window: {
+      sid: "c", cursor: 10, edition: 2,
+      rows: [row(7, { body: { text: "a\nb\nc" } })],
+      hasBefore: false, hasAfter: false, queue: { entries: [], count: 0 },
+    },
+  });
+  const next = adapter.adapt(snapshot()).rows[0]!;
+  expect(next.id).toBe(old.id);
+  expect(bookRevision(next)).toBe(bookRevision(old));
+  expect(bookEdition({ ...old })).toBe(1);
+  expect(bookEdition({ ...next })).toBe(2);
+});
 
 test("a new snapshot adapts only the rows that changed", async () => {
   const { snapshot, op } = await chat([row(1), row(2), row(3)]);
