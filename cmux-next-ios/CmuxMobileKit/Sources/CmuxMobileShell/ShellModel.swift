@@ -519,6 +519,13 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
@@ -527,6 +534,8 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
