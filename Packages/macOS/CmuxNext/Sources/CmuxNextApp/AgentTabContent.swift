@@ -59,8 +59,8 @@ struct AgentTabContent {
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: machine)
         }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let remote = pane.services.agentTabs.remoteMachineID(of: chat, machine: machine), let session = pane.services.machines.session(remote) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat, machine: machine) == remote else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
-        // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
-        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: chat, from: $0) } }
+        // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine; either sign-in page's tab closes once its sign-in ended, while still on the sign-in's own hosts (LinkOpener.signInTabCloser).
+        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: chat, from: $0) } }; view.model.onSignInTabCloser = { [weak pane] url in pane.map { $0.services.linkOpener.signInTabCloser(url, from: $0) } ?? { _ in } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
         view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }

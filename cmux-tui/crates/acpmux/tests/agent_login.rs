@@ -225,6 +225,17 @@ async fn agent_login_over_the_wire() {
     assert_eq!(s["url"], "https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=abc");
     assert_eq!(s["autoUrl"], AUTO_URL);
     assert_eq!(s["callbackPort"], 54545);
+    // The hosts its tab is still the sign-in's own on, so the app closes it once the login ended.
+    assert_eq!(
+        s["pageHosts"],
+        json!([
+            "claude.com",
+            "claude.ai",
+            "platform.claude.com",
+            "console.anthropic.com",
+            "auth.anthropic.com"
+        ])
+    );
     assert_eq!(s["needsCode"], true);
     assert!(s.get("userCode").is_none());
     assert!(s["expiresAtMs"].as_u64().unwrap() > 0);
@@ -302,6 +313,7 @@ async fn agent_login_over_the_wire() {
     // Codex: the device link and code; finish waits for the device flow.
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "codex"})).await.unwrap();
     assert_eq!(s["url"], "https://auth.openai.com/codex/device");
+    assert_eq!(s["pageHosts"], json!(["auth.openai.com"]));
     assert_eq!(s["userCode"], "ABCD-EFGHI");
     assert_eq!(s["needsCode"], false);
     // A chat this daemon does not have: refused, never signed in here in its place.

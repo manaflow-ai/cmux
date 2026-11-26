@@ -120,6 +120,96 @@ test("another page is never opened, another family never starts, a refusal keeps
   expect(await older.run({ action: "signInStart", family: "github" })).toEqual({ ok: true, value: {} });
 });
 
+test("the device page's tab closes once the sign-in ended: approved or expired, or cancelled", async () => {
+  const hosts = ["github.com"];
+  const ended: [string[], string[]][] = [];
+  const { client } = fakeClient({
+    start: { ...STARTED, pageHosts: hosts },
+    finish: () => Promise.resolve({ signedIn: true }),
+  });
+  const transport = cloudGitHubSignIn({
+    sessionId: "s1",
+    currentClient: () => client,
+    openURL: () => {},
+    signInEnded: (urls, named) => ended.push([urls, named]),
+  });
+  await transport.run({ action: "signInStart", family: "github" });
+  expect(ended).toEqual([]);
+  await transport.run({ action: "signInFinish", loginId: "login_gh" });
+  await transport.run({ action: "signInCancel", loginId: "login_gh" });
+  // Once per sign-in, whatever ends it first.
+  expect(ended).toEqual([[[GITHUB_DEVICE_PAGE], hosts]]);
+  ended.length = 0;
+  await transport.run({ action: "signInStart", family: "github" });
+  await transport.run({ action: "signInCancel", loginId: "login_gh" });
+  expect(ended).toEqual([[[GITHUB_DEVICE_PAGE], hosts]]);
+  // A start that opened no page closes nothing.
+  ended.length = 0;
+  const odd = fakeClient({ start: { ...STARTED, url: "https://github.com/settings/tokens" } });
+  const other = cloudGitHubSignIn({
+    sessionId: "s1",
+    currentClient: () => odd.client,
+    openURL: () => {},
+    signInEnded: (urls, named) => ended.push([urls, named]),
+  });
+  await other.run({ action: "signInStart", family: "github" });
+  await other.run({ action: "signInCancel", loginId: "login_gh" });
+  expect(ended).toEqual([]);
+});
+
+test("the card going away mid sign-in ends it, so the page it opened closes; a signed-in card tells once", async () => {
+  const { cloudAgentLogin } = await import("./cloudAgentLogin");
+  const ended: string[][] = [];
+  let approve: (value: unknown) => void = () => {};
+  const client = {
+    selectedSession: "chat-1",
+    agentLoginStart: () =>
+      Promise.resolve({
+        loginId: "l1",
+        url: "https://auth.openai.com/codex/device",
+        userCode: "AB-12",
+        needsCode: false,
+        pageHosts: ["auth.openai.com"],
+      }),
+    agentLoginFinish: () => new Promise((resolve) => (approve = resolve)),
+    agentLoginApiKey: () => Promise.resolve({ saved: false }),
+    agentLoginCancel: () => Promise.resolve(undefined),
+    resendPrompt: () => Promise.resolve({ input: [], attachments: [] }),
+    send: () => Promise.resolve(undefined),
+  };
+  const make = () =>
+    cloudAgentLogin({
+      connected: true,
+      machineID: "vm-1",
+      elsewhere: true,
+      sessionId: "chat-1",
+      harness: "codex",
+      supported: true,
+      gesture: () => Promise.resolve(undefined),
+      openURL: () => {},
+      signInEnded: (urls) => ended.push(urls),
+      isCurrent: (id) => id === "chat-1",
+      currentClient: () => client as never,
+    })!;
+  const root = await draw(<CloudSignIn signIn={make()} rowId="r" prompt="p" />);
+  await act(async () => root.querySelector<HTMLButtonElement>(".cv-turn-error__primary")!.click());
+  await settle();
+  expect(ended).toEqual([]);
+  unmount?.();
+  unmount = null;
+  expect(ended).toEqual([["https://auth.openai.com/codex/device"]]);
+
+  ended.length = 0;
+  const again = await draw(<CloudSignIn signIn={make()} rowId="r" prompt="p" />);
+  await act(async () => again.querySelector<HTMLButtonElement>(".cv-turn-error__primary")!.click());
+  await settle();
+  approve({ signedIn: true });
+  await settle();
+  unmount?.();
+  unmount = null;
+  expect(ended).toEqual([["https://auth.openai.com/codex/device"]]);
+});
+
 function agentSignIn(agent: SignIn["agent"], login: LoginStart, github?: SignIn["github"]): SignIn {
   return {
     agent,
