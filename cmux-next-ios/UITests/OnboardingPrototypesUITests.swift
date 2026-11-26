@@ -20,7 +20,9 @@ final class OnboardingPrototypesUITests: XCTestCase {
         for variant in 1...5 {
             let app = XCUIApplication()
             app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+            // The app draws in its own appearance setting, not the simulator's: pass both.
             app.launchArguments = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore",
+                                   "-cmuxMobile.settings.appearance", look,
                                    "-cmux-mobile-onboarding-prototypes", "\(variant)"]
             app.launch()
             let shot = { (step: String) in self.attach("proto~~\(variant)~~\(step)~~\(look)") }
@@ -48,6 +50,14 @@ final class OnboardingPrototypesUITests: XCTestCase {
     private func allowIfAsked() {
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"].firstMatch
         if alert.waitForExistence(timeout: 3) { alert.tap() }
+    }
+
+    /// A fresh simulator's keyboard shows a one-time slide-to-type tip over the screen; close it.
+    @MainActor
+    private func dismissKeyboardTip(_ app: XCUIApplication) {
+        // Home has no Continue button of its own, so this can only be the tip.
+        let tip = app.buttons["Continue"].firstMatch
+        if tip.waitForExistence(timeout: 2) { tip.tap() }
     }
 
     @MainActor
@@ -129,6 +139,7 @@ final class OnboardingPrototypesUITests: XCTestCase {
         sleep(1)
         shot("07-two-done")
         tap(app.buttons["Fix the failing tests in api-server"].firstMatch, "starter")
+        dismissKeyboardTip(app)
         sleep(1)
         shot("08-typing")
         tap(app.buttons["proto.send"], "Send")

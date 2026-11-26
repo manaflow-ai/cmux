@@ -69,6 +69,8 @@ public struct OnboardingPrototypesView: View {
             case .threeScreens: ProtoThreeScreens()
             }
         }
+        // Every step fills the screen, short ones too, so the app under the gallery never shows.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // A new id restarts the flow from its first screen.
         .id("\(variant.rawValue)-\(run)")
         .safeAreaInset(edge: .bottom, spacing: 0) { picker }
@@ -494,6 +496,7 @@ private struct ProtoLive: View {
             }
             .presentationDetents([.height(400)])
             .presentationCornerRadius(38)
+            .presentationBackground(theme.colors.sheet.color)
         }
         .protoToast($toast)
     }
@@ -795,12 +798,19 @@ private struct ProtoThread: View {
                     .padding(.vertical, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: items.count) { animate(theme.motion.smooth) { proxy.scrollTo(typing ? "typing" : items.last?.id, anchor: .bottom) } }
-                .onChange(of: typing) { animate(theme.motion.smooth) { proxy.scrollTo(typing ? "typing" : items.last?.id, anchor: .bottom) } }
+                // The newest message stays in view when the reply bar under it grows or shrinks.
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                .safeAreaBar(edge: .bottom, spacing: 0) { footer }
+                .onChange(of: items.count) { scrollToEnd(proxy) }
+                .onChange(of: typing) { scrollToEnd(proxy) }
+                .onChange(of: replies) { scrollToEnd(proxy) }
             }
-            footer
         }
         .task { await opening() }
+    }
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        animate(theme.motion.smooth) { proxy.scrollTo(typing ? "typing" : items.last?.id, anchor: .bottom) }
     }
 
     @ViewBuilder private func row(_ item: Item) -> some View {
@@ -1025,6 +1035,7 @@ private struct ProtoHomeFirst: View {
             }
             .presentationDetents([.medium])
             .presentationCornerRadius(38)
+            .presentationBackground(theme.colors.sheet.color)
         }
         .protoToast($toast)
     }
@@ -1067,43 +1078,42 @@ private struct ProtoHomeFirst: View {
     }
 
     private var home: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Text("Home").font(theme.type.heroTitle)
-                        Spacer()
-                        Image(systemName: "person.crop.circle").font(theme.type.sheetTitle).foregroundStyle(theme.colors.label2)
-                    }
-                    .padding(.horizontal, theme.metrics.sideMargin)
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
-                    if !cardGone {
-                        setupCard.padding(.horizontal, 16).padding(.bottom, 8)
-                            .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))))
-                    }
-                    section("Macs")
-                    group {
-                        homeRow(symbol: "laptopcomputer", title: macDone ? Proto.mac : "No Mac yet",
-                                detail: macDone ? "Online · 3 workspaces" : "Connect one to see its workspaces", dim: !macDone, online: macDone)
-                    }
-                    if macDone {
-                        section("Workspaces")
-                        group {
-                            homeRow(symbol: "terminal", title: "api-server", detail: taskDone ? "Claude Code · running" : "Idle", running: taskDone)
-                            Divider().padding(.leading, 62)
-                            homeRow(symbol: "terminal", title: "cmux", detail: "Idle")
-                            Divider().padding(.leading, 62)
-                            homeRow(symbol: "terminal", title: "web", detail: "Idle")
-                        }
-                        .transition(.opacity)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Home").font(theme.type.heroTitle)
+                    Spacer()
+                    Image(systemName: "person.crop.circle").font(theme.type.sheetTitle).foregroundStyle(theme.colors.label2)
                 }
-                .padding(.bottom, 170)
+                .padding(.horizontal, theme.metrics.sideMargin)
+                .padding(.top, 8)
+                .padding(.bottom, 14)
+                if !cardGone {
+                    setupCard.padding(.horizontal, 16).padding(.bottom, 8)
+                        .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))))
+                }
+                section("Macs")
+                group {
+                    homeRow(symbol: "laptopcomputer", title: macDone ? Proto.mac : "No Mac yet",
+                            detail: macDone ? "Online · 3 workspaces" : "Connect one to see its workspaces", dim: !macDone, online: macDone)
+                }
+                if macDone {
+                    section("Workspaces")
+                    group {
+                        homeRow(symbol: "terminal", title: "api-server", detail: taskDone ? "Claude Code · running" : "Idle", running: taskDone)
+                        Divider().padding(.leading, 62)
+                        homeRow(symbol: "terminal", title: "cmux", detail: "Idle")
+                        Divider().padding(.leading, 62)
+                        homeRow(symbol: "terminal", title: "web", detail: "Idle")
+                    }
+                    .transition(.opacity)
+                }
             }
-            .background(theme.colors.bgGrouped.color.ignoresSafeArea())
-            dock
+            .padding(.bottom, 16)
         }
+        .background(theme.colors.bgGrouped.color.ignoresSafeArea())
+        // A bar the list scrolls under (with the system's soft edge), not a layer drawn on top of its rows.
+        .safeAreaBar(edge: .bottom, spacing: 0) { dock }
     }
 
     private var setupCard: some View {
@@ -1213,10 +1223,8 @@ private struct ProtoHomeFirst: View {
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: composerFocused)
                 .padding(.horizontal, 12)
         }
-        .padding(.top, 14)
+        .padding(.top, 10)
         .padding(.bottom, 8)
-        .background(LinearGradient(colors: [theme.colors.bgGrouped.color.opacity(0), theme.colors.bgGrouped.color],
-                                   startPoint: .top, endPoint: .init(x: 0.5, y: 0.35)).ignoresSafeArea())
     }
 
     private func sendTask() {
@@ -1561,6 +1569,7 @@ private struct ProtoThreeScreens: View {
             .padding(.horizontal, theme.metrics.sideMargin)
             .presentationDetents([.height(360)])
             .presentationCornerRadius(38)
+            .presentationBackground(theme.colors.sheet.color)
         }
         .protoToast($toast)
     }
