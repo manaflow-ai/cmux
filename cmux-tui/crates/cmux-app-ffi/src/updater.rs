@@ -7,12 +7,16 @@
 //! - `update_flow.card` `{flow, downloadsAutomatically}` → the notice card's
 //!   kind, or null.
 //! - `update_flow.footer_pill` `{flow, silent}` → the footer pill's kind, or null.
+//! - `rollback.decide`, `rollback.previous`: which kept build going back picks,
+//!   or why it refuses (src/updater/rollback.rs).
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+/// cbindgen:ignore
+pub mod rollback;
 /// cbindgen:ignore
 pub mod update_flow;
 
@@ -84,6 +88,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             let Pill { flow, silent } = de(request)?;
             Ok(json!(flow.footer_pill(silent)))
         }
+        op if op.starts_with("rollback.") => rollback::call(op, request),
         _ => Err(OpError::Unknown),
     }
 }
