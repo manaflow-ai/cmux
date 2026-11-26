@@ -1,0 +1,171 @@
+name: cas/1 replay (RFD 0166)
+
+# RFD 0166's replay harness in CI (cmuxterm-hq docs/rfd/0166-own-cdn.md, "Scoreboard rows"): row W1,
+# the in-app web update's bytes per merge under cas/1, from the real feat-cmux-next web bundle
+# publishes. scripts/cas/web_ota_replay.py fetches the newest bundle archives
+# (cmux-next-web-bundle-publish.yml's `cmux-next-web-bundles` artifacts, kept 3 days), unpacks them and
+# runs cmux-cas's `cas-replay` over them, oldest first. The job summary shows the p50, p90 and max of
+# what a client holding the previous bundle reads by Range GET, against today's whole archive, and
+# beside it what per-file `zstd -19 --long=27 --patch-from` needs for the same merge (the RFD's
+# PATCH lever: the bundle is a few large minified files, where FastCDC chunks miss).
+#
+# It reports, it does not gate: the RFD's target (<= 10 % at p50) is not met yet. A red means the
+# crate's tests failed or the replay could not run (fewer than two publishes, a bad archive, a crash).
+# Row B1 (job b1): DerivedData seed restore bytes when the runner holds seed N-1.
+# scripts/cas/derived_data_replay.py finds main's newest seeds on the public CI cache (one key
+# prefix, read from the newest seed-derived-data.yml run's log), streams each tar.zst into a tree
+# and replays them with the same `cas-replay`. Seeds land on main, not here; each run takes
+# main's newest (a schedule fires only from main's copy of a workflow, so none here). Row U2
+# (Mac 20 behind) joins as its input gets a fetch path.
+#
+# Every web merge reruns it (the push paths include webviews/), so the row moves with each publish.
+
+on:
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "cmux-tui/crates/cmux-cas/**"
+      - "cmux-tui/crates/cmux-signed-envelope/**"
+      - "scripts/cas/**"
+      - "scripts/cmux-next/web-bundle-archive.py"
+      - "webviews/**"
+      - ".github/workflows/cas-replay.yml"
+      - "tests/test_cas_web_ota_replay.py"
+      - "tests/test_cas_derived_data_replay.py"
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-cas/**"
+      - "scripts/cas/**"
+      - ".github/workflows/cas-replay.yml"
+      - "tests/test_cas_web_ota_replay.py"
+      - "tests/test_cas_derived_data_replay.py"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "bundle publishes to replay (newest first, oldest replayed first)"
+        default: "30"
+      seeds:
+        description: "B1: consecutive DerivedData seeds to replay (each up to 12 GiB unpacked)"
+        default: "2"
+
+permissions: {}
+
+concurrency:
+  group: cas-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  w1:
+    name: cas/1 replay, row W1 (web update bytes per merge)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # About 7 s per 54 MB bundle tree to hash and compress, plus a cold build of one small crate.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The publish runs' list and their bundle artifacts.
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test the replay driver
+        run: python3 tests/test_cas_web_ota_replay.py
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: cargo test -p cmux-cas
+        working-directory: cmux-tui
+        run: cargo test -p cmux-cas --locked
+
+      - name: Build cas-replay
+        working-directory: cmux-tui
+        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+
+      - name: Replay the newest web bundle publishes (W1)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ inputs.count || '30' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cas/web_ota_replay.py --cas-replay cmux-tui/target/release/cas-replay \
+            --count "$COUNT" --work "$RUNNER_TEMP/cas-replay-w1" | tee "$RUNNER_TEMP/w1.json"
+
+      - name: Keep the rows
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cas-replay-w1
+          path: |
+            ${{ runner.temp }}/cas-replay-w1/rows.jsonl
+            ${{ runner.temp }}/w1.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  b1:
+    name: cas/1 replay, row B1 (DerivedData seed restore bytes)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Two seeds of ~9.2 GiB (1.52 GB archives): about 10 min each to stream and unpack, then
+    # about 8 min per tree to hash and compress (measured on a lane VM, 2026-11-26).
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # The newest seed-derived-data.yml run's job log names the seed key prefix.
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Test the replay driver
+        run: python3 tests/test_cas_derived_data_replay.py
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          # W1 saves the shared cache; this job only reads it.
+          save-if: false
+
+      - name: Build cas-replay
+        working-directory: cmux-tui
+        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+
+      - name: Replay main's newest DerivedData seeds (B1)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ inputs.seeds || '2' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cas/derived_data_replay.py --cas-replay cmux-tui/target/release/cas-replay \
+            --count "$COUNT" --work "$RUNNER_TEMP/cas-replay-b1" | tee "$RUNNER_TEMP/b1.json"
+
+      - name: Keep the rows
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cas-replay-b1
+          path: |
+            ${{ runner.temp }}/cas-replay-b1/rows.jsonl
+            ${{ runner.temp }}/b1.json
+          if-no-files-found: ignore
+          retention-days: 14
