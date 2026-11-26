@@ -1,4 +1,5 @@
 import { agentKey } from "../shared/agentKey";
+import { type ChatPlace, chatMachine } from "./chatMachine";
 import type { AcpmuxDirectClient } from "./direct";
 import type { AccountSignInTransport } from "../../pages/shared/signIn/useAccountSignIn";
 
@@ -21,6 +22,19 @@ export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini",
 /// `value` as a ``LoginAgent``; else undefined.
 export function loginAgent(value: string | undefined): LoginAgent | undefined {
   return LOGIN_AGENTS.find((agent) => agent === value);
+}
+
+/// Harnesses that sign in with another agent's login on a Cloud machine. Antigravity (`agy acp`)
+/// runs on Gemini's API key and Cloud's Gemini gateway (Leo 2026-11-25: "we'll want to set up
+/// antigravity/antigravity cli and opencode capable if we didn't already and stuff"), so its card
+/// saves Gemini's key; its Google sign-in (`agy acp --login`) stays the terminal's.
+const SIGNS_IN_AS: Readonly<Record<string, LoginAgent>> = { antigravity: "gemini" };
+
+/// The ``LoginAgent`` whose login a harness id's chat uses: its own, or the one it rides
+/// (``SIGNS_IN_AS``); else undefined.
+export function harnessLoginAgent(id: string | undefined): LoginAgent | undefined {
+  const key = agentKey(id);
+  return loginAgent(key) ?? (key !== undefined && Object.hasOwn(SIGNS_IN_AS, key) ? SIGNS_IN_AS[key] : undefined);
 }
 
 /// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
@@ -274,6 +288,26 @@ export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined 
   return options.machineID || options.elsewhere ? agentLogin(options) : undefined;
 }
 
+/// ``LoginOptions/supported`` for a chat: whether the machine the chat runs on (``chatMachine``)
+/// runs its agent's own login. The page's own acpmux takes every step and forwards one that names a
+/// peer's chat to that peer, so it must list `agent_login` itself (`direct`); a chat on a peer also
+/// needs that peer to list it (`peerAgentLogin`, its `agentLogin` in `_acpmux/status`), else the
+/// card's first click fails there. A chat on this Mac, or on the machine the app's wire reaches,
+/// runs on the page's own acpmux. A peer the status does not describe (an acpmux too old to report
+/// `agentLogin`) keeps the page's own answer, as before.
+export function agentLoginSupported(
+  direct: boolean,
+  summary: Parameters<typeof chatMachine>[0],
+  peerKinds: Parameters<typeof chatMachine>[2],
+  place: ChatPlace | undefined,
+  peerAgentLogin: Readonly<Record<string, boolean>> | undefined,
+): boolean {
+  if (!direct) return false;
+  const peer = summary?.peer;
+  if (chatMachine(summary, undefined, peerKinds, place).kind === "local" || !peer) return true;
+  return peerAgentLogin?.[peer] ?? true;
+}
+
 /// Use an API key for a chat on this Mac whose built-in Claude Code or Codex is not signed in (Leo
 /// 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
 /// their own api key"). acpmux saves the key where the agent's own CLI reads it (Claude's
@@ -362,7 +396,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
   const leaf = harness?.split("/").pop();
-  const agent = loginAgent(agentKey(leaf));
+  const agent = harnessLoginAgent(leaf);
   // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
   const machine = !sessionId && options.machineLogin === true;
   if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;

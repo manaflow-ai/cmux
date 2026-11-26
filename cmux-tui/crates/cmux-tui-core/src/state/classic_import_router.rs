@@ -17,7 +17,9 @@
 //!   Each tab's `scrollback` is the read-only text its new shell prints;
 //!   `outline: true` leaves every one out (null) for a caller that only
 //!   counts workspaces or lists folders.
-//! - `classic_import.record` (mutation): one ledger step. `seen` and
+//!   Without `consented: true`, the reply contains only availability, a stamp of known
+//!   file metadata, and NEXT's ledger decision. It never opens a Classic file.
+//! - `classic_import.record` (mutation): one import step. `seen` and
 //!   `baseline` are a launch's first contact (nothing made); `begin` backs up
 //!   the classic files read and marks the run in progress; `workspace` and
 //!   `group` record what was made; `finish` marks it completed. `decline`
@@ -25,7 +27,7 @@
 //!   `declined` until a run begins or finishes, which clears it.
 //!
 //! A caller names a bundle id, never a path: the daemon reads only classic's
-//! session files and writes only the migration's own folder. A newer build's
+//! inputs selected by the verified app's confirmed import. A newer build's
 //! ledger is never written over.
 
 use std::collections::BTreeSet;
@@ -52,6 +54,8 @@ const CLASSIC_DIR_ENV: &str = "CMUX_NEXT_CLASSIC_IMPORT_DIR";
 /// Advertised in identify: the daemon answers `classic_import.plan` and
 /// `classic_import.record`.
 pub const CAPABILITY: &str = "classic-import-v1";
+/// Allows the app to check for an import source without reading Classic content.
+pub const PROBE_CAPABILITY: &str = "classic-import-probe-v1";
 
 /// Why there is no plan when the ledger is a newer build's.
 pub(crate) const NEWER_LEDGER: &str = "ledger from a newer cmux";
@@ -84,6 +88,11 @@ pub(crate) struct Places {
     pub(crate) support: PathBuf,
     /// The home whose classic socket locks say classic runs: `home`, or the DEV build's own folder.
     pub(crate) probe_home: PathBuf,
+    /// Classic's config home (`XDG_CONFIG_HOME`, else `~/.config`): its
+    /// `cmux/cmux.json` may hold inline harness profiles.
+    pub(crate) config_home: PathBuf,
+    /// NEXT's settings folder, where a consented import snapshots Classic's layers.
+    pub(crate) settings_directory: PathBuf,
     pub(crate) xdg_state_home: Option<String>,
     /// Where classic's `/tmp` socket lock is (`/tmp`; a test's own folder).
     pub(crate) tmp: PathBuf,
@@ -101,27 +110,53 @@ impl Places {
     pub(crate) fn from_vars(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Self> {
         let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
         let home = PathBuf::from(var(home_var).filter(|value| !value.is_empty())?);
-        if let Some(own) = var(CLASSIC_DIR_ENV).filter(|value| !value.is_empty()).map(PathBuf::from)
-        {
-            return Some(Self {
-                home,
-                xdg_state_home: Some(own.join("state").to_string_lossy().into_owned()),
-                tmp: own.join("tmp"),
-                probe_home: own.clone(),
-                support: own,
-            });
-        }
+        let fixture = var(CLASSIC_DIR_ENV).filter(|value| !value.is_empty()).map(PathBuf::from);
+        let probe_home = fixture.clone().unwrap_or_else(|| home.clone());
+        let xdg = var("XDG_CONFIG_HOME").filter(|value| !value.is_empty()).map(PathBuf::from);
+        let config_home = match (&fixture, xdg) {
+            (None, Some(xdg)) => xdg,
+            _ => probe_home.join(".config"),
+        };
+        let settings_file = cmux_config::location::config_path_from(|name| {
+            if name == "HOME" { Some(home.clone().into_os_string()) } else { var(name) }
+        });
+        let settings_directory = settings_file.parent()?.to_owned();
+        let (support, xdg_state_home, tmp) = match fixture {
+            Some(own) => (
+                own.clone(),
+                Some(own.join("state").to_string_lossy().into_owned()),
+                own.join("tmp"),
+            ),
+            None => (
+                home.join("Library/Application Support"),
+                var("XDG_STATE_HOME").and_then(|value| value.into_string().ok()),
+                PathBuf::from("/tmp"),
+            ),
+        };
         Some(Self {
-            support: home.join("Library/Application Support"),
-            probe_home: home.clone(),
             home,
-            xdg_state_home: var("XDG_STATE_HOME").and_then(|value| value.into_string().ok()),
-            tmp: PathBuf::from("/tmp"),
+            probe_home,
+            support,
+            xdg_state_home,
+            tmp,
+            config_home,
+            settings_directory,
         })
     }
 
     fn finder(&self, bundle_id: &str) -> Finder {
         Finder::new(&self.support, Some(bundle_id))
+    }
+
+    /// Check known paths using metadata. Tagged palette plists have unknown names
+    /// and can only be discovered by the accepted import.
+    fn classic_settings_present(&self, bundle_id: &str) -> bool {
+        let prefs = self.probe_home.join("Library/Preferences");
+        self.config_home.join("cmux/cmux.json").is_file()
+            || cmux_classic_import::ghostty::source_path(&self.support, bundle_id).is_some()
+            || cmux_classic_import::source::CHANNELS
+                .iter()
+                .any(|id| prefs.join(format!("{id}.plist")).is_file())
     }
 
     fn folder(&self, bundle_id: &str) -> Result<Folder, ResourceError> {
@@ -235,6 +270,8 @@ pub(crate) enum Event {
     Decline {
         source: Option<Source>,
     },
+    /// A consented snapshot of terminal and harness settings, independent of the workspace ledger.
+    Settings,
     /// The run (or a plan with nothing to make) is done.
     Finish {
         source: Option<Source>,
@@ -248,6 +285,7 @@ pub(crate) enum Event {
 pub(crate) struct Record {
     pub(crate) bundle_id: String,
     pub(crate) event: Event,
+    observed: Option<String>,
     fingerprint: Value,
 }
 
@@ -315,6 +353,7 @@ impl Record {
                 next: required(fields, "next_group")?.to_string(),
             },
             "decline" => Event::Decline { source: source(false)? },
+            "settings" => Event::Settings,
             "finish" => Event::Finish {
                 source: source(false)?,
                 cloud_vms: texts(fields, "cloud_vm_keys")?,
@@ -323,7 +362,7 @@ impl Record {
             _ => {
                 return Err(ResourceError::validation_invalid(
                     Some("event"),
-                    "event must be seen, baseline, begin, workspace, group, decline or finish",
+                    "event must be seen, baseline, begin, workspace, group, decline, settings or finish",
                 ));
             }
         };
@@ -332,12 +371,13 @@ impl Record {
         Ok(Self {
             bundle_id: required(fields, "bundle_id")?.to_string(),
             event,
+            observed: text(fields, "observed")?.map(str::to_owned),
             fingerprint: Value::Object(fingerprint),
         })
     }
 
     /// The ledger after this step, from what the file held; none leaves it as it is.
-    fn apply(&self, load: Load, places: &Places, now: f64) -> Result<Option<Ledger>, String> {
+    fn apply(&self, load: Load, now: f64) -> Result<Option<Ledger>, String> {
         let first_contact = matches!(load, Load::None);
         let mut ledger = match load {
             Load::Newer(_) => return Err(NEWER_LEDGER.to_string()),
@@ -356,15 +396,8 @@ impl Record {
         match &self.event {
             Event::Seen if first_contact => ledger = Ledger::new(State::Completed),
             Event::Baseline if first_contact => {
-                let finder = places.finder(&self.bundle_id);
-                ledger = match read::read(&finder, None, &places.home) {
-                    Ok(Some(save)) => {
-                        let mut seen = plan::baseline(&save.snapshot, Ledger::default());
-                        seen.source = Some(save.source);
-                        seen
-                    }
-                    _ => Ledger::new(State::Completed),
-                };
+                ledger = Ledger::new(State::Completed);
+                ledger.baseline_classic_files = self.observed.clone();
             }
             Event::Seen | Event::Baseline => return Ok(None),
             Event::Begin { source, cloud_vms, app_version, .. } => {
@@ -389,7 +422,13 @@ impl Record {
                     ledger.source = source.clone();
                 }
             }
+            // Settings are copied as a separate, idempotent side effect. The
+            // following Finish event owns the durable completion marker, so an
+            // interrupted settings import can still resume its session run.
+            Event::Settings => return Ok(None),
             Event::Finish { source, cloud_vms, app_version } => {
+                ledger.observed_classic_files = self.observed.clone();
+                ledger.baseline_classic_files = None;
                 skip_cloud_vms(&mut ledger, cloud_vms);
                 ledger.state = State::Completed;
                 // Asking by hand, even with nothing left to bring, takes back a launch's No.
@@ -417,14 +456,17 @@ fn record_error(error: anyhow::Error) -> ResourceError {
 
 impl Mux {
     /// The workspaces open now, by key and public id, and the groups that exist now.
-    fn classic_live(&self) -> (BTreeSet<String>, BTreeSet<String>) {
-        let workspaces = self.with_state(|state| {
+    fn classic_live_workspaces(&self) -> BTreeSet<String> {
+        self.with_state(|state| {
             state
                 .workspaces
                 .iter()
                 .flat_map(|workspace| [workspace.key.clone(), workspace.public_id.to_string()])
                 .collect()
-        });
+        })
+    }
+
+    fn classic_live(&self) -> (BTreeSet<String>, BTreeSet<String>) {
         let groups = self
             .personal_state_read(|connection| {
                 personal_state_store::workspace_group_snapshots(connection, None)
@@ -433,10 +475,99 @@ impl Mux {
             .iter()
             .filter_map(|group| group.get("id").and_then(Value::as_str).map(str::to_string))
             .collect();
-        (workspaces, groups)
+        (self.classic_live_workspaces(), groups)
     }
 
     /// `classic_import.plan` for `bundle_id` (this app's) under `places`.
+    pub(crate) fn classic_import_probe(
+        &self,
+        places: Option<&Places>,
+        bundle_id: &str,
+        mode: Mode,
+    ) -> Result<Value, ResourceError> {
+        use plan::{Decision, SkipReason};
+        let mut reply = match json!({"available": false, "ledger": "none", "decision": null,
+            "source": null, "backups": [], "error": null, "classic_running": false, "plan": null,
+            "preview": null})
+        {
+            Value::Object(reply) => reply,
+            _ => Map::new(),
+        };
+        let Some(places) = places else { return Ok(Value::Object(reply)) };
+        let load = places.folder(bundle_id)?.load();
+        let files = places.finder(bundle_id).session_metadata();
+        let settings = places.classic_settings_present(bundle_id);
+        let available = !files.is_empty() || settings;
+        // Include only settings presence. Changing a Classic preference after a
+        // one-time settings import must not cause another launch prompt.
+        let mut stamp = Sha256::new();
+        stamp.update([u8::from(settings)]);
+        for (index, size, nanos) in files {
+            stamp.update([index as u8]);
+            stamp.update(size.to_le_bytes());
+            stamp.update(nanos.to_le_bytes());
+        }
+        let observed = format!("{:x}", stamp.finalize());
+        reply.insert("ledger".to_owned(), json!(load.name()));
+        reply.insert("available".to_owned(), json!(available));
+        reply.insert("observed".to_owned(), json!(&observed));
+        if mode == Mode::Automatic {
+            let decision = match &load {
+                Load::Newer(_) | Load::Unreadable | Load::Failed(_) => {
+                    Decision::Skip(SkipReason::LedgerNotUsable)
+                }
+                Load::Ledger(ledger) if ledger.state == State::InProgress => Decision::Resume,
+                Load::Ledger(ledger) if ledger.declined_at.is_some() => {
+                    Decision::Skip(SkipReason::Declined)
+                }
+                _ if !available => Decision::Skip(SkipReason::NoClassicSession),
+                Load::Ledger(ledger)
+                    if ledger.observed_classic_files.as_ref() == Some(&observed)
+                        || ledger.baseline_classic_files.as_ref() == Some(&observed) =>
+                {
+                    Decision::Skip(SkipReason::Unchanged)
+                }
+                Load::Ledger(_) => Decision::Merge,
+                Load::None => Decision::FirstRun,
+            };
+            if decision == Decision::Resume {
+                reply.insert("available".to_owned(), json!(true));
+            }
+            reply.insert("decision".to_owned(), json!(decision));
+        } else {
+            match &load {
+                Load::Ledger(ledger)
+                    if ledger.state == State::Completed
+                        && ledger.declined_at.is_none()
+                        && ledger.observed_classic_files.as_ref() == Some(&observed) =>
+                {
+                    // Settings can offer a closed or partially restored workspace again, using NEXT state alone.
+                    let live = self.classic_live_workspaces();
+                    reply.insert(
+                        "already_imported".to_owned(),
+                        json!(ledger.workspaces.values().all(|entry| {
+                            entry.stage == Stage::Skipped
+                                || (entry.stage == Stage::Done
+                                    && entry
+                                        .next_workspace
+                                        .as_ref()
+                                        .is_some_and(|id| live.contains(id)))
+                        })),
+                    );
+                }
+                Load::Newer(_) => {
+                    reply.insert("error".to_owned(), json!(NEWER_LEDGER));
+                }
+                Load::Failed(error) => {
+                    reply
+                        .insert("error".to_owned(), json!(format!("{UNREADABLE_LEDGER}: {error}")));
+                }
+                _ => {}
+            }
+        }
+        Ok(Value::Object(reply))
+    }
+
     pub(crate) fn classic_import_plan(
         &self,
         places: Option<&Places>,
@@ -476,6 +607,10 @@ impl Mux {
         reply.insert("decision".into(), Value::Null);
         reply.insert("source".into(), json!(save.as_ref().map(|save| &save.source)));
         reply.insert("backups".into(), json!(backups));
+        reply.insert(
+            "settings_only".into(),
+            json!(save.is_none() && error.is_none() && places.classic_settings_present(bundle_id)),
+        );
         reply.insert("error".into(), json!(error));
         let source = save.as_ref().map(|save| &save.source);
         let running = source.is_some_and(|source| places.classic_running(source));
@@ -518,6 +653,24 @@ impl Mux {
         Ok(Value::Object(reply))
     }
 
+    /// Copy Classic's terminal and harness settings only after the app has
+    /// obtained consent and requested the full import plan. Each importer is
+    /// idempotent, so a retry cannot overwrite a person's NEXT edits.
+    fn import_classic_sidecars(&self, places: &Places, bundle_id: &str) -> anyhow::Result<()> {
+        cmux_classic_import::ghostty::import(
+            &places.probe_home,
+            &places.config_home.join("cmux"),
+            &places.support,
+            bundle_id,
+            &places.settings_directory,
+        )?;
+        cmux_classic_import::harnesses::import_inline(
+            &places.config_home.join("cmux/cmux.json"),
+            &places.settings_directory,
+        )?;
+        Ok(())
+    }
+
     /// `classic_import.record`: one ledger step, committed with its
     /// idempotency key so a retried step replays its first result. The
     /// ledger file is written inside the commit; a failed write fails it.
@@ -539,6 +692,14 @@ impl Mux {
             self.state_commit_replay(mutation, RECORD_OPERATION, &record.fingerprint, None)?
         {
             return Ok(replayed);
+        }
+        if matches!(record.event, Event::Settings) {
+            // Respect the same newer/unreadable ledger rules before touching the settings snapshots.
+            record
+                .apply(folder.load(), seconds(std::time::SystemTime::now()))
+                .map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
+            self.import_classic_sidecars(places, &record.bundle_id)
+                .map_err(|error| anyhow::anyhow!("settings import failed: {error}"))?;
         }
         // Classic's files are copied before the commit, with no lock held (a
         // session can be hundreds of megabytes), into a staged folder that
@@ -576,7 +737,7 @@ impl Mux {
             |_transaction, _state| {
                 let now = seconds(std::time::SystemTime::now());
                 let changed = record
-                    .apply(folder.load(), places, now)
+                    .apply(folder.load(), now)
                     .map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
                 if let Some(staged) = &staged {
                     folder.keep(staged, &ledger::backup_stamp(now as i64, &key))?;
@@ -620,12 +781,14 @@ pub(crate) fn dispatch_in(
     match request.envelope.operation {
         ResourceOperation::ClassicImportPlan => {
             let bundle_id = required(&request.fields, "bundle_id")?;
-            mux.classic_import_plan(
-                places.as_ref(),
-                bundle_id,
-                mode(&request.fields)?,
-                outline(&request.fields)?,
-            )
+            let mode = mode(&request.fields)?;
+            let consented =
+                request.fields.get("consented").and_then(Value::as_bool).unwrap_or(false);
+            if !consented {
+                mux.classic_import_probe(places.as_ref(), bundle_id, mode)
+            } else {
+                mux.classic_import_plan(places.as_ref(), bundle_id, mode, outline(&request.fields)?)
+            }
         }
         ResourceOperation::ClassicImportRecord => {
             let record = Record::parse(&request.fields)?;
@@ -658,6 +821,8 @@ pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
         home: home.to_path_buf(),
         support: home.join("Library/Application Support"),
         probe_home: home.to_path_buf(),
+        config_home: home.join(".config"),
+        settings_directory: home.join(".config").join("cmux"),
         xdg_state_home: None,
         tmp: home.join("tmp"),
     }
