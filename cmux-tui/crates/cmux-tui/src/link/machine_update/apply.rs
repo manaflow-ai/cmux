@@ -117,6 +117,11 @@ pub(crate) enum Route {
 /// this argv, and it is always the Mac's own build, so no older apply step ever sees it.
 pub(crate) const IN_PLACE_FLAG: &str = "--in-place-if-older-refused";
 
+/// `--if-idle`, no value: the app's automatic update. A machine with an agent mid-turn, waiting on a permission or
+/// starting (acpmux's own rule, [`acpmux::cli::hosts::busy_sessions`], GUI chats included: they are acpmux sessions on
+/// the machine) answers `busy` and nothing changes; the app asks again later (cmux#57192).
+pub(crate) const IF_IDLE_FLAG: &str = "--if-idle";
+
 struct Args {
     sha256: String,
     install: PathBuf,
@@ -125,13 +130,15 @@ struct Args {
     route: Route,
     /// [`IN_PLACE_FLAG`].
     in_place: bool,
+    /// [`IF_IDLE_FLAG`].
+    if_idle: bool,
 }
 
 /// Runs the apply step; the exit code (its outcome is in `--result`).
 pub(crate) fn run(args: &[String]) -> i32 {
     let Some(args) = parse(args) else {
         eprintln!(
-            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH [--route work|store [{IN_PLACE_FLAG}]]"
+            "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH [{IF_IDLE_FLAG}] [--route work|store [{IN_PLACE_FLAG}]]"
         );
         return 64;
     };
@@ -163,12 +170,20 @@ fn parse(args: &[String]) -> Option<Args> {
     let (mut sha256, mut install, mut daemon_pid, mut result) = (None, None, None, None);
     let mut route = Route::Work;
     let mut in_place = false;
+    let mut if_idle = false;
     while let Some(flag) = rest.next() {
         if flag == IN_PLACE_FLAG {
             if in_place {
                 return None;
             }
             in_place = true;
+            continue;
+        }
+        if flag == IF_IDLE_FLAG {
+            if if_idle {
+                return None;
+            }
+            if_idle = true;
             continue;
         }
         let value = rest.next()?;
@@ -209,7 +224,7 @@ fn parse(args: &[String]) -> Option<Args> {
         && plain(&install)
         && result_ok
         && (!in_place || route == Route::Store);
-    valid.then_some(Args { sha256, install, daemon_pid, result, route, in_place })
+    valid.then_some(Args { sha256, install, daemon_pid, result, route, in_place, if_idle })
 }
 
 /// The update itself: its outcome state and a detail line.
@@ -225,6 +240,11 @@ fn apply(args: &Args) -> (&'static str, String) {
     // and so does not start it again (machine_update.rs `start`); a run it
     // starts anyway finds the outcome claimed ([`claim`]) and writes nothing.
     let _ = write_atomically(&args.result, RUNNING.as_bytes());
+    if args.if_idle
+        && let Some(why) = agents_busy()
+    {
+        return ("busy", why);
+    }
     if args.route == Route::Store {
         return apply_store(args);
     }
@@ -510,6 +530,28 @@ fn acpmux_in_place(home: &Path, install: &Path) -> Result<String, String> {
         let _ = restart_acpmux();
     }
     Err(failed)
+}
+
+/// Why the machine is busy for an `--if-idle` update ([`busy_reason`] of this user's `acpmux --json ls`); None when its
+/// agents are idle, or no acpmux daemon answers (`ls` would start one, and a daemon that is not running runs no turn).
+fn agents_busy() -> Option<String> {
+    std::os::unix::net::UnixStream::connect(acpmux::config::socket_path()).ok()?;
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let output = cmux_process::Command::new("timeout")
+        .arg("10")
+        .arg(home.join(ACPMUX_LINK))
+        .args(["--json", "ls"])
+        .stdin(cmux_process::Stdio::null())
+        .output()
+        .ok()?;
+    busy_reason(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The `busy` detail for an `acpmux --json ls` answer whose sessions are not all idle; None for idle ones or an
+/// answer that is no session list.
+pub(super) fn busy_reason(ls: &str) -> Option<String> {
+    let busy = acpmux::cli::hosts::busy_sessions(ls, None)?;
+    (!busy.is_empty()).then(|| format!("an agent works on this machine ({}); it updates once idle", busy.join(", ")))
 }
 
 /// `systemctl --user restart acpmux.service`, at most a minute. The session host passes no

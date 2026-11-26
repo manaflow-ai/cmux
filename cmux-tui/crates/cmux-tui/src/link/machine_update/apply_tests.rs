@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::{
-    AcpmuxLink, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext, acpmux_link, claim,
+    AcpmuxLink, IF_IDLE_FLAG, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext, acpmux_link, claim,
     claim_path, keep_previous, parse, relink, runs_a_store_entry, runs_this_install, status_names,
     stop, store_answer, store_next,
 };
@@ -323,4 +323,36 @@ fn a_daemon_status_names_the_binary_it_runs() {
     assert!(!status_names(r#"{"pid":7,"exe":"/opt/cmux/store/old/cmux-tui"}"#, binary));
     assert!(!status_names(r#"{"pid":7}"#, binary), "an older daemon names no executable");
     assert!(!status_names("", binary), "no daemon answered");
+}
+
+/// `--if-idle` takes no value, comes once, and goes with either route.
+#[test]
+fn the_if_idle_flag_is_parsed_on_either_route() {
+    let if_idle = |extra: &[&str]| parsed(extra).map(|args| args.if_idle);
+    assert_eq!(if_idle(&[]), Some(false));
+    assert_eq!(if_idle(&[IF_IDLE_FLAG]), Some(true));
+    assert_eq!(if_idle(&[IF_IDLE_FLAG, "--route", "store"]), Some(true));
+    assert_eq!(if_idle(&["--route", "work", IF_IDLE_FLAG]), Some(true));
+    assert_eq!(if_idle(&[IF_IDLE_FLAG, IF_IDLE_FLAG]), None);
+}
+
+/// A machine whose acpmux runs a turn, waits on a permission or starts an agent is busy for the automatic update;
+/// GUI chats are acpmux sessions there, so they count (cmux#57192). Idle sessions, a peer's, and an answer that is
+/// no session list are not.
+#[test]
+fn a_session_mid_turn_makes_the_machine_busy() {
+    use serde_json::json;
+    let ls = |sessions: serde_json::Value| json!({ "sessions": sessions }).to_string();
+    let idle = json!({"sessionId": "a", "name": "idle-chat", "status": "idle", "turn": null, "starting": false});
+    assert_eq!(super::busy_reason(&ls(json!([idle]))), None);
+    let working = json!({"sessionId": "b", "name": "cloud-chat", "status": "running", "turn": {"id": "t1"}, "starting": false});
+    let why = super::busy_reason(&ls(json!([idle, working]))).expect("a turn runs");
+    assert!(why.contains("cloud-chat"), "{why}");
+    let asks = json!({"sessionId": "c", "name": "asks", "status": "idle", "turn": null, "pendingPermissions": 1, "starting": false});
+    assert!(super::busy_reason(&ls(json!([asks]))).is_some());
+    let starting = json!({"sessionId": "d", "name": "new", "status": "idle", "turn": null, "starting": true});
+    assert!(super::busy_reason(&ls(json!([starting]))).is_some());
+    let peer = json!({"sessionId": "e", "name": "peer", "status": "running", "turn": {"id": "t"}, "peer": "mac"});
+    assert_eq!(super::busy_reason(&ls(json!([peer]))), None);
+    assert_eq!(super::busy_reason("not json"), None);
 }
