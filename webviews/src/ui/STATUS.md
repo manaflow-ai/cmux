@@ -1,8 +1,8 @@
 # Status of `ui` and `kit` exports
 
 Every export of `webviews/src/ui` and `webviews/src/kit` has one of three statuses. Each status is a
-promise to the pages, panes and customizations that import it. The scheme follows GitHub's Primer
-(experimental, ready, deprecated) and IBM's Carbon (status in the code, so a call site shows it).
+promise to the pages, panes and customizations that import it. Status lives in the code so editors
+can show it at a call site.
 
 | Status         | How it is marked                                                                 | What we promise                                                                                                                                              |
 | -------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
