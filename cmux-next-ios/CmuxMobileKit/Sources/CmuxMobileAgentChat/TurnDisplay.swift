@@ -9,7 +9,6 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
     case tool(ACPToolCall)
     case toolGroup(id: String, calls: [ACPToolCall])
     case edit(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(String)
     case subagents(id: String, ids: [String])
@@ -26,7 +25,6 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
         // row is updated in place, never crossfaded with a new row.
         case .toolGroup(let id, _): "c-\(id)"
         case .edit(let call): "e-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let id): "q-\(id)"
         }
@@ -80,9 +78,6 @@ extension AgentTurn {
             case .message(let id, let markdown):
                 flush()
                 rows.append(.message(id: id, markdown: markdown))
-            case .plan(let id, let entries):
-                flush()
-                rows.append(.plan(id: id, entries: entries))
             case .permission(let record):
                 flush()
                 rows.append(.permission(record))
@@ -264,7 +259,7 @@ extension Array where Element == TurnRow {
         case .permission(let record):
             return record.resolution != nil
         // A message just steered in: the agent is still working on it.
-        case .plan, .subagents, .steer:
+        case .subagents, .steer:
             return true
         }
     }
