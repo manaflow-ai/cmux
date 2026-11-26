@@ -118,12 +118,19 @@ def report(key, wait=8):
     return {}
 
 
+def debug_or_release(debug, release, params=None):
+    """A DEBUG build's `debug.*` method, else (a release NIGHTLY registers none) its
+    read-only release twin (BrowserPromptsControl), so a NIGHTLY is judged, not failed."""
+    reply = rpc(debug, params)
+    return rpc(release, params) if "error" in reply else reply
+
+
 def popups():
-    return (rpc("debug.popups").get("panels") or [])
+    return (debug_or_release("debug.popups", "browser.popups").get("panels") or [])
 
 
 def prompts_of_tab():
-    return (rpc("debug.browser.prompts").get("prompts") or [])
+    return (debug_or_release("debug.browser.prompts", "browser.prompts", {"tab": TAB} if TAB else None).get("prompts") or [])
 
 
 def click(selector):
@@ -135,7 +142,7 @@ def case(n):
 
 
 def close_popups():
-    rpc("debug.popups", {"action": "close"})
+    debug_or_release("debug.popups", "browser.popups", {"action": "close"})
 
 
 RP, IDP = f"http://localhost:{opts.port}", f"http://127.0.0.1:{opts.port}"
