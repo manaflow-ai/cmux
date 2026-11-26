@@ -6,7 +6,7 @@ use super::*;
 impl HubCarrier {
     /// A stream on the `lane` kept circuit to `daemon`, opening that circuit first if there is
     /// none. A circuit that fails under the open is dropped and opened again, once.
-    async fn kept_open(
+    pub(super) async fn kept_open(
         &self,
         daemon: &str,
         lane: CircuitLane,
@@ -145,7 +145,7 @@ impl HubCarrier {
     /// decides it: a stream on the kept direct circuit, or the far machine's own refusal. None
     /// (no direct address, or the path failed, which holds the machine off it a while): the
     /// relay.
-    async fn direct_open(
+    pub(super) async fn direct_open(
         &self,
         daemon: &str,
         lane: CircuitLane,
