@@ -150,6 +150,9 @@ def tooling_checkout(body: str) -> "tuple[int, int] | None":
         return None
     else:
         paths = [value]
+    # .gitmodules is listed so actions/checkout's submodule foreach never fetches it lazily
+    # (tests/test_sparse_checkout_keeps_gitmodules.py); it is one metadata file, no source.
+    paths = [path for path in paths if path not in (".gitmodules", "/.gitmodules")]
     if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
         return None
     return match.start(), match.end() + len("".join(lines[:end]))

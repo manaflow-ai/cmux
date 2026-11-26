@@ -39,12 +39,9 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The settings key that turns the bridge on.
-pub const ENABLED_KEY: &str = "agents.desktopBridge.enabled";
-/// The settings key listing the entrypoints listed as chats (default: the Claude desktop app's).
-/// Codex threads are listed by originator from the same list: `codex_desktop` (`codex_desktop.rs`)
-/// lists the Codex desktop app's.
-pub const ENTRYPOINTS_KEY: &str = "agents.desktopBridge.entrypoints";
+pub use cmux_config::schema::{
+    DESKTOP_BRIDGE_ENABLED as ENABLED_KEY, DESKTOP_BRIDGE_ENTRYPOINTS as ENTRYPOINTS_KEY,
+};
 /// The entrypoint Claude Code records for a session the Claude desktop app runs.
 pub const DESKTOP_ENTRYPOINT: &str = "claude-desktop";
 
