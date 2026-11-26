@@ -343,6 +343,8 @@ struct AgentTabCard: View {
     nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool,
                                  hasTurns: Bool = true, hasMacScreen: Bool = false) -> Face {
         if awaitingHistory, hasLastKnown { return .lastKnown }
+        // A picture of the chat beats the Mac's text of it.
+        if !hasTurns, hasLastKnown { return .lastKnown }
         if !hasTurns, hasMacScreen { return .macScreen }
         if mayShowPicture { return .picture }
         if drawable, hasLastKnown { return .lastKnown }

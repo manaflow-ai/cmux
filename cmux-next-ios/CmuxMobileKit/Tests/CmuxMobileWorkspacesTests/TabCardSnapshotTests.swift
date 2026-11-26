@@ -408,6 +408,9 @@ import UIKit
                           hasTurns: false, hasMacScreen: true) == .macScreen)
         #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: true,
                           hasTurns: false, hasMacScreen: true) == .lastKnown)
+        // A picture kept of the chat beats the Mac's text of it, loading or not.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: false, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
         #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
                           hasTurns: true, hasMacScreen: true) == .picture)
         #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
