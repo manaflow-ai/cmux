@@ -310,6 +310,7 @@ jobs:
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
       app_input_digest: ${{ steps.app-input-digest.outputs.app_input_digest }}
+      app_input_digest_sha: ${{ steps.app-input-digest.outputs.app_input_digest_sha }}
       would_reuse: ${{ steps.app-input-digest.outputs.would_reuse }}
     steps:
       - *github-token-for-git
@@ -5494,10 +5495,8 @@ jobs:
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
-          GHOSTTYKIT_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          GHOSTTYKIT_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          GHOSTTYKIT_R2_ENDPOINT: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          GHOSTTYKIT_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          # No R2 write credentials: this job enters no ci-cache-writer environment and runs on an owned session
+          # runner. A GitHub refusal still falls back to the bucket's public read; the cache-writer jobs store it.
         run: GHOSTTY_SHA="$(git rev-parse "HEAD:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Build the DEV app
@@ -6181,7 +6180,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           APP_INPUT_DIGEST: ${{ needs.decide.outputs.app_input_digest }}
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.decide.outputs.app_input_digest_sha }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           DMG: nightly-out/${{ env.CHANNEL_DMG_PREFIX }}-arm64-${{ env.NIGHTLY_BUILD }}.dmg
           RUN_ID: ${{ github.run_id }}
