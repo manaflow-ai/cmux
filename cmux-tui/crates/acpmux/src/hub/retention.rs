@@ -130,6 +130,9 @@ impl Hub {
                         {
                             tracing::warn!("cold archive pass: {e}");
                         }
+                        // Cloud history (`cloud_offload.rs`), when its setting is on: after the
+                        // cold archive, whose archives it moves.
+                        hub.history_offload_pass().await;
                     }
                 }
                 // Size pressure (`store_pressure.rs`): measured at every wake and at least every
