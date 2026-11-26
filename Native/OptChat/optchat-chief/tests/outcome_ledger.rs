@@ -189,7 +189,7 @@ fn a_report_turn_that_names_the_subagent_needs_no_retry() {
             .contains("[a1]")
             .then_some("a1 landed the sidebar fix.")
     }));
-    report_task(&mut h, "REPORT-QUESTION fix it");
+    report_and_settle(&mut h);
     assert!(h.brain.untold_outcomes().is_empty());
     h.brain.fire_outcome_checks_at(u64::MAX / 2);
     h.settle_posts();
@@ -213,6 +213,7 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
     );
     let session = sub_session(&h).expect("the subagent session");
     let before = h.brain.state().sub("a1").unwrap().1.clone();
+    let prompts_before = prompts(&h).len();
     assert!(
         before.told_ms >= before.reported_ms,
         "the setup must record a told outcome: {before:?}"
@@ -241,6 +242,14 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
         "keep its report time"
     );
     assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
+    assert_eq!(after.last_report, before.last_report);
+    assert!(after.floor > before.floor, "consume the empty turn");
+    h.brain
+        .step(Input::from(AgentEvent::Up(vec![idle(&session)])));
+    assert!(h.brain.untold_outcomes().is_empty(), "reconnect cannot redeliver it");
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    assert_eq!(prompts(&h).len(), prompts_before, "no report or untold turn");
 }
 
 #[test]
@@ -253,6 +262,7 @@ fn a_late_retry_exhaustion_notice_after_a_told_outcome_does_not_reopen_it() {
     report_and_settle(&mut h);
     let session = sub_session(&h).expect("the subagent session");
     let before = h.brain.state().sub("a1").unwrap().1.clone();
+    let prompts_before = prompts(&h).len();
     assert!(
         before.told_ms >= before.reported_ms,
         "the setup must record a told outcome"
@@ -292,6 +302,34 @@ fn a_late_retry_exhaustion_notice_after_a_told_outcome_does_not_reopen_it() {
         "keep its report time"
     );
     assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
+    h.brain
+        .step(Input::from(AgentEvent::Up(vec![idle(&session)])));
+    assert!(h.brain.untold_outcomes().is_empty(), "reconnect cannot redeliver it");
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    assert_eq!(prompts(&h).len(), prompts_before, "no report or untold turn");
+}
+
+#[test]
+fn a_new_user_task_after_a_told_outcome_still_reports_retry_exhaustion() {
+    let mut harness = Harness::new(script(|_, prompt| {
+        prompt.contains("[a1]").then_some("a1 landed the sidebar fix.")
+    }));
+    report_and_settle(&mut harness);
+    let session = sub_session(&harness).unwrap();
+    harness.brain.set_auto_resume(
+        Some(ResumePolicy { max_attempts: 0, ..ResumePolicy::default() }),
+        None,
+    );
+    harness.agents.append_events(&session, vec![
+        json!({"dir": "mux", "kind": "user_message", "msg": {"text": "Do the next task", "promptId": "person-next"}}),
+        json!({"dir": "mux", "kind": "turn_started", "msg": {"promptId": "person-next", "persons": true}}),
+        json!({"dir": "mux", "kind": "turn_error", "msg": {"error": "API Error: 500"}}),
+    ]);
+    harness.brain.step(Input::from(AgentEvent::SessionChanged(running(&session))));
+    harness.brain.step(Input::from(AgentEvent::SessionChanged(idle(&session))));
+    assert_eq!(harness.brain.untold_outcomes(), vec!["a1"]);
+    assert!(harness.brain.state().sub("a1").unwrap().1.last_report.contains("retries are exhausted"));
 }
 
 #[test]

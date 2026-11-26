@@ -181,6 +181,40 @@ fn chief_prompts(h: &Harness) -> usize {
     h.agents.inner.lock().unwrap().prompts.len()
 }
 
+#[test]
+fn an_empty_first_report_creates_no_outcome_and_a_later_result_still_reports() {
+    let mut harness = Harness::new(script(|| vec![
+        json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+        said(" \n\t"),
+        json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+    ]));
+    harness.connect();
+    let session_id = spawn(&mut harness, false);
+    let prompts_before = chief_prompts(&harness);
+    changed(&mut harness, &session_id, "idle");
+    assert!(harness.brain.untold_outcomes().is_empty());
+    assert!(reports(&harness).is_empty());
+    assert_eq!(chief_prompts(&harness), prompts_before);
+    let subagent = harness.brain.state().sub("a1").unwrap().1;
+    assert_eq!(subagent.reported_ms, 0);
+    assert!(subagent.last_report.is_empty());
+    assert!(subagent.floor > 0);
+    harness.brain.step(Input::from(AgentEvent::Up(vec![session(&session_id, "idle")])));
+    assert!(harness.brain.untold_outcomes().is_empty());
+
+    harness.agents.append_events(&session_id, vec![
+        json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+        said("Done: the command printed slept."),
+        json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+    ]);
+    changed(&mut harness, &session_id, "running");
+    changed(&mut harness, &session_id, "idle");
+    let delivered = reports(&harness);
+    assert_eq!(delivered.len(), 1);
+    assert!(delivered[0].contains("printed slept"));
+    assert_eq!(harness.brain.untold_outcomes(), vec!["a1"]);
+}
+
 /// (3) Under its goal a subagent stops only when its task is done, so a turn that only an acpmux
 /// notice started after its report adds nothing to wake the Chief for: it goes in quietly.
 #[test]
