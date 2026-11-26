@@ -483,7 +483,7 @@
         {
           "key": "customize.doctorNotice",
           "name": "customizeDoctorNotice",
-          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off (the default since Leo 2026-11-25: \"did we remove these by default yet\", \"make it stop showing the customization not applied/reviewd and shit popup tosts\"): no toast; Settings' doctor card shows the findings inline and the CLI still lists them. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
           "title": {
             "key": "settings.customize.doctorNotice",
             "text": "Customization notices"
@@ -497,7 +497,7 @@
             "type": "CmuxConfigSnapshot",
             "prefixed": true
           },
-          "default": true,
+          "default": false,
           "keywords": [
             "customize",
             "customization",
@@ -2763,6 +2763,65 @@
             "module": "CmuxNextDesign"
           },
           "swift_owner": "TabShapeSetting"
+        },
+        {
+          "key": "appearance.gooeyTabs",
+          "note": "How gooey the tab strip is (GooeyTabs, CmuxNextDesign; plans/cmux-next/gooey-tabs.md). off (the default) changes nothing: appearance.cornerFlush and appearance.titleAreaTone apply as set. subtle and full draw the selected tab as flush-goo (CornerFlush.current, unless compact density keeps the pill) over Subtle Tone (DesignSettings.effectiveTitleAreaTone), as effective values that never write those two settings, and run the goo springs (GooTunables). Leo 2026-11-23: \"presumably a less intense version should have a better case to be the default. so you guys need to try that. like. subtle goo.\"",
+          "title": {
+            "key": "settings.appearance.gooeyTabs",
+            "text": "Gooey Tabs"
+          },
+          "help": {
+            "key": "settings.appearance.gooeyTabs.help",
+            "text": "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more."
+          },
+          "summary": {
+            "key": "settings.appearance.gooeyTabs.summary",
+            "text": "Off, subtle or full goo for the tab strip"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.gooeyTabs.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.gooeyTabs.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.gooeyTabs.full",
+                "text": "Full"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "goo",
+            "gooey",
+            "liquid",
+            "spring",
+            "springy",
+            "wobble",
+            "stretch",
+            "tab animation",
+            "selected tab",
+            "tab shape"
+          ],
+          "swift_enum": {
+            "name": "GooeyTabs",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "GooeyTabsSetting"
         }
       ]
     },
