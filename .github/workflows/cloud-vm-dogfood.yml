@@ -92,7 +92,7 @@ jobs:
   installer:
     needs: public-installer-smoke
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       attestations: read
       contents: read
@@ -114,6 +114,32 @@ jobs:
           fetch-depth: 1
           sparse-checkout: scripts/ci
           persist-credentials: false
+
+      # github.token is one actor for every workflow in the repo, and its "API rate limit exceeded for
+      # installation" 403 failed this step twice on 2026-11-26 (runs 45789408337, 45791953357), skipping the
+      # journey. The release App is its own actor (scripts/ci/gh_app_token.sh, as nightly.yml does), with
+      # github.token as the fallback and a bounded back-off. The attestation gh goes on PATH first, so the
+      # wrapper wraps it rather than the pool VM's apt gh 2.45.
+      - name: Put a gh with the attestation command on PATH
+        run: source scripts/ci/ensure-gh-attestation.sh
+
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
 
       - name: Verify the public-installed cmux-tui binary
         env:
