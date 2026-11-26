@@ -20,5 +20,8 @@ public enum VisibleRowsBaseline {
             + "reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
         "page menu": Known("rows are windowed and kept by index, but the page sends every item each time, so the diff "
             + "reads every item (macOS WebPopupRows.update; fix: item deltas on the popup wire)", only: "items walked"),
+        "sidebar priority": Known("draws only the rows in view, but each change hands the whole ranked list, which the panel "
+            + "compares and reindexes (two cheap passes over every chat; macOS SidebarPriorityPanelView.show; fix: a row patch "
+            + "from SidebarPriorityFeed, visible-only-macos-lists)", only: "items walked"),
     ]
 }
