@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -178,6 +179,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -475,6 +477,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true
