@@ -7,7 +7,7 @@ public import CmuxNextDesign
 public nonisolated enum MacScreenViewerLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The pane before the redesign: a top toolbar bar, a black backdrop, a square picture, a popup card.
     case current
-    /// The default: quiet glass, picture first (``MacScreenViewerStyle/lookA``).
+    /// The default: quiet glass, picture first (``MacScreenLookA``).
     case a
     case b
     case c
@@ -21,15 +21,15 @@ public nonisolated enum MacScreenViewerLook: String, Sendable, CaseIterable, Has
         }
     }
 
-    @MainActor private static var rdStyles: [MacScreenViewerLook: [String: Any]] = [:]
+    /// A look's fields never change while the app runs: Rust is asked once per look, not on every layout.
+    @MainActor private static let rdStyles: [MacScreenViewerLook: [String: Any]] = Dictionary(
+        uniqueKeysWithValues: allCases.map { ($0, RdUI.call("viewerLook.style", ["look": $0.rawValue]) as? [String: Any] ?? [:]) }
+    )
 
     /// What this look decides. A look is one value: the pane, toolbar and card read it, nothing else branches on the case.
     /// Rust's `viewerLook.style` decides the fields; Swift adds the look's materials, which are views.
     @MainActor var style: MacScreenViewerStyle {
-        // A look's fields never change while the app runs: Rust is asked once per look, not on every layout.
-        let rd = Self.rdStyles[self] ?? RdUI.call("viewerLook.style", ["look": rawValue]) as? [String: Any] ?? [:]
-        Self.rdStyles[self] = rd
-        var style = MacScreenViewerStyle(rd: rd)
+        var style = MacScreenViewerStyle(rd: Self.rdStyles[self] ?? [:])
         switch self {
         case .a: style.toolbarSurface = { MacScreenLookA.glass(cornerRadius: $0) }
         case .c: style.makeToolbarSurface = { MacScreenViewerLookC.pillSurface() }
