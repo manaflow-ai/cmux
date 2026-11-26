@@ -62,6 +62,48 @@ default_owner() {
   fi
   echo "$who/$name-$token"
 }
+# Linux phones (IOS_LIVE_LINUX=HOST, or `local` for this machine): the phone is an agent-sim iPhone on a Linux host,
+# driven by linux.sh beside this file. `lease take` holds a booted phone there; `swap` installs and relaunches the build
+# IOS_LIVE_APP names (a simulator .app, or the ios-sim-build tarball) and waits for its first frame; shot, tree,
+# tap, type, relaunch, status and `lease release` work as on a Mac slot. The build itself still happens on a Mac.
+if [[ -n "${IOS_LIVE_LINUX:-}" ]]; then
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  lhost="$IOS_LIVE_LINUX"
+  linux_sh() {  # linux_sh ARGS...: linux.sh on the Linux host (stdin passes through)
+    if [[ "$lhost" == local ]]; then bash "$here/linux.sh" "$@"; return; fi
+    local b64; b64="$(gzip -c "$here/linux.sh" | base64 | tr -d '\n')"
+    REACH_AUTO_LEASE=0 reach "$lhost" "mkdir -p ~/ios-live-linux/bin && printf %s $b64 | base64 -d | gunzip >~/ios-live-linux/bin/linux.sh && bash ~/ios-live-linux/bin/linux.sh $(printf '%q ' "$@")"
+  }
+  lcmd="${1:-status}"; shift || true
+  case "$lcmd" in
+    lease)
+      case "${1:-show}" in
+        take) linux_sh take ;;
+        release) linux_sh release ;;
+        *) linux_sh status ;;
+      esac ;;
+    swap)
+      app="${1:-${IOS_LIVE_APP:-}}"
+      [[ -n "$app" && -e "$app" ]] || { echo "ios-live: swap on a Linux phone takes the build: IOS_LIVE_APP=PATH (.app or ios-sim-build tarball)" >&2; exit 1; }
+      t0="$(perl -MTime::HiRes=time -e 'printf "%.3f", time')"
+      if [[ "$lhost" == local ]]; then
+        linux_sh swap "$app"
+      else
+        if [[ -d "$app" ]]; then tar -C "$(dirname "$app")" -czf - "$(basename "$app")"; else cat "$app"; fi \
+          | REACH_AUTO_LEASE=0 reach "$lhost" 'mkdir -p ~/ios-live-linux/incoming && cat >~/ios-live-linux/incoming/app.tgz'
+        linux_sh swap '~/ios-live-linux/incoming/app.tgz'
+      fi
+      echo "ios-live: swap on $lhost end to end (send, install, relaunch, first frame): $(perl -MTime::HiRes=time -e 'printf "%.2f", time - $ARGV[0]' "$t0") s" ;;
+    shot)
+      out="${1:-ios-live.png}"
+      if [[ "$lhost" == local ]]; then linux_sh shot "$(realpath -m "$out")" >/dev/null
+      else linux_sh shot '~/ios-live-linux/shot.png' >/dev/null && REACH_AUTO_LEASE=0 reach "$lhost" 'cat ~/ios-live-linux/shot.png' >"$out"; fi
+      echo "$out" ;;
+    status|relaunch|tree|tap|type) linux_sh "$lcmd" "$@" ;;
+    *) echo "ios-live: $lcmd is not on Linux phones yet (lease, swap, relaunch, shot, tree, tap, type, status)" >&2; exit 1 ;;
+  esac
+  exit
+fi
 if [[ "${1:-}" == --person ]]; then IOS_LIVE_PERSON="${2:?--person NAME}"; shift 2; fi
 person="${IOS_LIVE_PERSON:-}"
 owner="${IOS_LIVE_OWNER:-$(default_owner)}"
