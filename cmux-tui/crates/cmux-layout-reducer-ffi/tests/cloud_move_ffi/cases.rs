@@ -695,3 +695,84 @@ fn a_peer_identity_and_chat_move_answer() {
     );
     assert_eq!(ok(c"cloud_move_transfer_missing_method", json!({"code": "x"}))["missing"], false);
 }
+
+#[test]
+fn an_ask_card_answers_in_rust() {
+    assert_eq!(
+        ok(c"cloud_move_ask_open", json!({"scoped": true})),
+        json!({"do": "show", "card": {"state": "ask", "text": "ask", "answers": ["move", "notNow", "always"]}})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_open", json!({"granted": true})),
+        json!({"do": "start", "always": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_started", json!({"always": true})),
+        json!({"state": "working", "text": "movingAlways", "answers": ["askFirst"]})
+    );
+    assert_eq!(ok(c"cloud_move_ask_ended", json!({"failed": false})), json!({"card": null}));
+    assert_eq!(
+        ok(c"cloud_move_ask_ended", json!({"failed": true, "retry": true}))["card"]["answers"],
+        json!(["retry", "dismiss"])
+    );
+    assert_eq!(ok(c"cloud_move_ask_unfinished", json!({"show": true}))["text"], "unfinishedShow");
+    assert_eq!(
+        ok(
+            c"cloud_move_ask_answer",
+            json!({"answer": "always", "scoped": true, "sameScope": true})
+        ),
+        json!({"do": "start", "grant": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_answer", json!({"answer": "move", "scoped": true}))["card"]["text"],
+        "noMove"
+    );
+    assert_eq!(
+        ok(c"cloud_move_ask_answer", json!({"answer": "dismiss", "offered": true})),
+        json!({"do": "close", "remember": true})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_ask_own_target",
+            json!({"kind": "tab", "id": "r", "tab": "t", "resource": "r"})
+        ),
+        json!({"own": true})
+    );
+    assert_eq!(call(c"cloud_move_ask_answer", &json!({"answer": "jump"})).0, ERR_INVALID);
+}
+
+#[test]
+fn transfer_and_hand_off_rules_answer_in_rust() {
+    assert_eq!(
+        ok(c"cloud_move_transfer_hidden", json!({"host": "registry:m", "session": "s"})),
+        json!({"hidden": false})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_transfer_hidden",
+            json!({"host": "registry:m", "session": "s", "moved": true})
+        ),
+        json!({"hidden": true})
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_folder", json!({"path": "~/x", "home": "/h"})),
+        json!({"kind": "at", "path": "/h/x"})
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_folder", json!({"path": "x", "home": "/h"})),
+        json!({"kind": "relative", "path": "x"})
+    );
+    assert_eq!(ok(c"cloud_move_transfer_folder", json!({"home": "/h"})), json!({"kind": "new"}));
+    assert_eq!(
+        ok(c"cloud_move_handoff_owns", json!({"recorded": "s", "asked": "s"})),
+        json!({"owns": true})
+    );
+    assert_eq!(
+        ok(
+            c"cloud_move_handoff_refusal",
+            json!({"cloudAllowed": true, "signedIn": false, "loadedCurrent": true, "code": "rate_limited"})
+        ),
+        json!({"refusal": "not_signed_in", "storeCode": "rate_limited"})
+    );
+    assert_eq!(call(c"cloud_move_transfer_folder", &json!({"path": "x"})).0, ERR_INVALID);
+}

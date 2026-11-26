@@ -3,8 +3,8 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, machine_update, pin, place, priority, progress, seed,
-    session_transfer, settle, targets, wait,
+    asks, autosize, cli, folder, handoff, ledger, machine_update, pin, place, priority, progress,
+    seed, session_transfer, settle, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -228,6 +228,93 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "missing": session_transfer::is_missing_transfer_method(&request.code) })
+        }
+        // Move to Cloud's ask card (CloudMoveAsks): a new ask, a started, ended or unfinished
+        // move, an answer and whether an agent's target is its own chat.
+        b"cloud_move_ask_open" => to_value(asks::open(read(request)?))?,
+        b"cloud_move_ask_started" => {
+            #[derive(Deserialize)]
+            struct Request {
+                always: bool,
+            }
+            let request: Request = read(request)?;
+            to_value(asks::started(request.always))?
+        }
+        b"cloud_move_ask_ended" => {
+            #[derive(Deserialize)]
+            struct Request {
+                failed: bool,
+                #[serde(default)]
+                retry: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "card": asks::ended(request.failed, request.retry) })
+        }
+        b"cloud_move_ask_unfinished" => {
+            #[derive(Deserialize)]
+            struct Request {
+                show: bool,
+            }
+            let request: Request = read(request)?;
+            to_value(asks::unfinished(request.show))?
+        }
+        b"cloud_move_ask_answer" => to_value(asks::answer(read(request)?))?,
+        b"cloud_move_ask_own_target" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                kind: Option<String>,
+                id: Option<String>,
+                tab: String,
+                resource: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "own": asks::own_target(request.kind.as_deref(), request.id.as_deref(), &request.tab, request.resource.as_deref()) })
+        }
+        // Transfer to This Mac's menu row and `path`, and a hand-off turn's pane and refusal codes.
+        b"cloud_move_transfer_hidden" => {
+            #[derive(Deserialize)]
+            struct Request {
+                host: Option<String>,
+                session: Option<String>,
+                #[serde(default)]
+                moved: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "hidden": handoff::transfer_hidden(request.host.as_deref(), request.session.as_deref(), request.moved) })
+        }
+        b"cloud_move_transfer_folder" => {
+            #[derive(Deserialize)]
+            struct Request {
+                path: Option<String>,
+                home: String,
+            }
+            let request: Request = read(request)?;
+            to_value(handoff::transfer_folder(request.path.as_deref(), &request.home))?
+        }
+        b"cloud_move_handoff_owns" => {
+            #[derive(Deserialize)]
+            struct Request {
+                recorded: Option<String>,
+                asked: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "owns": handoff::owns_session(request.recorded.as_deref(), &request.asked) })
+        }
+        b"cloud_move_handoff_refusal" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                cloud_allowed: bool,
+                signed_in: bool,
+                loaded_current: bool,
+                code: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({
+                "refusal": handoff::refusal(request.cloud_allowed, request.signed_in, request.loaded_current),
+                "storeCode": handoff::store_code(request.code.as_deref()),
+            })
         }
         // The legacy update's pin: the bundled manifest's for `build`, else the CLI's answer.
         b"cloud_move_pin" => {

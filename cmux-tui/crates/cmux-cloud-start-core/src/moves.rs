@@ -4,9 +4,11 @@
 //! disk and the defaults, and asks here what the output means and what to do next. Served over
 //! the app FFI's JSON channel as ops `cloud_move_*` (`cmux-layout-reducer-ffi/src/cloud_move.rs`).
 
+pub mod asks;
 pub mod autosize;
 pub mod cli;
 pub mod folder;
+pub mod handoff;
 pub mod ledger;
 pub mod login;
 pub mod machine_update;
