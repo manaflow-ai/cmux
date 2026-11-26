@@ -120,7 +120,7 @@ pub struct FitPolicy {
     /// The person unfitted the current foreground: typing does not fit it again.
     declined: bool,
     page_present: bool,
-    /// In an escape sequence of typed bytes (`ESC`, CSI, SS3, OSC).
+    /// In an escape sequence of typed bytes (`ESC`, CSI, SS3, OSC), across sends.
     escape: Escape,
     claims: bool,
 }
@@ -229,8 +229,9 @@ impl FitPolicy {
             // A shell's title or cursor changed: a forced fit of the shell stays.
             return self.decision(false);
         }
-        // A TUI started or ended: a new run, unfitted unless remembered.
+        // A TUI started or ended: a new run, unfitted unless remembered, outside any sequence.
         self.typed = 0;
+        self.escape = Escape::None;
         self.declined = false;
         self.fitted = None;
         if self.fits_on_entry(&self.foreground) {
@@ -310,7 +311,10 @@ impl FitPolicy {
 
     fn count_printable(&mut self, bytes: &[u8]) -> u32 {
         let mut count = 0u32;
+        // The last byte followed an Esc: it was an introducer or an Alt chord's key.
+        let mut after_esc = false;
         for &byte in bytes {
+            after_esc = self.escape == Escape::Esc;
             self.escape = match (self.escape, byte) {
                 (Escape::None, 0x1b) => Escape::Esc,
                 (Escape::None, b) => {
@@ -334,6 +338,14 @@ impl FitPolicy {
                 (Escape::StringEsc, b'\\') => Escape::None,
                 (Escape::StringEsc, _) => Escape::String,
             };
+        }
+        // Each send is whole key events or a paste. One that ends on its Esc, or right after
+        // the byte that follows it, is the Escape key or an Alt chord (Alt-x is `ESC x`; emacs's
+        // M-} is `ESC ]`), never a CSI, SS3 or string the next send finishes: vim's Esc then `P`
+        // is two keys, not a string swallowing what is typed after it. A sequence with more of
+        // it in this send (CSI parameters, an OSC body) still carries across sends.
+        if self.escape == Escape::Esc || after_esc {
+            self.escape = Escape::None;
         }
         count
     }
@@ -427,6 +439,65 @@ mod tests {
         // More typing: still one claim.
         let more = policy.typed(b"llo world");
         assert!(more.claims && !more.changed && !more.remembered_changed);
+    }
+
+    #[test]
+    fn a_lone_escape_key_does_not_eat_the_keys_after_it() {
+        // vim: Esc (one key event) leaves insert mode, then `O` opens a line and the person types.
+        // Each key event is whole: an Esc on its own is the Escape key, not the start of a
+        // sequence the next event finishes.
+        let mut policy = FitPolicy::new([]);
+        policy.observe(alt("vim notes.md"));
+        assert!(!policy.typed(b"\x1b").claims);
+        assert!(!policy.typed(b"O").claims);
+        assert!(!policy.typed(b"a").claims);
+        let fit = policy.typed(b"b");
+        assert!(fit.claims && fit.changed, "O, a and b are three typed characters");
+    }
+
+    #[test]
+    fn a_lone_escape_key_then_any_key_is_typed_text() {
+        // vim's Esc then `P` (paste), `[` / `]` (motions), `_` or `^` (line start): each is a key,
+        // never a CSI or string introducer that swallows the keys after it.
+        for key in [b'P', b'[', b']', b'_', b'^', b'O'] {
+            let mut policy = FitPolicy::new([]);
+            policy.observe(alt("vim notes.md"));
+            assert!(!policy.typed(b"\x1b").claims);
+            assert!(!policy.typed(&[key]).claims, "{}", key as char);
+            assert!(!policy.typed(b"a").claims, "{}", key as char);
+            let fit = policy.typed(b"b");
+            assert!(
+                fit.claims && fit.changed,
+                "Esc, {}, a, b: three typed characters",
+                key as char
+            );
+        }
+    }
+
+    #[test]
+    fn an_alt_chord_is_one_key_and_the_typing_after_it_counts() {
+        // A hardware keyboard sends Alt-x as `ESC x` in one send (emacs's M-} is `ESC ]`): a
+        // command, never a CSI, SS3 or string left open to swallow the keys after it.
+        for chord in [&b"\x1b]"[..], b"\x1bP", b"\x1b_", b"\x1b^", b"\x1b[", b"\x1bO", b"\x1bx"] {
+            let mut policy = FitPolicy::new([]);
+            policy.observe(alt("emacs notes.org"));
+            assert!(!policy.typed(chord).claims, "{chord:?}");
+            assert!(!policy.typed(b"a").claims, "{chord:?}");
+            assert!(!policy.typed(b"b").claims, "{chord:?}");
+            let fit = policy.typed(b"c");
+            assert!(fit.claims && fit.changed, "{chord:?} then a, b, c: three typed characters");
+        }
+    }
+
+    #[test]
+    fn a_new_tui_run_starts_outside_an_escape_sequence() {
+        let mut policy = FitPolicy::new([]);
+        policy.observe(alt("vim notes.md"));
+        // An unterminated string sequence (DCS) typed into vim, then vim quits.
+        policy.typed(b"\x1bP");
+        policy.observe(Foreground::default());
+        policy.observe(alt("htop"));
+        assert!(policy.typed(b"abc").claims, "htop's typing is not inside vim's sequence");
     }
 
     #[test]
@@ -574,7 +645,8 @@ mod tests {
     fn an_escape_sequence_split_across_sends_is_still_not_text() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("htop"));
-        for part in [&b"\x1b"[..], b"[", b"1;5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
+        // A sequence begun in one send (Esc, introducer and more) may end in later sends.
+        for part in [&b"\x1b[1"[..], b";5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
             assert!(!policy.typed(part).claims, "{part:?}");
         }
         assert!(!policy.typed(b"q").claims);
