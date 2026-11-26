@@ -81,6 +81,7 @@ pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -306,6 +307,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod rediscover;
@@ -2618,6 +2620,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
