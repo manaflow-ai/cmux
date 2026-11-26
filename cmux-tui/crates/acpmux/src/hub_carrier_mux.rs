@@ -832,6 +832,20 @@ impl KeptCircuits {
         slot.try_lock().ok()?.live.clone().filter(|mux| !mux.is_closed())
     }
 
+    /// Every live kept circuit with the path it runs on and how long it has carried no stream:
+    /// what [`super::saved`] writes down so a restart of this daemon opens them again.
+    pub(crate) fn kept_now(&self) -> Vec<(String, Lane, super::Path, Duration)> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        by_machine
+            .iter()
+            .filter_map(|((daemon, lane), slot)| {
+                let kept = slot.try_lock().ok()?;
+                let mux = kept.live.as_ref().filter(|mux| !mux.is_closed())?;
+                Some((daemon.clone(), *lane, kept.path?, mux.quiet_for()))
+            })
+            .collect()
+    }
+
     /// The live kept circuits to `daemon` open now, cheap first.
     pub(crate) fn live(&self, daemon: &str) -> Vec<Arc<Mux>> {
         let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());

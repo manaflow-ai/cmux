@@ -47,7 +47,9 @@ cleanup() {
   chmod -R u+w "$root" 2>/dev/null
   rm -rf "$root"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 start_spin() {
   local i
