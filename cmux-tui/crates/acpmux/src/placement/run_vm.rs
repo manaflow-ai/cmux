@@ -437,10 +437,10 @@ fn write_row(row: &Row) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
     bound_rows(&path, ROWS_MAX_BYTES);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }
@@ -456,10 +456,8 @@ pub fn bound_rows(path: &Path, max: u64) {
     let Ok(text) = std::fs::read_to_string(path) else { return };
     let cut = text.len() / 2;
     let start = text[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(text.len());
-    let tmp = path.with_extension(format!("jsonl.{}", std::process::id()));
-    if std::fs::write(&tmp, &text[start..]).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
-    }
+    // Made whole: a copy beside it, renamed over it.
+    let _ = crate::home_fs::write(path, &text[start..]);
 }
 
 /// The program `command` runs, file name only, never a `VAR=value` or an argument: the first
@@ -522,6 +520,22 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
 
 /// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
 /// it ran there, None when it must run here (the row says why). `via` names what sent it.
+/// The fork backend (cmux-cloud-api) is unix-only: elsewhere every command runs here.
+#[cfg(not(unix))]
+pub async fn fork_or_here(
+    machine: &str,
+    class: &'static str,
+    command: &str,
+    via: &'static str,
+) -> anyhow::Result<Option<i32>> {
+    let _ = (machine, class, command, via);
+    eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+    Ok(None)
+}
+
+/// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
+/// it ran there, None when it must run here (the row says why). `via` names what sent it.
+#[cfg(unix)]
 pub async fn fork_or_here(
     machine: &str,
     class: &'static str,
@@ -604,6 +618,7 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     Ok(exit_code(status))
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

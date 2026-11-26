@@ -131,6 +131,25 @@ struct BrowserExternalAppConsentTests {
         #expect(routed == 0)
     }
 
+    /// GitHub's return to the console in a normal tab goes straight to the app's own route: no console page, no prompt.
+    @Test func setupReturnGoesToTheAppInsteadOfLoading() throws {
+        let (apps, cleanup) = try Self.apps()
+        defer { cleanup() }
+        var routed: [URL] = [], closed = 0
+        let back = try #require(URL(string: "https://console.cmux.dev/integrations/callback?state=a.b.c&code=1"))
+        let own = try #require(URL(string: "cmux-nightly://integration/complete?state=a.b.c&code=1"))
+        let install = URL(string: "https://github.com/apps/cmux/installations/new")
+        #expect(!apps.handOffReturn(back, firstPage: install) { closed += 1 }, "no route installed: it loads")
+        apps.openOwnURL = { routed.append($0) }
+        apps.ownReturn = { $0 == back ? own : nil }
+        apps.closesHandoffTab = { $0?.host == "github.com" }
+        #expect(!apps.handOffReturn(URL(string: "https://console.cmux.dev/")!, firstPage: install) { closed += 1 })
+        #expect(apps.handOffReturn(back, firstPage: install) { closed += 1 })
+        #expect(routed == [own] && closed == 1)
+        #expect(apps.handOffReturn(back, firstPage: URL(string: "https://news.example")) { closed += 1 })
+        #expect(routed == [own, own] && closed == 1, "a tab the person was using stays open")
+    }
+
     private static func apps() throws -> (BrowserExternalApps, () -> Void) {
         let suite = "BrowserExternalAppConsentTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

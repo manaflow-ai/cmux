@@ -144,7 +144,7 @@ pub fn shim_script(bin: &Path, dir: &Path, program: &str) -> String {
 
 /// Write every shim into `dir` for `bin`, leaving one that already reads the same alone.
 pub fn install(dir: &Path, bin: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
+    crate::home_fs::create_dirs(dir)?;
     for program in SHIMMED {
         let path = dir.join(program);
         let want = shim_script(bin, dir, program);
@@ -152,13 +152,10 @@ pub fn install(dir: &Path, bin: &Path) -> std::io::Result<()> {
             continue;
         }
         let tmp = dir.join(format!(".{program}.{}", std::process::id()));
-        std::fs::write(&tmp, &want)?;
+        crate::home_fs::write(&tmp, &want)?;
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-        }
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::set_mode(&tmp, 0o755)?;
+        crate::home_fs::rename(&tmp, &path)?;
     }
     Ok(())
 }
