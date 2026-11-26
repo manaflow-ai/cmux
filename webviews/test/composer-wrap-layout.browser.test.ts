@@ -8,6 +8,7 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { installPaintedFrames } from "./support/paintedFrames";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { UI_ANCHOR_GAP } from "../src/ui/anchor";
+import { SUGGESTIONS_GAP } from "../src/agent-session/acpmux/newtab/suggestionsAnchor";
 
 await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   type ComposerPaint = {
@@ -69,7 +70,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
 
   const measure = (page: Page, newTab: boolean) =>
     page.evaluate(
-      ({ newTab, gap }) => {
+      ({ newTab, gap, cardGap }) => {
         const read = () => {
           const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
           const bounds = box.getBoundingClientRect();
@@ -87,15 +88,9 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
           const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
           let anchorBottom = anchor.getBoundingClientRect().bottom;
           if (anchor !== box) {
-            const labels = anchor.querySelectorAll(
-              ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
-            );
-            for (const label of labels) {
-              const rect = label.getBoundingClientRect();
-              if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
-              anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
-              break;
-            }
+            // New Tab's card: the suggestions open SUGGESTIONS_GAP under it at the composer's zoom (suggestionsAnchor.ts).
+            const zoom = Number.parseFloat(getComputedStyle(anchor).getPropertyValue("--cmux-composer-zoom")) || 1;
+            anchorBottom = bounds.bottom + cardGap * zoom - gap;
           }
           return {
             width: text.width,
@@ -137,7 +132,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
           });
         });
       },
-      { newTab, gap: UI_ANCHOR_GAP },
+      { newTab, gap: UI_ANCHOR_GAP, cardGap: SUGGESTIONS_GAP },
     );
 
   const frame = (page: Page) => page.evaluate(() => window.cmuxPaintFrame());
