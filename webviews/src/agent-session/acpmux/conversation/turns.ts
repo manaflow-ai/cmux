@@ -1493,7 +1493,11 @@ function shapedTurn(
     // What was still going when the person sent into the running turn draws after the prompt.
     // A run that keeps many cards in sight (a coordinator's Agent calls) draws as rows of a few
     // each, so the transcript mounts only those near the window (runParts.ts).
-    if (live) shaped = cutLongRuns(afterSends(shaped, clockOffset));
+    // Both sides cut, so a run's rows carry the same ids into the end: `captureTurnEnd`'s `kept` set
+    // matches by id, and a row that was only re-grouped no longer reads as one that went and one
+    // that arrived. The cut is laid out to move nothing (runParts.ts), and it windows an ended long
+    // run as it already windowed a live one.
+    shaped = cutLongRuns(live ? afterSends(shaped, clockOffset) : shaped);
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -2163,6 +2167,11 @@ function shapeTurn(
   trayAgents = 0,
   endedBackground: ReadonlySet<string> = new Set(),
   turnStartedAtMs?: number,
+  // The turn's conclusion is knowable before `turn_result`: its final answer is marked and the
+  // summary is the provisional one below. The rows that only an ended turn draws are drawn now, in
+  // their places, so the end swaps nothing in under the reader (Leo, 2026-11-22: "STOP ADDING
+  // FUCKING DINGLEBERRIES OF TOOL CALLS AND BULLSHIT THAT SHIFTS POORLY").
+  concluding = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   if (end < 0) {
@@ -2194,6 +2203,7 @@ function shapeTurn(
         trayAgents,
         endedBackground,
         turnStartedAtMs,
+        true,
       ).filter((row) => row.id !== provisional.id);
       if (!live) return body;
       const line = liveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs).at(-1);
@@ -2267,16 +2277,31 @@ function shapeTurn(
   // Another agent's message that opens the next turn answers nothing: the question was the person's
   // to answer, and it stays theirs (Leo, 2026-11-06, on a question the next agent's message took
   // back: "we want to keep these things rendered, and perhaps persistent at the bottom").
-  const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
+  // The concluding projection runs while the answer's text is still arriving, and a half-written ask
+  // parses differently with every delta: for a "Should ...?" ask the question alone reads as
+  // yes-or-no (Yes / Not now), its first listed answer as no answer list at all, the second as the
+  // list. Drawing each reading in turn would put the card on screen, take it away and bring it back
+  // under a reader whose bottom is pinned -- the shift Leo named (ask-2447b44f40) -- and would offer
+  // answers the agent never wrote. So the ask is read only once the answer's own completion signal
+  // says its text is whole: `textComplete` (direct.ts, Codex's `item/completed`), or a row that is no
+  // longer streaming. An ended turn (`!live`) reads it as before.
+  const answerComplete = answer === undefined || answer.textComplete === true || answer.streaming !== true;
+  const tagged =
+    (!live || concluding) && answerComplete && !wrapUp && summary.status === "completed"
+      ? nextStepAsk(answer?.text)
+      : undefined;
   // A tagged ask another message cut off: the agent asked, another agent's message steered into the
   // turn before it ended, and the agent went on to answer that message, so the ask is no longer the
   // turn's last word. It is still the person's question (Leo, 2026-11-06: "It was about you asking a
   // question to me that had a question-answer response and then another message from another agent
   // interrupted you and then there's nothing now"): its card draws under the reply that asked it.
-  const cutOff = !live && !wrapUp && !tagged && summary.status === "completed" ? steeredAsk(body) : undefined;
-  const nextStep = live ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
+  const cutOff =
+    (!live || concluding) && answerComplete && !wrapUp && !tagged && summary.status === "completed"
+      ? steeredAsk(body)
+      : undefined;
+  const nextStep = live && !concluding ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
   // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
-  const walked = live ? undefined : lastWalkthrough(worked);
+  const walked = live && !concluding ? undefined : lastWalkthrough(worked);
   let walkedDrawn = false;
   // The next-step card draws once per turn: under the answer, in its fold, or after the turn's last.
   let cardDrawn = false;
