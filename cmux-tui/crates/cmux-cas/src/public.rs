@@ -324,20 +324,22 @@ impl PublicIndex {
 fn unpack(archive: &[u8], strip: usize) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
     let xz = archive.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]);
     if xz {
-        let mut child = std::process::Command::new("xz")
+        let mut child = cmux_process::Command::new("xz")
             .args(["-dc"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
+            .stdin(cmux_process::Stdio::piped())
+            .stdout(cmux_process::Stdio::piped())
             .spawn()?;
         let mut stdin = child.stdin.take().ok_or("xz has no stdin")?;
-        let data = archive.to_vec();
-        let feeder = std::thread::spawn(move || {
-            use std::io::Write as _;
-            stdin.write_all(&data)
-        });
         let stdout = child.stdout.take().ok_or("xz has no stdout")?;
-        let out = read_tar(stdout, strip);
-        feeder.join().map_err(|_| "xz feeder panicked")??;
+        let (out, fed) = std::thread::scope(|s| {
+            let feeder = s.spawn(move || {
+                use std::io::Write as _;
+                stdin.write_all(archive)
+            });
+            let out = read_tar(stdout, strip);
+            (out, feeder.join())
+        });
+        fed.map_err(|_| "xz feeder panicked")??;
         let status = child.wait()?;
         if !status.success() {
             return Err("xz could not decompress the archive".into());
