@@ -15,6 +15,7 @@ import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, u
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
+import { Button } from "../../ui/Button";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
@@ -1560,7 +1561,8 @@ function Columns({
   const tabEmpty = !query && !!shown && rows.length === 0;
   return (
     <>
-      <button
+      <Button
+        bare
         ref={(node) => {
           button.current = node;
           trigger.current = node;
@@ -1587,7 +1589,7 @@ function Columns({
         }}
       >
         {children}
-      </button>
+      </Button>
       <Popover
         id={press["aria-controls"]}
         open={open}

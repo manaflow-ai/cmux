@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { Button } from "../Button";
 import { useUiDirection } from "../UiProvider";
 import { moveVariant } from "./model";
 import { variantPickStrings } from "./strings";
@@ -63,7 +64,8 @@ export function VariantPick({
                   {recommended && <span>{strings.t("recommended")}</span>}
                 </div>
                 {option.preview}
-                <button
+                <Button
+                  bare
                   type="button"
                   className="ui-button variant-pick-button"
                   aria-label={label}
@@ -91,7 +93,7 @@ export function VariantPick({
                   }}
                 >
                   {strings.t(selected ? "picked" : "pick")}
-                </button>
+                </Button>
               </div>
             );
           })}
