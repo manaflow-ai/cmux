@@ -65,13 +65,16 @@ type Props = {
 
 const noop = () => undefined;
 const FIXTURES: Record<Toasts, ToastSpec[]> = {
-  single: [{ message: "Can't find build-box/mux-rs's chat" }],
+  single: [{ message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." }],
   stack: [
     { message: "Copied the link." },
     { message: "Move to Cloud wasn't run. Try again from the chat's menu." },
-    { message: "Can't find build-box/mux-rs's chat" },
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
   ],
-  count: [{ message: "Can't find build-box/mux-rs's chat" }, { message: "Can't find build-box/mux-rs's chat" }],
+  count: [
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
+  ],
   persistent: [
     { message: "Copied the link." },
     {
