@@ -1556,6 +1556,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_feed_watch.py
 
+      - name: Validate every dispatched workflow is registered on the default branch
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflows_registered.py
+
+      - name: Validate a pull request runs only the Swift Linux groups its change can fail
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_reach.py
+
       - name: Validate every non-cone sparse checkout keeps .gitmodules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
