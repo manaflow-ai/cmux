@@ -208,6 +208,8 @@ pub(super) fn no_model_stats(source: &Source, now: u64) -> UsageStats {
         tokens24h: Some(0),
         tokens_by_model1h: Some(Default::default()),
         tokens_by_model_previous_utc_hour: Some(Default::default()),
+        cache_read_by_model1h: Some(Default::default()),
+        cache_read_by_model_previous_utc_hour: Some(Default::default()),
         cost_usd24h: Some(0.0),
         calls24h: Some(0),
         cache_read_share24h: None,
