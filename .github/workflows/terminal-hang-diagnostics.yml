@@ -17,6 +17,8 @@ on:
       # release-gate
       - scripts/terminal-hang-release-gate.py
       - tests/test_terminal_hang_release_gate.py
+      # release-gate
+      - ci/steps.toml
       - .github/workflows/terminal-hang-diagnostics.yml
   workflow_dispatch:
 

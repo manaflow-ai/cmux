@@ -167,8 +167,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
-| `index.crates.io` | connects | crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
+| `index.crates.io` | connects | crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |

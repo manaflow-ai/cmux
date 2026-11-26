@@ -30,6 +30,9 @@ RETAINED_BOUNDS = {
         "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
         "maximumGIFBytes": "Custom pet-avatar GIF budget; not a chat attachment.",
     },
+    "cmux-tui/crates/cmux-usage-share/src/upload.rs": {
+        "MAX_BODY_BYTES": "Body bound of one usage-record batch posted to cmux-platform (mirrors its USAGE_MAX_BODY_BYTES; added by #50339); not an attachment.",
+    },
     "cmux-tui/crates/cmux-browser-import/src/upload.rs": {
         "MAX_UPLOAD_BYTES": "Daemon memory bound for one browser-import read of a protected folder; not an attachment.",
         "MAX_TOTAL_BYTES": "Daemon memory bound for every browser-import upload held at once; not an attachment.",
