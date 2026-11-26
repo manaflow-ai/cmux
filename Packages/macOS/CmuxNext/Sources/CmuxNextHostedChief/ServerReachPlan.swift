@@ -2,7 +2,7 @@ public import CmuxNextRemote
 public import Foundation
 
 /// One host of `team.hosts.list`, the fields the server reach reads.
-public nonisolated struct PairedServer: Sendable, Equatable {
+public nonisolated struct PairedServer: Sendable, Equatable, Codable {
     public var host: String
     public var name: String
     /// `server`, `device`, or nil from an older backend.
@@ -35,7 +35,7 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// This Mac, when it may itself be the placed server: its short host name
     /// (pairing sends `hostname -s` as the server's default name) and the
     /// brain's daemon socket when one exists here.
-    public nonisolated struct LocalServer: Sendable, Equatable {
+    public nonisolated struct LocalServer: Sendable, Equatable, Codable {
         /// Every name this Mac answers to: gethostname, the LocalHostName
         /// and the computer name (pairing sends `hostname -s`, which can be
         /// either, and a DHCP lease can change the first).
@@ -50,7 +50,7 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// This Mac's `cmux link` (`cmux link show`, `cmux link peer list`):
     /// its socket while it runs and the installs it has paired peers for.
-    public nonisolated struct LinkPeers: Sendable, Equatable {
+    public nonisolated struct LinkPeers: Sendable, Equatable, Codable {
         /// The live link's socket; nil while the link is not running.
         public var socket: String?
         public var installs: Set<String>
@@ -101,13 +101,15 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// This Mac's brain socket when the server is this Mac; else the overlay
     /// when this Mac's link has the server's install as a paired peer; else
-    /// SSH to the server's host name (dev-only).
+    /// SSH to the server's host name (dev-only). Rust (`reach_route`) picks the route; the SSH
+    /// one is built here, by ``ServerReach/brainRoute(serverName:)`` and its SSH checks.
     public static func route(for host: PairedServer, install: String? = nil, local: LocalServer?, link: LinkPeers? = nil) -> ServerReach.Route? {
-        if let local, isThisMac(host, install: install, local: local, link: link) {
-            return .unix(local.brainSocket)
-        }
-        if let link, let socket = link.socket, let install, link.installs.contains(install) {
-            return .overlay(linkSocket: socket)
+        let request = ChiefRules.RouteRequest(host: host, install: install, local: local, link: link)
+        let route = ChiefRules.rule("reach_route", request, else: ChiefRules.RouteReply()).route
+        switch route?.kind {
+        case "unix": if let socket = route?.socket { return .unix(socket) }
+        case "overlay": if let socket = route?.linkSocket { return .overlay(linkSocket: socket) }
+        default: break
         }
         return ServerReach.brainRoute(serverName: host.name)
     }
@@ -117,9 +119,8 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// and another Mac with the same name never does); by host name only
     /// when this Mac has no link install (bead cx-ill).
     public static func isThisMac(_ host: PairedServer, install: String?, local: LocalServer, link: LinkPeers?) -> Bool {
-        if let mine = link?.install { return mine == install }
-        guard let theirs = ServerReach.dnsLabel(host.name) else { return false }
-        return local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs })
+        let request = ChiefRules.ThisMacRequest(host: host, install: install, local: local, link: link)
+        return ChiefRules.rule("reach_is_this_mac", request, else: ChiefRules.ThisMac()).thisMac
     }
 
     /// `cmux link show` and `cmux link peer list` JSON: the link, running or
@@ -158,11 +159,20 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// Reuse a session only while its paired installation and route are unchanged.
     /// A host reinstalled behind the same link socket is a replacement owner.
     public static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String], reroute: [ServerReach]) {
-        let shownByHost = Dictionary(shown.map { ($0.hostID, $0) }, uniquingKeysWith: { first, _ in first })
-        let desiredHosts = Set(desired.map(\.hostID))
-        let add = desired.filter { shownByHost[$0.hostID] == nil }
-        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.installID != reach.installID || $0.route != reach.route } ?? false }
-        return (add, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID), reroute)
+        var routes: [ServerReach.Route] = []
+        func token(_ route: ServerReach.Route) -> ChiefRules.Route {
+            let index = routes.firstIndex(of: route) ?? { routes.append(route); return routes.count - 1 }()
+            return ChiefRules.Route(kind: "unix", socket: "r\(index)")
+        }
+        func reaches(_ list: [ServerReach], _ prefix: String) -> [ChiefRules.DiffRequest.Reach] {
+            list.indices.map { .init(hostID: list[$0].hostID, installID: list[$0].installID, name: "\(prefix)\($0)", route: token(list[$0].route)) }
+        }
+        let request = ChiefRules.DiffRequest(shown: reaches(shown, "s"), desired: reaches(desired, "d"))
+        let diff = ChiefRules.rule("reach_diff", request, else: ChiefRules.Diff())
+        func back(_ named: [ChiefRules.Diff.Reach]) -> [ServerReach] {
+            named.compactMap { Int($0.name.dropFirst()).flatMap { desired.indices.contains($0) ? desired[$0] : nil } }
+        }
+        return (back(diff.add), diff.remove, back(diff.reroute))
     }
 
     /// `cmux link show` JSON: the link's pairing file, when the CLI names it.
