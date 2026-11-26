@@ -199,6 +199,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-layout-engine/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -383,6 +384,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-layout-engine/vectors.json"
   workflow_dispatch:
 
 concurrency:
