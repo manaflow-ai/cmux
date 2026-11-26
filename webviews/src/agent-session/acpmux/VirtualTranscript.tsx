@@ -5797,8 +5797,7 @@ function TranscriptView({
   // writes: the offset is the reader's top row, and it holds.
   holdEndRef.current = (node) => {
     if (!followingRef.current || jumpTarget.current !== undefined || foldAnchor.current) return;
-    const sendTopAt = sendTop.end > 0 ? Math.max(0, sendTop.end - node.clientHeight) : Number.POSITIVE_INFINITY;
-    const latest = Math.min(Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight), sendTopAt);
+    const latest = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
     const { top } = settleFollowBottomAt(node, latest);
     scrolledTo.current = { top, atLatest: true };
   };

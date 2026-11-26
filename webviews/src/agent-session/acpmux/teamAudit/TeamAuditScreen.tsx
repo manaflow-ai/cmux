@@ -275,15 +275,7 @@ export function TeamAuditScreen({
         )}
       </div>
       {view === "breakdown" && (
-        <Breakdown
-          read={main}
-          drill={drill}
-          group={group}
-          locale={locale}
-          t={t}
-          {...(drillInto ? { onDrill: drillInto } : {})}
-          onBack={backTo}
-        />
+        <Breakdown read={main} drill={drill} group={group} locale={locale} t={t} onDrill={drillInto} onBack={backTo} />
       )}
       {view === "efficiency" && <EfficiencyView projects={main} people={people} locale={locale} t={t} />}
     </div>
@@ -304,7 +296,7 @@ function Breakdown({
   group: UsageGroup;
   locale: string;
   t: Translate;
-  onDrill?: (row: TeamAuditRow) => void;
+  onDrill?: ((row: TeamAuditRow) => void) | undefined;
   onBack: (index: number) => void;
 }) {
   const reply = read.reply;
