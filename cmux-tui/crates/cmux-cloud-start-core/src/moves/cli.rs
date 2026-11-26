@@ -94,8 +94,8 @@ impl Answer {
     /// `link machine update`: whether the machine's daemon may have restarted in the run that gave
     /// this answer: an update, a rollback, or an end the CLI lost track of. Not for a machine that
     /// needed nothing, nor for an answer given before anything reached it (another update runs, no
-    /// daemon answer, no build to install or none this Mac can verify, too old to update in place, a
-    /// daemon on someone's own build from another path).
+    /// daemon answer, no build to install, too old to update in place, a daemon on someone's own
+    /// build from another path).
     pub fn may_have_restarted_daemon(&self) -> bool {
         if self.ok {
             return self.updated;
@@ -109,10 +109,6 @@ impl Answer {
                     | "machine_update_download_failed"
                     | "machine_update_unsupported"
                     | "machine_update_foreign_daemon"
-                    // Refused on this Mac, before anything reached the machine (a build with no signed release
-                    // to pin, a copy that does not match its pin): relinking after it reconnected every machine
-                    // of the account, one a second, through a chat's start.
-                    | "machine_update_payload_rejected"
             )
         )
     }

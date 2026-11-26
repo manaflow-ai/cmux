@@ -123,7 +123,6 @@ fn only_an_update_or_an_end_the_cli_lost_may_have_restarted_the_daemon() {
         "machine_update_download_failed",
         "machine_update_unsupported",
         "machine_update_foreign_daemon",
-        "machine_update_payload_rejected",
     ] {
         assert!(!Answer::failed(code, "").may_have_restarted_daemon(), "{code}");
     }
