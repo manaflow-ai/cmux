@@ -93,31 +93,33 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
-    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
-    /// public key is the only key material sent; the caller owns the secret.
+    /// Mints a short-lived private SCP route: the daemon's `vm.scp_endpoint` (cmux-platform's
+    /// `POST /v1/cloud/machines/{id}/ssh-endpoint`) on a Worker machines client
+    /// (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The public key is the only
+    /// key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
-        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
+        // Rust answers only a safe route (port 22, user cmux, an ed25519 host key, not expired) and
+        // cmux-cloud-machine reads it again; any other answer throws ``CloudAPIError/decoding(_:)``.
         try requireWorker()
-        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
-                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        // The route's own deadline is 100 s in Rust; this one only bounds a child that hangs.
+        let body = try await cloudCall("vm.scp_endpoint", ["id": id, "publicKey": publicKey], timeout: .seconds(130))
+        return try CloudMachineRules().answer(body, as: CloudSCPEndpoint.self, context: "\(machinePath)/\(id)/ssh-endpoint")
     }
 
-    /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
-    /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
-    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
-    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
+    /// The team's Cloud network: the daemon's `vm.networks` (cmux-platform's `GET /v1/host/network/target`)
+    /// on a Worker machines client, sent as this Mac's install (`installToken`, auth `worker`; the route
+    /// refuses a Stack session), never classic Cloud. A team has one network, named by its team id (what
+    /// tunnel attach takes), with its provider mesh as `meshId`; a team with no mesh yet (404) has none.
     public func listNetworks() async throws -> [CloudNetwork] {
         guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
-        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
-        var install = self
+        try buildSpace.check()
+        var install = daemon
         install.tokens = { (try await installToken(), "") }
+        let body = try await install.daemon("vm.networks", [:], timeout: .seconds(50), auth: "worker")
         do {
-            let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
-            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
-        } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
-            return []
+            return try JSONDecoder().decode([CloudNetwork].self, from: body)
+        } catch {
+            throw CloudAPIError.decoding("cloud.vm.networks: \(error)")
         }
     }
 
@@ -320,5 +322,14 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
         guard let (continuation, cancels) = taken else { return }
         continuation.resume(with: result)
         for cancel in cancels { cancel() }
+    }
+}
+
+/// The machine routes' daemon calls: ``daemon``'s one transport (CloudMachineIO.swift), after the build space check
+/// ``send`` makes (a misconfigured dev build refuses before anything runs).
+extension CloudAPIClient {
+    func cloudCall(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+        try buildSpace.check()
+        return try await daemon.daemon(call, args, timeout: timeout, auth: auth)
     }
 }
