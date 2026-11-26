@@ -43,7 +43,7 @@ import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { ClampedText } from "./ClampedText";
 import { useReceivedLook } from "./receivedLook";
-import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
+import { hasAgentMark, MonogramMark, SessionMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
@@ -60,7 +60,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
@@ -70,6 +70,7 @@ import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark } from "./NoticeMark";
 import { SEVERITY_LABEL } from "./noticeMarkModel";
+import { noticeRepeatClock } from "./noticeRowModel";
 import { noticeMarkdown, openedNoticeText, titleParts } from "./agentNotice";
 import { useNoticeBodyLook, useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
@@ -103,6 +104,10 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
+  // The icon the sender's chat set for itself (acpmux `icon`: an emoji, a symbol, an image) draws
+  // before its harness's mark, as its tab and its list rows draw it.
+  if (!picture && !message.chief && !message.app && sender.icon)
+    return <SessionMark icon={sender.icon} agent={harness} size={SENDER_LOGO_SIZE} />;
   // A sender that named its app ("Grok bot › Ada", u20190) wears that app's mark, else its monogram.
   if (!picture && !message.chief && message.app && !hasAgentMark(harness)) {
     return hasAgentMark(message.app) ? (
@@ -154,11 +159,17 @@ export function ReceivedMark({ message }: { message: IncomingMessage }) {
 /// that ends it (`(exit 2)`) and how many more notices went in with it, which the line always shows
 /// whole (Leo, 2026-11-08: "why was there a yellow warning symbol?": the cut hid the exit).
 function NoticeTitle({ notice }: { notice: AgentNotice }) {
+  const t = useT();
   const { lead, end } = titleParts(notice.title);
   return (
     <>
       <span className="cv-notice__lead">{lead}</span>
       {end && <span className="cv-notice__end">{` ${end}`}</span>}
+      {notice.repeats && notice.repeats > 1 ? (
+        <span className="cv-notice__more cv-notice__repeats" data-find-skip="">
+          {t("inbox.noticeRepeats", { n: notice.repeats, time: noticeRepeatClock(notice.lastAt) })}
+        </span>
+      ) : null}
       {notice.more ? (
         <span className="cv-notice__more" data-find-skip="">
           +{notice.more}
@@ -171,11 +182,15 @@ function NoticeTitle({ notice }: { notice: AgentNotice }) {
 /// The name a received line gives its sender: the recorded session's own, from the session metadata
 /// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
 /// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
-/// person name themselves.
+/// person name themselves. A sender with a given name (`acpmux rename @ Mango --handle`) reads by it.
 function useSenderSessionName(message: IncomingMessage, person: boolean): string {
   const session = !person && !message.chief && !message.app ? message.sessionId : undefined;
-  const identity = useSenderIdentity({ name: session ? message.name : "", ...(session && { sessionId: session }) });
-  return session ? identity.name : message.name;
+  const identity = useSenderIdentity({
+    name: session ? message.name : "",
+    ...(session && { sessionId: session }),
+    ...(session && message.displayName && { displayName: message.displayName }),
+  });
+  return session ? identity.name : (message.displayName ?? message.name);
 }
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
@@ -220,7 +235,10 @@ export function SenderChip({
   const recorded = useSenderSessionName(message, false);
   const name =
     (message.chief && chief?.name) ||
-    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
+    (message.unverified && !message.name.trim()
+      ? t("message.unverifiedSender")
+      : // The name its chat was given ("Mango", acpmux `displayName`) first.
+        senderLabel((!message.app && sender.displayName) || recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -444,14 +462,11 @@ export function IncomingMessageLine({
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: opened, set: show } = useDisclosure({ message: id, sessionId: session });
   const open = whole || opened;
   const lineLook = useMessageLineLook();
   const inPlace = useReceivedLook() === "card";
-  const show = (next: boolean) => {
-    setMessageOpened(session, id, next);
-    setOpen(next);
-  };
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
   // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.
@@ -497,7 +512,8 @@ export function IncomingMessageLine({
   // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
   // the toggle's label and the reply editor's, the machine already shown beside it.
   const recorded = useSenderSessionName(message, Boolean(person));
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) || senderLabel((!message.app && sender.displayName) || recorded, sender.host);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).

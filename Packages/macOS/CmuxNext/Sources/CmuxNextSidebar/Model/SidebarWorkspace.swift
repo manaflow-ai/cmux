@@ -119,6 +119,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// A look's particles glyph played in place of the loading indicator while the row works
+    /// (`cmux.sidebar.rows/1` `indicator: {choreography, trigger}` or `"glyph"`); nil by default.
+    public var activityGlyph: SidebarRowGlyph?
     /// The winning report is an OSC 7501 program status record: the program opted in to the
     /// finer row icons (a shield for permission, each pending item), with
     /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).
@@ -132,6 +135,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
+    /// The name given to that agent's session (acpmux `displayName`, "Mango") and the one it had before
+    /// (the newest of `formerNames`): the hover card's agent line says who it is ("Mango — fka claude-sr2").
+    public var agentDisplayName: String?
+    public var agentFormerName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
     public var lastMessage: String?
     /// When the workspace's agent chat last changed what it does (acpmux `lane.since`: a turn started, ended,
@@ -174,12 +181,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`), or a Cloud machine's desktop: the row draws the
-    /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
-    public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false
+    /// Pinned inside its group in the sidebar document (`extra.pinned`, `SidebarDocProjection.pinnedInGroup`): the
+    /// row draws a pin mark at rest, whatever its icon (https://github.com/manaflow-ai/cmux/issues/56146). Set by `arrange`.
+    public var isPinnedInGroup = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []
@@ -193,11 +200,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var audio: SidebarWorkspaceAudio?
     /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
     public var checklist: [SidebarChecklistItem] = []
-    /// How far its agent chat is through its task list while steps are left (`SidebarLaneStatus`,
-    /// `sidebar.taskProgress`): the row's "3/7" and the hover card's lines. Nil otherwise.
-    public var taskProgress: SidebarTaskProgress?
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
+    /// Its agent chats' subagents, which the row lists under its name (`SidebarSubagentStrip`); nil without any.
+    public var subagents: SidebarSubagents?
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
     /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
     public var workspaceDescription: String?

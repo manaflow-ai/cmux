@@ -612,4 +612,24 @@ mod tests {
         addr[3] = 0xc;
         assert_eq!(links.record(&addr), None, "address messages carry no link state");
     }
+
+    /// A nightly host log, 2026-11-22: a VM bridge's IPv6 address came and
+    /// went on bridge0 every 84 s (43 refreshes an hour), and each refresh
+    /// roamed every live phone link, which then died of its keepalive about
+    /// 30 s later. With no session on bridge0, neither direction resets; a
+    /// session that does leave from bridge0 still resets.
+    #[test]
+    fn a_vm_bridge_address_coming_and_going_resets_nothing() {
+        let before = view(wired_mac());
+        let mut after = view(wired_mac());
+        after.networks.push(net("bridge0", "fd3b:55e7:c578:637e:86d:660c:a307:f086", 64));
+        after.networks.push(net("bridge100", "192.168.64.1", 24));
+        assert_eq!(resets(&before, &after, &BTreeSet::new()), None, "address came");
+        assert_eq!(resets(&after, &before, &BTreeSet::new()), None, "address went");
+        let mut bridged = after.clone();
+        bridged.sources.push("192.168.64.1".parse().unwrap());
+        let mut gone = before;
+        gone.sources = bridged.sources.clone();
+        assert!(resets(&bridged, &gone, &BTreeSet::new()).is_some(), "a session on the bridge");
+    }
 }

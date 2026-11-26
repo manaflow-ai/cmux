@@ -15,9 +15,16 @@ let package = Package(
             targets: ["CMUXMobileCore"]
         ),
     ],
+    dependencies: [
+        // The egress gate (docs/privacy.md): Apple platforms only, where the app runs.
+        .package(path: "../CmuxEgress"),
+    ],
     targets: [
         .target(
             name: "CMUXMobileCore",
+            dependencies: [
+                .product(name: "CmuxEgress", package: "CmuxEgress", condition: .when(platforms: [.macOS, .iOS])),
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

@@ -270,6 +270,23 @@ fn create_options_reach_backend_and_preserve_its_capability_refusal() {
 }
 
 #[test]
+fn create_origin_and_ttl_reach_backend_unchanged() {
+    let mut s = server();
+    let args = json!({"name":"probe", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "origin":{"kind":"workflow","label":"cloud round trip","url":"https://example.com/runs/1"},
+        "ttl_seconds":3600});
+    s.control_plane_mut().answer(
+        "cloud.machine.create",
+        args.clone(),
+        Some("origin-key"),
+        json!({"error":{"code":"validation.invalid","message":"invalid params","retryable":false}}),
+    );
+    let error = err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "origin-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["upstream_code"], "validation.invalid");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));
@@ -335,8 +352,12 @@ fn machine_list_relays_disk_health_to_the_app() {
     );
 
     let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    assert_eq!(page["machines"][0]["disk_health"], disk_health);
-    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+    // The relay adds the disk bar: 12 of 16 GB used, no split reported.
+    let mut relayed = disk_health;
+    relayed["bar"] = page["machines"][0]["disk_health"]["bar"].clone();
+    assert_eq!(relayed["bar"]["label"], "12 / 16 GB");
+    assert_eq!(page["machines"][0]["disk_health"], relayed);
+    assert_eq!(record(&s, &vm(9))["disk_health"], relayed);
 }
 
 #[test]
@@ -721,6 +742,12 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
     assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
+    let usage = s.handle(&Request::new("cloud.usage.current", json!({})));
+    assert!(usage.is_ok(), "{usage:?}");
+    let usage = usage.unwrap();
+    assert_eq!(usage["usd"]["total"], 0.84, "the billing owner's price passes through");
+    assert_eq!(usage["payment_method"]["last4"], "4242");
+    assert_eq!(usage["stripe_mode"], "test");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
     assert_eq!(

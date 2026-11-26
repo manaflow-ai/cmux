@@ -55,7 +55,7 @@ enum SidebarCardFeed {
         model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
         return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? restoring?().map { SidebarNoticeCard.restoring($0, withDetails: true) } ?? noticeCard(updater, registry: registry))
+                (updateCard(updater), updatedCard(updater), asks?.card ?? restoring?().map { SidebarNoticeCard.restoring($0) } ?? noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }
@@ -91,7 +91,7 @@ enum SidebarCardFeed {
         case .noticeAction(UpdaterService.starCardID, let action): services.updater.starCardAction(action)
         case .dismissNotice(UpdaterService.starCardID): services.updater.starPromptFinished(starred: false)
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
-            noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
+            noticeAction(card, action, updater: services.updater, registry: services.registry, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card) where !services.machineAsks.answer(card, action: nil): dismissNotice(card, updater: services.updater)
         case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         // The media card's x runs the menu's and the palette's Hide (one action, u2437).
@@ -139,16 +139,26 @@ enum SidebarCardFeed {
 
     /// A notice button: the update status's actions (Release Notes is a link `open` shows like a popover
     /// link), the update cards' x menu, Use Real Feed, an announcement's Try It, a tip's Try It and x menu.
-    static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
+    /// An update card's Hide and right-click choices run the palette's Snooze Update Card… (`updates.snooze`).
+    static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, registry: ActionRegistry, open: (URL) -> Void) {
         let option = UpdateCardCloseOption(rawValue: action), cardAction = UpdateCardAction(rawValue: action) // routed by `SidebarBridgeRules.noticeAction`
         switch SidebarBridgeRules().noticeAction(card: card, action: action, closeOption: option != nil, cardAction: cardAction != nil,
                                                  tryIt: PageDescriptor.changelogTryItActions.contains(action)) {
-        case .closeUpdate: if let option { updater.closeUpdateCard(option) }
+        case .closeUpdate:
+            if let option { registry.perform("updates.snooze", invocation: ActionInvocation(arguments: ["option": .string(option.rawValue)], origin: .user)) }
         case .updateAction:
+            // Cancel, Details and Release Notes run their palette rows (``UpdateHandlers/noticeRows``); where the
+            // row does not run, the button acts itself, as before.
+            if let row = UpdateHandlers.noticeRows.first(where: { $0.1 == cardAction }),
+               registry.perform(row.0, invocation: ActionInvocation(origin: .user)) { return }
             if cardAction == .releaseNotes, let url = updater.cardReleaseNotesURL { open(url) } else if let cardAction { updater.performCardAction(cardAction) }
         case .useRealFeed: try? updater.useTestFeed(nil, pinned: false)
         case .announcementTry: updater.runAllowListedAction?(action)
-        case .tip(let tip): updater.tipCardAction(tip, action)
+        case .tip(let tip):
+            // Mute Tips for 1 Day or 1 Week run their palette rows (``UpdateHandlers/tipRows``), else act here.
+            if let row = UpdateHandlers.tipRows.first(where: { $0.1.rawValue == action }),
+               registry.perform(row.0, invocation: ActionInvocation(origin: .user)) { return }
+            updater.tipCardAction(tip, action)
         case .none: break
         }
     }
@@ -170,6 +180,7 @@ enum SidebarCardFeed {
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
+        if let back = updater.revertNotice { return .status(id: updateCardID, title: back.title, detail: back.detail, fraction: back.fraction, working: back.working, dismissLabel: UpdaterService.cardDismissLabel) }
         guard updater.readyCard == nil else { return nil }
         if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
         if let text = updater.testFeedCardText {

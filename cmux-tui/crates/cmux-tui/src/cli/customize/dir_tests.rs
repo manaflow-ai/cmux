@@ -183,3 +183,24 @@ fn output_and_installs_are_not_saves() {
     );
     assert!(kept.is_empty());
 }
+
+#[test]
+fn a_failed_build_names_its_error_line_when_warnings_fill_the_tail() {
+    // hq run 45341531578 (2026-11-24): the row showed only the esbuild warning.
+    let mut text = String::from("vite v7 building\nerror TS2304: Cannot find name 'expect'.\n");
+    for _ in 0..30 {
+        text.push_str(
+            "▲ [WARNING] No matching export in \"src/agent-session/acpmux/layoutWatch.ts\"\n",
+        );
+    }
+    let said = super::why_failed("build.sh", &text);
+    assert!(said.starts_with("build.sh failed: error TS2304"), "{said}");
+    assert!(said.ends_with("layoutWatch.ts\""), "{said}");
+    assert!(!said.contains("vite v7"), "{said}");
+}
+
+#[test]
+fn a_failed_build_with_its_error_in_the_tail_is_the_tail() {
+    let said = super::why_failed("build.sh", "a\nb\nerror: boom\n");
+    assert_eq!(said, "build.sh failed:\na\nb\nerror: boom");
+}

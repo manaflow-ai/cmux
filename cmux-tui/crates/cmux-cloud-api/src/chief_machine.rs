@@ -30,6 +30,13 @@
 //!    must be on the machine: `optchat-chief` on PATH or in `~/.local/bin`);
 //! 5. the answer: `{machine, machine_name, host, install, chief, conversation, host_unit, stage}`.
 //!
+//! With the owner's Claude credential after the request's first newline (the `cmux cloud api`
+//! tail, [`chief_turn`]), step 4 first writes it to the machine as `/run/cmux-chief/turn.env`
+//! (root's, 0600, tmpfs), which the unit reads beside `/etc/cmux/chief.env`, so the Chief answers
+//! its turns with it ([`write_turn_credential`]). A host that already runs is restarted only when
+//! that file changed; the answer then also says `turn_credential: "changed" | "same"`. With no
+//! credential nothing is written and the start is as it was.
+//!
 //! `until: "machine"` stops after step 2 (`stage: "machine"`), so a caller can put a host binary
 //! on a machine whose image has none before the rest runs (the staging check does).
 //!
@@ -42,6 +49,11 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use zeroize::Zeroizing;
+
+use super::chief_turn::{self, TurnCredential};
 use super::http::{Body, Http, path_text, worker_error};
 use super::{Auth, Failure, Request, optional_text, text};
 
@@ -83,6 +95,22 @@ impl ChiefSize {
             _ => None,
         }
     }
+    /// A size the person names: `included` or a bigger Chief ([`Self::add_on`]'s spellings).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "included" => Some(Self::Included),
+            other => Self::add_on(other),
+        }
+    }
+    /// The size's name, as [`Self::named`] reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Included => "included",
+            Self::M => "M",
+            Self::L => "L",
+            Self::Xl => "XL",
+        }
+    }
 }
 
 /// The size the person's plan gives a new Chief, from the Chief size the plan names: the
@@ -102,7 +130,7 @@ pub fn plan_chief_size(plan: &Value) -> ChiefSize {
 
 /// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
 /// size, is the included size: the plan read never stops a Chief from starting.
-async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+pub(crate) async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
     match cloud.read("cloud.plan.get", json!({})).await {
         Ok(plan) => plan_chief_size(&plan),
         Err(_) => ChiefSize::Included,
@@ -150,6 +178,15 @@ pub trait Cloud {
         machine: &str,
         command: &str,
     ) -> impl Future<Output = Result<(i64, String, String), Failure>>;
+    /// Writes `data` to `path` on the machine with `mode`, the bytes in the write's body (never in
+    /// a command's text).
+    fn write(
+        &self,
+        machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> impl Future<Output = Result<(), Failure>>;
     /// Waits between two reads.
     fn pause(&self, duration: Duration) -> impl Future<Output = ()>;
 }
@@ -165,6 +202,9 @@ pub struct Start {
     pub until_machine: bool,
     /// `keep_awake: true`: the machine never pauses early (`idle_seconds: 0`). Default off.
     pub keep_awake: bool,
+    /// The owner's Claude credential for the Chief's turns, from the request's tail; none leaves
+    /// the start as it was.
+    pub turn: Option<TurnCredential>,
 }
 
 /// The call's args: `key` (1 to 48 of `a-z0-9-`), optional `name` (the Chief's), `machine_name`
@@ -211,6 +251,7 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
         api: request.api.trim_end_matches('/').to_owned(),
         until_machine,
         keep_awake,
+        turn: None,
     })
 }
 
@@ -338,12 +379,14 @@ pub fn fallback_unit(binary: &str) -> String {
          Environment=ACPMUX_BIN={ACPMUX_BIN}\n\
          Environment=ACPMUX_HOME={ACPMUX_HOME}\n\
          EnvironmentFile=-/etc/cmux/chief.env\n\
+         EnvironmentFile=-{TURN_ENV_FILE}\n\
          ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {INSTALL_FILE} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
          Restart=always\n\
          RestartSec=5\n\
          RestartPreventExitStatus=2\n\n\
          [Install]\n\
          WantedBy=multi-user.target\n",
+        TURN_ENV_FILE = chief_turn::TURN_ENV_FILE,
     )
 }
 
@@ -377,6 +420,34 @@ async fn exec_ok<C: Cloud>(cloud: &C, machine: &str, command: &str) -> Result<St
         return Err(refused("chief.machine_exec", format!("exit {code}: {}", tail.trim())));
     }
     Ok(stdout)
+}
+
+/// Puts the owner's turn credential on the machine as [`chief_turn::TURN_ENV_FILE`]: the bytes go
+/// in the write's body to [`chief_turn::TURN_ENV_STAGE`] (0600), then a root command with no
+/// secret in its text moves them into place, root's and 0600 in a 0700 `/run/cmux-chief` it makes
+/// ([`chief_turn::install_script`]). True when the file is new or changed, false when it was
+/// already there as is. Neither the command, its output nor an error carries the value.
+pub async fn write_turn_credential<C: Cloud>(
+    cloud: &C,
+    machine: &str,
+    credential: &TurnCredential,
+) -> Result<bool, Failure> {
+    let file = credential.env_file();
+    cloud.write(machine, chief_turn::TURN_ENV_STAGE, file.as_bytes(), 0o600).await?;
+    let out = exec_ok(cloud, machine, &as_root(&chief_turn::install_script())).await?;
+    match out.lines().rev().map(str::trim).find(|l| !l.is_empty()) {
+        Some("changed") => Ok(true),
+        Some("same") => Ok(false),
+        _ => Err(refused(
+            "chief.turn_credential",
+            "the machine did not say whether the Chief's turn credential changed",
+        )),
+    }
+}
+
+/// Restarts the Chief host as root, so it reads a changed turn credential.
+fn restart_command() -> String {
+    as_root(&format!("systemctl restart {HOST_UNIT}"))
 }
 
 async fn probe<C: Cloud>(cloud: &C, machine: &str) -> Result<Probe, Failure> {
@@ -586,7 +657,17 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         probe = self::probe(cloud, &id).await?;
     }
 
+    // The turn credential first, so the host's first start reads it.
+    let turn = match &start.turn {
+        Some(credential) => Some(write_turn_credential(cloud, &id, credential).await?),
+        None => None,
+    };
     let host_unit = if probe.active {
+        // A running host is restarted only for a credential that changed: an unchanged file never
+        // ends a conversation it is in.
+        if turn == Some(true) {
+            exec_ok(cloud, &id, &restart_command()).await?;
+        }
         if probe.unit { "image" } else { "installed" }
     } else {
         let (command, how) = host_command(&probe)?;
@@ -598,7 +679,7 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
     // removes, not a kept one that never pauses.
     settle(cloud, start, &row, &id).await?;
     let chief = probe.chief.clone().unwrap_or_default();
-    Ok(json!({
+    let mut answer = json!({
         "machine": id,
         "machine_name": start.machine_name,
         "host": probe.host,
@@ -607,7 +688,11 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         "conversation": probe.conversation,
         "host_unit": host_unit,
         "stage": "done",
-    }))
+    });
+    if let Some(changed) = turn {
+        answer["turn_credential"] = json!(if changed { "changed" } else { "same" });
+    }
+    Ok(answer)
 }
 
 /// The person's session: the request's API and credential.
@@ -675,6 +760,25 @@ impl Cloud for Session<'_> {
         Ok((code.unwrap_or(-1), read("stdout"), read("stderr")))
     }
 
+    async fn write(
+        &self,
+        machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> Result<(), Failure> {
+        let encoded = Zeroizing::new(BASE64.encode(data));
+        let mut args = Map::new();
+        args.insert("op".into(), json!("write"));
+        args.insert("machine".into(), json!(machine));
+        args.insert("path".into(), json!(path));
+        args.insert("data_base64".into(), json!(encoded.as_str()));
+        args.insert("mode".into(), json!(mode));
+        let request =
+            Request { call: "machine.io".into(), auth: Auth::Worker, args, ..self.request.clone() };
+        super::machine::worker(&request).await.map(|_| ())
+    }
+
     async fn pause(&self, duration: Duration) {
         tokio::time::sleep(duration).await;
     }
@@ -689,8 +793,8 @@ fn body_summary(body: Option<&Value>) -> String {
     }
 }
 
-/// `machine.chief_start` for [`crate::perform`].
-pub(crate) async fn perform(request: &Request, http: &Http) -> Result<Value, Failure> {
+/// `machine.chief_start` for [`crate::perform`]; `tail` is the owner's turn credential, if any.
+pub(crate) async fn perform(request: &Request, http: &Http, tail: &[u8]) -> Result<Value, Failure> {
     if request.auth == Auth::Stack {
         return Err(Failure::http(
             501,
@@ -698,7 +802,8 @@ pub(crate) async fn perform(request: &Request, http: &Http) -> Result<Value, Fai
             Some("machine.chief_start is not available on this Cloud".into()),
         ));
     }
-    let start = parse(request)?;
+    let mut start = parse(request)?;
+    start.turn = TurnCredential::from_tail(tail)?;
     run(&Session { request, http }, &start).await
 }
 

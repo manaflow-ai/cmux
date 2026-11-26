@@ -12,6 +12,7 @@ import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
+import { NewTabChoice, NewTabChoiceProvider } from "./UseAsNewTab";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -39,12 +40,15 @@ export function mountAppsPage(
   }
   // The host opens a listing or the Installed tab on an open page by setting the fragment.
   window.addEventListener("hashchange", () => store.applyRoute(window.location.hash));
+  const newTabChoice = new NewTabChoice(client);
   renderLocalized(
     createRoot(root),
     table,
     (strings) => (
       <UiProvider container={root} dir={languageDirection(strings.language)}>
-        <AppsPage store={store} strings={strings} />
+        <NewTabChoiceProvider value={newTabChoice}>
+          <AppsPage store={store} strings={strings} />
+        </NewTabChoiceProvider>
       </UiProvider>
     ),
     (strings) => strings.t("store.window.title"),

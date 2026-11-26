@@ -43,8 +43,12 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
-        meta.remove("beforePromptId");
-        meta.remove("requestId");
+        // A `session/fork`'s own `requestId` names the whole fork (`hub/fork_request.rs`); one
+        // sent with a boundary only this canonical operation mints goes with it.
+        let boundary = meta.remove("beforePromptId").is_some();
+        if boundary || m != method::SESSION_FORK {
+            meta.remove("requestId");
+        }
         meta.remove("startLater");
     }
     Ok(m)
@@ -62,12 +66,35 @@ pub(super) fn starts_later(params: &Value) -> bool {
 /// it (`peer_forward.rs`).
 pub const RETARGET_FEATURE: &str = "sessionForkRetarget";
 
+/// Listed in `initialize`'s `_meta.acpmux.features`: every fork takes a `requestId` (`session/fork`'s
+/// `_meta.acpmux.requestId`, `acp.session.fork`'s `requestId` without `beforePromptId` too), and a
+/// retry with it answers the fork the first request made (`hub/fork_request.rs`). An older build
+/// refuses `acp.session.fork`'s without a boundary, so a client sends one only where listed.
+pub const FORK_REQUEST_FEATURE: &str = "forkRequestId";
+
 /// Why a switch of a peer's chat cannot go to that peer: it did not list [`RETARGET_FEATURE`].
 pub(super) fn retarget_unsupported(peer: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{peer} runs an acpmux that cannot switch a chat onto another harness: update it, then pick the model again"
     ))
     .with_data(serde_json::json!({"reason": "peer.retarget_unsupported", "peer": peer}))
+}
+
+/// Whether `session/fork` params ask for a subagent's fork, a start mode, or a model of the chat's
+/// own harness (`hub/fork_subagent.rs`).
+pub(super) fn asks_start(params: &Value) -> bool {
+    let set =
+        |key: &str| params.pointer(&format!("/_meta/acpmux/{key}")).is_some_and(|v| !v.is_null());
+    set("subagentId") || set("mode") || (set("model") && !set("harness"))
+}
+
+/// Why a subagent's fork (or a start mode) of a peer's chat cannot go to that peer: it did not
+/// list `fork_subagent::FEATURE`.
+pub(super) fn start_unsupported(peer: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "{peer} runs an acpmux that cannot fork a subagent or start a fork in a picked mode or model: update it, then try again"
+    ))
+    .with_data(serde_json::json!({"reason": "peer.fork_subagent_unsupported", "peer": peer}))
 }
 
 /// Whether `session/fork` params ask for a switch onto another harness.
@@ -97,13 +124,9 @@ pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, R
             "_meta.acpmux.model must be one model id: ASCII letters, digits and ._-/:@[]+, not starting with -",
         ));
     }
-    Ok(match text("harness")? {
-        Some(harness) => Some(crate::hub::Retarget { harness, model, remote: false }),
-        None if model.is_some() => {
-            return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
-        }
-        None => None,
-    })
+    // A model with no harness starts the fork on that model of the chat's own harness
+    // (`fork_subagent::ForkStart`), not a switch.
+    Ok(text("harness")?.map(|harness| crate::hub::Retarget { harness, model, remote: false }))
 }
 
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
@@ -142,6 +165,11 @@ fn carried_meta(params: &Value) -> serde_json::Map<String, Value> {
     mux
 }
 
+/// The `acp.session.fork` fields a live fork alone takes, carried into `session/fork`'s
+/// `_meta.acpmux`: a switch onto another harness or model, the start mode, and the subagent to
+/// fork (`hub/fork_subagent.rs`).
+const LIVE_ONLY: [&str; 4] = ["harness", "model", "mode", "subagentId"];
+
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
@@ -149,15 +177,15 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
     let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
-    // A switch (`harness`, `model`) forks the chat as it is now: with `live` only, never at a turn
-    // or before a prompt, which would drop the target and make an ordinary fork.
-    let switch =
-        ["harness", "model"].iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
+    // A switch (`harness`, `model`), a start mode or a subagent forks the chat (or its subagent)
+    // as it is now: with `live` only, never at a turn or before a prompt, which would drop them
+    // and make an ordinary fork.
+    let switch = LIVE_ONLY.iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
     if switch
         && (!live || params.get("throughSeq").is_some() || params.get("beforePromptId").is_some())
     {
         return Err(RpcError::invalid_params(
-            "harness and model fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
+            "harness, model, mode and subagentId fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
         ));
     }
     // A chat on another computer (a peer's, a Cloud machine's) forks there as it is now: the
@@ -176,7 +204,8 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
                 mux.insert(key.into(), value.clone());
             }
         }
-        for key in ["harness", "model"] {
+        // `requestId` too: that machine's fork is the one a retry finds (`hub/fork_request.rs`).
+        for key in ["harness", "model", "mode", "subagentId", "requestId"] {
             if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
@@ -209,12 +238,17 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         // Only this canonical operation may mint the internal boundary. All guards still run.
         return Ok(json!({"sessionId": session.id, "_meta": {"acpmux": mux}}));
     }
-    if params.get("requestId").is_some() {
-        return Err(crate::hub::fork_before::refused(
-            "fork.invalid_boundary",
-            "requestId requires beforePromptId",
-        ));
-    }
+    // Without a boundary, `requestId` names the fork itself: a retry gets the fork it made.
+    let request = match params.get("requestId") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(r)) if !r.trim().is_empty() && r.len() <= 512 => Some(r.clone()),
+        Some(_) => {
+            return Err(crate::hub::fork_before::refused(
+                "fork.invalid_request",
+                "requestId must be a nonempty string of at most 512 bytes",
+            ));
+        }
+    };
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
     let can_cut = {
         let harness = session.meta().harness;
@@ -231,10 +265,13 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
             }
         }
         // A pick of another harness's model, sent (`hub/fork.rs` `Retarget`).
-        for key in ["harness", "model"] {
+        for key in LIVE_ONLY {
             if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
+        }
+        if let Some(request) = &request {
+            mux.insert("requestId".into(), json!(request));
         }
         mux.insert("startLater".into(), json!(true));
         out.set("_meta", json!({"acpmux": mux}));
@@ -279,6 +316,9 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     mux.extend(cancel_token(params));
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
+    }
+    if let Some(request) = request {
+        mux.insert("requestId".into(), json!(request));
     }
     mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});
@@ -411,6 +451,7 @@ mod tests {
             &hub,
             web,
             false,
+            false,
             None,
             method::SESSION_FORK,
             &mut fork,
@@ -421,6 +462,7 @@ mod tests {
         let refused = super::super::remote_guard::web_starts_asking(
             &hub,
             web,
+            false,
             false,
             None,
             method::SESSION_FORK,
