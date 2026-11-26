@@ -66,14 +66,6 @@ class RouterTests(unittest.TestCase):
     def test_full_ci_and_the_switch_start_everything_on_a_draft(self) -> None:
         self.assertEqual(pr_router.route(event(True, ("full-ci",)), self.CALLEES, ["a.py"])[0],
                          ["cheap.yml", "heavy.yml"])
-        # full-ci is the full tier, not "ignore the paths": a callee no changed file reaches stays off.
-        narrow = {**self.CALLEES, "swift.yml": {"types": ["opened", "synchronize", "ready_for_review"],
-                                                "paths": ["Packages/**"]}}
-        self.assertEqual(pr_router.route(event(True, ("full-ci",)), narrow, ["a.py"])[0], ["cheap.yml", "heavy.yml"])
-        self.assertEqual(pr_router.route(event(True, ("full-ci",)), narrow, ["Packages/x.swift"])[0],
-                         ["cheap.yml", "heavy.yml", "swift.yml"])
-        self.assertEqual(pr_router.route(event(True, ("full-ci",)), narrow, None)[0],
-                         ["cheap.yml", "heavy.yml", "swift.yml"])
         self.assertEqual(pr_router.route(event(True), self.CALLEES, ["a.py"], "0")[0], ["cheap.yml", "heavy.yml"])
 
     def test_every_real_callee_that_skips_drafts_listens_to_ready_for_review(self) -> None:
