@@ -161,20 +161,6 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     control: { type: "bool", on: "On", off: "Off" },
     default: true,
   },
-  {
-    key: "coderouter.surface",
-    section: "pages",
-    label: "CodeRouter page",
-    help: "Opens the CodeRouter app as the React page. New tabs use it.",
-    control: {
-      type: "choice",
-      options: [
-        { value: "native", title: "Native (Swift page)" },
-        { value: "web", title: "Web (React page)" },
-      ],
-    },
-    default: "native",
-  },
 ];
 
 const UNIT_TEXT: Record<string, (value: number) => string> = {
