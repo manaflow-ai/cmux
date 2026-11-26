@@ -154,6 +154,24 @@ def test_a_feed_with_an_unbound_cmux_prefix_is_read():
         assert refused.returncode == 1 and "unbound" not in refused.stderr, refused.stderr
 
 
+def test_published_source_before_and_published_at_read_the_item_below_and_its_time():
+    ns = ' xmlns:cmux="https://cmux.com/xml-namespaces/cmux"'
+    feed_text = appcast("100", "200", "300").replace(
+        "<item><sparkle:version>100", f"<item><cmux:sourceCommit{ns}>{'a' * 40}</cmux:sourceCommit><sparkle:version>100").replace(
+        "<item><sparkle:version>200", "<item><sparkle:version>200").replace(
+        "<item><sparkle:version>300", f"<item><pubDate>Thu, 26 Nov 2026 04:12:09 +0100</pubDate>"
+        f"<cmux:sourceCommit{ns}>{'c' * 40}</cmux:sourceCommit><sparkle:version>300")
+    with tempfile.TemporaryDirectory() as d:
+        feed = write(d, "f.xml", feed_text)
+        assert run("published-source", "--feed", feed).stdout.strip() == "c" * 40
+        # 200 names no source, so the commit published before 300 is 100's.
+        assert run("published-source", "--feed", feed, "--before", "300").stdout.strip() == "a" * 40
+        assert run("published-source", "--feed", feed, "--before", "100").stdout.strip() == ""
+        assert run("published-at", "--feed", feed, "--build", "300").stdout.strip() == "2026-11-26 03:12 UTC"
+        assert run("published-at", "--feed", feed, "--build", "400").stdout.strip() == ""
+        assert run("published-at", "--feed", feed, "--build", "x").returncode == 1
+
+
 def test_unreadable_feed_is_refused():
     with tempfile.TemporaryDirectory() as d:
         broken = write(d, "broken.xml", "<rss")

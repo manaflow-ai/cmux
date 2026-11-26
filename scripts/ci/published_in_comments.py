@@ -51,8 +51,17 @@ def pr_numbers(subjects: list[str]) -> list[int]:
     return seen
 
 
-def build_line(name: str, url: str, sha: str) -> str:
+def build_line(name: str, url: str, sha: str, at: str = "") -> str:
+    """One build's line. With `at` (the UTC publish time) it reads "Shipped in NIGHTLY <build> at <time>"."""
+    if at:
+        return f"- Shipped in [{name}]({url}) at {at} (`{sha[:10]}`)"
     return f"- [{name}]({url}) (`{sha[:10]}`)"
+
+
+def same_build(item: str, line: str) -> bool:
+    """Whether `item` is an older wording of `line`'s build (same name and link, another time or sha)."""
+    key = line.split(") at ", 1)[0] + ") at " if line.startswith("- Shipped in [") and ") at " in line else ""
+    return bool(key) and item != line and item.startswith(key)
 
 
 def updated_body(existing: str | None, line: str) -> str | None:
@@ -71,6 +80,11 @@ def publication_text(comments: list[dict], line: str, previous: str = "") -> str
     bodies += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
     lines = list(dict.fromkeys(item for body in bodies for item in body.splitlines()
                               if item.startswith("- ")))
+    # A build's line is edited in place: a rerun with another time replaces it where it stands.
+    for index, item in enumerate(lines):
+        if same_build(item, line):
+            lines[index] = line
+    lines = list(dict.fromkeys(lines))
     if line not in lines:
         lines.append(line)
     return "Shipped in:\n" + "\n".join(lines)
@@ -315,6 +329,7 @@ def main() -> int:
     parser.add_argument("--head", required=True, help="the commit this build published")
     parser.add_argument("--name", required=True, help="build name shown in the comment, e.g. 'v0.66.0'")
     parser.add_argument("--url", required=True, help="release page for the build")
+    parser.add_argument("--at", default="", help="UTC publish time shown in the line, e.g. '2026-11-26 03:12 UTC'")
     parser.add_argument("--max", type=int, default=1000, help="comment on no PR when the span has more than this many")
     parser.add_argument("--pause", type=float, default=7.5, help="seconds between comment writes (500 an hour)")
     parser.add_argument("--dry-run", action="store_true", help="print what would be posted")
@@ -328,7 +343,7 @@ def main() -> int:
     if len(numbers) > args.max:
         print(f"published-in: {len(numbers)} PRs in the span, over --max {args.max}; commenting on none", file=sys.stderr)
         return 0
-    line = build_line(args.name, args.url, args.head)
+    line = build_line(args.name, args.url, args.head, args.at)
     if args.dry_run:
         existing, unreadable = {}, set()
     else:

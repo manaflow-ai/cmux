@@ -28,6 +28,19 @@ class PublishedInTests(unittest.TestCase):
         subjects = ["fix: a (#12)", "feat: b (#11)", "revert fix: a (#12)", "safe-push train", "mentions (#9) mid subject", "c (#10) "]
         self.assertEqual(module.pr_numbers(subjects), [12, 11, 10])
 
+    def test_a_nightly_line_names_build_and_time_and_is_edited_in_place(self):
+        url = "https://x/releases/tag/nightly-next"
+        older = module.build_line("v1", "https://x/v1", "c" * 40)
+        first = module.build_line("NIGHTLY 2026112601", url, "a" * 40, "2026-11-26 03:12 UTC")
+        self.assertEqual(first, f"- Shipped in [NIGHTLY 2026112601]({url}) at 2026-11-26 03:12 UTC (`{'a' * 10}`)")
+        rerun = module.build_line("NIGHTLY 2026112601", url, "a" * 40, "2026-11-26 04:00 UTC")
+        later = module.build_line("NIGHTLY 2026112602", url, "b" * 40, "2026-11-26 09:00 UTC")
+        comments = [{"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + older + "\n" + first + "\n" + later}),
+                     "user": {"login": "github-actions[bot]"}}]
+        self.assertFalse(module.already_noted(comments, rerun))
+        self.assertEqual(module.publication_text(comments, rerun), "Shipped in:\n" + "\n".join([older, rerun, later]))
+        self.assertTrue(module.already_noted(comments, first))
+
     def test_publication_lines_preserved_in_shared_status(self):
         nightly = module.build_line("nightly-next 2026101901", "https://x/n", "a" * 40)
         stable = module.build_line("v0.66.0", "https://x/v", "b" * 40)

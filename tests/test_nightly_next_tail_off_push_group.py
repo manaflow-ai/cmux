@@ -163,7 +163,14 @@ else:
     upload_at = next((i for i, s in enumerate(steps) if "upload-artifact" in str(s.get("uses", ""))
                       and str((s.get("with") or {}).get("name", "")) == "nightly-published-build-${{ github.run_attempt }}"),
                      None)
-    ask = [(i, str(s.get("run", ""))) for i, s in enumerate(steps) if "gh workflow run" in str(s.get("run", ""))]
+    def run_text(step):
+        # A run block moved to scripts/ci/nightly-steps/ (nightly.yml's size budget) is read from its script.
+        text = str(step.get("run", ""))
+        for script in re.findall(r"scripts/ci/nightly-steps/[\w.-]+\.sh", text):
+            if (ROOT / script).is_file():
+                text += "\n" + (ROOT / script).read_text()
+        return text
+    ask = [(i, run_text(s)) for i, s in enumerate(steps) if "gh workflow run" in run_text(s)]
     if upload_at is None or not ask or upload_at > ask[0][0]:
         failures.append("dispatch-published-in must upload the record (nightly-published-build-<attempt>) "
                         "before it dispatches")
