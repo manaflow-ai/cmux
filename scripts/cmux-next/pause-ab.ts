@@ -27,15 +27,19 @@
  * `aggressive` with policy_refused set).
  *
  * The model stub listens on loopback. cmux-host's workload probe (cloud/workload.rs) counts any listening socket as
- * work that keeps a machine awake unless its owner is a system process, so the stub runs through a symlink to python3
- * named `cmux-tui-pab-stub` (a `cmux-tui` prefix): it stands in for a remote model endpoint and both arms get it.
+ * work that keeps a machine awake unless its owner's `comm` (/proc/<pid>/stat) is a system process. Run 45787132980
+ * showed the stub's comm is `python3` even through the `cmux-tui-pab-stub` link (ss agrees), so both arms were kept by
+ * {"why":"workload","ports":[<stub port>]} at every gap. As the cloud journey's idle walk does (cmux#58030), the drill
+ * stops the stub after each reply (stubStop: only the pid its launch recorded, while that pid still runs it) and starts
+ * it again on the same port at the front of the exec that carries the next message (stubRestart). It stands in for a
+ * remote model endpoint, which a real chat has off the machine.
  * At each gap's end the drill reads the host's idle decision (`cloud.machine.get`: paused, or idleHeldBy's clock and
  * `idle_kept` reason with ports) and, when the machine is awake, the guest's listeners with their owners, so a run
  * that never pauses names what kept it awake (summary.md "Idle decision per gap", the "idle decision per gap" step).
  *
  * Output (--out DIR): pause-ab.json (every machine's timeline, turns, resumes) and summary.md (one table row per arm:
  * awake s, paused s, resumes, mean resume ms), plus journey.json (steps). Every machine this run created is deleted
- * at the end, pass or fail; machines named `pause-ab-<tag>-...` whose tag is more than 3 hours old and idle for an
+ * at the end, pass or fail; machines named `pause-ab-<tag>-...` whose tag is more than 90 minutes old (PAUSE_AB_STALE_MS) and idle for an
  * hour (a killed run's) are swept before create. Any other name is never touched. Exit 0 only when no step failed.
  */
 import { randomBytes } from "node:crypto";
@@ -43,7 +47,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, IDLE_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, STALE_JOURNEY_MS, directExec, http,
+  Api, CHAT_START_SIZE, IDLE_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -164,8 +168,15 @@ export function markdownTable(rows: ArmRow[]): string {
   return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.turns_ok} |`)].join("\n");
 }
 
+/**
+ * How old a pause-ab tag is before its machines count as left behind: the workflow's job stops at 60 minutes
+ * (timeout-minutes in pause-ab.yml), so a tag 90 minutes old belongs to no live CI run. The cloud journey's 3 h
+ * (STALE_JOURNEY_MS) let a killed run's machine (pause-ab-mwx9ibyh, 08:00Z) outlive the next run at 09:38Z.
+ */
+export const PAUSE_AB_STALE_MS = 90 * 60_000;
+
 /** Machines an earlier pause-ab run left behind: our name shape, tag older than maxAgeMs, idle for an hour. */
-export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): { id: string; name: string }[] {
+export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS): { id: string; name: string }[] {
   const out: { id: string; name: string }[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
@@ -182,6 +193,32 @@ export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = STAL
 
 const STUB_DIR = "/home/cmux/.cmux";
 const STUB_LINK = `${STUB_DIR}/cmux-tui-pab-stub`;
+const STUB_PID = `${STUB_DIR}/pab-model-stub.pid`;
+
+/**
+ * Stops the model stub for an idle gap: its loopback listener is workload (comm `python3`) that holds the idle clock.
+ * Only the pid its launch recorded, while that pid still runs pab-model-stub.py; prints `@@stopped PORT`.
+ */
+export function stubStop(dir = STUB_DIR): string {
+  const d = `${dir}/pab-model-stub`;
+  return (
+    `p=$(cat ${d}.pid 2>/dev/null); ` +
+    `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${d}.ready 2>/dev/null); ` +
+    `{ [ -n "$p" ] && [ -n "$port" ] && grep -qa pab-model-stub.py "/proc/$p/cmdline" 2>/dev/null; } || { echo "@@nostub"; exit 1; }; ` +
+    `kill "$p"; for i in $(seq 50); do [ -d "/proc/$p" ] || break; sleep 0.2; done; ` +
+    `[ -d "/proc/$p" ] && { echo "@@stuck $p"; exit 1; }; echo "@@stopped $port"`
+  );
+}
+
+/** The stub again on the port Claude Code's settings still name, as the front of the exec that sends the next message. */
+export function stubRestart(port: number, nonce: string, dir = STUB_DIR): string {
+  const d = `${dir}/pab-model-stub`;
+  return (
+    `rm -f ${d}.ready; (nohup ${dir}/cmux-tui-pab-stub ${d}.py --port ${port} --script ${d}.json --nonce ${shq(nonce)} --log ${d}.log --ready-file ${d}.ready >>${d}.log.out 2>&1 & echo $! >${d}.pid); ` +
+    `for i in $(seq 50); do [ -s ${d}.ready ] && break; sleep 0.2; done; ` +
+    `[ -s ${d}.ready ] || { echo "@@stub-down"; tail -5 ${d}.log.out; exit 1; }; `
+  );
+}
 
 /** Starts the model stub (through the cmux-tui-named python3 link) and points Claude Code's settings at it. */
 function stubStartCommand(nonce: string): string {
@@ -190,7 +227,7 @@ function stubStartCommand(nonce: string): string {
   const ready = `${STUB_DIR}/pab-model-stub.ready`;
   const log = `${STUB_DIR}/pab-model-stub.log`;
   return `mkdir -p ${STUB_DIR}; ln -sf "$(command -v python3)" ${STUB_LINK}; rm -f ${shq(ready)}; ` +
-    `(nohup ${STUB_LINK} ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(log)} --ready-file ${shq(ready)} >${shq(log)}.out 2>&1 &); ` +
+    `(nohup ${STUB_LINK} ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(log)} --ready-file ${shq(ready)} >${shq(log)}.out 2>&1 & echo $! >${STUB_PID}); ` +
     `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
     `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
     `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(log)}.out; exit 1; }; ` +
@@ -400,6 +437,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error("no reply within 240 s");
     };
+    // The port of the model stub stopped for the last gap (stubStop), started again with the next message.
+    let stubPort = 0;
     for (let i = 0; i < turnCount; i++) {
       const turn: MachineResult["turns"][number] = { turn: i + 1, gap_s: gaps[i], resumed: false, resume_ms: null, reply_ms: null };
       r.turns.push(turn);
@@ -411,7 +450,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const s = await exec(`${GUEST}${launchCredentialStartProgram(session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`, 120_000);
           if (!/@@prompted/.test(s.stdout)) throw new Error(`session start: ${s.stdout.slice(-300)}`);
         } else {
-          const s = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+          const pre = stubPort ? stubRestart(stubPort, nonce) : "";
+          const s = await exec(`${pre}${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+          stubPort = 0;
           if (!/@@exit 0/.test(s.stdout)) throw new Error(`send: ${s.stdout.slice(-300)}`);
         }
         turn.reply_ms = await awaitReply(marker);
@@ -427,6 +468,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           r.daemon_version = info.daemon.version ?? null;
         }
       }
+      // The stub's listener would hold the idle clock for the whole gap: stop it, restart it with the next message.
+      const st = await exec(stubStop(), 30_000).catch((e: Error) => ({ stdout: `stop failed: ${e.message.slice(0, 120)}` }));
+      stubPort = Number(/@@stopped (\d+)/.exec(st.stdout)?.[1] ?? 0);
+      if (!stubPort) turn.error = `${turn.error ? `${turn.error}; ` : ""}model stub not stopped for the gap: ${st.stdout.slice(-160)}`;
       await sleep(gaps[i] * 1000);
       // The host's idle decision at the gap's end: paused, or why not (idle_kept: workload ports, sessions, clock).
       // The listener read execs on the guest, so it runs only when the machine is awake anyway and a turn follows.
