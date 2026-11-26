@@ -30,6 +30,8 @@ Behaviour per prompt text:
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
   "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
   "steps"      -> a finished tool call every 150 ms until session/cancel (see FAKE_STEPS_IN)
+  "work-for: S" -> a finished tool call each second for S seconds of wall clock, titled "tick N at
+                 <unix ms>", then "worked S s" and end_turn; a session/cancel ends it cancelled
   "tool-then-cancel: <p>" -> a running tool call tc-1 until a write to FIFO <p>, its result, then
                  as "until-cancel" (a turn a move may stop between its tool calls)
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
@@ -1773,9 +1775,8 @@ def handle_prompt(rid, params):
     # usage tick; then a chunk with no messageId, a thought and a tool call the person sees,
     # and another chunk with none. acpmux stamps one segment per message, ended also where the pane
     # cuts the row (hub/stream.rs `cuts_reply`).
-    # "reply-checklist" streams one message (m1) across the turn's first TodoWrite call and first
-    # plan, where the pane cuts the row, then across a second TodoWrite and plan update, which the
-    # pane hides behind the checklist; a cleared list and a new plan cut again.
+    # "reply-checklist" streams one message (m1) across TodoWrite calls and plans, cleared and new:
+    # acpmux drops each (todo_tools.rs), so none cuts the row.
     if text == "reply-checklist":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         todo = lambda n: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"todo-{n}", "title": "TodoWrite", "kind": "other", "status": "completed", "_meta": {"claude": {"tool": "TodoWrite"}}})
@@ -1796,9 +1797,9 @@ def handle_prompt(rid, params):
         chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
-    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
-    # the message one row and acpmux one segment (#41540 review F1).
+    # "reply-checklist-ticks" sends a plan, then streams one message (m1) across a usage tick, a
+    # call's update and another plan: none is a new turn, so the pane keeps the message one row
+    # and acpmux one segment (#41540 review F1).
     if text == "reply-checklist-ticks":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         step = [{"content": "step", "status": "pending", "priority": "medium"}]
@@ -1810,9 +1811,9 @@ def handle_prompt(rid, params):
         chunk("b")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
-    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
-    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls and their
+    # results, which acpmux drops (todo_tools.rs): a | call 1 | b | its result | c | call 2 | d |
+    # its result | e (#41540 review F2).
     if text == "reply-dsh-todo":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         todos = lambda status: {"todos": [{"content": "step", "status": status}]}
@@ -2027,6 +2028,31 @@ def handle_prompt(rid, params):
                 os.close(fd)
             time.sleep(0.13)
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "stepped"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "work-for: S" is a task that takes S seconds of wall clock (RFD 0135's lid-close gate): one
+    # finished tool call a second, each titled with the unix ms it ran at, so a reader can tell
+    # whether the work went on through a window or stopped in it. A session/cancel ends it.
+    if text.startswith("work-for:"):
+        seconds = float(text.split(":", 1)[1].strip() or "0")
+        deadline, n = time.monotonic() + seconds, 0
+        while time.monotonic() < deadline:
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            call = f"tick-{os.getpid()}-{n}"
+            at = int(time.time() * 1000)
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": f"tick {n} at {at}",
+                         "kind": "execute", "status": "in_progress"})
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed",
+                         "rawOutput": f"tick {n} at {at}"})
+            n += 1
+            time.sleep(max(0.0, min(1.0, deadline - time.monotonic())))
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": f"worked {seconds:g} s"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
