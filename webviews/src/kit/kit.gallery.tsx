@@ -79,6 +79,11 @@ function Primitives({ scheme }: { scheme: Scheme }) {
           title="Inbox"
           leading={<Icon name="inbox" size={16} row />}
           trailing={<Pill size="sm">12</Pill>}
+          hoverActions={
+            <Button variant="ghost" size="sm" icon aria-label="Pin Inbox" onClick={() => setLast("pin")}>
+              <Icon name="action.pin" size={16} />
+            </Button>
+          }
           selected={picked === "inbox"}
           onSelect={() => setPicked("inbox")}
         />
