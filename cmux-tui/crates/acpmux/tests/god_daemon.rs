@@ -2207,6 +2207,13 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
 /// coordinator stress sim's generator, `cmux-tui/crates/coord-sim`, one Claude coordinator drawn
 /// from real sessions' histograms), else [`chat_size_fixture`]'s. Its home, what was written, and
 /// which source wrote it.
+/// The seq of the chat's saved restore point (`hub/restore_point.rs`), none when it has none: a
+/// restart's load reads only past it, so a point behind the log's end is what it reads again.
+fn restore_point_seq(home: &Path, id: &str) -> Option<u64> {
+    let bytes = std::fs::read(home.join("sessions").join(id).join("restore-point.json")).ok()?;
+    serde_json::from_slice::<Value>(&bytes).ok()?["seq"].as_u64()
+}
+
 fn write_size_chat(
     scratch: &Path,
     bytes: u64,
@@ -2396,12 +2403,14 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    let point_before_stop = restore_point_seq(&home, &id);
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
+    let point_at_restart = restore_point_seq(&home, &id);
     // With `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) the restarted daemon records its heap: what
     // it holds at its peak is what `restartPeakRss` grows by.
     let restart_profile = std::env::var_os("ACPMUX_GOD_DHAT")
@@ -2478,6 +2487,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss, "restartHeap": restart_heap,
+        "restorePointSeq": {"beforeStop": point_before_stop, "atRestart": point_at_restart,
+                            "lastSeq": last_before_restart},
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),

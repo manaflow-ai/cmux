@@ -512,6 +512,7 @@ pub use idle_census::{Sidecar, StoredLaunch};
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub use list_guard::{RequestHold, RequestStage};
 pub(crate) use log_load::AdoptionReady;
+pub(crate) use log_load::phase_note; // TEMP-PHASE
 #[cfg(debug_assertions)]
 pub(crate) use log_load::test_hold;
 #[cfg(test)]
