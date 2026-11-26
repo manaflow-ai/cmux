@@ -898,7 +898,7 @@ pub(crate) struct MachineLimit {
     pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
-/// A running turn's keep check: its key, session shape, and view identity.
+/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
 type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
 
 pub struct Brain {
