@@ -64,8 +64,8 @@ scripts/review-history.py cluster --cache review-history.jsonl > clusters.md
 
 ## 4. Localization and user-facing text (315)
 
-- **Every new user-facing string goes through the catalog with every supported locale filled
-  in.** "Add translations for every catalog locale" is the single most repeated fix in the
+- **Every new user-facing string goes through the catalog with English and Japanese filled in;
+  the `localization-fill` workflow fills the other locales on main.** "Add translations for every catalog locale" is the single most repeated fix in the
   history (#13302, #15677, #16669, #20066 and dozens more). The
   [localization skill](skills/cmux-localization/SKILL.md) has the procedure.
 - **No English copied into other locales as a placeholder** (#13300), and no hard-coded English in
