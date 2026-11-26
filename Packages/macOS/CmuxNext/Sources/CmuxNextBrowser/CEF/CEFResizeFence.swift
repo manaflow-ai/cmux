@@ -81,10 +81,18 @@ final class CEFResizeFences {
                 await fence.expire()
             }
         }
+        // The step and open time of the fence, for a page that reports after the fence itself is gone.
+        let (step, opened) = (fence.step, fence.opened)
         let done: @MainActor (Bool) -> Void = { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
-            guard let fence else { return }
-            fence.note("fence_page", presented ? " presented=1" : " presented=0")
+            let outcome = presented ? " presented=1" : " presented=0"
+            guard let fence else {
+                // The fence went before this page reported (its deadline, then its bookkeeping): the step log still
+                // counts the page, `late=1` (its time since the fence opened, when the main thread heard of it).
+                CEFResizeFence.note(step: step, opened: opened, "fence_page", outcome + " late=1")
+                return
+            }
+            fence.note("fence_page", outcome + (fence.dropped ? " late=1" : ""))
             fence.outstanding -= 1
             if fence.outstanding <= 0, fence.sealed { fence.drop() }
         }
@@ -164,6 +172,12 @@ final class CEFResizeFence {
     /// A fact of this fence for its step's log (`fence_page`, `fence_released`): the time since it opened, to `at`
     /// (uptime ns; now by default).
     fileprivate func note(_ phase: String, _ detail: String, at: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        Self.note(step: step, opened: opened, phase, detail, at: at)
+    }
+
+    /// A fence's fact for the step log, given the fence's step and open time (nil step: the log was not streaming).
+    fileprivate static func note(step: UInt64?, opened: UInt64, _ phase: String, _ detail: String,
+                                 at: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         guard let step else { return }
         ResizeStepTimes.note(phase, ms: Double(at &- opened) / 1_000_000, step: step, detail: detail)
     }
