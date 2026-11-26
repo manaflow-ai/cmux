@@ -235,7 +235,7 @@
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
 /* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
-.acpmux-composer-list-layer{position:absolute;pointer-events:none}
+.acpmux-composer-list-layer{position:absolute;z-index:var(--layer-dropdown,50);pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
 /* In its layer a list takes the box's corner (--composer-list-radius), padded so its rows' corners are concentric with it, and no more height than the room on its side of the box (--composer-list-room); below the box when only that side has room (data-side, listPlacement.ts). David Beyer 2026-11-20: New Tab's / list ran over the screen's edge in 8 px corners on a 20 px box. */
 .acpmux-composer-list-layer>.acpmux-slash-menu{--composer-list-gap:6px;--composer-list-r:var(--composer-list-radius,var(--ui-popup-radius));--ui-popup-padding:max(4px,calc(var(--composer-list-r) * 6 / 20),calc(var(--composer-list-r) - var(--ui-row-height) / 2));--ui-row-radius:max(4px,min(calc(var(--composer-list-r) - var(--ui-popup-padding)),calc(var(--ui-row-height) / 2)));border-radius:var(--composer-list-r);max-height:min(var(--popup-scroll-cap),var(--composer-list-room,50vh))}
