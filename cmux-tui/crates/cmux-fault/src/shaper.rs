@@ -13,10 +13,12 @@
 //!   line), which is what an app over TCP sees;
 //! - **loss**: a segment is lost with `loss_percent`; a lost segment arrives one retransmission
 //!   timeout later (`max(rto_min_ms, 2 * rtt_ms)`, doubling while the retransmission is lost too);
-//! - **blackout** ([`Shaper::blackout`]): nothing arrives for the window; a segment sent into it
-//!   arrives at the first retransmission after it ends, on TCP's doubling backoff (so a 30 s
-//!   blackout can cost far more than 30 s, as it does on a phone), and a new connection's SYN
-//!   backs off from 1 s the same way;
+//! - **blackout** ([`Shaper::blackout`]): nothing arrives for the window. Each connection keeps
+//!   one retransmission timer per direction, as TCP does (RFC 6298 5.1): it starts when the first
+//!   segment goes into the dark and doubles from there, and the first try after the window ends
+//!   carries that segment; the rest of the backlog, and anything sent while the timer was still
+//!   backing off, follows it at the link's rate (so a 30 s blackout can cost far more than 30 s,
+//!   as it does on a phone). A new connection's SYN backs off from 1 s the same way;
 //! - **address change** ([`Shaper::address_change`]): the phone's address changes, so every live
 //!   connection goes silent for good (no reset reaches the phone: its peer's packets go to the
 //!   old address) and new connections stall for the profile's handoff stall, then flow;
@@ -204,10 +206,30 @@ impl Link {
         index < self.orphaned_below || (path == Route::Internet && self.internet_down)
     }
 
-    /// When a segment sent at `sent` arrives: its serialization, the delay, jitter, loss and a
+    /// When a segment sent now arrives: [`Link::schedule_at`].
+    fn schedule(
+        &mut self,
+        bytes: usize,
+        down: bool,
+        rng: &mut Rng,
+        floor: Instant,
+        recovery: &mut Option<Recovery>,
+    ) -> Instant {
+        self.schedule_at(Instant::now(), bytes, down, rng, floor, recovery)
+    }
+
+    /// When a segment sent at `now` arrives: its serialization, the delay, jitter, loss and a
     /// blackout's retransmission backoff, never before `floor` (TCP's in-order delivery).
-    fn schedule(&mut self, bytes: usize, down: bool, rng: &mut Rng, floor: Instant) -> Instant {
-        let now = Instant::now();
+    /// `recovery` is the direction's one retransmission timer through a blackout.
+    fn schedule_at(
+        &mut self,
+        now: Instant,
+        bytes: usize,
+        down: bool,
+        rng: &mut Rng,
+        floor: Instant,
+        recovery: &mut Option<Recovery>,
+    ) -> Instant {
         let lane = usize::from(down);
         let free_at = lane_mut(&mut self.free_at, lane);
         let start = (*free_at).max(now);
@@ -223,20 +245,34 @@ impl Link {
             arrive += rto;
             rto = (rto * 2).min(RTO_MAX);
         }
-        if let Some((from, until)) = self.dark {
-            // Sent into the dark (or still on the air when it fell): retransmitted on the
-            // doubling ladder from when it left until a try lands after the window.
-            if left < until && arrive > from {
-                let mut retry = left.max(from) + self.profile.rto();
-                let mut rto = self.profile.rto();
-                while retry < until {
-                    rto = (rto * 2).min(RTO_MAX);
-                    retry += rto;
-                }
-                arrive = retry + self.profile.one_way();
+        if let Some(window @ (from, until)) = self.dark {
+            // The connection's timer through this window, if a segment already started it.
+            let held = recovery.filter(|timer| timer.window == window).map(|timer| timer.drain);
+            // Sent into the dark (or still on the air when it fell), or sent while the timer is
+            // still backing off (cwnd is down to one segment: nothing new goes out before the
+            // retransmission lands).
+            if (left < until && arrive > from) || held.is_some_and(|drain| left < drain) {
+                // The first such segment starts the one timer; the first try after the window
+                // carries it, and the backlog drains behind it at the link's rate.
+                let start = held.unwrap_or_else(|| self.retry_after(left.max(from), until));
+                let sent = start.max(left) + self.profile.serialize(bytes, down);
+                *recovery = Some(Recovery { window, drain: sent });
+                arrive = sent + self.profile.one_way();
             }
         }
         arrive.max(floor)
+    }
+
+    /// The first try on the doubling ladder from a timer started at `started` that lands at or
+    /// after `until`.
+    fn retry_after(&self, started: Instant, until: Instant) -> Instant {
+        let mut rto = self.profile.rto();
+        let mut retry = started + rto;
+        while retry < until {
+            rto = (rto * 2).min(RTO_MAX);
+            retry += rto;
+        }
+        retry
     }
 
     /// When a new connection's handshake completes, or `None` while the link is dark for good.
@@ -259,6 +295,14 @@ impl Link {
         }
         at
     }
+}
+
+/// One direction's retransmission timer through a blackout: TCP keeps one per connection, not
+/// one per segment (#59268). `drain` is when the radio is free behind the backlog it carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Recovery {
+    window: (Instant, Instant),
+    drain: Instant,
 }
 
 fn lost(rng: &mut Rng, percent: f64) -> bool {
@@ -560,6 +604,7 @@ async fn direction(
     let reader = async move {
         let mut buffer = vec![0_u8; 64 * 1024];
         let mut floor = Instant::now();
+        let mut recovery = None;
         loop {
             let read = tokio::select! {
                 read = from.read(&mut buffer) => read,
@@ -581,7 +626,7 @@ async fn direction(
                     if link.silent(index, path) {
                         None
                     } else {
-                        Some(link.schedule(segment.len(), down, &mut rng, floor))
+                        Some(link.schedule(segment.len(), down, &mut rng, floor, &mut recovery))
                     }
                 };
                 // An orphaned connection's bytes go to an address that is gone, a dead path's
@@ -609,192 +654,5 @@ pub(crate) fn lane_mut<T>(pair: &mut [T; 2], lane: usize) -> &mut T {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Disruption, ProfileFile, Shaper};
-    use crate::trace::Trace;
-    use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpListener, TcpStream};
-
-    async fn echo_server() -> std::net::SocketAddr {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = listener.accept().await {
-                tokio::spawn(async move {
-                    let mut buffer = vec![0_u8; 64 * 1024];
-                    while let Ok(n) = socket.read(&mut buffer).await {
-                        if n == 0 || socket.write_all(&buffer[..n]).await.is_err() {
-                            return;
-                        }
-                    }
-                });
-            }
-        });
-        addr
-    }
-
-    async fn round_trip(stream: &mut TcpStream, bytes: usize) -> Duration {
-        let started = std::time::Instant::now();
-        stream.write_all(&vec![7_u8; bytes]).await.unwrap();
-        let mut answer = vec![0_u8; bytes];
-        stream.read_exact(&mut answer).await.unwrap();
-        started.elapsed()
-    }
-
-    #[test]
-    fn every_profile_parses_and_names_its_source() {
-        let file = ProfileFile::builtin();
-        assert!(
-            file.profiles.len() >= 11,
-            "{:?}",
-            file.profiles.iter().map(|p| &p.name).collect::<Vec<_>>()
-        );
-        for name in [
-            "good-wifi",
-            "lte",
-            "5g-lte-handoff",
-            "lossy-3",
-            "lossy-10",
-            "elevator-30s",
-            "2g-trickle",
-            "lan",
-            "relay-30",
-            "relay-80",
-            "internet-down-lan-up",
-        ] {
-            let profile = file.get(name).unwrap_or_else(|| panic!("no profile {name}"));
-            assert!(!profile.source.is_empty(), "{name} cites no source");
-        }
-    }
-
-    #[tokio::test]
-    async fn the_lte_link_costs_its_round_trip_and_rate() {
-        let profile = ProfileFile::builtin().get("lte").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-        let small = round_trip(&mut client, 10).await;
-        assert!(small >= Duration::from_millis(70), "{small:?}");
-        assert!(small < Duration::from_millis(400), "{small:?}");
-        // 120 kB at 12 Mbit/s is 80 ms on the air; the echo answers each segment as it lands, so
-        // the two ways overlap: about 80 ms plus the 70 ms round trip.
-        let big = round_trip(&mut client, 120_000).await;
-        assert!(big >= Duration::from_millis(145), "{big:?}");
-        let counters = shaper.counters();
-        assert_eq!(counters.up_bytes, 120_010);
-        assert_eq!(counters.down_bytes, 120_010);
-    }
-
-    #[tokio::test]
-    async fn a_relay_hop_adds_its_round_trip_behind_the_phone_link() {
-        let file = ProfileFile::builtin();
-        let lte = file.get("lte").unwrap().clone();
-        let relay = file.get("relay-80").unwrap();
-        assert_eq!(lte.label(None), "lte@1");
-        assert_eq!(lte.label(Some(relay)), "lte@1+relay-80@1");
-        let (shaper, hop) =
-            Shaper::start_through(echo_server().await, lte, Some(relay), 1, &Trace::new())
-                .await
-                .unwrap();
-        let hop = hop.expect("the relay hop");
-        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-        let took = round_trip(&mut client, 10).await;
-        // 70 ms on the phone's link and 80 ms on the relay's.
-        assert!(took >= Duration::from_millis(150), "{took:?}");
-        assert!(took < Duration::from_millis(600), "{took:?}");
-        // Both hops carried the same bytes; each counts its own.
-        assert_eq!(shaper.counters().up_bytes, 10);
-        assert_eq!(hop.counters().down_bytes, 10);
-    }
-
-    #[tokio::test]
-    async fn a_blackout_holds_bytes_until_a_retransmission_after_it() {
-        let profile = ProfileFile::builtin().get("lte").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut client, 10).await;
-        shaper.blackout(Duration::from_millis(500));
-        let took = round_trip(&mut client, 10).await;
-        // 200 ms RTO doubling from the send: 200, 600 (past 500) and the one-way delay.
-        assert!(took >= Duration::from_millis(600), "{took:?}");
-        assert!(took < Duration::from_millis(1_500), "{took:?}");
-    }
-
-    #[tokio::test]
-    async fn an_address_change_silences_live_connections_and_stalls_new_ones() {
-        let profile = ProfileFile::builtin().get("5g-lte-handoff").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut old = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut old, 10).await;
-        let flows = shaper.address_change(Some(Duration::from_millis(1_500)));
-        old.write_all(b"ping").await.unwrap();
-        let mut answer = [0_u8; 4];
-        let silent =
-            tokio::time::timeout(Duration::from_millis(800), old.read_exact(&mut answer)).await;
-        assert!(silent.is_err(), "the old connection answered");
-        // Dialed inside the stall: its first round trip lands only after the stall ends.
-        let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut new, 10).await;
-        let now = tokio::time::Instant::now();
-        assert!(now >= flows, "answered {:?} before the stall ended", flows - now);
-    }
-
-    #[tokio::test]
-    async fn internet_down_kills_the_internet_path_and_leaves_the_lan() {
-        let file = ProfileFile::builtin();
-        let profile = file.get("internet-down-lan-up").unwrap().clone();
-        assert_eq!(profile.disruption, Some(Disruption::InternetDown));
-        assert!(!profile.disrupts_lan());
-        assert!(file.get("elevator-30s").unwrap().disrupts_lan());
-        let lan_numbers = file.get("lan").unwrap();
-        assert_eq!(
-            (profile.up_kbit, profile.down_kbit, profile.rtt_ms),
-            (lan_numbers.up_kbit, lan_numbers.down_kbit, lan_numbers.rtt_ms)
-        );
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let internet_addr = shaper.open_internet_path(echo_server().await).await.unwrap();
-        let mut lan = TcpStream::connect(shaper.addr()).await.unwrap();
-        let mut internet = TcpStream::connect(internet_addr).await.unwrap();
-        round_trip(&mut lan, 10).await;
-        round_trip(&mut internet, 10).await;
-
-        let back = shaper.disrupt().unwrap();
-        assert!(back <= tokio::time::Instant::now(), "the LAN link never drops");
-        // The live internet connection goes silent.
-        internet.write_all(b"ping").await.unwrap();
-        let mut answer = [0_u8; 4];
-        let silent =
-            tokio::time::timeout(Duration::from_millis(300), internet.read_exact(&mut answer))
-                .await;
-        assert!(silent.is_err(), "the dead internet path answered");
-        // A new internet connection is refused: closed with nothing through.
-        let mut refused = TcpStream::connect(internet_addr).await.unwrap();
-        let _ = refused.write_all(b"ping").await;
-        let read =
-            tokio::time::timeout(Duration::from_secs(2), refused.read(&mut answer)).await.unwrap();
-        assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
-        // The LAN keeps flowing, live and new, at its own numbers.
-        let took = round_trip(&mut lan, 10).await;
-        assert!(took >= Duration::from_millis(4), "{took:?}");
-        assert!(took < Duration::from_millis(200), "{took:?}");
-        let mut fresh = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut fresh, 10).await;
-    }
-
-    #[tokio::test]
-    async fn one_seed_is_one_link() {
-        async fn run(seed: u64) -> Vec<u128> {
-            let profile = ProfileFile::builtin().get("lossy-10").unwrap().clone();
-            let shaper =
-                Shaper::start(echo_server().await, profile, seed, &Trace::new()).await.unwrap();
-            let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-            let mut took = Vec::new();
-            for _ in 0..6 {
-                // Rounded to 50 ms: the scheduler's own wake-up noise is below it.
-                took.push((round_trip(&mut client, 3_000).await.as_millis() + 25) / 50);
-            }
-            took
-        }
-        assert_eq!(run(9).await, run(9).await);
-    }
-}
+#[path = "shaper_tests.rs"]
+mod tests;

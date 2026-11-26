@@ -90,6 +90,7 @@
     "closed.delete",
     "closed.list",
     "closed.reopen",
+    "cloud.allotment.get",
     "cloud.auth.status",
     "cloud.browser.open",
     "cloud.environment.list",
