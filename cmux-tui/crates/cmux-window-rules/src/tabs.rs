@@ -24,10 +24,10 @@ pub mod panes;
 pub mod place;
 #[path = "tabs_plus_menu.rs"]
 pub mod plus_menu;
-#[path = "tabs_type_ahead.rs"]
-pub mod type_ahead;
 #[path = "tabs_strip.rs"]
 pub mod strip;
+#[path = "tabs_type_ahead.rs"]
+pub mod type_ahead;
 
 // MARK: New tab kind
 
