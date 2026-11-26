@@ -117,6 +117,9 @@ public final class TerminalModel {
             syncAttachmentUploads()
         }
     }
+    /// The Mac folder captured with `uploader`. A terminal upload must not reuse
+    /// a pre-transfer after the shell changes directory.
+    @ObservationIgnored private var uploaderDirectory: String?
     @ObservationIgnored private let attachmentPrestager = ComposerAttachmentPrestager()
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
@@ -931,7 +934,8 @@ public final class TerminalModel {
             return
         }
         let pending = attachments
-        let claimed = attachmentPrestager.claim(pending)
+        let directory = uploaderDirectory
+        let claimed = attachmentPrestager.claim(pending, directory: directory)
         let attemptID = UUID()
         uploadAttemptID = attemptID
         isUploading = true
@@ -1029,7 +1033,15 @@ public final class TerminalModel {
             attachmentPrestager.cancelAll()
             return
         }
-        attachmentPrestager.sync(attachments, upload: uploader)
+        attachmentPrestager.sync(attachments, directory: uploaderDirectory, upload: uploader)
+    }
+
+    /// Updates the upload closure and its destination as one snapshot. The live
+    /// host calls this when its daemon tree publishes a new working directory.
+    public func setUploader(_ uploader: (@MainActor (LinkUpload.Payload, String) async throws -> String)?,
+                            directory: String?) {
+        uploaderDirectory = directory
+        self.uploader = uploader
     }
 
     // MARK: Key bar

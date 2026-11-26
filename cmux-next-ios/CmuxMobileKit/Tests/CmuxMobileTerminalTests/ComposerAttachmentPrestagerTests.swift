@@ -60,7 +60,7 @@ import UIKit
         try original.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let attachment = ComposerAttachment(kind: .image, name: "photo.jpg", fileURL: url, byteCount: original.count)
+        let attachment = ComposerAttachment(kind: .image, name: "photo.jpg", byteCount: original.count, fileURL: url)
         let transfer = try await attachment.transferPayload()
         guard case .data(let data) = transfer.payload else { Issue.record("image transfer was not data"); return }
         let resized = try #require(UIImage(data: data))
@@ -130,6 +130,19 @@ import UIKit
         prestager.sync([], upload: { _, name in try await probe.upload(name) })
         #expect(prestager.entries.isEmpty)
         #expect(task.isCancelled)
+    }
+
+    @Test func changingDirectoryRestartsTheEarlyUpload() async throws {
+        let probe = UploadProbe()
+        let prestager = ComposerAttachmentPrestager()
+        let file = attachment()
+        prestager.sync([file], directory: "/workspace/a", upload: { _, name in try await probe.upload(name) })
+        await probe.waitForStart()
+        let first = try #require(prestager.entries[file.id]?.task)
+
+        prestager.sync([file], directory: "/workspace/b", upload: { _, name in try await probe.upload(name) })
+        #expect(first.isCancelled)
+        #expect(prestager.entries[file.id]?.directory == "/workspace/b")
     }
 
     @Test func cancellingSendKeepsTheDraftAndTiles() async throws {

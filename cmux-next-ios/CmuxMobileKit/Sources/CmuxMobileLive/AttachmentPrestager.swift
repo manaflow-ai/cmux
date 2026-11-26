@@ -39,6 +39,7 @@ final class AttachmentPrestager {
         let started: ContinuousClock.Instant
         let directory: String?
         let signature: Signature
+        let token: UUID
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -78,24 +79,25 @@ final class AttachmentPrestager {
             let bytes = attachment.byteCount ?? attachment.data?.count ?? 0
             let started = ContinuousClock.now
             let signature = Self.signature(attachment)
+            let token = UUID()
             let task = Task<Result, any Error> { [weak self] in
                 do {
                     let result = try await upload(payload, name)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=true")
                     return result
                 } catch {
-                    await self?.removeFailed(id: attachment.id, signature: signature)
+                    await self?.removeFailed(id: attachment.id, token: token)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=false")
                     throw error
                 }
             }
             entries[attachment.id] = Entry(task: task, started: started, directory: directory,
-                                           signature: signature)
+                                           signature: signature, token: token)
         }
     }
 
-    private func removeFailed(id: String, signature: Signature) {
-        guard entries[id]?.signature == signature else { return }
+    private func removeFailed(id: String, token: UUID) {
+        guard entries[id]?.token == token else { return }
         entries[id] = nil
     }
 

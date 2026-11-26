@@ -6,7 +6,8 @@ import CmuxMobileTransport
 import UniformTypeIdentifiers
 
 /// Builds an orientation-correct transfer copy without decoding a full-resolution bitmap.
-package enum AttachmentImageEncoder {
+package struct AttachmentImageEncoder {
+    private init() {}
     package static let maxPixelSize = 2048
     package static let jpegQuality: CGFloat = 0.82
 

@@ -16,11 +16,13 @@ final class ComposerAttachmentPrestager {
         let task: Task<String, any Error>
         let name: String
         let payloadKey: PayloadKey
+        let directory: String?
+        let token: UUID
     }
 
     /// A cheap identity for deciding whether a composer row changed. Comparing
     /// `Data` values here would scan every byte on the main actor.
-    private enum PayloadKey: Equatable {
+    enum PayloadKey: Equatable {
         case data(Int)
         case file(URL)
     }
@@ -28,7 +30,7 @@ final class ComposerAttachmentPrestager {
     private(set) var entries: [ComposerAttachment.ID: Entry] = [:]
     private var claimedEntries: [ComposerAttachment.ID: Entry] = [:]
 
-    func sync(_ attachments: [ComposerAttachment], upload: Upload?) {
+    func sync(_ attachments: [ComposerAttachment], directory: String? = nil, upload: Upload?) {
         let wanted = Set(attachments.map(\.id))
         for (id, entry) in entries where !wanted.contains(id) {
             entry.task.cancel()
@@ -48,10 +50,12 @@ final class ComposerAttachmentPrestager {
             }
             if let existing = entries[attachment.id] {
                 if existing.name == attachment.name, existing.payloadKey == payloadKey,
+                   existing.directory == directory,
                    !existing.task.isCancelled { continue }
                 existing.task.cancel()
                 entries[attachment.id] = nil
             }
+            let token = UUID()
             let task = Task<String, any Error> { @MainActor [weak self] in
                 do {
                     let transfer = try await attachment.transferPayload()
@@ -59,22 +63,27 @@ final class ComposerAttachmentPrestager {
                     return try await upload(transfer.payload, transfer.name)
                 } catch {
                     // A failed pre-send task must not suppress the next retry.
-                    if self?.entries[attachment.id]?.payloadKey == payloadKey {
+                    if self?.entries[attachment.id]?.token == token {
                         self?.entries[attachment.id] = nil
                     }
                     throw error
                 }
             }
-            entries[attachment.id] = Entry(task: task, name: attachment.name, payloadKey: payloadKey)
+            entries[attachment.id] = Entry(task: task, name: attachment.name, payloadKey: payloadKey,
+                                           directory: directory, token: token)
         }
     }
 
-    func claim(_ attachments: [ComposerAttachment]) -> [ComposerAttachment.ID: Entry] {
+    func claim(_ attachments: [ComposerAttachment], directory: String? = nil) -> [ComposerAttachment.ID: Entry] {
         var claimed: [ComposerAttachment.ID: Entry] = [:]
         for attachment in attachments {
             if let entry = entries.removeValue(forKey: attachment.id) {
-                claimed[attachment.id] = entry
-                claimedEntries[attachment.id] = entry
+                if entry.directory == directory {
+                    claimed[attachment.id] = entry
+                    claimedEntries[attachment.id] = entry
+                } else {
+                    entry.task.cancel()
+                }
             }
         }
         return claimed
