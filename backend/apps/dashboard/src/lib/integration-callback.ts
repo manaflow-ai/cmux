@@ -225,8 +225,23 @@ export const integrationCompletionRequest = (state: string, extra: { code?: stri
     ...(extra.setup_action ? { setup_action: extra.setup_action } : {}),
   },
   team: integrationTeamHint(state),
-  idempotency_key: `complete:${state.slice(-40)}`,
+  idempotency_key: integrationCompletionKey(state, extra),
 })
+
+/**
+ * A completion's idempotency key: the state and the exact params GitHub gave (the app's CloudGitHubCompletion.idempotencyKey
+ * derives the same one). A reload of the same redirect replays; another redirect of the same state (a code-less update
+ * redirect, then the one with a code; a new installation id) is its own completion. Keyed on the state alone, the second
+ * one was refused for good as `idempotency.conflict` ("idempotency key reused with different params", cmux#55104).
+ * FNV-1a 64 of the params, so the one-time code never appears in a key.
+ */
+export const integrationCompletionKey = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(`${extra.code ?? ""}\n${extra.installation_id ?? ""}\n${extra.setup_action ?? ""}`)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return `complete:${state.slice(-40)}:${hash.toString(16).padStart(16, "0")}`
+}
 
 const RETURN_HEX = "[0-9a-f]{32}"
 const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
@@ -236,7 +251,7 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * @cmux/protocol (a test pins them equal). Checked again here, before the browser leaves the dashboard.
  */
 export const RETURN_TO_PATTERN = new RegExp(
-  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +

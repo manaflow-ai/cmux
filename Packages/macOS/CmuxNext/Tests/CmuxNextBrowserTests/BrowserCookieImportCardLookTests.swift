@@ -11,7 +11,7 @@ import Testing
 /// Leo, 2026-11-06, on NIGHTLY: "The bottom import is unthemed." The neutral gray glass and the
 /// browser's plain gray text buttons ignored the app theme, where the browser's other prompts (the
 /// prompt bar, notices, the cookie consent panel) draw the theme's glass tint. The banner takes the
-/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not Now in its gray.
+/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not now in its gray.
 ///
 /// Leo, 2026-11-07: "This thing, um, this looks kind of ugly, to be honest. Like this isn't styled
 /// well." Its lines and answers are a React page on the design scale (webviews/src/pages/cookie-import;
@@ -34,8 +34,8 @@ import Testing
         func send(_ kind: String, _ params: [String: Any]) { onMessage?(kind, params) }
     }
 
-    static let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
-                                                importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
+    static let offer = BrowserCookieImportOffer(icons: [], title: "Import sign-ins from Google Chrome",
+                                                importTitle: "Import…", notNowTitle: "Not now", neverTitle: "Never for Chrome")
 
     static func card(_ page: FakePage = FakePage(), offer: BrowserCookieImportOffer = offer) -> BrowserCookieImportCard {
         let card = BrowserCookieImportCard(offer: offer) { page }
@@ -49,11 +49,11 @@ import Testing
         let card = Self.card(page)
         let state = try #require(page.pushed.last)
         #expect(page.pushed.count == 1)
-        #expect(state["title"] as? String == "Import cookies from Google Chrome")
+        #expect(state["title"] as? String == "Import sign-ins from Google Chrome")
         #expect(state["detail"] == nil && state["keepInSyncTitle"] == nil, "one line: no detail, no Keep in sync")
         #expect(state["importTitle"] as? String == "Import…")
-        #expect(state["notNowTitle"] as? String == "Not Now")
-        #expect(state["neverTitle"] as? String == "Don't Show Again")
+        #expect(state["notNowTitle"] as? String == "Not now")
+        #expect(state["neverTitle"] as? String == "Never for Chrome")
         #expect(state["icon"] == nil, "an offer with no icon sends none")
         #expect(card.content != nil)
     }

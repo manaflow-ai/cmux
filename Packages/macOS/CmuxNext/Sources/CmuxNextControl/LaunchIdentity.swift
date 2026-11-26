@@ -37,7 +37,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// (``terminalEnvironment``), so both resolve one build.
     public var build: BuildIdentity
     /// The settings file this launch reads and writes when it is not the
-    /// shared `~/.config/cmux/cmux-next.json`: ``configFileKey`` from the
+    /// shared `~/.config/cmux-next/cmux-next.json`: ``configFileKey`` from the
     /// process (the bundle's `LSEnvironment`, a launch's `--env`, or the DEBUG
     /// `--config-file`), as an absolute path. Its terminals, its daemon and
     /// the acpmux daemon its agents run under get the same value
@@ -191,6 +191,9 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// `LSEnvironment`, and a harness passes it in its environment instead (the live code proof,
     /// scripts/measure/live-code-app.py). Only a debug, bench or live code build reads it.
     public static let liveCodeDirKey = "CMUX_LIVE_CODE_DIR"
+    /// The daemon's Chrome trace file (acpmux perf_trace.rs, cmux#55505): a launch that sets it keeps it, so the
+    /// acpmux daemon this app starts writes the user actions' spans there (scripts/measure/action-trace.sh).
+    public static let traceFileKey = "CMUX_TRACE_FILE"
     /// The egress gate's mode (`enforce`, `log`, `off`) for this app and every Rust child
     /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
     /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
@@ -215,7 +218,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -230,7 +233,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }

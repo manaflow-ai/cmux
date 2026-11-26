@@ -636,16 +636,17 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        // A pinned group's icon is a pinned workspace row's size, the optical glyph square, in either look, so the two
+        // kinds of pinned row draw their icons at one size on one center line (#42431).
+        let glyphBox = pinned ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
-        // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
-        // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
+        // A pinned group keeps its pin, and its own icon (or a machine mark) takes the next column, as a pinned workspace
+        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431). The Debug `ownIcon` look draws it in the pin's place.
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
@@ -778,8 +779,8 @@ extension GroupHeaderRowView {
         machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
-        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
-            ?? SectionHeaderRowView.statusWords(machine.status)
+        let tipWords = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
+        themedToolTip = machine.detail.map { "\(tipWords): \($0)" } ?? tipWords
     }
 
     // theme-scoped: called only inside performWithTheme

@@ -96,7 +96,8 @@ pub fn patch_route(source: &Source, project: &str) -> PatchRoute {
         | SourceKind::Compose
         | SourceKind::Nix
         | SourceKind::Gitpod
-        | SourceKind::Ci => PatchRoute::Local,
+        | SourceKind::Ci
+        | SourceKind::AgentClient => PatchRoute::Local,
         SourceKind::SshHost => {
             let host = source.id.strip_prefix("ssh:").unwrap_or(&source.label);
             PatchRoute::Remote {

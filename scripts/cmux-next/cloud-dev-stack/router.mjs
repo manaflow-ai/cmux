@@ -19,7 +19,6 @@ import { spawn } from "node:child_process"
 import { readFileSync, statSync, utimesSync, closeSync, openSync } from "node:fs"
 import http from "node:http"
 import { pipeline } from "node:stream"
-import net from "node:net"
 import { join } from "node:path"
 
 const BASE = process.env.CMUX_WDEV_BASE ?? "/srv/cmux-dev/wrangler"
@@ -224,38 +223,102 @@ function holdOpen(opts, tag, socket) {
   socket.once("close", () => clearInterval(beat))
 }
 
-function proxyUpgrade(opts, req, socket, head, route, retried = false) {
-  let connected = false
-  const upstream = net.connect(route.port, "127.0.0.1", () => {
-    connected = true
-    if (socket.destroyed) return upstream.destroy() // the client left before the stack answered: nothing to hold open
-    const lines = [`${req.method} ${req.url} HTTP/1.1`]
-    for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
-    upstream.write(lines.join("\r\n") + "\r\n\r\n")
-    if (head?.length) upstream.write(head)
-    upstream.pipe(socket)
-    socket.pipe(upstream)
-    holdOpen(opts, route.tag, socket)
+/** The largest refusal body an upgrade's answer carries back (a stack's 401 or 421 is a line of JSON or text). */
+const REFUSAL_BODY_MAX = 64 * 1024
+
+/** The status line and headers of `res`, for a raw socket, without the ones `skip` names (lower case). */
+function statusLines(res, skip = new Set()) {
+  const lines = [`HTTP/1.1 ${res.statusCode} ${res.statusMessage ?? ""}`.trimEnd()]
+  for (let i = 0; i < res.rawHeaders.length; i += 2) {
+    if (!skip.has(res.rawHeaders[i].toLowerCase())) lines.push(`${res.rawHeaders[i]}: ${res.rawHeaders[i + 1]}`)
+  }
+  return lines
+}
+
+const HOP_BY_HOP = new Set(["connection", "keep-alive", "transfer-encoding", "content-length", "upgrade"])
+
+/** A WebSocket upgrade to the stack. Only a 101 joins the client's socket to the stack's; any other answer (401,
+ * 404, the front Worker's 421) goes back whole with `connection: close`, and the client's socket ends. Before
+ * 2026-11-25 the router piped the two sockets whatever the stack answered: a refused upgrade left the client's
+ * kept-alive connection joined to that stack's wrangler, so Tailscale Serve, which pools its connections to the
+ * router across every stack port, sent its later requests on it, for any port, to that one stack. A tagged Mac's
+ * signaling then got the wrong stack's front Worker ("421 no Worker of this stack answers on <its own port>")
+ * on every retry, and its phone never found it. */
+function proxyUpgrade(opts, req, socket, clientHead, route, retried = false) {
+  let answered = false
+  // Its own socket (no agent), the client's headers as they came (rawHeaders keeps their case and order).
+  const upstream = http.request({
+    host: "127.0.0.1",
+    port: route.port,
+    method: req.method,
+    path: req.url,
+    headers: req.rawHeaders,
+    setHost: false,
+    agent: false,
   })
   const close = () => {
     upstream.destroy()
     socket.destroy()
   }
+  upstream.on("upgrade", (res, up, upHead) => {
+    answered = true
+    if (socket.destroyed) return up.destroy() // the client left before the stack answered: nothing to hold open
+    socket.write(statusLines(res).join("\r\n") + "\r\n\r\n")
+    if (upHead?.length) socket.write(upHead)
+    if (clientHead?.length) up.write(clientHead)
+    up.pipe(socket)
+    socket.pipe(up)
+    holdOpen(opts, route.tag, socket)
+    // A WebSocket never half-closes: either side's end or close ends both (an upgraded socket is half-open by default).
+    const end = () => {
+      up.destroy()
+      socket.destroy()
+    }
+    up.on("error", end)
+    up.on("end", end)
+    up.on("close", end)
+    socket.on("end", end)
+    socket.on("close", end)
+  })
+  upstream.on("response", (res) => {
+    answered = true
+    const chunks = []
+    let size = 0
+    res.on("data", (d) => {
+      size += d.length
+      if (size > REFUSAL_BODY_MAX) return close()
+      chunks.push(d)
+    })
+    res.on("end", () => {
+      const body = Buffer.concat(chunks)
+      const lines = statusLines(res, HOP_BY_HOP)
+      // A 204 or 304 has no body and names no length (RFC 9110 8.6).
+      if (res.statusCode !== 204 && res.statusCode !== 304) lines.push(`content-length: ${body.length}`)
+      lines.push("connection: close")
+      if (!socket.destroyed) {
+        socket.end(Buffer.concat([Buffer.from(lines.join("\r\n") + "\r\n\r\n"), body]))
+        // Bytes the client sent before the answer (another request, an early frame) are read and dropped, so
+        // its end reaches us and the socket closes instead of waiting on unread data.
+        socket.resume()
+      }
+      upstream.destroy() // agent: false already closes it after the response; say so here
+    })
+    res.on("error", close)
+  })
   upstream.on("error", async (e) => {
-    if (!connected && !retried && e.code === "ECONNREFUSED" && !socket.destroyed) {
+    if (!answered && !retried && e.code === "ECONNREFUSED" && !socket.destroyed) {
       try {
         await wake(route.tag, opts.wakeRun)
-        if (!socket.destroyed) return proxyUpgrade(opts, req, socket, head, route, true)
+        if (!socket.destroyed) return proxyUpgrade(opts, req, socket, clientHead, route, true)
       } catch {}
     }
     close()
   })
   socket.on("error", close)
-  // A WebSocket never half-closes: either side's end or close ends both (an upgraded socket is half-open by default).
-  upstream.on("end", close)
-  upstream.on("close", () => connected && close())
+  // A client that ends or leaves before the stack answered is gone: no answer, and no retry after a wake.
   socket.on("end", close)
-  socket.on("close", close)
+  socket.on("close", () => answered || upstream.destroy())
+  upstream.end()
 }
 
 /** The router. opts.base: the wrangler base (routes.json, registry/, stacks/); opts.wakeRun(tag): a wake. */

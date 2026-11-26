@@ -16,11 +16,11 @@ const expectMove = (reason: string, rows: string[]) =>
     ms: 0,
   });
 
-/// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
-/// composer, oldest first, each the transcript's own card (NextStepCard.tsx), whose "Needs your input" line
-/// carries the close that dismisses it. The card in the transcript stays where it was asked; this copy is the
-/// one in reach. An answer goes as the person's next message, which settles both. The newest takes
-/// the composer's ⌘↩.
+/// The question still waiting on the person (turns.ts `waitingAsks`: at most one per chat, its newest),
+/// pinned in the bottom stack above the composer: the transcript's own card (NextStepCard.tsx), whose
+/// "Needs your input" line carries the close that dismisses it. The card in the transcript stays where it
+/// was asked; this copy is the one in reach. An answer goes as the person's next message, which settles
+/// both. It takes the composer's ⌘↩.
 export const PendingAsks = memo(function PendingAsks({
   asks,
   onAnswer,

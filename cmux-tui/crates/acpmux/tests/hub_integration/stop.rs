@@ -766,8 +766,8 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
 }
 
-/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
-/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// A test's stand-in harness runs at normal CPU class once its start is over (`cpu_class.rs`; the
+/// product's default too since 2026-11-24, when it was background). The stand-ins time their turns with short
 /// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
 /// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
 /// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.

@@ -18,6 +18,13 @@ public final class CloudMachineWire {
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
     /// its machine id, for the login copy before any claim (Rust's `spare_warm` `ready` coalesces repeats).
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
+    /// A machine of this socket's team the platform is about to pause (`cloud.machine.pausing`, sent before the provider
+    /// pause): the app parks its link now, so its heartbeat does not redial (and wake) the VM before a list shows the pause.
+    /// It may repeat for one pause (each pause attempt sends it); handling it twice is harmless.
+    public var onMachinePausing: @MainActor (String) -> Void = { _ in }
+    /// The teams the wire subscribes in for an active team (Rust's `wireTeams`): the active one first, then the
+    /// install token's team when it is another, where the person's spares live (#36037). Nil: the active team alone.
+    public var teams: (@MainActor (String?) async -> [String]?)?
 
     public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
                 team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpaceState) {
@@ -27,17 +34,37 @@ public final class CloudMachineWire {
         self.buildSpace = buildSpace
     }
 
-    /// `onSpareReady`: as ``onSpareReady``, set from the start.
-    public convenience init(apiBaseURL: URL, auth: CloudAuth, onSpareReady: @escaping @MainActor (String) -> Void = { _ in }) {
+    /// `teams` and `onSpareReady`: as ``teams`` and ``onSpareReady``, set from the start.
+    public convenience init(apiBaseURL: URL, auth: CloudAuth, teams: (@MainActor (String?) async -> [String]?)?,
+                            onSpareReady: @escaping @MainActor (String) -> Void) {
         self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
                   team: { await auth.teamID }, buildSpace: auth.configuration.buildSpace)
-        self.onSpareReady = onSpareReady
+        (self.teams, self.onSpareReady) = (teams, onSpareReady)
     }
 
+    /// The socket of the active team (every event, as before) and, in addition, one socket per other team of
+    /// ``extraTeams(active:named:)`` that hears only its spares' readiness (`cloud.spare.ready`, `spares_needing_login`).
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
         stop()
         let generation = generation
-        runner = Task { [weak self] in await self?.run(generation, sink: sink) }
+        runner = Task { [weak self] in
+            guard let self else { return }
+            let active = await self.team()
+            let extra = Self.extraTeams(active: active, named: await self.teams?(active))
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { [weak self] in await self?.run(generation, only: nil, sink: sink) }
+                for team in extra {
+                    group.addTask { [weak self] in await self?.run(generation, only: team, sink: nil) }
+                }
+            }
+        }
+    }
+
+    /// The teams past the active one that Rust named, never the active one again: none when they are the same.
+    nonisolated static func extraTeams(active: String?, named: [String]?) -> [String] {
+        guard let active, !active.isEmpty else { return [] }
+        var seen: Set<String> = [active]
+        return (named ?? []).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     public func stop() {
@@ -46,12 +73,14 @@ public final class CloudMachineWire {
         runner = nil
     }
 
-    private func run(_ generation: Int, sink: @escaping @MainActor (CloudPortChange) -> Void) async {
+    /// One socket's reconnect loop: the active team's (`only` nil, read again per connection) or `only`'s, whose
+    /// socket has no `sink` (its port changes stay with the active team's socket, as before).
+    private func run(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?) async {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
         // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled, generation == self.generation {
             do {
-                try await session(generation, sink: sink, onSubscribed: { backoff.reset() })
+                try await session(generation, only: only, sink: sink, onSubscribed: { backoff.reset() })
             } catch is CancellationError {
                 return
             } catch {}
@@ -60,9 +89,9 @@ public final class CloudMachineWire {
         }
     }
 
-    private func session(_ generation: Int, sink: @escaping @MainActor (CloudPortChange) -> Void,
+    private func session(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
                          onSubscribed: () -> Void) async throws {
-        let selectedTeam = await team()
+        let selectedTeam = if let only { only } else { await team() }
         let access = try await token()
         let ticket = try await mintTicket(access: access)
         let request = try Self.socketRequest(apiBaseURL: apiBaseURL, ticket: ticket, team: selectedTeam,
@@ -92,7 +121,8 @@ public final class CloudMachineWire {
                     for machine in Self.sparesNeedingLogin(data, team: selectedTeam) { onSpareReady(machine) }
                 case "ephemeral":
                     if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
-                    else if let change = CloudPortChange.parseWireFrame(data) { sink(change) }
+                    else if let machine = Self.machinePausing(data, team: selectedTeam) { onMachinePausing(machine) }
+                    else if let sink, let change = CloudPortChange.parseWireFrame(data) { sink(change) }
                 default:
                     break
                 }
@@ -160,6 +190,22 @@ public final class CloudMachineWire {
               object["event"] as? String == "cloud.spare.ready", let data = object["data"] as? [String: Any],
               data["team"] as? String == team, let machine = data["machine"] as? String, !machine.isEmpty else { return nil }
         return machine
+    }
+
+    /// The machine of a `cloud.machine.pausing` frame for `team`, the team this socket was opened in; nil for any other frame.
+    nonisolated static func machinePausing(_ frame: Data, team: String?) -> String? {
+        guard let team, let object = (try? JSONSerialization.jsonObject(with: frame)) as? [String: Any],
+              object["t"] as? String == "ephemeral", object["event"] as? String == "cloud.machine.pausing",
+              let data = object["data"] as? [String: Any], data["team"] as? String == team,
+              let machine = data["machine"] as? String, machine.hasPrefix("vm_") else { return nil }
+        return machine
+    }
+
+    /// Sets ``onMachinePausing`` (for a lazily built wire) and returns the wire.
+    @discardableResult
+    public func onPausing(_ handler: @escaping @MainActor (String) -> Void) -> Self {
+        onMachinePausing = handler
+        return self
     }
 
     private nonisolated static func frameType(_ data: Data) -> String? {

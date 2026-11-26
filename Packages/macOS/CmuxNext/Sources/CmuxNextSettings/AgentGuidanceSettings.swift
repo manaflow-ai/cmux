@@ -2,7 +2,7 @@
 // (Schema/SettingsSchema+AgentGuidance.generated.swift); this file only parses.
 
 /// `agents.guidance.*` in cmux.json: whether new agent chats get cmux's built-in guidance
-/// (per harness family) and the person's own skills from `~/.config/cmux/skills`. The acpmux
+/// (per harness family) and the person's own skills from `~/.config/cmux-next/skills`. The acpmux
 /// daemon reads the same file when it creates a chat (`agent_guidance.rs`); the app shows and
 /// validates them.
 public nonisolated struct AgentGuidanceSettings: Sendable, Equatable {

@@ -48,7 +48,7 @@ final class QuitCoordinator {
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
     /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, stopsEngine: self?.services.updater.relaunchingForUpdate != true, beforeEngineStop: { await self?.engineWillStop() }) // an update's relaunch skips CefShutdown (ask-ad4a68e740)
     }
 
     /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
@@ -180,7 +180,6 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
-        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
         // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
         await services.updater.prepareForQuitAfterKeep()
@@ -221,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
@@ -239,7 +238,7 @@ final class QuitCoordinator {
                 await services.home.brain.stop()
                 let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
-                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                if acpmux?.isAttached(to: services.home.chief.home.acpmuxHome) != true {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                          bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 }

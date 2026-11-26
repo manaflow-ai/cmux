@@ -295,3 +295,40 @@ test("a snapshot after the last merges as a fresh read of it would, reading only
     rows = next;
   }
 });
+
+test("a thread's notice part reads its detector, severity, title and repeats; a bad one reads none", () => {
+  const read = inboxNotice("", {
+    threads: [
+      {
+        threadId: "topic:runner",
+        from: ["cmux-cp-1"],
+        promptIds: ["n1"],
+        notice: {
+          sender: "now",
+          severity: "fire",
+          title: "Runner label stalled",
+          host: "cmux-cp-1",
+          repeats: 3,
+          lastAt: 5,
+        },
+      },
+      { threadId: "topic:bad", from: ["x"], promptIds: ["n2"], notice: { sender: "now", severity: "loud", title: "" } },
+      {
+        threadId: "topic:odd",
+        from: ["x"],
+        promptIds: ["n3"],
+        notice: { sender: "now", severity: "loud", title: "T" },
+      },
+    ],
+  })!;
+  expect(read.threads[0]!.notice).toEqual({
+    sender: "now",
+    severity: "fire",
+    title: "Runner label stalled",
+    host: "cmux-cp-1",
+    repeats: 3,
+    lastAt: 5,
+  });
+  expect(read.threads[1]!.notice).toBeUndefined();
+  expect(read.threads[2]!.notice).toEqual({ sender: "now", severity: "info", title: "T", repeats: 1 });
+});

@@ -156,6 +156,7 @@ rows=(
   "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
   "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
   "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
+  "5a|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift|1|1|none"  # uniffi Swift bindings
 )
 
 # Each step of base-autofix.sh has a row, and each row names a step it has.

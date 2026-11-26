@@ -5,6 +5,7 @@ import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./titleTooltips";
 import { UI_TOOLTIP_GAP } from "./tooltipTokens";
 import { setPopupInsetTop } from "./popupInset";
+import { announceHoverSurface } from "./hoverSurface";
 
 test("full labels stay content-sized and bounded even on wide truncated rows", () => {
   for (const width of [140, 600, 900]) {
@@ -137,7 +138,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
-// delay (450 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
+// delay (250 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
 // group is warm, and cool 500 ms after the last one hid. A control whose own text says the tooltip
 // shows none (#20375). The timers run on a clock the test moves.
 class FakeClock {
@@ -189,10 +190,10 @@ test("the first tooltip waits the hover delay; a neighbor's then shows at once u
   const { buttons, text } = toolbar(clock);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(300);
+  clock.advance(150);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(200);
+  clock.advance(100);
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(text()).toBe("Back");
   // Warm: straight to the neighbor, its tooltip at once.
@@ -517,4 +518,74 @@ test("a control whose own text says the tooltip still shows it when it names a k
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(tip().hidden).toBe(false);
   expect(tip().querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘G");
+});
+
+// One hover surface at a time under the One hover look (experiments.hoverLook = one,
+// ui/hoverSurface.ts; Leo, 2026-11-22, softened: "multiple styles for hover previews"). A "Subagent
+// disconnected" row's sentence carries a title, and the subagent's chip inside it opens a hover card:
+// the pointer got both at once.
+test("under the One look a hover card opening takes the title tooltip away, and none shows while a card is open", async () => {
+  const doc = page(`<span id="line" title="Subagent disconnected: Fix the build · 0s">Subagent disconnected</span>`);
+  doc.documentElement.setAttribute("data-hover-look", "one");
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 300, height: 20 }) as DOMRect;
+  await hover(line);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+
+  // The chip's card opens (ui/Tooltip.tsx announces it): the title tooltip goes at once.
+  const card = doc.createElement("div");
+  card.className = "ui-tooltip ui-card ui-glass";
+  card.getBoundingClientRect = () => ({ left: 10, top: 40, width: 240, height: 60 }) as DOMRect;
+  doc.body.append(card);
+  announceHoverSurface(card);
+  expect(tip.hidden).toBe(true);
+
+  // While the card is open, hovering another title draws no second hover beside it.
+  const other = doc.createElement("span");
+  other.title = "Another line";
+  other.getBoundingClientRect = () => ({ left: 10, top: 120, width: 100, height: 20 }) as DOMRect;
+  doc.body.append(other);
+  await leave(line, other);
+  await hover(other);
+  expect(tip.hidden).toBe(true);
+
+  // Once the card closes, the next hover shows its title tooltip again.
+  card.remove();
+  await leave(other, line);
+  await hover(line);
+  expect(tip.hidden).toBe(false);
+  expect(tip.textContent).toBe("Subagent disconnected: Fix the build · 0s");
+});
+
+test("a closing or undrawn hover card does not hold the title tooltip back", async () => {
+  const doc = page(`<span id="line" title="Waiting 37s">Waiting</span>`);
+  doc.documentElement.setAttribute("data-hover-look", "one");
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 120, height: 20 }) as DOMRect;
+  const closing = doc.createElement("div");
+  closing.className = "ui-tooltip ui-card";
+  closing.setAttribute("data-ending-style", "");
+  closing.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 50 }) as DOMRect;
+  const undrawn = doc.createElement("div");
+  undrawn.className = "ui-tooltip";
+  undrawn.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
+  doc.body.append(closing, undrawn);
+  await hover(line);
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden).toBe(false);
+});
+
+test("with the One look off, a title tooltip shows beside an open hover card as before", async () => {
+  const doc = page(`<span id="line" title="Subagent disconnected: Fix the build · 0s">Subagent disconnected</span>`);
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 300, height: 20 }) as DOMRect;
+  const card = doc.createElement("div");
+  card.className = "ui-tooltip ui-card ui-glass";
+  card.getBoundingClientRect = () => ({ left: 10, top: 40, width: 240, height: 60 }) as DOMRect;
+  doc.body.append(card);
+  await hover(line);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+  announceHoverSurface(card);
+  expect(tip.hidden).toBe(false);
 });

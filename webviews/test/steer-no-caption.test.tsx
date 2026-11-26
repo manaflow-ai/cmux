@@ -5,7 +5,9 @@
 // once read, only the read check every prompt has (MessageActions.tsx ReadReceipt). The words
 // those captions used are gone from the catalog, so no row can draw them again.
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readCatalog } from "../scripts/pages/catalog.mjs";
 import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSteer";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
@@ -39,7 +41,9 @@ test("a waiting steer without a prompt id shows the clock alone", () => {
 });
 
 test("the Steering and Steered captions' words are gone from the catalog", async () => {
-  const catalog = await Bun.file(new URL("../src/agent-session/acpmux/Localizable.xcstrings", import.meta.url)).json();
+  const catalog = readCatalog(
+    fileURLToPath(new URL("../src/agent-session/acpmux/Localizable.xcstrings.d", import.meta.url)),
+  );
   expect(catalog.strings["steer.waiting"]).toBeUndefined();
   expect(catalog.strings["steer.waitingDetail"]).toBeUndefined();
   // Nor the "Steered · the agent read it" line a read steer once had (SteerMark.tsx, removed in #22773).

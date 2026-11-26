@@ -115,7 +115,7 @@ enum DebugHoverSweep {
         guard let stats = await ThumbnailStats.measure(image) else { return .object(["present": .bool(true)]) }
         return .object([
             "present": .bool(true), "width": .number(Double(stats.width)), "height": .number(Double(stats.height)),
-            "mean": .number((stats.mean * 10).rounded() / 10), "variance": .number((stats.variance * 10).rounded() / 10),
+            "mean": .number((stats.mean * 10).rounded() / 10), "variance": .number((stats.variance * 10).rounded() / 10), "detail_pixels": .number(Double(stats.detailPixels)),
             "blank": .bool(stats.isBlank),
         ])
     }

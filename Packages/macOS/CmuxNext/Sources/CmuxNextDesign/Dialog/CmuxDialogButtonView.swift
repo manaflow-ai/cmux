@@ -287,6 +287,9 @@ enum CmuxDialogMetrics {
     static var fieldHeight: CGFloat { 24 * Typography.userScale }
     static var iconSize: CGFloat { 40 * Typography.userScale }
     static var iconGap: CGFloat { 12 * Typography.userScale }
+    /// A floating prompt's header icon, beside its title.
+    static var headerIconSize: CGFloat { 20 * Typography.userScale }
+    static var headerIconGap: CGFloat { 8 * Typography.userScale }
     /// A message past these many lines or characters scrolls in a box this tall, so the buttons stay on screen.
     static var linesMaxHeight: CGFloat { 240 * Typography.userScale }
     static let scrollingLineCount = 8

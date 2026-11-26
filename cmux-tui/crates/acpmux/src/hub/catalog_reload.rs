@@ -58,6 +58,10 @@ impl Hub {
                 .lock()
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            self.known_efforts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -94,6 +98,7 @@ impl Hub {
                 default_permission_mode,
                 remote_daemon,
                 lane_gh_broker,
+                lane_gh_carrier,
                 direct_port,
                 notify_command,
                 disk_low_bytes,
@@ -120,6 +125,7 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
                 // The bound listener, its port and token stay; the hosts and origins it admits
@@ -190,6 +196,9 @@ impl Hub {
             current.remote_daemon = remote_daemon;
             // The next broker stream reads it (`hub_carrier_broker.rs`).
             current.lane_gh_broker = lane_gh_broker;
+            // The daemon starts the carrier forward once, at its start (`server/machine_enroll.rs`);
+            // a restart applies a change.
+            current.lane_gh_carrier = lane_gh_carrier;
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;

@@ -14,10 +14,11 @@
 // After its words the line cites its task (Leo, 2026-11-05: "cite the helper/add atribution (like how
 // ive gradually pushed for more andd more of that a la deeplinks and communicating in acpmux) and
 // display the actual code in the raw"): the helper that ran it, a link that opens that helper's
-// transcript as the background task row's owner does (BackgroundTaskNote.tsx), then its command as
-// typed, in the code face, cut at the line's end.
+// transcript as the background task row's owner does (BackgroundTaskNote.tsx), then the task's label.
 import { useContext, useId, type KeyboardEvent, type MouseEvent } from "react";
 import { useT } from "../i18n";
+import { commandSummary } from "./commandActions";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
 import type { AcpmuxBackgroundSource, AcpmuxBackgroundTurn, AcpmuxRow } from "../model";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { experimentArm } from "../../../experiments/experiment";
@@ -77,7 +78,8 @@ export function BackgroundTurnLine({
     return <SubagentReportLine row={row} look={reportLook} expanded={expanded} onToggle={onToggle} />;
   const label = backgroundTurnLabel(t, turn);
   const source = turn.source;
-  const cited = [label, source?.ownerTitle, source?.command].filter(Boolean).join(" · ");
+  const title = source?.description || (source?.command && commandSummary(t, source.command, currentCommandRules()));
+  const cited = [label, source?.ownerTitle, title || source?.command].filter(Boolean).join(" · ");
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
   // A failure that said something heads its rows, which already show (headsBackground).
   // Inline its rows already draw where they ran (backgroundTurnLook.experiment.ts): the line names its task, opens nothing.
@@ -91,7 +93,7 @@ export function BackgroundTurnLine({
   // command row opens to its command (backgroundTurnTask.ts; Leo, 2026-11-21, "background tasks not
   // expandable ... why shouldn't they get the same treatment?").
   if (!opens && backgroundTurnOpensTask(turn, label))
-    return <BackgroundTurnTaskLine turn={turn} label={label} cited={cited} />;
+    return <BackgroundTurnTaskLine turn={turn} label={label} cited={cited} title={title} />;
   return (
     <TranscriptActivityRow
       icon={turn.running && !taskEnded ? <Spinner look="track" /> : <Clock />}
@@ -108,14 +110,14 @@ export function BackgroundTurnLine({
       }}
       onClick={opens ? onToggle : undefined}
     >
-      {source && <BackgroundSource source={source} />}
+      {source && <BackgroundSource source={source} title={title} />}
     </TranscriptActivityRow>
   );
 }
 
 /// The helper and raw command a background turn's line cites. The helper opens its transcript; the
 /// line stays one button, so the helper is a link inside it, never a second button.
-function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
+function BackgroundSource({ source, title }: { source: AcpmuxBackgroundSource; title?: string }) {
   const openSubagent = useContext(SubagentNavContext);
   const owner = source.ownerTitle?.trim();
   const ownerId = source.ownerId;
@@ -145,7 +147,11 @@ function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
         ) : (
           <span className="cv-background-turn__owner">{owner}</span>
         ))}
-      {source.command && <code className="cv-background-turn__command">{source.command}</code>}
+      {title ? (
+        <span className="cv-bgtask__title">{title}</span>
+      ) : (
+        source.command && <code className="cv-background-turn__command">{source.command}</code>
+      )}
     </span>
   );
 }
@@ -153,7 +159,17 @@ function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
 /// A finished background turn's line that opens to its task: the command, how it ended and the last
 /// lines it printed, in the command card a command row opens to (ShellBlock.tsx). Its open state is
 /// the transcript's fold set, so it survives virtualization as every other row's does.
-function BackgroundTurnTaskLine({ turn, label, cited }: { turn: AcpmuxBackgroundTurn; label: string; cited: string }) {
+function BackgroundTurnTaskLine({
+  turn,
+  label,
+  cited,
+  title,
+}: {
+  turn: AcpmuxBackgroundTurn;
+  label: string;
+  cited: string;
+  title?: string;
+}) {
   const [open, setOpen] = useTranscriptDisclosure(`bgturn:${turn.id}`);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const { task, request } = useBackgroundTurnTask(turn, label, open);
@@ -180,7 +196,7 @@ function BackgroundTurnTaskLine({ turn, label, cited }: { turn: AcpmuxBackground
           fold.toggle();
         }}
       >
-        {source && <BackgroundSource source={source} />}
+        {source && <BackgroundSource source={source} title={title} />}
       </TranscriptActivityRow>
       {fold.present && (
         <div {...fold.bodyProps}>

@@ -103,19 +103,19 @@ fn a_known_wait_past_its_bound_is_cancelled() {
 fn a_wait_within_its_bound_is_left_alone() {
     let (watchdog, _recorded) = start(config(30, 2_000, None));
     let shared = watchdog.shared().clone();
-    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cancelled = Arc::new(AtomicBool::new(false));
     let flag = cancelled.clone();
     shared.turn_begin();
     let id = shared.waits.register(
         "daemon request tree",
         Duration::from_secs(5),
-        Box::new(move || flag.store(true, std::sync::atomic::Ordering::SeqCst)),
+        Box::new(move || flag.store(true, Ordering::SeqCst)),
     );
     deliberate_stall(Duration::from_millis(200));
     shared.waits.unregister(id);
     shared.turn_end();
     drop(watchdog);
-    assert!(!cancelled.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!cancelled.load(Ordering::SeqCst));
 }
 
 #[test]

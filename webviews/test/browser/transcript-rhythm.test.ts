@@ -84,15 +84,11 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const group = rect(".acpmux-activity .cv-tools > .cv-tool");
             // The whole run: a running turn keeps its calls in sight under the group's line (cmux#38339).
             const run = rect(".acpmux-activity .cv-tools");
-            const live = rect(
-              ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
-            );
+            const live = rect(".acpmux-thinking .cv-worked, .acpmux-working .cv-worked");
             // The live line's words are drawn in the live line's box at the top of its row, the footer's slot
             // (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX, #48701): the rest of the slot is its row's room, so the
             // composer gap is under the row, not under the words.
-            const liveEl = document.querySelector(
-              ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
-            );
+            const liveEl = document.querySelector(".acpmux-thinking .cv-worked, .acpmux-working .cv-worked");
             const liveRow = liveEl!.closest(".acpmux-row")!.getBoundingClientRect();
             const composer = rect(".acpmux-composer-box");
             // A received message's line leads with its sender's mark in the icon column

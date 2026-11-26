@@ -73,7 +73,7 @@ const words = (line: AcpmuxRow, now = START + 140_000) =>
 
 test("a running command names itself on the line", () => {
   const line = view([call("in_progress")]).at(-1)!;
-  expect(line).toMatchObject({ kind: THINKING, doing: "pytest -v test" });
+  expect(line).toMatchObject({ kind: THINKING, doing: "Testing test" });
 });
 
 test("a command that finished at once: the line reads Thinking, with no frozen step time", () => {

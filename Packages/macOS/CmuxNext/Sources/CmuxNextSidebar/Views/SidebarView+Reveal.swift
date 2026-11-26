@@ -3,8 +3,8 @@ import CmuxNextDesign
 
 // The pointer over the sidebar reveals, in Minimal Mode (`sidebar.minimal`, user 2026-11-15) or with Show Sidebar
 // Controls Only on Hover (`sidebar.controlsOnHover`, Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
-// button; in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands; and,
-// with the thin scrollers' opt-in auto-hide, the scrollers. By default the controls always show.
+// button; and in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands. It
+// never reveals a scroller: those show only while their view scrolls. By default the controls always show.
 extension SidebarViewComponents {
     /// Fades the hover chrome in or out (``SidebarChromeReveal``). Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
@@ -21,12 +21,9 @@ extension SidebarViewComponents {
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
-        // With the auto-hide (the default), the pointer arriving shows the thin scrollers a moment.
-        if changed, revealed, SystemScrollers.thinScrollersAutoHide {
-            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] {
-                (scroll.verticalScroller as? ThinScroller)?.flash()
-            }
-        }
+        // The pointer arriving shows no scroller: a sidebar knob shows only while its view scrolls
+        // (Leo, ask-969743672d: "hovering only doesnt show"), so a knob never sits under the resize
+        // band unasked.
         let target = chromeReveal(revealed: revealed)
         guard changed || target != appliedChromeReveal else { return }
         appliedChromeReveal = target

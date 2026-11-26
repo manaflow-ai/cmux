@@ -538,6 +538,15 @@ extension LinkMachine.Phase {
         if case .connected = self { return true }
         return false
     }
+
+    /// Connected on the same transport and path as `other`, with only the
+    /// measured round trip changed: a pong. Over LTE every pong's round trip
+    /// differs, so this is most phase changes on a link that is up.
+    public func differsOnlyInRoundTrip(from other: Self) -> Bool {
+        guard case .connected(let transport, let path, _) = self,
+              case .connected(let otherTransport, let otherPath, _) = other else { return false }
+        return transport == otherTransport && path == otherPath
+    }
 }
 
 extension LinkMachine {
