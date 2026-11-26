@@ -8,7 +8,9 @@
  * Signs in as the agent test account the way cloud-journey.ts does (CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD from the
  * environment or a KEY=value --credentials file, or --sign-in oidc in a GitHub Actions job), then for every arm creates
  * --per-arm machines named `pause-ab-<tag>-<arm>-<i>`, sets the arm with `cloud.machine.idle_policy.set {machine,
- * pause_policy}` and reads it back, and drives the same seeded chat on every machine at once: --turns Claude turns
+ * pause_policy}` and reads it back, and drives the same seeded chat on every machine. Pairs come up one after another
+ * (the next pair's creates wait until this pair runs, and no pair starts after --bringup-budget minutes, default 25);
+ * each pair drives its turns as soon as it runs, and a pair that cannot come up is skipped with its reason: --turns Claude turns
  * against the journey's model stub on the machine's loopback (`--model stub`, no real model), each followed by an
  * idle gap drawn from --gaps with seed --seed + i - 1 for pair i (machine i of every arm gets the same gaps, so each
  * pair differs only by its pause policy, and the pairs cover --per-arm gap schedules), then --tail seconds idle.
@@ -209,6 +211,10 @@ export type MachineResult = {
   paused_s: number | null;
   pauses: number | null;
   error: string | null;
+  /** Why this machine's pair never drove a turn (its bring-up failed, or the bring-up budget ran out); left out of the arm rows. */
+  skipped?: string;
+  /** This machine's own sampling window: its pair starts when it is up, so windows differ by pair. */
+  window?: { start: number; end: number };
 };
 
 export type ArmRow = {
@@ -232,7 +238,7 @@ export function vmUnavailableTurns(r: Pick<MachineResult, "turns">): number {
 /** One row per arm: awake and paused seconds summed over its machines, resumes, and their mean latency. */
 export function aggregate(results: MachineResult[], arms: string[]): ArmRow[] {
   return arms.map((arm) => {
-    const ms = results.filter((r) => r.arm === arm);
+    const ms = results.filter((r) => r.arm === arm && !r.skipped);
     const awake = ms.reduce((n, r) => n + (r.awake_s ?? 0), 0);
     const paused = ms.reduce((n, r) => n + (r.paused_s ?? 0), 0);
     const resumes = ms.flatMap((r) => r.turns.filter((t) => t.resumed));
@@ -265,6 +271,19 @@ export function markdownTable(rows: ArmRow[]): string {
   return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.p50_resume_ms ?? "n/a"} | ${r.p95_resume_ms ?? "n/a"} | ${r.resume_failures} | ${r.vm_unavailable} | ${r.turns_ok} |`)].join("\n");
 }
 
+/** The pair numbers in order, each with its machines (one per arm): the drill brings pairs up one after another. */
+export function pairsOf<T extends { pair: number }>(results: T[]): { pair: number; machines: T[] }[] {
+  return [...new Set(results.map((r) => r.pair))].sort((a, b) => a - b).map((pair) => ({ pair, machines: results.filter((r) => r.pair === pair) }));
+}
+
+/** Run `fn` over `items` with at most `n` in flight (staging's VM API answers 503 under 20 concurrent mutations). */
+export async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  }));
+}
+
 /** One row per pair: its seed and gaps, and each arm's paused seconds and resumes on that same schedule. */
 export function pairTable(results: MachineResult[], arms: string[]): string {
   const pairs = [...new Set(results.map((r) => r.pair))].sort((a, b) => a - b);
@@ -273,6 +292,7 @@ export function pairTable(results: MachineResult[], arms: string[]): string {
     const ms = results.filter((r) => r.pair === p);
     const cell = (a: string) => {
       const r = ms.find((m) => m.arm === a);
+      if (r?.skipped) return `skipped: ${r.skipped.replace(/\|/g, "\\|").slice(0, 120)}`;
       return r ? `${r.paused_s ?? "n/a"} / ${r.turns.filter((t) => t.resumed).length}${r.error ? " (error)" : ""}` : "n/a";
     };
     return `| ${p} | ${ms[0]?.seed ?? "?"} | ${(ms[0]?.gaps_s ?? []).join(",")} | ${arms.map(cell).join(" | ")} |`;
@@ -280,11 +300,11 @@ export function pairTable(results: MachineResult[], arms: string[]): string {
 }
 
 /**
- * How old a pause-ab tag is before its machines count as left behind: the workflow's job stops at 60 minutes
- * (timeout-minutes in pause-ab.yml), so a tag 90 minutes old belongs to no live CI run. The cloud journey's 3 h
+ * How old a pause-ab tag is before its machines count as left behind: the workflow's job stops at 80 minutes
+ * (timeout-minutes in pause-ab.yml), so a tag 110 minutes old belongs to no live CI run. The cloud journey's 3 h
  * (STALE_JOURNEY_MS) let a killed run's machine (pause-ab-mwx9ibyh, 08:00Z) outlive the next run at 09:38Z.
  */
-export const PAUSE_AB_STALE_MS = 90 * 60_000;
+export const PAUSE_AB_STALE_MS = 110 * 60_000;
 
 /** Machines an earlier pause-ab run left behind: our name shape, tag older than maxAgeMs, idle for an hour. */
 export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string; why: string }[] {
@@ -500,6 +520,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const gapChoices = (argValue("--gaps", argv) ?? "20,45,90,180").split(",").map(Number).filter((n) => n > 0);
   const tailS = Number(argValue("--tail", argv) ?? 120);
   const pollMs = Number(argValue("--poll", argv) ?? 5) * 1000;
+  // No pair starts its bring-up after this many minutes, so the last pair's turns end inside the job's timeout.
+  const bringupBudgetMs = Number(argValue("--bringup-budget", argv) ?? 25) * 60_000;
   // Pair i (machine i of every arm) draws its gaps with seed + i - 1; `gaps` is pair 1's.
   const pairGaps = Array.from({ length: perArm }, (_, i) => gapSchedule(seed + i, turnCount, gapChoices));
   const gaps = pairGaps[0];
@@ -548,10 +570,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const rows = await listAllMachines((p) => api.read("cloud.machine.list", p)).catch(() => []);
       for (const r of missing) r.id = rows.find((m: any) => m?.name === r.name && m.status !== "deleted")?.id ?? null;
     }
-    await Promise.all(results.filter((r) => r.id).map((r) => J.step(`delete ${r.name}`, async () => {
-      await api.deleteMachine(r.id!, `pab-${tag}-delete-${r.name}`);
+    // Four at a time with a 10-minute budget each: run 45864237040's 20 concurrent deletes stayed
+    // mutation.indeterminate past the default 180 s for 11 machines.
+    await pool(results.filter((r) => r.id), 4, (r) => J.step(`delete ${r.name}`, async () => {
+      await api.deleteMachine(r.id!, `pab-${tag}-delete-${r.name}`, 600_000);
       return { value: null, detail: r.id! };
-    }).catch(() => undefined)));
+    }).then(() => undefined, () => undefined));
   });
   const onSignal = (signal: string) => {
     void cleanup().finally(() => { writeOut(); J.flush(); process.exit(signal === "SIGINT" ? 130 : 143); });
@@ -719,94 +743,113 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
       if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
     };
-    await J.step(`create ${results.length} machines`, async () => {
-      await Promise.all(results.map(createOne));
-      return { value: null, detail: `${results.map((r) => `${r.name}=${r.id}`).join(", ")}; answered in ${took.join(", ")}${ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""}` };
-    });
-    await J.step("running", async () => {
-      await Promise.all(results.map(async (r) => {
-        for (;;) {
-          const t0 = Date.now();
-          let failed: any = null;
-          while (Date.now() - t0 < 300_000) {
-            const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
-            if (m?.status === "running" && m?.host) return;
-            if (m?.status === "failed") { failed = m; break; }
-            await sleep(1000);
-          }
-          if (!failed) throw new Error(`${r.name} not running within 300 s`);
-          const why = `${r.name} ${r.id} failed ${Math.round((Date.now() - t0) / 1000)} s after create answered: ${failureFacts(failed)}`;
-          // A create the provider failed after the platform's own 5-minute retry window (staging 11:47Z: one of two
-          // concurrent creates, cloud.provider.unavailable "VM API: HTTP 503") gets one replacement, recorded in the
-          // summary; a second failure, or any other failure, fails the step with both records.
-          if (failedCreateIsTransient(failed) && !r.replaced) {
-            r.replaced = why;
-            console.log(`running: replacing ${why}`);
-            await api.op("cloud.machine.delete", { machine: r.id }, `pab-${tag}-delete-failed-${r.name}`).catch((e) => console.log(`running: delete of failed ${r.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
-            r.name = `${r.name}r`;
-            await createOne(r);
-            continue;
-          }
-          throw new Error(r.replaced ? `${why}; the machine it replaced: ${r.replaced}` : why);
+    // One pair at a time: a pair's creates go out once the previous pair runs, and it starts its turns at once, so
+    // pairs overlap while staging's VM API never sees more than one pair's creates (run 45864237040: 20 concurrent
+    // creates, 8 answered cloud.provider.unavailable "vm-provider.persistCreateIntent (no response)", and one
+    // machine not running in 300 s failed the whole drill). A pair that cannot come up is skipped, with its reason.
+    const bringUp = async (r: MachineResult) => {
+      await createOne(r);
+      for (;;) {
+        const t0 = Date.now();
+        let failed: any = null;
+        let up = false;
+        while (Date.now() - t0 < 300_000) {
+          const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
+          if (m?.status === "running" && m?.host) { up = true; break; }
+          if (m?.status === "failed") { failed = m; break; }
+          await sleep(1000);
         }
-      }));
-      const replaced = results.filter((r) => r.replaced);
-      return { value: null, detail: `all running${replaced.length ? `; replaced after a failed create: ${replaced.map((r) => r.replaced).join(" | ")}` : ""}` };
-    });
-    await J.step("set pause_policy per arm", async () => {
-      await Promise.all(results.map(async (r) => {
-        try {
-          await api.op("cloud.machine.idle_policy.set", { machine: r.id, pause_policy: r.arm }, `pab-${tag}-policy-${r.name}`);
-        } catch (e) {
-          r.policy_refused = String((e as Error)?.message ?? e).slice(0, 300);
-          await api.op("cloud.machine.idle_policy.set", { machine: r.id, pause_policy: "aggressive" }, `pab-${tag}-policy-fallback-${r.name}`);
+        if (up) break;
+        if (!failed) throw new Error(`${r.name} not running within 300 s`);
+        const why = `${r.name} ${r.id} failed ${Math.round((Date.now() - t0) / 1000)} s after create answered: ${failureFacts(failed)}`;
+        // A create the provider failed after the platform's own 5-minute retry window (staging 11:47Z,
+        // cloud.provider.unavailable "VM API: HTTP 503") gets one replacement, recorded in the summary.
+        if (failedCreateIsTransient(failed) && !r.replaced) {
+          r.replaced = why;
+          console.log(`running: replacing ${why}`);
+          await api.op("cloud.machine.delete", { machine: r.id }, `pab-${tag}-delete-failed-${r.name}`).catch((e) => console.log(`running: delete of failed ${r.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+          r.name = `${r.name}r`;
+          await createOne(r);
+          continue;
         }
-        const m = await api.read("cloud.machine.get", { machine: r.id });
-        r.effective_policy = m?.pause_policy ?? null;
-      }));
-      return { value: null, detail: results.map((r) => `${r.name}: ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}`).join("; ") };
-    });
-    await J.step("model stub and guest update status", async () => {
-      await Promise.all(results.map(async (r) => {
-        for (const [p, data] of [[`${STUB_DIR}/pab-model-stub.py`, readFileSync(MODEL_STUB_PY)], [`${STUB_DIR}/pab-model-stub.json`, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
-          const w = await api.raw("POST", `/v1/cloud/machines/${r.id}/fs/write`, { path: p, dataBase64: data.toString("base64"), mode: 0o644 });
-          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`${r.name} fs/write ${p}: HTTP ${w.status}`);
-        }
-        const exec = directExec(api, r.id!, J);
-        const s = await exec(stubStartCommand(nonce), 60_000);
-        if (!s.stdout.includes("stub-ready")) throw new Error(`${r.name} stub: ${s.stdout.slice(-200)} ${s.stderr.slice(-200)}`);
-        r.guest_update_start = await readGuestUpdate(exec);
-      }));
-      return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_start)).join(" | ") };
-    });
+        throw new Error(r.replaced ? `${why}; the machine it replaced: ${r.replaced}` : why);
+      }
+      try {
+        await api.op("cloud.machine.idle_policy.set", { machine: r.id, pause_policy: r.arm }, `pab-${tag}-policy-${r.name}`);
+      } catch (e) {
+        r.policy_refused = String((e as Error)?.message ?? e).slice(0, 300);
+        await api.op("cloud.machine.idle_policy.set", { machine: r.id, pause_policy: "aggressive" }, `pab-${tag}-policy-fallback-${r.name}`);
+      }
+      r.effective_policy = (await api.read("cloud.machine.get", { machine: r.id }))?.pause_policy ?? null;
+      for (const [p, data] of [[`${STUB_DIR}/pab-model-stub.py`, readFileSync(MODEL_STUB_PY)], [`${STUB_DIR}/pab-model-stub.json`, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+        const w = await api.raw("POST", `/v1/cloud/machines/${r.id}/fs/write`, { path: p, dataBase64: data.toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`${r.name} fs/write ${p}: HTTP ${w.status}`);
+      }
+      const exec = directExec(api, r.id!, J);
+      const s = await exec(stubStartCommand(nonce), 60_000);
+      if (!s.stdout.includes("stub-ready")) throw new Error(`${r.name} stub: ${s.stdout.slice(-200)} ${s.stderr.slice(-200)}`);
+      r.guest_update_start = await readGuestUpdate(exec);
+    };
 
-    // Status sampler: one cloud.machine.get per machine every poll interval for the whole window.
+    // Status sampler: one cloud.machine.get per driving machine every poll interval, inside that machine's window.
     let sampling = true;
     const sampler = (async () => {
       while (sampling) {
         const at = Date.now();
-        await Promise.all(results.map(async (r) => {
+        await Promise.all(results.filter((r) => r.window && !r.window.end).map(async (r) => {
           const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
           if (m?.status) r.samples.push({ at: Date.now(), status: String(m.status) });
         }));
         await sleep(Math.max(0, pollMs - (Date.now() - at)));
       }
     })();
-    windowStart = Date.now();
-    await J.step(`drive ${turnCount} turns on every machine`, async () => {
-      await Promise.all(results.map((r) => runMachine(r).catch((e) => { r.error = String((e as Error)?.message ?? e).slice(0, 300); })));
+    const drivePair = async (ms: MachineResult[]) => {
+      const start = Date.now();
+      for (const r of ms) r.window = { start, end: 0 };
+      await Promise.all(ms.map((r) => runMachine(r).catch((e) => { r.error = String((e as Error)?.message ?? e).slice(0, 300); })));
       await sleep(tailS * 1000);
-      await Promise.all(results.filter((r) => r.id).map(async (r) => {
+      await Promise.all(ms.map(async (r) => {
         const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
         r.tail_kept = m?.status === "paused" ? "paused" : `status ${m?.status ?? "?"}; ${await idleHeldBy(api, r.id!)}`;
       }));
-      return { value: null, detail: results.map((r) => `${r.name} ${r.turns_ok}/${r.turns.length} ok`).join("; ") };
+      const end = Date.now();
+      for (const r of ms) r.window!.end = end;
+    };
+    const drives: Promise<void>[] = [];
+    const bring0 = Date.now();
+    windowStart = bring0;
+    for (const { pair, machines: ms } of pairsOf(results)) {
+      const t0 = Date.now();
+      if (t0 - bring0 > bringupBudgetMs) {
+        for (const r of ms) r.skipped = `bring-up budget ${bringupBudgetMs / 60_000} min spent before pair ${pair}`;
+        J.record({ step: `pair ${pair} up`, status: "skip", ms: 0, detail: ms[0].skipped! });
+        continue;
+      }
+      const up = await Promise.allSettled(ms.map(bringUp));
+      const why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));
+      if (why.length) {
+        for (const r of ms) r.skipped = why.join(" | ");
+        console.log(`pair ${pair} skipped: ${why.join(" | ")}`);
+        J.record({ step: `pair ${pair} up`, status: "skip", ms: Date.now() - t0, detail: why.join(" | ").slice(0, 1000) });
+        continue;
+      }
+      J.record({
+        step: `pair ${pair} up`, status: "pass", ms: Date.now() - t0,
+        detail: ms.map((r) => `${r.name}=${r.id} ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}${r.replaced ? ` [replaced: ${r.replaced}]` : ""}; ${guestLine(r.name, r.guest_update_start)}`).join(" | ").slice(0, 1000) + (ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""),
+      });
+      drives.push(drivePair(ms));
+    }
+    console.log(`created: ${took.join(", ")}`);
+    const driven = results.filter((r) => !r.skipped);
+    await J.step(`drive ${turnCount} turns per pair (${driven.length / arms.length} of ${perArm} pairs up)`, async () => {
+      await Promise.all(drives);
+      return { value: null, detail: driven.map((r) => `${r.name} ${r.turns_ok}/${r.turns.length} ok`).join("; ") };
     }).catch(() => undefined);
     windowEnd = Date.now();
     sampling = false;
     await sampler;
-    for (const r of results) Object.assign(r, integrate(r.samples, windowStart, windowEnd));
-    await Promise.all(results.map(async (r) => {
+    for (const r of driven) if (r.window) Object.assign(r, integrate(r.samples, r.window.start, r.window.end));
+    await Promise.all(driven.map(async (r) => {
       const info = await api.read("cloud.machine.connect_info", { machine: r.id }).catch(() => null);
       if (r.capabilities === null && Array.isArray(info?.daemon?.capabilities)) {
         r.capabilities = info.daemon.capabilities;
@@ -814,25 +857,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }));
     await J.step("guest resolver (end)", async () => {
-      await Promise.all(results.map(async (r) => {
+      await Promise.all(driven.map(async (r) => {
         r.resolver_end = (await directExec(api, r.id!, J)(GUEST_RESOLVER_FACTS, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }))).stdout.trim();
       }));
-      return { value: null, detail: results.map((r) => `${r.name}: ${r.resolver_recovered ? `[recovered ${r.resolver_recovered}] ` : ""}[end ${r.resolver_end}]`).join(" || ") };
+      return { value: null, detail: driven.map((r) => `${r.name}: ${r.resolver_recovered ? `[recovered ${r.resolver_recovered}] ` : ""}[end ${r.resolver_end}]`).join(" || ") };
     }).catch(() => undefined);
     await J.step("guest update status (end)", async () => {
-      await Promise.all(results.map(async (r) => { r.guest_update_end = await readGuestUpdate(directExec(api, r.id!, J)); }));
-      return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_end)).join(" | ") };
+      await Promise.all(driven.map(async (r) => { r.guest_update_end = await readGuestUpdate(directExec(api, r.id!, J)); }));
+      return { value: null, detail: driven.map((r) => guestLine(r.name, r.guest_update_end)).join(" | ") };
     }).catch(() => undefined);
     usageAfter = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
     J.record({
       step: "idle decision per gap", status: "pass", ms: 0,
-      detail: results.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}${t.report ? ` [${t.report}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
+      detail: driven.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}${t.report ? ` [${t.report}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
     });
-    const missing = missingCapability(results);
+    const missing = missingCapability(driven);
     const table = markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ");
     J.record({
       step: "result",
-      status: results.every((r) => r.turns_ok === r.turns.length) && missing.length === 0 ? "pass" : "fail",
+      // Pass: at least half the pairs drove, every driven turn answered, every arm ran under its policy.
+      status: driven.length > 0 && driven.length * 2 >= results.length && driven.every((r) => r.turns_ok === r.turns.length) && missing.length === 0 ? "pass" : "fail",
       ms: windowEnd - windowStart,
       detail: missing.length ? `${table} :: arm not under its policy: ${missing.join(" | ")}` : table,
     });

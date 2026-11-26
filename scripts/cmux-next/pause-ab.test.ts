@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, percentile, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -58,6 +58,31 @@ describe("pairTable", () => {
     const b = { ...machine("aggressive", 50, 350, [null, 1000], true), pair: 2, seed: 8, gaps_s: [45, 90] };
     expect(pairTable([a, b], ["turn_end", "aggressive"]).split("\n")[2]).toBe("| 2 | 8 | 45,90 | 300 / 1 | 350 / 1 |");
   });
+  test("a skipped pair shows why and stays out of both arms' rows", () => {
+    const a = { ...machine("turn_end", 100, 300, [null, 2000], true), pair: 1 };
+    const b = { ...machine("aggressive", 50, 350, [null, 1000], true), pair: 1 };
+    const c = { ...machine("turn_end", 0, 0, [], false), pair: 2, skipped: "pause-ab-x-turn_end-2 not running within 300 s" };
+    const d = { ...machine("aggressive", 0, 0, [], false), pair: 2, skipped: "pause-ab-x-turn_end-2 not running within 300 s" };
+    expect(pairTable([a, b, c, d], ["turn_end", "aggressive"]).split("\n")[3]).toContain("skipped: pause-ab-x-turn_end-2 not running");
+    expect(aggregate([a, b, c, d], ["turn_end", "aggressive"]).map((r) => r.machines)).toEqual([1, 1]);
+    expect(pairsOf([d, a, c, b]).map((p) => [p.pair, p.machines.map((m) => m.arm)])).toEqual([[1, ["turn_end", "aggressive"]], [2, ["aggressive", "turn_end"]]]);
+  });
+});
+
+describe("pool", () => {
+  test("runs every item with at most n in flight", async () => {
+    let live = 0;
+    let peak = 0;
+    const done: number[] = [];
+    await pool([1, 2, 3, 4, 5, 6, 7], 3, async (i) => {
+      peak = Math.max(peak, ++live);
+      await new Promise((r) => setTimeout(r, 5));
+      done.push(i);
+      live--;
+    });
+    expect(done.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(peak).toBe(3);
+  });
 });
 
 describe("stalePauseAbMachines", () => {
@@ -74,10 +99,10 @@ describe("stalePauseAbMachines", () => {
     expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["a", "d"]);
   });
 
-  test("a tag past the workflow's 60-minute job is left behind; one inside it may still be running", () => {
-    const now = Date.UTC(2026, 10, 26, 9, 38);
+  test("a tag past the workflow's 80-minute job is left behind; one inside it may still be running", () => {
+    const now = Date.UTC(2026, 10, 26, 9, 58);
     const killed = Date.UTC(2026, 10, 26, 8, 0).toString(36);
-    const live = (now - 50 * 60_000).toString(36);
+    const live = (now - 70 * 60_000).toString(36);
     const rows = [
       { id: "vm_killed", name: `pause-ab-${killed}-aggressive-1`, status: "running" },
       { id: "vm_live", name: `pause-ab-${live}-turn_end-1`, status: "running" },
