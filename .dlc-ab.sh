@@ -2,11 +2,11 @@
 # A/B: rust-live's one-line core edit, timed per crate, under several dev-profile variants (cargo --config), one job.
 # Usage: bash .dlc-ab.sh VARIANT... ; a variant is NAME or NAME=cfg1,cfg2 (cargo --config values, ';' joins).
 set -uo pipefail
-cd cmux-tui
+cd cmux-tui; TIME_PASSES=${TIME_PASSES:-1}
 export CARGO_TERM_COLOR=never
 nproc; rustc -V; env | grep -E "^(CARGO|RUSTC|RUSTFLAGS)" | sort
 F=crates/cmux-tui-core/src/server/cmd_server.rs
-TP=$PWD/../.dlc-tp.sh
+TP=$PWD/../.dlc-tp2.sh
 edit() {
   git checkout -q -- "$F"
   TOK=$1 python3 - <<'PY'
@@ -39,6 +39,6 @@ for v in "$@"; do
     echo "RESULT $name $tok edit_s=$(echo "$(date +%s.%N)-$t0"|bc)"
     summ
   done
-  if [ -n "${TIME_PASSES:-}" ]; then for f in /tmp/tp-*.txt; do echo "--- $name $f"; grep -E "^time:" "$f" | sort -k2 -g -r | head -25; done; fi
+  if [ -n "${TIME_PASSES:-}" ]; then for f in /tmp/tp-*.txt; do echo "--- $name $f"; grep -E "^time:" "$f" | sort -k2 -g -r | head -30; grep -iE "incremental|cgu|reus" "$f" | head -20; done; fi
 done
 git checkout -q -- "$F"
