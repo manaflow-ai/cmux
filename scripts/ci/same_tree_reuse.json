@@ -426,7 +426,8 @@
    "classic-api-guard": "calls a reusable workflow: no step here can record its pass",
    "swift-linux-packages": "calls a reusable workflow: no step here can record its pass",
    "web-validation": "calls a reusable workflow: no step here can record its pass",
-   "pipeline": "calls a reusable workflow: no step here can record its pass"
+   "pipeline": "calls a reusable workflow: no step here can record its pass",
+   "land-tier-status": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree"
   }
  }
 }

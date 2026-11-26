@@ -1108,6 +1108,12 @@
           ".github/workflows/cmux-next-fast-gates.yml"
         ]
       },
+      "land-tier-status": {
+        "why": "posts the route's cmux/land-tier state again when the route's post got through on no token; it reads no path (needs.route.outputs.land_status_unposted)",
+        "suggested_inputs": [
+          "scripts/ci/land_tier_status_post.sh"
+        ]
+      },
       "machine-channel-pr-head": {
         "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-machine-channel.yml), and its plan job decides by the v2 tree key, not by paths",
         "suggested_inputs": [

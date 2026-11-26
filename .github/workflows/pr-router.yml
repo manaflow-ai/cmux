@@ -56,6 +56,8 @@ jobs:
       start: ${{ steps.route.outputs.start }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The cmux/land-tier state the route's post got through on no token; empty once posted (or none to post).
+      land_status_unposted: ${{ steps.land-status-post.outcome == 'failure' && steps.route.outputs.land_status || '' }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -90,6 +92,7 @@ jobs:
             scripts/ci/cmux_machine_channel_head_built.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/land_tier_status_post.sh
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
@@ -158,6 +161,8 @@ jobs:
       # failed ("API rate limit exceeded for installation", run 45657671903, 2026-11-25 16:47Z) under
       # continue-on-error, so the run read green, cmux/land-tier stayed `pending` from the cheap tier at a head the
       # full tier had run on, and its land waited on it: 29 of 119 cmux lands waiting on running checks at 17:50Z.
+      # Both hours can be spent at once (run 45900568467, cmux#57321): the `land tier status` job then tries again
+      # and is red when it still cannot post (scripts/ci/land_tier_status_post.sh).
       - name: Mint the land tier status token
         id: land-status-token
         if: ${{ steps.route.outputs.land_status != '' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_BOT_APP_ID != '' }}
@@ -171,8 +176,11 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
       - name: Post the land tier status
+        id: land-status-post
         if: ${{ steps.route.outputs.land_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
-        timeout-minutes: 3
+        timeout-minutes: 2
+        # A post that got through on no token hands the state to the `land tier status` job below (its red check is
+        # the loud failure); this job stays green so every callee still starts.
         continue-on-error: true
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
@@ -186,29 +194,60 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           STATE: ${{ steps.route.outputs.land_status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          LAND_STATUS_RETRY_S: '20'
-        run: |
-          if [ "$STATE" = success ]; then
-            # GitHub refuses a status description over 140 characters ("Validation failed: Description is too long"),
-            # and the post below caps it there too: run 45839458055 (2026-11-26 14:29Z) left this status unposted.
-            desc="Land tier runs here: full, affected (full tier hourly on feat-cmux-next), or carried from the base merge's head"
-          else
-            desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
-          fi
-          # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the next, then again.
-          for round in 1 2 3; do
-            # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
-            for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
-              [ -n "$token" ] || continue
-              if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
-                  -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null; then
-                exit 0
-              fi
-            done
-            [ "$round" = 3 ] || sleep "$((LAND_STATUS_RETRY_S * round))"
-          done
-          echo "::warning::cmux/land-tier ($STATE) was not posted at $SHA: its land waits on the last state posted there"
-          exit 1
+          # Sleeps only until a refused token's own Retry-After or X-RateLimit-Reset, and only when that is this
+          # close: a fixed 20 s and 40 s sleep slept 60 s of a 72 s median router job (job 140020669492) and
+          # still posted nothing when the hour was spent.
+          LAND_STATUS_WAIT_S: '20'
+        run: scripts/ci/land_tier_status_post.sh
+
+  land-tier-status:
+    # The route's cmux/land-tier post got through on no token: every installation hour it holds was spent. Posted
+    # here again with a longer wait, and red when it still is not, so the run says so: the route's step under
+    # continue-on-error had read green while the status stayed the cheap tier's `pending` and land stopped the PR as
+    # checks_stuck after 4.1 h (run 45900568467, cmux#57321, 2026-11-26). `gh run rerun RUN --failed` posts it.
+    name: land tier status
+    needs: route
+    if: ${{ needs.route.outputs.land_status_unposted != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Checkout the post
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/land_tier_status_post.sh
+          sparse-checkout-cone-mode: false
+      - name: Mint the land tier status token
+        id: land-status-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+      - name: Post the land tier status
+        timeout-minutes: 4
+        env:
+          APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
+          # The CI pool Apps' tokens, as the route's post tries them.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          JOB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ needs.route.outputs.land_status_unposted }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # About 2 min, spent only when a refused token frees up within it; else it fails at once.
+          LAND_STATUS_WAIT_S: '150'
+        run: scripts/ci/land_tier_status_post.sh
 
   machine-channel-pr-head:
     # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build. Started only on a
