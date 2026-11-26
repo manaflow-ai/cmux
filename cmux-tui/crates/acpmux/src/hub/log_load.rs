@@ -260,7 +260,9 @@ impl Hub {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         self.catch_up(session);
+        phase_note(&session.id, "catch_up", __t); // TEMP-PHASE
         if !session.caught_up.load(Ordering::SeqCst) {
             // What an earlier run kept on disk did not read (`take_back_kept`): nothing recovers
             // or rebuilds its queue without it (review of #37284 at 23e76b07, F2). The log stays
@@ -274,7 +276,9 @@ impl Hub {
         // the log's start (`restore_point.rs`); `read_to` is the seq they read through. A load
         // for a journal restore reads the whole log: its recovery runs later, on the records the
         // restore puts back.
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         let point = if recover { self.read_restore_point(session) } else { None };
+        phase_note(&session.id, "restore_point", __t); // TEMP-PHASE
         let read_to = self.settled_seq(session);
         let epoch = match self.restore_ownership_epoch_after(session, point.as_ref()) {
             Ok(epoch) => Some(epoch),
@@ -285,6 +289,7 @@ impl Hub {
             }
         };
         let authority = self.restore_transfer_authority_after(session, point.as_ref());
+        phase_note(&session.id, "epoch+authority", __t); // TEMP-PHASE
         if !recover {
             // Read, with its recovery still to run: the restore that asked runs it.
             session.recovery_pending.store(true, Ordering::SeqCst);
@@ -293,7 +298,9 @@ impl Hub {
         }
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         let quiet = self.recover_log(session, None, point.as_ref());
+        phase_note(&session.id, "recover_log", __t); // TEMP-PHASE
         // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
         // the journal are left to that prompt's read, which reads them too.
         if !Self::keeps_unstored(session) {
@@ -326,6 +333,7 @@ impl Hub {
                 },
             );
         }
+        phase_note(&session.id, "seed+save", __t); // TEMP-PHASE
         loaded.done();
         // Its inbox, read now in the background, apart from the log load: a god chat's inbox
         // history is read once, and never ahead of its first prompt (`Session::inbox`).
@@ -406,7 +414,9 @@ impl Hub {
         // it is a watched chat's, the other app's). Read for a hosted chat too: a restore point
         // is saved only where no turn is open.
         let closed = session.status() == SessionStatus::Closed;
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         let open = if closed { None } else { self.open_turn(session, after) };
+        phase_note(&session.id, "rl.open_turn", __t); // TEMP-PHASE
         let continued = match &open {
             Some(Some(turn)) if !hosted && session.meta().watching.is_none() => {
                 self.settle_open_turn(session, turn.clone(), from_copy.is_some())
@@ -429,14 +439,18 @@ impl Hub {
             self.restore_queue_after(session, None, point.map(|p| (p.seq, &p.queue)))
         };
         // A change of the queue made meanwhile is rebuilt in (`settle_queue_changes`).
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         self.settle_queue_changes(session, from_copy.unwrap_or(&Default::default()));
+        phase_note(&session.id, "rl.settle_queue_changes", __t); // TEMP-PHASE
         // A copy's first start runs none of what waited (`clone_boot.rs`).
         self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
         // clients can attach or the restored queue resumes.
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         let written = super::message_events::recover_message_events_after(self, session, after);
+        phase_note(&session.id, "rl.message_events", __t); // TEMP-PHASE
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
@@ -860,3 +874,14 @@ struct OpenTurn {
     trigger: bool,
     hidden: bool,
 }
+
+// TEMP-PHASE: remove before commit.
+pub(crate) fn phase_note(id: &str, what: &str, since: std::time::Instant) {
+    use std::io::Write;
+    let rss = std::fs::read_to_string("/proc/self/status").ok().and_then(|s| s.lines().find(|l| l.starts_with("VmRSS:")).map(|l| l.split_whitespace().nth(1).unwrap_or("").to_string())).unwrap_or_default();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/sweep-perf/phases.txt") {
+        let _ = writeln!(f, "{} {} {} {}us rss={}kB", std::process::id(), id, what, since.elapsed().as_micros(), rss);
+    }
+}
+pub(crate) struct PhaseAll(pub &'static str, pub std::time::Instant); // TEMP-PHASE
+impl Drop for PhaseAll { fn drop(&mut self) { phase_note("-", self.0, self.1); } }

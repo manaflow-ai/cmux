@@ -195,6 +195,7 @@ mod locate;
 pub(crate) mod lock_bridge;
 mod log_deferral;
 mod log_load;
+pub(crate) use log_load::{phase_note, PhaseAll}; // TEMP-PHASE
 #[cfg(test)]
 mod long_chat_tests;
 mod loop_detector;
@@ -2339,6 +2340,7 @@ impl Hub {
         let mut results = Vec::new();
         // Under the append lock: `turn_result` is indexed, so a chat whose results are all
         // failures reads only the index copies back, not its whole log.
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         let restored = self.store.scan_back_indexed(
             &session.id,
             after,
@@ -2353,6 +2355,7 @@ impl Hub {
                 !success && results.len() < crate::session_liveness::RESTORE_RESULTS
             },
         );
+        log_load::phase_note(&session.id, "cu.scan_back", __t); // TEMP-PHASE
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -2367,7 +2370,10 @@ impl Hub {
             }
         }
         let last_seq = session.meta.lock().unwrap().last_seq;
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         self.catch_up_harness_sandbox(session, last_seq);
+        log_load::phase_note(&session.id, "cu.sandbox", __t); // TEMP-PHASE
+        let __t = std::time::Instant::now(); // TEMP-PHASE
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
@@ -2392,6 +2398,7 @@ impl Hub {
         // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
         // Then the tool output bodies a killed run held back and wrote beside the log are stored,
         // before any record of this run and before its log is read (`store/deferred.rs`).
+        log_load::phase_note(&session.id, "cu.tail_after", __t); // TEMP-PHASE
         if !self.take_back_kept(session) || !self.take_back_held(session) {
             if rebuilt {
                 self.save_meta(session);

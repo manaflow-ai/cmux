@@ -1183,24 +1183,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 // after it, or first by a request for that chat (`hub/log_load.rs`).
                 {
                     let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
-                    let _phase = gauges.phase("live chat logs");
+                    let _phase = gauges.phase("live chat logs"); let _pn = crate::hub::PhaseAll("live chat logs", std::time::Instant::now()); // TEMP-PHASE
                     hub.load_live_logs_async().await;
                     drop(_phase);
-                    let _phase = gauges.phase("adopt agent hosts");
+                    let _phase = gauges.phase("adopt agent hosts"); let _pn = crate::hub::PhaseAll("adopt agent hosts", std::time::Instant::now()); // TEMP-PHASE
                     hub.adopt_agent_hosts().await;
                     drop(_phase);
-                    let _phase = gauges.phase("settle unadopted");
+                    let _phase = gauges.phase("settle unadopted"); let _pn = crate::hub::PhaseAll("settle unadopted", std::time::Instant::now()); // TEMP-PHASE
                     hub.settle_unadopted().await;
                 }
                 {
-                    let _phase = gauges.phase("recover workflows");
+                    let _phase = gauges.phase("recover workflows"); let _pn = crate::hub::PhaseAll("recover workflows", std::time::Instant::now()); // TEMP-PHASE
                     hub.recover_workflows().await;
                 }
                 {
                     let hub = hub.clone();
                     hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
                         {
-                            let _phase = gauges.phase("all chat logs");
+                            let _phase = gauges.phase("all chat logs"); let _pn = crate::hub::PhaseAll("all chat logs", std::time::Instant::now()); // TEMP-PHASE
                             hub.load_logs_async().await;
                         }
                         if hub.shutting_down() {
