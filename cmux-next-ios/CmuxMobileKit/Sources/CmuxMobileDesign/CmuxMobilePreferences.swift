@@ -65,9 +65,6 @@ public enum CmuxMobilePreferences {
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
-        /// Settings → Composer → Session Facts (RFD 0130, off by default): `off`, `pulse` (live
-        /// counters beside the context meter) or `door` (an info mark); either opens the Session card.
-        public static let composerFooterFacts = "cmuxMobile.settings.composerFooterFacts"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
         /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a

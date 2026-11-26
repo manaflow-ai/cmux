@@ -706,7 +706,6 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
         added_at: None,
         detail: None,
         full_access: None,
-        parked: false,
         screen: None,
         hub_device: None,
     }

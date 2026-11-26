@@ -19,8 +19,6 @@ import subprocess
 MOVED_BASELINE_PATHS = {
     "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs":
         "cmux-tui/crates/cmux-remote/src/identity.rs",
-    "cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs":
-        "cmux-tui/crates/acpmux/src/hub/permissions.rs",
 }
 
 

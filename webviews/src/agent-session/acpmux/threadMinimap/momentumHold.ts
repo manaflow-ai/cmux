@@ -1,7 +1,6 @@
-/// The momentum hold (`holdMomentum`, `installMomentumHold`). A leaf module (its one import, the
-/// scroll controller, imports nothing), so `links.ts` can hold a reveal's momentum without pulling
-/// the transcript's model (and its fonts) into every page that copies a link.
-import { writeScrollTop } from "../conversation/scrollController";
+/// The momentum hold (`holdMomentum`, `installMomentumHold`). A leaf module with no imports, so
+/// `links.ts` can hold a reveal's momentum without pulling the transcript's model (and its fonts)
+/// into every page that copies a link.
 
 /// A trackpad fling's momentum after a scroll made from code (Leo 2026-11-12: "it doesn't, like,
 /// break the momentum and jump to bottom immediately"). WebKit keeps sending the fling's momentum as
@@ -78,7 +77,7 @@ export function installMomentumHold(node: HTMLElement, scrolling: (node: HTMLEle
     if (!hold || scrolling(node)) return;
     const target = hold.target();
     if (Math.abs(node.scrollTop - target) > 0.5) {
-      writeScrollTop(node, target, "momentum");
+      node.scrollTop = target;
       hold.echo = true;
       event.stopImmediatePropagation();
     } else if (hold.echo) {

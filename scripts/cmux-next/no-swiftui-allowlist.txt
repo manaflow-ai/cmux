@@ -29,7 +29,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsHostingVi
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageHost.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPalette.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ConnectionChip.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFace.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFaceView.swift
@@ -40,7 +39,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/CmuxOverlayModifier.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupCardColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SignInButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/ThemedSpinner+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeTokens+Unresolved.swift
@@ -86,7 +84,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelVi
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/ScrollEdgeFadeModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/SettingsStyle.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments/TerminalCommentsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetView.swift
@@ -95,7 +92,5 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsPageTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsSignInTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ConnectionChipLayoutShiftTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/NativeControlContrastAuditTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/LayoutShiftProbe.swift

@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxMobileBilling
 import CmuxMobileSupport
-import CmuxSpinner
 import SwiftUI
 import StoreKit
 
@@ -118,7 +117,7 @@ public struct MobilePlansView: View {
         case .idle, .loading:
             Section {
                 HStack(spacing: 12) {
-                    CmuxSpinner()
+                    ProgressView()
                     Text(L10n.string("mobile.billing.loading", defaultValue: "Loading plans"))
                         .foregroundStyle(.secondary)
                 }
@@ -170,7 +169,7 @@ public struct MobilePlansView: View {
                 .accessibilityIdentifier("BillingOffersUnavailable")
             } else {
                 Section {
-                    CmuxSpinner()
+                    ProgressView()
                 }
                 .accessibilityIdentifier("BillingOffersLoading")
             }
@@ -236,7 +235,7 @@ public struct MobilePlansView: View {
             Section {
                 HStack(spacing: 12) {
                     if billing.purchase.isPurchasing || billing.restore == .restoring {
-                        CmuxSpinner()
+                        ProgressView()
                     }
                     Text(message)
                         .fixedSize(horizontal: false, vertical: true)

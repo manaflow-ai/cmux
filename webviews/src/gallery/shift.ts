@@ -447,21 +447,14 @@ export function startBoxTracker(
     const samples = sampleBoxes(doc, targetsNow(), [...(options.extra?.() ?? []), ...media]);
     const declared = [
       ...(options.declared?.() ?? []),
-      ...open.map(({ key, event, scope, once, strict, by }) => ({ key: -key, event, scope, once, strict, by })),
+      ...open.map(({ key, event, scope, once, by }) => ({ key: -key, event, scope, once, by })),
     ];
     judged.push({ samples, declared });
     // A play that sets `cmuxMotionTrace` on its window logs each judged frame (undeclared-run.sh TRACE=1).
     if ((view as unknown as { cmuxMotionTrace?: boolean }).cmuxMotionTrace) {
-      const all = [...samples].filter(([, sample]) => sample.surface === "transcript-row");
-      const rows = all.length > 8 ? [...all.slice(0, 4), ...all.slice(-4)] : all;
-      const flags = (sample: (typeof rows)[number][1]) =>
-        `${sample.targeted ? "T" : ""}${sample.folding ? "F" : ""}${sample.animating ? "A" : ""}`;
+      const rows = [...samples].filter(([, sample]) => sample.surface === "transcript-row").slice(-6);
       console.log(
-        `motion-trace judge f${judged.length - 1} t${view.performance.now().toFixed(0)} [${declared
-          .map((each) => `${each.event}/${each.scope}${each.strict ? "!" : ""}`)
-          .join(
-            ",",
-          )}] ${rows.map(([id, sample]) => `${id}:${sample.box.y.toFixed(1)}/${sample.box.height.toFixed(1)}${flags(sample)}`).join(" ")}`,
+        `motion-trace judge f${judged.length - 1} t${view.performance.now().toFixed(0)} ${rows.map(([id, { box }]) => `${id}:${box.y.toFixed(1)}/${box.height.toFixed(1)}`).join(" ")}`,
       );
     }
   };

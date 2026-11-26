@@ -1670,9 +1670,9 @@ pub async fn serve_direct_websocket_with_options(
              listener requires a client grant"
         )));
     }
-    let listener = tokio::net::TcpListener::bind(address).await.map_err(|error| {
-        DaemonError::Protocol(crate::port_holder::bind_failure_message(address, &error))
-    })?;
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| DaemonError::Protocol(format!("could not bind WebSocket: {error}")))?;
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;

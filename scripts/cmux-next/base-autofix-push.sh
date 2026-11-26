@@ -114,8 +114,6 @@ output_areas() {
       Cargo.lock | */Cargo.lock) echo locks ;;
       # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a).
       cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) echo iosffi ;;
-      # Undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix).
-      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac

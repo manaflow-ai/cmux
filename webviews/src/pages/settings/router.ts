@@ -21,15 +21,7 @@ export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsS
  * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
  * ignores it. An old Personalization link's `part` becomes its focus (legacyLinks.ts). Plain `?a=b`
  * pairs, never JSON. */
-export type SettingsSearch = {
-  focus?: string;
-  workspace?: string;
-  q?: string;
-  changed?: true;
-  /** `cmux://slack/connected` lands here: a hint to re-read the connection, never trusted for its contents. */
-  slack?: "connect" | "connected";
-  open?: string;
-};
+export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
   const text = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : String(value));
@@ -43,10 +35,6 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   else if (part) out.focus = `personalization.${part}`;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
-  if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
-    out.slack = raw.slack;
-    out.open = text(raw.open);
-  }
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
   return out;
 }

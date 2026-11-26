@@ -354,7 +354,7 @@ def step_script(name: str = STEP) -> str:
 
 class PullRequestCompilesCmuxNextTests(unittest.TestCase):
     """The pull-request check compiles CmuxNext's test targets again: cmux-next.yml's swift test job
-    runs on a feat-cmux-next pull request never, with or without full-ci (#57353), so nothing else builds them on a PR."""
+    runs on a pull request only with full-ci (2026-11-05), so nothing else builds them on a PR."""
 
     def test_the_workflow_skips_no_package_in_either_plan(self) -> None:
         text = WORKFLOW.read_text()
@@ -363,17 +363,15 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         # The step compiles the plan's packages as they are: it skips none either.
         self.assertNotIn("--skip-package", step_script())
 
-    def test_swift_test_never_runs_on_a_cmux_next_pull_request(self) -> None:
-        # If swift test ran on a feat-cmux-next PR again, this check would compile CmuxNext twice.
+    def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
+        # If swift test ran on every same-repository PR again, this check would compile CmuxNext twice.
         text = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text()
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        # #49046: a pull request into another base is not a cmux-next PR. #57353: one into feat-cmux-next
-        # runs swift test after merge only, with or without full-ci (0 real catches in 30 days).
-        self.assertIn("&& (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
-                      condition)
-        self.assertNotIn("'full-ci')", condition.replace("fromJSON('[\"full-ci\",\"ready-to-land\"]')", ""))
+        # #49046: a pull request into another base is not a cmux-next PR; one into feat-cmux-next needs full-ci.
+        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
+                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()

@@ -443,64 +443,6 @@ fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
     );
 }
 
-#[test]
-fn a_desktop_setup_is_the_platforms_desktop_route_never_classic() {
-    let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));
-    let args = json!({ "id": VM });
-    let answer =
-        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())).unwrap();
-    assert_eq!(answer, json!({ "ok": true }));
-    {
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].target(), format!("POST /v1/cloud/machines/{VM}/desktop"));
-        assert!(seen[0].body.is_empty(), "the route takes no body");
-        assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
-        assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
-        assert_eq!(seen[0].header("x-stack-refresh-token"), None);
-    }
-    // A classic session and an id that is not a Worker machine's send nothing.
-    assert!(matches!(
-        go(&request(&origin, Auth::Stack, "machine.setup_desktop", args)),
-        Err(Failure::Transport(_))
-    ));
-    let bad_id = json!({ "id": "vm_x/../../api/vm" });
-    assert!(matches!(
-        go(&request(&origin, Auth::Worker, "machine.setup_desktop", bad_id)),
-        Err(Failure::Transport(_))
-    ));
-    assert_eq!(seen.lock().unwrap().len(), 1);
-}
-
-#[test]
-fn a_desktop_setup_refusal_reads_as_a_machine_routes() {
-    let args = json!({ "id": VM });
-    // A plan refusal is the typed one the app shows its Upgrade dialog for.
-    let (origin, _) = fake(|_| {
-        Some((402, r#"{"error":"vm_active_limit_exceeded","message":"Cloud VMs require a cmux Pro subscription.","limit":0,"upgradeRequired":true,"upgradeUrl":"https://cmux.com/pricing"}"#.into()))
-    });
-    let failure =
-        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())).unwrap_err();
-    assert!(matches!(failure, Failure::PlanRequired { .. }), "{failure:?}");
-    let (origin, _) = fake(|_| {
-        Some((
-            409,
-            r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#
-                .into(),
-        ))
-    });
-    assert_eq!(
-        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())),
-        Err(Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into())))
-    );
-    // A 2xx that is not the route's `{ok}` is no answer.
-    let (origin, _) = fake(|_| ok("[]"));
-    assert!(matches!(
-        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args)),
-        Err(Failure::Decoding(_))
-    ));
-}
-
 // MARK: owner routes
 
 #[test]

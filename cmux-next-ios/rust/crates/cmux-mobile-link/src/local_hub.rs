@@ -414,26 +414,6 @@ mod tests {
         assert!(started.elapsed() < crate::local::HUB_CONNECT_WAIT / 3, "{:?}", started.elapsed());
     }
 
-    /// The hub race on the braid carrier: a first address that takes the TCP connect and never
-    /// answers the upgrade (a black hole) does not hold the phone; the second address starts
-    /// [`crate::local::ATTEMPT_DELAY`] later and wins, well inside the hub's wait.
-    #[tokio::test]
-    async fn a_black_holed_first_address_loses_to_the_next_one() {
-        let hub = hub(Arc::new(|d: &str| d == "phone")).await;
-        let live: SocketAddr = format!("127.0.0.1:{}", hub.port()).parse().unwrap();
-        // Bound and listening, never accepted: the kernel completes the handshake, nothing answers.
-        let hole = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let dark = hole.local_addr().unwrap();
-        let started = std::time::Instant::now();
-        let phone = crate::local::connect_hub(&[dark, live], "phone").await.unwrap();
-        let took = started.elapsed();
-        eprintln!("hub race: black-holed first address, second won in {took:?}");
-        assert!(took >= crate::local::ATTEMPT_DELAY, "{took:?}");
-        assert!(took < crate::local::HUB_CONNECT_WAIT / 3, "{took:?}");
-        drop(phone);
-        drop(hole);
-    }
-
     /// A newer phone's or Mac's messages through this hub: a message type it
     /// does not know is ignored (no error, the socket stays up); a `signal`
     /// is forwarded with every field it does not know, `from` and

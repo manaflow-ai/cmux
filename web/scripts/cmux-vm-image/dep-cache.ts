@@ -12,7 +12,7 @@
  * at bake time, so the cache is as fresh as the agents layer; an older version only costs a download.
  * clean.py keeps exactly ~/.npm/_cacache (the content and index) and drops npm's logs.
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { sq } from "./lock";
 import prefillDeps from "./prefill-deps.json";
 

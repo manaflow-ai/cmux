@@ -71,8 +71,6 @@ import Testing
         #expect(recorder.moves.isEmpty)
     }
 
-    // The name and color rules are Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links them.
-    #if os(iOS)
     @Test func newWorkspaceGroupMakesAnEmptyGroupInTheNextColor() async {
         let (_, creator, recorder, macID) = setup()
         creator.newGroup(on: macID, name: "  Backend ")
@@ -84,7 +82,6 @@ import Testing
         // Green has no workspace on this phone: the list shows it as an empty group.
         #expect(creator.emptyGroups(on: macID).map(\.id) == ["grp_g"])
     }
-    #endif
 
     @Test func aRefusedNewGroupSaysSo() async {
         let (_, creator, recorder, macID) = setup()

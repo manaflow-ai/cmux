@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Layout shifts, flashes, blinks and staggered settles in every recording under some folders, as one Markdown table.
+"""Layout shifts, blinks and staggered settles in every recording under some folders, as one Markdown table.
 
   scripts/cmux-next/recording-shifts-report.py DIR_OR_FILE... [--summary OUT.md] [--title T]
 
 Each .mov, .mp4 or .y4m found (recursively) is read by flicker-check.py; its report is written beside it as
 <recording>.shifts.json, and one row per recording goes to stdout (and is appended to --summary, e.g.
-$GITHUB_STEP_SUMMARY): jumps (a block that moved in one frame and stayed), flashes (a block that came and went
-within 3 s, the screen as it was: docs/cmux-next/spurious-ui.md), blinks, staggered settles, glides
+$GITHUB_STEP_SUMMARY): jumps (a block that moved in one frame and stayed), blinks, staggered settles, glides
 (moves over several frames, not counted as shifts), and the first jumps' times, boxes and moves in source pixels.
 
 It reports; it never fails a run (exit 0 even when a recording cannot be read: its row says why). The seeded
@@ -46,7 +45,7 @@ def row(path, report, seconds, base):
     first = "; ".join(f"{e['ms'] / 1000:.2f}s ({e['dx']},{e['dy']})px at {e['box']}" for e in jumps) or "-"
     name = path.relative_to(base) if base and path.is_relative_to(base) else path
     return (f"| `{name}` | {report['frames']} | {counts['jump']} | {counts['blink']} | {counts['staggered']} | "
-            f"{counts['glide']} | {counts['flash']} | {first} | {seconds:.1f}s |")
+            f"{counts['glide']} | {first} | {seconds:.1f}s |")
 
 
 def main(argv=None):
@@ -58,8 +57,8 @@ def main(argv=None):
 
     base = args.paths[0] if len(args.paths) == 1 and args.paths[0].is_dir() else None
     lines = [f"### {args.title}", "",
-             "| recording | frames | jumps | blinks | staggered | glides | flashes | first jumps | read in |",
-             "|---|---:|---:|---:|---:|---:|---:|---|---:|"]
+             "| recording | frames | jumps | blinks | staggered | glides | first jumps | read in |",
+             "|---|---:|---:|---:|---:|---:|---|---:|"]
     found = 0
     for path in recordings(args.paths):
         found += 1
@@ -68,12 +67,12 @@ def main(argv=None):
             report = flicker.analyse(path)
         except (Exception, SystemExit) as error:  # noqa: BLE001
             # One unreadable recording (a half-written file, no ffmpeg) is a row, not a failed run.
-            lines.append(f"| `{path}` | - | - | - | - | - | - | not read: {' '.join(str(error).split())[:160]} | - |")
+            lines.append(f"| `{path}` | - | - | - | - | - | not read: {' '.join(str(error).split())[:160]} | - |")
             continue
         Path(f"{path}.shifts.json").write_text(json.dumps(report, indent=2) + "\n")
         lines.append(row(path, report, time.monotonic() - started, base))
     if not found:
-        lines.append("| (no .mov, .mp4 or .y4m recording found) | | | | | | | | |")
+        lines.append("| (no .mov, .mp4 or .y4m recording found) | | | | | | | |")
     text = "\n".join(lines) + "\n"
     sys.stdout.write(text)
     if args.summary:

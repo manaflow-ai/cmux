@@ -126,10 +126,6 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
     case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
-    /// The session's footer facts (`composerStatus.facts` on its row, RFD 0130): a whole row's
-    /// (attach, the chat's own `session_changed`) or a census row's, which leaves out the facts
-    /// that repeat the row's fields (``AgentFooterFacts/updated(with:)``).
-    case footerFacts(AgentFooterFacts)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the

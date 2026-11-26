@@ -36,12 +36,6 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     /// The sign-in service answered 429 (too many requests from this
     /// network). The session is untouched; the flow retries on its own.
     case rateLimited
-    /// The sign-in service refused this build's redirect address
-    /// (`REDIRECT_URL_NOT_WHITELISTED`): the auth project does not trust it.
-    /// `origin` is the refused origin when known, `backend` the name of the
-    /// backend whose auth project refused it. Says so plainly instead of the
-    /// generic "Something went wrong".
-    case redirectNotAllowed(origin: String?, backend: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -107,19 +101,6 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
                 defaultValue: "Too many sign-in requests from this network. cmux retries automatically.",
                 bundle: .main
             )
-        case let .redirectNotAllowed(origin, backend):
-            let backendName = backend ?? String(
-                localized: "auth.error.redirect_not_allowed.this_backend",
-                defaultValue: "this backend",
-                bundle: .main
-            )
-            let sentence = String(
-                localized: "auth.error.redirect_not_allowed",
-                defaultValue: "This build's sign-in address isn't allowed on \(backendName).",
-                bundle: .main
-            )
-            guard let origin, !origin.isEmpty else { return sentence }
-            return "\(sentence) (\(origin))"
         }
     }
 }

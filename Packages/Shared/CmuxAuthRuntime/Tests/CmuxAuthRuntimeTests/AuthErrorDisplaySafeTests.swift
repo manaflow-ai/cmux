@@ -10,7 +10,7 @@ import Testing
             "INVALID_OTP", "OTP_EXPIRED", "RATE_LIMIT", "RATE_LIMITED",
             "EMAIL_PASSWORD_MISMATCH", "USER_NOT_FOUND",
             "PASSKEY_AUTHENTICATION_FAILED", "PASSKEY_WEBAUTHN_ERROR",
-            "INVALID_TOTP_CODE",
+            "INVALID_TOTP_CODE", "REDIRECT_URL_NOT_WHITELISTED",
             "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
             "INVALID_APPLE_CREDENTIALS", "OAUTH_ERROR", "MISSING_CODE",
             "PARSE_ERROR", "INVALID_RESPONSE", "INVALID_URL",
@@ -22,29 +22,6 @@ import Testing
             // nil means "surface the original error unchanged".
             #expect(AuthError(displaySafe: StackAuthError(code: code, message: "message")) == nil)
         }
-    }
-
-    @Test func aRefusedRedirectSaysWhichAddressAndBackend() {
-        let refused = StackAuthError(
-            code: "REDIRECT_URL_NOT_WHITELISTED",
-            message: "message",
-            details: ["redirect_url": "https://cmux-staging.vercel.app/handler/sign-in?after_auth_return_to=x"]
-        )
-        let mapped = AuthError(displaySafe: refused, backend: "the development backend")
-        #expect(mapped == .redirectNotAllowed(origin: "https://cmux-staging.vercel.app", backend: "the development backend"))
-        #expect(mapped?.errorDescription
-            == "This build's sign-in address isn't allowed on the development backend. (https://cmux-staging.vercel.app)")
-        #expect(mapped?.failureDetail == "REDIRECT_URL_NOT_WHITELISTED")
-
-        // The vendored SDK drops the details of this code: the URL the call sent names the origin.
-        let typed = AuthError(
-            displaySafe: StackAuthError(code: "REDIRECT_URL_NOT_WHITELISTED", message: "message"),
-            backend: "cmux.com",
-            redirectURL: "http://localhost:3000/auth/callback"
-        )
-        #expect(typed == .redirectNotAllowed(origin: "http://localhost:3000", backend: "cmux.com"))
-        #expect(AuthError(displaySafe: StackAuthError(code: "REDIRECT_URL_NOT_WHITELISTED", message: "message"))?.errorDescription
-            == "This build's sign-in address isn't allowed on this backend.")
     }
 
     @Test func passesThroughExistingAuthErrors() {

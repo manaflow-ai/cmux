@@ -275,23 +275,6 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     return cmd
 
 
-def chat_counts(report: dict, agents: str, phase: str = "idle") -> list[dict]:
-    """How many chat workspaces each asked count opened (pure): {"expected", "opened", "pane_failures"} per count in
-    --agents. `opened` is the idle-N sample's workspaces (the launch workspace counts in N, as in rows_from); with no
-    idle-N sample, the most workspaces any sample of the phase saw (the run stopped before N), else 0. The part prints
-    and stores it every run, so "not every chat opened" names how many did (memory-per-chat, 2026-11-26: the row went
-    without a value for days and the report said only that the count was missing)."""
-    samples = [s for s in report.get("samples") or [] if isinstance(s, dict)
-               and str(s.get("label") or "").startswith(f"{phase}-")]
-    counts = []
-    for n in sorted({int(x) for x in agents.split(",") if x.strip().isdigit()}):
-        at_n = next((s for s in samples if s.get("label") == f"{phase}-{n}"), None)
-        seen = [s.get("workspaces") for s in ([at_n] if at_n else samples) if isinstance(s.get("workspaces"), int)]
-        failures = [s.get("pane_failures") for s in samples if isinstance(s.get("pane_failures"), int)]
-        counts.append({"expected": n, "opened": max(seen) if seen else 0, "pane_failures": max(failures or [0])})
-    return counts
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -336,13 +319,9 @@ def main(argv: list[str] | None = None) -> int:
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
-    out["chats"] = chat_counts(report, args.agents)
-    for c in out["chats"]:
-        n = c["expected"]
-        print(f"memory-agents: chats opened {c['opened']} of {n} expected (pane failures {c['pane_failures']})")
+    for n in sorted({int(x) for x in args.agents.split(",") if x.strip().isdigit()}):
         if not any(r["name"] == f"memory.app_agents.{n}.total_footprint_mb" for r in rows):
-            missing.append(f"agents {n}: opened {c['opened']} of {n} chat workspaces, pane failures "
-                           f"{c['pane_failures']} (bench_memory.py exit {status}): no memory.app_agents.ratio_vs_empty")
+            missing.append(f"agents {n}: not every chat opened (or no sample)")
     if missing:
         out["incomplete"] = missing
     with open(args.json, "w") as f:
@@ -354,8 +333,6 @@ def main(argv: list[str] | None = None) -> int:
         if per_chat:
             print(f"memory-agents: {name}per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
                   + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
-    if missing:
-        print("memory-agents: FAILED: " + "; ".join(missing), file=sys.stderr)
     return status or (1 if missing else 0)
 
 

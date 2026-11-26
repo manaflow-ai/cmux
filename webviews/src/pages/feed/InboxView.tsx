@@ -5,7 +5,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
-import { isPending, plain, type FeedProps, rowActions } from "./context";
+import { isPending, plain, type FeedProps } from "./context";
 import { SnapAnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
@@ -25,7 +25,6 @@ import {
   shownItem,
   type FeedLine,
   type InboxConnection,
-  relativeTime,
 } from "./model";
 import { EmptyState, FeedLines, FeedRow, Glyph, PosterLine, PromptSummary } from "./parts";
 import { ReportsView } from "./ReportsView";
@@ -72,8 +71,8 @@ export function InboxView(props: FeedProps) {
               label={t("feed.inboxTitle")}
               compact={compact}
               scrollParent=".feed-inbox-list"
-              onSelect={rowActions(store).select}
-              onOpen={rowActions(store).open}
+              onSelect={(id) => store.select(id)}
+              onOpen={(id) => store.open(id)}
               onKeyDown={keys}
             />
           </div>
@@ -215,11 +214,7 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
           <Glyph item={item} />
           <div className="feed-detail-titles">
             <h2 className="feed-detail-title">{item.title}</h2>
-            <PosterLine
-              item={item}
-              strings={strings}
-              time={relativeTime(item.created_at, snap.now, strings.language)}
-            />
+            <PosterLine item={item} strings={strings} now={snap.now} />
           </div>
         </div>
         {item.github ? <GitHubSummary detail={item.github} /> : null}
@@ -246,9 +241,9 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
                   key={member.id}
                   line={line}
                   strings={strings}
-                  time={relativeTime(member.created_at, snap.now, strings.language)}
-                  onSelect={rowActions(store).select}
-                  onOpen={rowActions(store).open}
+                  now={snap.now}
+                  onSelect={() => store.select(member.id)}
+                  onOpen={() => store.open(member.id)}
                 />
               );
             })}

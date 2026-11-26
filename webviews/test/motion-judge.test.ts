@@ -3,7 +3,6 @@ import { Window } from "happy-dom";
 import contract from "../../schemas/layout-motion/contract.json";
 import vectors from "../../schemas/layout-motion/vectors.json";
 import { MEDIA_SELECTOR, TRACK_SELECTOR } from "../src/layout/boxSample";
-import { startMotionAudit } from "../src/layout/motionAudit";
 import { MOTION_EVENTS, SURFACES, declareMove, openDeclarations, surfaceOf } from "../src/layout/motionContract";
 import { judgeMotion, type JudgeDeclaration, type JudgeFrame, type JudgeSample } from "../src/layout/motionJudge";
 
@@ -61,43 +60,4 @@ test("the judge names the first move of each box, and counts each box once", () 
   expect(verdict.moves).toEqual([
     { label: "a", surface: "transcript-row", frame: 3, dx: 0, dy: 5, dw: 0, dh: 0, during: [] },
   ]);
-});
-
-// The audit's own bookkeeping: which scroll is the reader's. A programmatic `scrollTop` write (the
-// transcript's `settleFollowBottomAt`, a jump, a link to a row) fires the same native `scroll` event as
-// a wheel, and `user-scroll` with `scope: "all"` covers every box in the scroller, so taking every
-// scroll for the reader's left the audit excusing the very jumps it is for (greptile on #51061; Leo,
-// ask-2447b44f40: "mathematically, all of these should be flaggable").
-describe("the audit tells the reader's scroll from one the layout wrote", () => {
-  /** What the audit declares for the person when a scroll follows `input` (none: a scroll out of nowhere). */
-  const scrollAfter = (input?: "wheel" | "pointerdown" | "keydown"): string[] => {
-    const window = new Window();
-    const doc = window.document as unknown as Document;
-    doc.body.innerHTML = `<div data-row-id="r1"></div>`;
-    const row = doc.querySelector("[data-row-id]")!;
-    // The audit takes MutationObserver from the global, which bun's runner has not.
-    const had = globalThis.MutationObserver;
-    globalThis.MutationObserver = window.MutationObserver as unknown as typeof MutationObserver;
-    const audit = startMotionAudit(window as unknown as globalThis.Window, () => {});
-    try {
-      const fire = (type: string) => row.dispatchEvent(new window.Event(type, { bubbles: true }) as unknown as Event);
-      if (input) fire(input);
-      fire("scroll");
-      return openDeclarations()
-        .filter((declaration) => declaration.by === "person")
-        .map((declaration) => declaration.event);
-    } finally {
-      audit.stop();
-      globalThis.MutationObserver = had;
-    }
-  };
-
-  test("a scroll the layout wrote declares nothing, so the rows it moves are still judged", () => {
-    expect(scrollAfter()).toEqual([]);
-  });
-
-  for (const input of ["wheel", "pointerdown", "keydown"] as const)
-    test(`the reader's ${input} still excuses the scroll it causes`, () => {
-      expect(scrollAfter(input)).toContain("user-scroll");
-    });
 });

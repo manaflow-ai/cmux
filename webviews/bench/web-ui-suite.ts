@@ -268,11 +268,7 @@ export const BENCHES: readonly Bench[] = [
   {
     name: "composer-typing",
     file: "composer-typing.bench.ts",
-    // --repeat 3: each case's median-p99 attempt, so a burst from another runner slot on the host is not the reading.
-    args: [
-      ...["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60"],
-      ...["--keys", "500", "--gap", "20", "--repeat", "3"],
-    ],
+    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
     timeoutMs: 1_500_000,
     ownPart: true,
   },

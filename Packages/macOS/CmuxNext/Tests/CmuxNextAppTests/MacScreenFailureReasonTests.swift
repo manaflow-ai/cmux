@@ -14,7 +14,7 @@ struct MacScreenHostEndTests {
     /// any other reason is the host stopping, and a stop this viewer sent stays its own.
     @Test func theHostsFailedEndKeepsItsReason() {
         var handshake = RemoteRdHandshake(service: "desktop")
-        handshake.receive(Data(#"{"t":"ended","reason":"failed: capture: no frame from the display"}"#.utf8))
+        handshake.receive(.ended(reason: "failed: capture: no frame from the display"))
         #expect(handshake.phase == .ended(.hostFailed(reason: "capture: no frame from the display")))
 
         #expect(RemoteRdHandshake.hostEnd("failed") == .hostFailed(reason: ""))
@@ -23,7 +23,7 @@ struct MacScreenHostEndTests {
 
         var stopped = RemoteRdHandshake(service: "desktop")
         stopped.viewerStopped()
-        stopped.receive(Data(#"{"t":"ended","reason":"failed: capture"}"#.utf8))
+        stopped.receive(.ended(reason: "failed: capture"))
         #expect(stopped.phase == .ended(.stoppedByViewer))
     }
 

@@ -1,5 +1,4 @@
 import { agentKey } from "../shared/agentKey";
-import { type ChatPlace, chatMachine } from "./chatMachine";
 import type { AcpmuxDirectClient } from "./direct";
 import type { AccountSignInTransport } from "../../pages/shared/signIn/useAccountSignIn";
 
@@ -286,26 +285,6 @@ type LoginOptions = {
 /// not advertise `agent_login`. Each step names the chat, so acpmux runs it on the chat's machine.
 export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
   return options.machineID || options.elsewhere ? agentLogin(options) : undefined;
-}
-
-/// ``LoginOptions/supported`` for a chat: whether the machine the chat runs on (``chatMachine``)
-/// runs its agent's own login. The page's own acpmux takes every step and forwards one that names a
-/// peer's chat to that peer, so it must list `agent_login` itself (`direct`); a chat on a peer also
-/// needs that peer to list it (`peerAgentLogin`, its `agentLogin` in `_acpmux/status`), else the
-/// card's first click fails there. A chat on this Mac, or on the machine the app's wire reaches,
-/// runs on the page's own acpmux. A peer the status does not describe (an acpmux too old to report
-/// `agentLogin`) keeps the page's own answer, as before.
-export function agentLoginSupported(
-  direct: boolean,
-  summary: Parameters<typeof chatMachine>[0],
-  peerKinds: Parameters<typeof chatMachine>[2],
-  place: ChatPlace | undefined,
-  peerAgentLogin: Readonly<Record<string, boolean>> | undefined,
-): boolean {
-  if (!direct) return false;
-  const peer = summary?.peer;
-  if (chatMachine(summary, undefined, peerKinds, place).kind === "local" || !peer) return true;
-  return peerAgentLogin?.[peer] ?? true;
 }
 
 /// Use an API key for a chat on this Mac whose built-in Claude Code or Codex is not signed in (Leo

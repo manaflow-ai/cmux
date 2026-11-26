@@ -568,16 +568,6 @@ fn state_words(state: State) -> &'static str {
     }
 }
 
-/// A device row's detail as the CLI prints it: the plain detail every surface shows, and for a
-/// parked peer the command that removes it, which only a terminal can run.
-fn cli_detail(d: &model::Device) -> Option<String> {
-    let detail = d.detail.clone()?;
-    if !d.parked {
-        return Some(detail);
-    }
-    Some(format!("{detail} If it is gone for good: cmux device remove {}", shell_word(&d.name)))
-}
-
 fn print_listing(listing: &Listing, notes: &[String]) {
     let net = &listing.network;
     match (&net.this, net.up) {
@@ -594,7 +584,7 @@ fn print_listing(listing: &Listing, notes: &[String]) {
         for d in &listing.devices {
             let roles: Vec<&str> = d.roles.iter().copied().map(role_words).collect();
             println!("  {:<28} {:<22} {}", d.name, state_words(d.state), roles.join(", "));
-            if let Some(detail) = cli_detail(d) {
+            if let Some(detail) = &d.detail {
                 println!("  {:<28} {detail}", "");
             }
         }

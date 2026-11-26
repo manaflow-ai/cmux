@@ -21,8 +21,7 @@ nothing received. This guard launches a Debug `cmux DEV <tag>.app` twice, with S
              launch names the crash) must be in the app's marker folder.
 
 Before each crash it checks with `sample` that Sentry's primary Mach handler thread runs, so the
-guard holds the failing setup. The tagged bundle is opted in to crash reports first
-(`defaults write <bundle id> sendAnonymousTelemetry -bool true`, removed after): reports are opt-in. A process that does not end is sampled into --out and then stopped
+guard holds the failing setup. A process that does not end is sampled into --out and then stopped
 by its exact PID. Exit 0 when every run ended in time.
 
 Usage: crash-ends-app-gate.py --app "<dir>/cmux DEV <tag>.app" --out <dir>
@@ -109,29 +108,13 @@ def main_thread(text, lines=40):
     return "\n".join(out)
 
 
-def bundle_id():
-    import plistlib
-    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as file:
-        return plistlib.load(file).get("CFBundleIdentifier", "unknown")
-
-
-# Crash reports are opt-in since cmux#55065 (CrashReportingPolicy.telemetryOptIn: an unset
-# `sendAnonymousTelemetry` preference means off), so CMUX_NEXT_DEV_SENTRY=1 alone no longer starts
-# Sentry and the gate read "primary Mach exception thread does not run". The gate opts this tagged
-# bundle in, in its own defaults domain (nobody's real install), and takes the key back after.
-CONSENT_KEY = "sendAnonymousTelemetry"
-
-
-def consent(on):
-    args = ["write", bundle_id(), CONSENT_KEY, "-bool", "true"] if on else ["delete", bundle_id(), CONSENT_KEY]
-    subprocess.run(["/usr/bin/defaults"] + args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
-                   check=on)
-
-
 def marker_folder():
     """The app's run marker folder (AppRunMarker.standardDirectory: the bundle id, made path-safe)."""
+    import plistlib
+    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as file:
+        bundle_id = plistlib.load(file).get("CFBundleIdentifier", "unknown")
     root = os.path.expanduser("~/Library/Application Support/cmux-next")
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", bundle_id())
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", bundle_id)
     return os.path.join(root, safe)
 
 
@@ -234,11 +217,7 @@ def run(kind):
         teardown.end()
 
 
-consent(True)
-try:
-    failures = [failure for failure in (run(kind.strip()) for kind in opts.runs.split(",") if kind.strip()) if failure]
-finally:
-    consent(False)
+failures = [failure for failure in (run(kind.strip()) for kind in opts.runs.split(",") if kind.strip()) if failure]
 for failure in failures:
     print(f"FAIL {failure}", flush=True)
 if failures:

@@ -35,8 +35,6 @@
 //!   gate runs the call on its own thread).
 //! - [`signin`]: the install token's owner: renew at 2/3 of its life beside the held token, wait on a mint
 //!   at most its bound, and name the step of a mint that stalls (remote-cloud-durability F13).
-//! - [`stack_redirects`]: the redirect URLs the hosted sign-in page sends Stack and Stack's
-//!   trusted-domain check of them, so a test proves a fresh build's sign-in passes.
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -54,4 +52,3 @@ pub mod keychain;
 pub mod origin;
 pub mod screen_picker;
 pub mod signin;
-pub mod stack_redirects;

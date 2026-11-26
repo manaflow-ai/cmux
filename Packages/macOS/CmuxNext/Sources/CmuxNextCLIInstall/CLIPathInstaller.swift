@@ -87,17 +87,14 @@ public nonisolated struct CLIPathInstaller: Sendable {
     ///
     /// - Parameter destination: The link's path; `cmux` in `/usr/local/bin` by default.
     /// - Parameter source: The CLI to link to; this app's bundled CLI by default.
-    /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused
-    ///   (``runAsAdministrator(_:)`` when nil); tests pass a stand-in.
-    // `nil`, not `runAsAdministrator` as the default argument: Swift 6.2's Linux frontend crashes
-    // (signal 11 in DefaultInitializerIsolation) on a `@concurrent` static used as one, which kept
-    // this module out of the CmuxNext Linux shape.
+    /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused;
+    ///   tests pass a stand-in.
     public init(destination: URL = Name.cmux.destination,
                 source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
-                privileged: Privileged? = nil) {
+                privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
         self.destination = destination
         self.source = source.standardizedFileURL
-        self.privileged = privileged ?? { try await CLIPathInstaller.runAsAdministrator($0) }
+        self.privileged = privileged
     }
 
     /// Links the destination to this app's CLI. Anything there that is not

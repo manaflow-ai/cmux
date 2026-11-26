@@ -34,8 +34,7 @@ print(json.dumps({
     "key": sys.argv[1],
     "commit": os.environ["GITHUB_SHA"],
     "run": os.environ["GITHUB_RUN_ID"],
-    # The channel keeper (cmux_tui_channel_keeper.py) tests on our own machines and names its run.
-    "runUrl": os.environ.get("CMUX_TUI_TESTED_RUN_URL") or f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+    "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
     "result": "success",
 }, indent=2))
 PY

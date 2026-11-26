@@ -9,8 +9,7 @@
 // judges the burst (motionJudge.ts) and disarms. A person's own acts declare their moves as they happen: a
 // wheel or a scroll key is a user scroll, a window resize a resize, a press or a key opens what it targets
 // (and a menu, and the composer's growth). Everything else must be declared by the code that moves it
-// (`declareMove`) - including a scroll the layout writes itself, which fires the same native `scroll`
-// event as the reader's and is only `user-scroll` when the reader's own input just caused it.
+// (`declareMove`).
 import { MEDIA_SELECTOR, sampleBoxes } from "./boxSample";
 import { declareMove, openDeclarations, type MotionEvent } from "./motionContract";
 import { judgeMotion, type JudgeFrame, type UndeclaredMove } from "./motionJudge";
@@ -21,11 +20,6 @@ const QUIET_FRAMES = 10;
 const CAP_MS = 3000;
 /** How long a person's act declares its moves after it happens. */
 const ACT_MS = 500;
-/** How long after a reader's own input the scroll it caused is still that input's. A wheel, a key, a
- *  press on a jump button or a drag of the scrollbar moves the offset in the frames that follow it,
- *  and a fling keeps sending input while it runs; past this, nothing the reader did is still moving
- *  the view. */
-const INPUT_MS = 500;
 /** Undeclared moves kept for `report()`. */
 const KEEP = 50;
 
@@ -56,7 +50,7 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
     const samples = sampleBoxes(doc, targets, [...doc.querySelectorAll(MEDIA_SELECTOR)]);
     frames.push({
       samples,
-      declared: open.map(({ key, event, scope, once, strict, by }) => ({ key, event, scope, once, strict, by })),
+      declared: open.map(({ key, event, scope, once, by }) => ({ key, event, scope, once, by })),
     });
   };
 
@@ -123,33 +117,11 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
     act("resize");
     arm();
   };
-  // A native `scroll` event says the offset changed, not who changed it: every programmatic write
-  // (VirtualTranscript's follow settle `settleFollowBottomAt`, a jump, Find, a link to a row) fires the
-  // same event as a wheel. `user-scroll` is the contract's event for *the person* scrolling, and its
-  // `scope: "all"` covers every box in the scroller, so opening it for a scroll the layout itself wrote
-  // excused every row of the transcript for `ACT_MS` - including a fold's upward jump, the move this
-  // audit exists to catch (Leo, ask-2447b44f40: "mathematically, all of these should be flaggable").
-  // So only a scroll the reader's own input just caused is `user-scroll`; a layout-driven one must be
-  // declared by the code that moved the view, like any other move it means.
-  let inputAt = Number.NEGATIVE_INFINITY;
-  const noteInput = () => {
-    inputAt = win.performance.now();
-  };
   const onScroll = () => {
-    if (win.performance.now() - inputAt <= INPUT_MS) act("user-scroll");
+    act("user-scroll");
     arm();
   };
-  const onInput = () => {
-    noteInput();
-    onScroll();
-  };
-  // A drag of the scrollbar (or a touch drag) keeps the offset moving with no further press: its moves
-  // are the reader's while a button or a finger is down.
-  const onDrag = (event: Event) => {
-    if (!("buttons" in event) || (event as PointerEvent).buttons !== 0) noteInput();
-  };
   const onPress = (event: Event) => {
-    noteInput();
     const target = event.target instanceof Element ? event.target : undefined;
     if (target) act("expand", [target]);
     act("menu");
@@ -162,10 +134,8 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
     arm();
   };
   win.addEventListener("resize", onResize);
-  win.addEventListener("wheel", onInput, { capture: true, passive: true });
+  win.addEventListener("wheel", onScroll, { capture: true, passive: true });
   win.addEventListener("scroll", onScroll, { capture: true, passive: true });
-  win.addEventListener("pointermove", onDrag, { capture: true, passive: true });
-  win.addEventListener("touchmove", onDrag, { capture: true, passive: true });
   win.addEventListener("pointerdown", onPress, { capture: true, passive: true });
   win.addEventListener("keydown", onPress, { capture: true, passive: true });
   doc.addEventListener("visibilitychange", onVisible);
@@ -196,10 +166,8 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
       shifts?.disconnect();
       for (const end of acts) end();
       win.removeEventListener("resize", onResize);
-      win.removeEventListener("wheel", onInput, { capture: true });
+      win.removeEventListener("wheel", onScroll, { capture: true });
       win.removeEventListener("scroll", onScroll, { capture: true });
-      win.removeEventListener("pointermove", onDrag, { capture: true });
-      win.removeEventListener("touchmove", onDrag, { capture: true });
       win.removeEventListener("pointerdown", onPress, { capture: true });
       win.removeEventListener("keydown", onPress, { capture: true });
       doc.removeEventListener("visibilitychange", onVisible);

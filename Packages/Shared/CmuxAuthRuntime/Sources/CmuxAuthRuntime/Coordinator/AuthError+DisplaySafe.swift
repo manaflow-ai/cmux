@@ -11,14 +11,8 @@ extension AuthError {
     /// failures collapse to ``AuthError`` cases; URL errors become
     /// ``AuthError/networkError``; everything else becomes a generic server
     /// error. Callers throw `AuthError(displaySafe: error) ?? error`.
-    /// A refused redirect (`REDIRECT_URL_NOT_WHITELISTED`) becomes
-    /// ``AuthError/redirectNotAllowed(origin:backend:)``, naming the refused
-    /// origin (Stack's `details.redirect_url`, else `redirectURL`) and `backend`.
-    /// - Parameters:
-    ///   - error: The raw error from a sign-in/session call.
-    ///   - backend: The name of the backend the sign-in talks to (``AuthConfig/backendName``).
-    ///   - redirectURL: The redirect URL this call sent, when the caller knows it.
-    public init?(displaySafe error: any Error, backend: String? = nil, redirectURL: String? = nil) {
+    /// - Parameter error: The raw error from a sign-in/session call.
+    public init?(displaySafe error: any Error) {
         if let authError = error as? AuthError {
             self = authError
             return
@@ -40,9 +34,6 @@ extension AuthError {
             switch stackError.code.uppercased() {
             case "OAUTH_CANCELLED":
                 self = .cancelled
-            case "REDIRECT_URL_NOT_WHITELISTED":
-                let refused = (stackError.details?["redirect_url"] as? String) ?? redirectURL
-                self = .redirectNotAllowed(origin: refused.flatMap(Self.origin(of:)), backend: backend)
             case
                 "SCHEMA_ERROR",
                 "USER_EMAIL_ALREADY_EXISTS",
@@ -56,6 +47,7 @@ extension AuthError {
                 "PASSKEY_AUTHENTICATION_FAILED",
                 "PASSKEY_WEBAUTHN_ERROR",
                 "INVALID_TOTP_CODE",
+                "REDIRECT_URL_NOT_WHITELISTED",
                 "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
                 "INVALID_APPLE_CREDENTIALS",
                 "APPLE_SIGNIN_NOT_CONFIGURED",
@@ -85,14 +77,6 @@ extension AuthError {
             return
         }
         self = .serverError(0, "auth_failed")
-    }
-
-    /// `scheme://host[:port]` of a refused redirect URL, for the message a person reads.
-    static func origin(of url: String) -> String? {
-        guard let components = URLComponents(string: url),
-              let scheme = components.scheme, let host = components.host, !host.isEmpty else { return nil }
-        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        return components.port.map { "\(scheme)://\(bracketed):\($0)" } ?? "\(scheme)://\(bracketed)"
     }
 
     /// How the coordinator should recover when validating a cached session

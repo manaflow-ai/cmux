@@ -114,7 +114,7 @@ export function describe(code: number, day: boolean): Condition {
   return { text: "Cloudy", symbol: "cloud.fill" }
 }
 
-/** The plain look uses a single tint; sky mode lets the renderer use each symbol's weather colors. */
+/** Apple's symbols are multicolor; the scene draws one color, so a lone sun is yellow and the rest white. */
 export function symbolColor(symbol: string): string {
   return symbol === "sun.max.fill" ? "#FFD60A" : "#FFFFFF"
 }
@@ -131,7 +131,7 @@ export function skyFor(code: number, day: boolean): Sky {
   return day ? "clear-day" : "clear-night"
 }
 
-/** Legacy flat colors kept for callers that need a single representative sky color. */
+/** One color per sky (the scene has no gradients yet): the middle of Apple's gradient for it. */
 export const SKY_COLORS: Record<Sky, string> = {
   "clear-day": "#3A86D4",
   "clear-night": "#14203A",
@@ -142,19 +142,6 @@ export const SKY_COLORS: Record<Sky, string> = {
   snow: "#7F93A8",
   fog: "#717D88",
   storm: "#363A4B"
-}
-
-/** Apple's sky treatment uses a subtle vertical gradient rather than a flat fill. */
-export const SKY_GRADIENTS: Record<Sky, readonly string[]> = {
-  "clear-day": ["#235C9B", "#3076B4"],
-  "clear-night": ["#0B1A3A", "#253B6E", "#3A4E86"],
-  "cloudy-day": ["#526B82", "#607589"],
-  "cloudy-night": ["#1D2636", "#3C485C"],
-  "rain-day": ["#354D63", "#566F85"],
-  "rain-night": ["#151D2B", "#2E3C50"],
-  snow: ["#425B73", "#60758A"],
-  fog: ["#435661", "#5C707C"],
-  storm: ["#24283A", "#5A5874"]
 }
 
 /** "10 PM" or "22" from Open-Meteo's local "2026-11-16T22:00". */

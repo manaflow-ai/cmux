@@ -12,12 +12,9 @@ localhost, identity provider on 127.0.0.1, no real credentials) and drives one b
   3. a popup that calls window.close() reports closed to its opener;
   4. a script popup with no user activation is blocked (window.open returns null);
   5. a redirect across hosts lands on the final URL;
-  6. SameSite=None; Secure cookie is stored, a non-Secure SameSite=None one is refused (as Chrome); WebKit
-     keeps it, as Safari does (WebKit never shipped "SameSite=None requires Secure");
-  7. an iframe on another host sees its own cookie (Chromium: third-party cookies on, as Chrome) and keeps
-     its localStorage partitioned from the top-level site's. WebKit blocks every third-party cookie, as
-     Safari does (no public WKWebView switch); there an embedded sign-in must use the Storage Access API,
-     so the check is that the cookie is withheld and document.requestStorageAccess is offered.
+  6. SameSite=None; Secure cookie is stored, a non-Secure SameSite=None one is refused (as Chrome);
+  7. an iframe on another host sees its own cookie and keeps its localStorage partitioned from the
+     top-level site's.
 
   8. (Chromium gaps, ask-2d244f2b2e) target=_blank implies noopener, rel=opener keeps it, noreferrer drops the
      Referer, a named target is reused;
@@ -129,11 +126,6 @@ def rpc(method, params=None, timeout=20):
             buf += chunk
         conn.close()
         reply = json.loads(buf)
-        error = reply.get("error") if not reply.get("ok") else None
-        if isinstance(error, dict) and error.get("code") == "timeout" and (error.get("data") or {}).get("not_run"):
-            # A call that timed out before it ran: the main thread never got to it, the app is stalled though
-            # the socket answers (a download's first look into ~/Downloads waited on macOS's access prompt).
-            diagnose_hang(f"{method} never ran in the app: {error.get('message', '')}")
         return (reply.get("result") if reply.get("ok") else {"error": reply.get("error")}) or {}
     except socket.timeout as error:
         diagnose_hang(f"{method} got no answer in {timeout} s")
@@ -233,19 +225,12 @@ try:
 
     nav(IDP + "/setcookie"); nav(IDP + "/cookies")
     got = ev("document.body.innerText")
-    if opts.engine == "webkit":  # Safari keeps a SameSite=None cookie without Secure; Chrome refuses it
-        check("a=1" in got and "n=1" in got and "l=1" in got, f"cookies: Secure SameSite=None, Lax and insecure None kept, as Safari ({got})")
-    else:
-        check("a=1" in got and "n=1" not in got and "l=1" in got, f"cookies: Secure SameSite=None and Lax kept, insecure None refused ({got})")
+    check("a=1" in got and "n=1" not in got and "l=1" in got, f"cookies: Secure SameSite=None and Lax kept, insecure None refused ({got})")
 
     nav(IDP + "/cookies"); ev("localStorage.setItem('k','toplevel');1")
     nav(RP + "/embed", settle=3)
     seen = ev("JSON.stringify(__m)")
-    if opts.engine == "webkit":  # WebKit's third-party cookie blocking, as Safari: Storage Access API is the way in
-        check('"cookie":""' in seen and '"saa":"function"' in seen,
-              f"iframe on another host gets no third-party cookie and is offered requestStorageAccess, as Safari ({seen})")
-    else:
-        check('"cookie":"a=1"' in seen, f"iframe on another host sends and sees its cookie ({seen})")
+    check('"cookie":"a=1"' in seen, f"iframe on another host sends and sees its cookie ({seen})")
     nav(IDP + "/idp/plain")
     check(ev("localStorage.getItem('k')") == "toplevel", "iframe localStorage is partitioned from the top-level site's")
 

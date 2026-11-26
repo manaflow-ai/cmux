@@ -27,7 +27,6 @@ mod mux_lanes;
 pub mod observability;
 mod owner_lock;
 mod per_lane;
-mod port_holder;
 pub mod provider;
 pub mod resume_hold;
 pub mod resume_pipe;

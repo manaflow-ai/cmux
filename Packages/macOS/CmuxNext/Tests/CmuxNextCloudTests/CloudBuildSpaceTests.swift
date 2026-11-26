@@ -29,7 +29,7 @@ struct CloudBuildSpaceTests {
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
             Self.requests.append(request)
-            let body = #"{"domains":[]}"#
+            let body = #"{"team":"team_aaaaaaaaaaaaaaaaaaaa","tenant":"t1","project":"p1","origin":"https://vm.invalid","mesh":"mesh_0123456789abcdefghjkmnpqrs","ipv4_cidr":"10.128.16.0/20"}"#
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data(body.utf8))
             client?.urlProtocolDidFinishLoading(self)
@@ -92,23 +92,16 @@ struct CloudBuildSpaceTests {
     @Test("CloudAPIClient sends the header on a Worker request with a build space, none without", arguments: [true, false])
     func workerClient(tagged: Bool) async throws {
         Recorder.requests = []
-        _ = try await Self.workerClient(Self.state(tagged)).listDomains()
+        _ = try await Self.workerClient(Self.state(tagged)).listNetworks()
         let request = try #require(Recorder.requests.first)
         #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer session")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer install")
     }
 
     @Test("CloudAPIClient of a misconfigured dev build refuses before anything is sent")
     func workerClientRefuses() async {
         Recorder.requests = []
-        await #expect(throws: CMUXBuildSpaceError.self) { try await Self.workerClient(Self.misconfigured).listDomains() }
-        // A daemon call refuses too, before the child starts (cmux-tui sends the space itself).
-        var daemon = Self.workerClient(Self.misconfigured)
-        daemon.daemon.daemonCall = { _, _ in
-            Issue.record("a misconfigured build started a daemon call")
-            return Data()
-        }
-        await #expect(throws: CMUXBuildSpaceError.self) { try await daemon.listNetworks() }
+        await #expect(throws: CMUXBuildSpaceError.self) { try await Self.workerClient(Self.misconfigured).listNetworks() }
         #expect(Recorder.requests.isEmpty)
     }
 

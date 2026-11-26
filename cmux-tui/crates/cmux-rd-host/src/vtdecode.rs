@@ -12,10 +12,6 @@ use std::sync::Mutex;
 type CFTypeRef = *const c_void;
 type CFStringRef = *const c_void;
 type CFDictionaryRef = *const c_void;
-/// CoreFoundation's `CFIndex`, as webrtc_child.rs declares it: the same `isize` keeps these
-/// declarations of `CFNumberCreate` and `CFDictionaryCreate` identical to that file's, which
-/// clippy's `clashing_extern_declarations` requires.
-type CFIndex = isize;
 type OSStatus = i32;
 type CMFormatDescriptionRef = *mut c_void;
 type CMBlockBufferRef = *mut c_void;
@@ -47,7 +43,7 @@ struct DictCallbacks {
 }
 
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
-const CF_NUMBER_SINT32: CFIndex = 3;
+const CF_NUMBER_SINT32: c_long = 3;
 const BLOCK_ASSURE_MEMORY_NOW: u32 = 1;
 const LOCK_READ_ONLY: u64 = 1;
 
@@ -59,11 +55,11 @@ unsafe extern "C" {
         a: *const c_void,
         keys: *const CFTypeRef,
         values: *const CFTypeRef,
-        n: CFIndex,
+        n: c_long,
         kcb: *const DictCallbacks,
         vcb: *const DictCallbacks,
     ) -> CFDictionaryRef;
-    fn CFNumberCreate(a: *const c_void, t: CFIndex, v: *const c_void) -> CFTypeRef;
+    fn CFNumberCreate(a: *const c_void, t: c_long, v: *const c_void) -> CFTypeRef;
     fn CFRetain(v: CFTypeRef) -> CFTypeRef;
     fn CFRelease(v: CFTypeRef);
 }

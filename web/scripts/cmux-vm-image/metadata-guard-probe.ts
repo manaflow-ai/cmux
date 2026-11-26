@@ -15,7 +15,7 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEVBOX_WORK_USER } from "../../services/vms/workUser";
+import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run } from "./guest";
 import {
   METADATA_GUARD_FILE,
@@ -25,7 +25,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "./metadata-guard";
+} from "../../services/vms/images/metadataGuard";
 
 const AGENT_SHELL_CURL = "curl -s -m 3 -o /dev/null -w '%{http_code}' http://169.254.169.254/latest/meta-data/; echo \" exit=$?\"";
 

@@ -109,7 +109,8 @@ extension WorkspaceCreator {
     /// the list once the Mac lists it, ready for New Workspace in Group or Move Workspace to Group.
     public func newGroup(on macID: String, name: String) {
         guard canCreateGroup(on: macID), let grouper else { return }
-        let name = MacWorkspaceGroup.chosenName(typed: name)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? MacWorkspaceGroup.newGroupName : trimmed
         let previous = groupRequestTail[macID]
         let task = track("group-\(macID)") { [weak self] in
             await previous?.value

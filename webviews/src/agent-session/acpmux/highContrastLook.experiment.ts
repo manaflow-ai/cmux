@@ -13,7 +13,7 @@ export const highContrastLook = defineExperiment({
     high: {
       label: "High contrast",
       description:
-        "18-point system text, 1.6 line height and full-strength theme foreground transcript tokens (white on dark, black on light) with the theme link color.",
+        "18-point system text, 1.6 line height and white-on-black transcript tokens with a yellow link accent.",
     },
   },
   defaultArm: "off",
@@ -35,34 +35,29 @@ export function highContrastLookValues(
 }
 
 /// Conversation-only tokens from the public `cmux.agentPane.style/1` look surface. The composer
-/// and surrounding chrome retain the host theme, while transcript text, cards and links are the
-/// theme's own foreground at full strength over its page: no literal colors, so the look reads
-/// white on dark and black on light, and follows any other theme's cast.
-const FG = "var(--agent-text)";
-const strength = (percent: number) => `color-mix(in srgb, ${FG} ${percent}%, transparent)`;
-const sunk = `color-mix(in srgb, ${FG} 4%, var(--agent-page-bg))`;
+/// and surrounding chrome retain the host theme, while transcript text, cards and links use the
+/// accessible palette from the design (7:1 or better on black).
 export const HIGH_CONTRAST_CHAT_VARIABLES = {
-  "--cv-activity-text": strength(90),
-  "--cv-bubble": `color-mix(in srgb, ${FG} 10%, var(--agent-page-bg))`,
-  "--cv-card-fill": sunk,
-  "--cv-card-ring": FG,
-  "--cv-check-fill": sunk,
-  "--cv-check-ring": FG,
-  "--cv-code-bg": sunk,
-  "--cv-codeblock-actions": strength(90),
-  "--cv-codeblock-bg": sunk,
-  "--cv-codeblock-ring": FG,
-  "--cv-codeblock-text": FG,
-  "--cv-faint-rule": FG,
-  "--cv-fg": FG,
-  "--cv-footer-ink": strength(90),
-  // The link color, not `--agent-accent-text` (labels on the accent fill, white): that one vanishes on light.
-  "--cv-link": "var(--agent-link)",
-  "--cv-rule": FG,
-  "--cv-strong-rule": FG,
-  "--cv-text": FG,
-  "--cv-text-dim": strength(80),
-  "--cv-text-muted": strength(90),
+  "--cv-activity-text": "#e6e6e6",
+  "--cv-bubble": "#1a1a1a",
+  "--cv-card-fill": "#0a0a0a",
+  "--cv-card-ring": "#ffffff",
+  "--cv-check-fill": "#0a0a0a",
+  "--cv-check-ring": "#ffffff",
+  "--cv-code-bg": "#0a0a0a",
+  "--cv-codeblock-actions": "#e6e6e6",
+  "--cv-codeblock-bg": "#0a0a0a",
+  "--cv-codeblock-ring": "#ffffff",
+  "--cv-codeblock-text": "#ffffff",
+  "--cv-faint-rule": "#ffffff",
+  "--cv-fg": "#ffffff",
+  "--cv-footer-ink": "#e6e6e6",
+  "--cv-link": "#ffd400",
+  "--cv-rule": "#ffffff",
+  "--cv-strong-rule": "#ffffff",
+  "--cv-text": "#ffffff",
+  "--cv-text-dim": "#cccccc",
+  "--cv-text-muted": "#e6e6e6",
 } as const;
 
 export type HighContrastChatVariable = keyof typeof HIGH_CONTRAST_CHAT_VARIABLES;

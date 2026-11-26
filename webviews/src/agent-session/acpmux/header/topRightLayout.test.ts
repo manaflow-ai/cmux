@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import type { HeaderQuickTool } from "./headerQuickTools";
-import { resetHeaderStateForTests, setHeaderState, headerState } from "./headerState";
+import { setHeaderState, headerState } from "./headerState";
 import {
   dockSections,
   morphFace,
@@ -19,8 +19,6 @@ const tool = (id: HeaderQuickTool["id"], pressed = false): HeaderQuickTool => ({
 });
 
 beforeEach(() => resetRecentPanes());
-// It pushes header state with rising versions; a later file starts from version 0 (resetHeaderStateForTests).
-afterEach(() => resetHeaderStateForTests());
 
 test("the App's layout is read; anything else keeps the page's", () => {
   expect(readTopRightLayout("morph")).toBe("morph");

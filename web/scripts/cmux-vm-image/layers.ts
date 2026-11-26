@@ -21,7 +21,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { DEVBOX_WORK_HOME } from "../../services/vms/workUser";
+import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
 import { GRADUATED_REPO_PATH, graduatedKeyText, readGraduated, type Graduated } from "./graduate";
 import { CURRENT_BIN, STORE_DIR } from "./lock";
 

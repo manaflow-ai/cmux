@@ -1,7 +1,7 @@
 //! A machine's exec and file routes. A Worker machine's go through `cmux cloud machine-io`'s
 //! logic ([`crate::machine_io`]: straight to the provider with a client session when
 //! it can, else the cmux API's `/v1/cloud/machines/{id}/...`). A machine's SCP route
-//! ([`scp_endpoint`]) and its desktop setup ([`setup_desktop`]) are always cmux-platform's.
+//! ([`scp_endpoint`]) is always cmux-platform's.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -141,38 +141,6 @@ pub(crate) async fn scp_endpoint(http: &Http, args: &Map<String, Value>) -> Resu
         Ok(endpoint)
     } else {
         Err(Failure::Decoding(format!("{path} returned an unsafe endpoint")))
-    }
-}
-
-/// `machine.setup_desktop`: cmux-platform's `POST /v1/cloud/machines/{id}/desktop` (the app's
-/// `setupDesktop`), which starts the desktop closure on a running machine and does the
-/// root-owned capability repair itself. Answers the route's `{ok}`; a refusal is read as every
-/// machine route's ([`vm_error`]: a plan refusal is `plan_required`). A `stack` call or an id
-/// that is not a Worker machine's sends nothing.
-pub(crate) async fn setup_desktop(
-    http: &Http,
-    args: &Map<String, Value>,
-) -> Result<Value, Failure> {
-    if http.auth == Auth::Stack {
-        return Err(Failure::Transport(
-            "a desktop setup is cmux-platform's: send the call with auth worker or owner".into(),
-        ));
-    }
-    let id = text(args, "id")?;
-    if !is_machine_id(id) {
-        return Err(Failure::Transport("not a Cloud machine id".into()));
-    }
-    let segments = ["v1", "cloud", "machines", id, "desktop"];
-    let path = path_text(&segments);
-    let reply = http
-        .send(Method::POST, http.url(&segments, &[]), None, None, Duration::from_secs(30), &path)
-        .await?;
-    if !reply.ok() {
-        return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
-    }
-    match reply.json() {
-        Some(answer) if answer.get("ok").is_some_and(Value::is_boolean) => Ok(answer),
-        _ => Err(Failure::Decoding(format!("{path}: no ok"))),
     }
 }
 

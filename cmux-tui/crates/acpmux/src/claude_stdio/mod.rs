@@ -309,7 +309,14 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
 mod dedupe_shell;
+mod path_rules;
+/// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use path_rules::enabled as path_rules_enabled;
+#[cfg(test)]
+mod path_rules_tests;
 #[cfg(test)]
 mod dedupe_tests;
 mod foreground_work;
@@ -625,6 +632,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `pathRules` (path_rules.rs).
+    path_rules: Arc<path_rules::PathRules>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -839,6 +848,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            path_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,

@@ -12,11 +12,7 @@ every such job sources it in the gh step or an earlier one.
 GitHub-hosted jobs (RUNNER_POOLS.provenance) and macOS jobs have a current gh and are exempt.
 """
 
-import os
 import re
-import subprocess
-import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -72,60 +68,6 @@ class GhAttestationHasGh(unittest.TestCase):
                          "steps": [verify, {"run": "source scripts/ci/ensure-gh-attestation.sh"}]},
         }
         self.assertEqual([v.split(":")[0] for v in violations(jobs)], ["fleet", "too-late"])
-
-
-FAKE_GH = """#!/usr/bin/env bash
-# A gh whose `attestation verify` is refused for rate limit the first $REFUSALS times.
-if [[ "$1 $2 ${3:-}" == "attestation verify --help" ]]; then exit 0; fi
-if [[ "$1 $2" == "api rate_limit" ]]; then echo "$RESET_AT"; exit 0; fi
-n=$(cat "$COUNT" 2>/dev/null || echo 0); echo $((n + 1)) > "$COUNT"
-if [[ "$1" == "attestation" && "$n" -lt "$REFUSALS" ]]; then
-  echo partial; echo "HTTP 403: API rate limit exceeded for installation." >&2; exit 1
-fi
-if [[ "$1" == "broken" ]]; then echo "HTTP 404: Not Found" >&2; exit 1; fi
-echo verified
-"""
-
-
-def run_wrapper(refusals: int, reset_in: int, budget: int, *args: str) -> tuple[subprocess.CompletedProcess, int]:
-    with tempfile.TemporaryDirectory() as tmp:
-        fake = Path(tmp) / "gh"
-        fake.write_text(FAKE_GH)
-        fake.chmod(0o755)
-        env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "COUNT": f"{tmp}/count",
-               "REFUSALS": str(refusals), "RESET_AT": str(int(time.time()) + reset_in),
-               "CMUX_GH_RATE_LIMIT_WAIT_S": str(budget), "RUNNER_TEMP": tmp}
-        env.pop("GITHUB_PATH", None)
-        script = (f"set -euo pipefail; source {ROOT}/scripts/ci/ensure-gh-attestation.sh; "
-                  "gh_waiting_out_rate_limit \"$@\"")
-        done = subprocess.run(["bash", "-c", script, "_", *args], env=env, capture_output=True, text=True,
-                              timeout=60)
-        calls = int((Path(tmp) / "count").read_text()) if (Path(tmp) / "count").exists() else 0
-        return done, calls
-
-
-class WaitsOutRateLimit(unittest.TestCase):
-    """Runs 45682713296 and 45683201692: the installer job's verify was refused for the shared token budget."""
-
-    def test_a_refused_verify_runs_again_after_the_reset(self) -> None:
-        done, calls = run_wrapper(1, 1, 120, "attestation", "verify", "x")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(done.stdout, "verified\n", "only the successful attempt's stdout")
-        self.assertEqual(calls, 2)
-        self.assertIn("rate limit", done.stderr)
-
-    def test_a_reset_past_the_budget_fails_without_waiting(self) -> None:
-        started = time.monotonic()
-        done, calls = run_wrapper(5, 3600, 60, "attestation", "verify", "x")
-        self.assertNotEqual(done.returncode, 0)
-        self.assertEqual(calls, 1)
-        self.assertLess(time.monotonic() - started, 30)
-        self.assertIn("CMUX_GH_RATE_LIMIT_WAIT_S", done.stderr)
-
-    def test_another_error_is_not_retried(self) -> None:
-        done, calls = run_wrapper(0, 0, 120, "broken")
-        self.assertNotEqual(done.returncode, 0)
-        self.assertEqual(calls, 1)
 
 
 if __name__ == "__main__":

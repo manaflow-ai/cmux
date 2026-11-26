@@ -69,18 +69,9 @@ const actions = { onSelect: noop, onOpen: noop, onPause: noop, onResume: noop, o
 
 async function mount(rows: MachineRow[], selection?: string) {
   const { MachineList } = await import("../src/pages/cloud/MachineList");
-  const render = (next: MachineRow[], selected?: string, dismissed?: ReadonlySet<string>) =>
+  const render = (next: MachineRow[], selected?: string) =>
     act(() =>
-      root!.render(
-        <MachineList
-          rows={next}
-          layout="rows"
-          selection={selected}
-          strings={strings}
-          {...(dismissed ? { dismissed } : {})}
-          {...actions}
-        />,
-      ),
+      root!.render(<MachineList rows={next} layout="rows" selection={selected} strings={strings} {...actions} />),
     );
   act(() => root?.unmount());
   rowRenders.clear();
@@ -128,38 +119,3 @@ for (const n of [100, 1_000]) {
     expect(host.querySelector('[aria-selected="true"] .cloud-machine-title')?.textContent).toBe("box-4");
   });
 }
-
-test("dismissing one machine's notice draws that row alone", async () => {
-  const { noticeKey } = await import("../src/pages/cloud/retention");
-  // Every machine is paused with a notice before an automatic delete.
-  const list = machines(100).map(
-    (machine, index) =>
-      ({
-        ...machine,
-        status: "paused",
-        running_since: undefined,
-        evict_at: NOW + (index + 3) * 86_400_000,
-        notice: { kind: "heads_up", at: NOW - 1_000, delete_at: NOW + (index + 3) * 86_400_000 },
-      }) as CloudMachine,
-  );
-  const rows = rowsOf(list);
-  const render = await mount(rows);
-  expect(host.querySelectorAll(".cloud-machine-notice").length).toBe(100);
-  rowRenders.reset();
-  render(rows, undefined, new Set([noticeKey("m7", NOW - 1_000)]));
-  expect(rowRenders.count("MachineItem")).toBe(1);
-  expect(host.querySelectorAll(".cloud-machine-notice").length).toBe(99);
-});
-
-test("a full relist whose machines did not change draws no row", async () => {
-  const { keptMachines } = await import("../src/pages/cloud/model");
-  const list = machines(100);
-  const render = await mount(rowsOf(list));
-  rowRenders.reset();
-  // Every machine a new object, as a relist's JSON is; one of them renamed.
-  const relisted = structuredClone(list).map((machine, index) =>
-    index === 2 ? { ...machine, name: "renamed" } : machine,
-  );
-  render(rowsOf(keptMachines(list, relisted)));
-  expect(rowRenders.count("MachineItem")).toBe(1);
-});

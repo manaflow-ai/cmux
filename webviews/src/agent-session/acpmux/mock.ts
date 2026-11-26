@@ -694,7 +694,7 @@ export class MockAcpmuxSocket {
   /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
   async addLoadTools(
     target: string,
-    options: { count: number; gapMs: number; keepOpen: boolean; reply?: string },
+    options: { count: number; gapMs: number; keepOpen: boolean },
   ): Promise<{ tools: number; events: number }> {
     let open = this.openToolTurns.get(target);
     if (!open) {
@@ -718,17 +718,6 @@ export class MockAcpmuxSocket {
         }),
       });
       events += 2;
-      await this.delay(options.gapMs);
-    }
-    // `reply`: the turn's closing answer, marked the final one (`_meta.codex.phase`, read by
-    // direct.ts), so the rows only a concluded turn draws -- its walkthrough, its tagged ask card --
-    // are in play. Without it a turn ends on its calls alone and those rows never appear, which is
-    // how the judged scenario missed the append Leo kept finding (turns.ts `concluding`). It arrives
-    // whether or not the turn then ends: with `keepOpen` the turn sits on its marked final answer,
-    // which is the state the end has to swap out of without moving anything.
-    if (options.reply) {
-      this.emit(target, { update: { ...text(options.reply), _meta: { codex: { phase: "final_answer" } } } });
-      events += 1;
       await this.delay(options.gapMs);
     }
     if (!options.keepOpen) {

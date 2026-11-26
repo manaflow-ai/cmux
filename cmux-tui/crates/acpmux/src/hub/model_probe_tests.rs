@@ -32,8 +32,7 @@ async fn model_ids(hub: &Hub) -> Vec<String> {
 
 async fn probed(hub: &Hub, dir: &std::path::Path, ids: &[&str]) -> bool {
     let profile = hub.config.read().await.harnesses["acme"].clone();
-    let now = hub.model_lists.stamp();
-    let changed = hub.remember_models_from("acme", None, Some(&listed(ids)), now);
+    let changed = hub.remember_models_from("acme", None, Some(&listed(ids)));
     hub.keep_probed_models_in(dir.to_path_buf(), "acme", &profile, changed).await;
     changed
 }
@@ -52,9 +51,9 @@ async fn a_restarted_daemon_serves_the_last_probed_acp_list_at_once() {
     next.load_acp_cache_from(dir.path().to_path_buf()).await;
     assert_eq!(model_ids(&next).await, vec!["m-one".to_owned(), "m-two".to_owned()]);
     // Served from disk, so the probe still runs for it, and its answer replaces the copy.
-    assert_eq!(next.model_lists.acp_freshness("acme"), Freshness::Stale);
+    assert!(next.acp_from_disk.lock().unwrap().contains("acme"));
     assert!(probed(&next, dir.path(), &["m-three"]).await);
-    assert_eq!(next.model_lists.acp_freshness("acme"), Freshness::Fresh);
+    assert!(!next.acp_from_disk.lock().unwrap().contains("acme"));
     assert_eq!(model_ids(&next).await, vec!["m-three".to_owned()]);
 
     let third = hub(&["acme-acp"]);
@@ -70,7 +69,7 @@ async fn a_changed_profile_gets_no_cached_list() {
     let other = hub(&["acme-acp", "--other"]);
     other.load_acp_cache_from(dir.path().to_path_buf()).await;
     assert_eq!(model_ids(&other).await, vec!["default".to_owned()]);
-    assert_eq!(other.model_lists.acp_freshness("acme"), Freshness::Missing);
+    assert!(other.acp_from_disk.lock().unwrap().is_empty());
 }
 
 /// A probe that changed the served list tells the watchers (`_acpmux/harnesses_changed`);
@@ -93,68 +92,6 @@ async fn only_a_probe_that_changed_the_list_announces_it() {
     assert!(changes.try_recv().is_err());
     assert!(probed(&next, dir.path(), &["m-two"]).await);
     assert!(changes.try_recv().is_ok());
-}
-
-/// The picker's Refresh models (`_acpmux/models {refresh: true}`) asks every harness again.
-/// It forgot every ACP list first, so while its probes ran (up to 60 s each) every other
-/// picker open, a start default or a model hint read no list at all: "default" only. The
-/// lists now stay served, stale, until each probe answers (stale-while-revalidate).
-#[tokio::test]
-async fn a_refresh_keeps_serving_the_lists_while_its_probes_run() {
-    let dir = tempfile::tempdir().unwrap();
-    let hub = hub(&["acme-acp"]);
-    assert!(probed(&hub, dir.path(), &["m-one", "m-two"]).await);
-    // The probe never answers: it waits for a login environment that never comes.
-    hub.startup_ready.send_replace(false);
-    let refreshing = hub.clone();
-    let refresh = tokio::spawn(async move { refreshing.refresh_models().await });
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
-    assert!(!refresh.is_finished(), "the refresh waits for its probe");
-    // A picker open meanwhile: its read answers at once, with the list.
-    let started = std::time::Instant::now();
-    let ids = model_ids(&hub).await;
-    let waited = started.elapsed();
-    assert_eq!(ids, vec!["m-one".to_owned(), "m-two".to_owned()]);
-    assert!(waited < std::time::Duration::from_secs(1), "the read waited {waited:?}");
-    assert_eq!(hub.reported_model_ids("acme"), vec!["m-one".to_owned(), "m-two".to_owned()]);
-    refresh.abort();
-}
-
-/// Bench-style: 1000 picker reads (`models_catalog`, what `_acpmux/models` answers) while a
-/// refresh's probe never answers. Prints how many drew the harness's list and how long the
-/// reads took; none may wait on the probe.
-#[tokio::test]
-async fn bench_picker_reads_during_a_refresh_never_wait_and_keep_the_list() {
-    const READS: usize = 1000;
-    let dir = tempfile::tempdir().unwrap();
-    let hub = hub(&["acme-acp"]);
-    assert!(probed(&hub, dir.path(), &["m-one", "m-two"]).await);
-    hub.startup_ready.send_replace(false);
-    let refreshing = hub.clone();
-    let refresh = tokio::spawn(async move { refreshing.refresh_models().await });
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
-    let started = std::time::Instant::now();
-    let mut with_list = 0;
-    for _ in 0..READS {
-        if model_ids(&hub).await.len() == 2 {
-            with_list += 1;
-        }
-    }
-    let elapsed = started.elapsed();
-    eprintln!(
-        "picker reads during a refresh: {with_list}/{READS} drew the list, {:?} total, {:?} per read; refresh still probing: {}",
-        elapsed,
-        elapsed / READS as u32,
-        !refresh.is_finished()
-    );
-    assert!(!refresh.is_finished());
-    assert_eq!(with_list, READS);
-    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
-    refresh.abort();
 }
 
 /// The first `_acpmux/models` of a starting daemon waits for the disk lists: answered
@@ -202,8 +139,7 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
         "gemini-3.8-flash-low",
         "gpt-oss-120b-medium",
     ]);
-    let now = hub.model_lists.stamp();
-    assert!(hub.remember_models_from("acme", Some(&options), Some(&available), now));
+    assert!(hub.remember_models_from("acme", Some(&options), Some(&available)));
     let catalog = hub.models_catalog().await;
     let row = catalog["harnesses"]
         .as_array()
@@ -219,9 +155,9 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
     assert_eq!(efforts("gemini-3.8-flash"), json!(["low", "medium", "high"]));
     assert_eq!(efforts("gpt-oss-120b-medium"), Value::Null);
     // The same report again changes nothing.
-    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available), now));
+    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available)));
     // A resumed chat's answer with no `availableModels` keeps the levels.
-    hub.remember_models_from("acme", Some(&options), None, now);
+    hub.remember_models_from("acme", Some(&options), None);
     assert_eq!(hub.known_efforts.lock().unwrap()["acme"]["gemini-3.8-flash"].len(), 3);
 }
 

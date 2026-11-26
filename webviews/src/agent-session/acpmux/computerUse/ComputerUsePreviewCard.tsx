@@ -33,7 +33,6 @@ import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
 import { AgentCursorArt, PersonPointerArt } from "./cursorArt";
 import { cursorStyle, personPointerStyle } from "./cursorArtModel";
-import { usePaneView } from "../paneViewStore";
 import {
   closeComputerUsePreview,
   COMPUTER_USE_PREVIEW_DRAG_SLOP,
@@ -74,7 +73,6 @@ export function ComputerUsePreviewCard({
   onShow?(session: string): void;
 }) {
   const t = useT();
-  const view = usePaneView();
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   // The place while a drag runs (fractions): drawn at once, sent to the host when the drag ends.
   const [dragging, setDragging] = useState<{ x: number; y: number } | null>(null);
@@ -94,7 +92,7 @@ export function ComputerUsePreviewCard({
   const docked = computerUsePreviewDocked(shown, movable) && !dragging;
   const at = dragging ?? place;
   const move = (change: ComputerUsePreviewMove) => {
-    moveComputerUsePreview(session, change, view);
+    moveComputerUsePreview(session, change);
     onMove?.(session, change);
   };
   // The app's name is in the label only; with no name and no window title, the label names none
@@ -128,7 +126,7 @@ export function ComputerUsePreviewCard({
           type="button"
           className="acpmux-cu-preview__chip"
           onClick={() => {
-            showComputerUsePreview(session, view);
+            showComputerUsePreview(session);
             onShow?.(session);
           }}
         >
@@ -239,7 +237,7 @@ export function ComputerUsePreviewCard({
         className="acpmux-cu-preview__close"
         aria-label={t("computerUse.preview.close")}
         onClick={() => {
-          closeComputerUsePreview(session, view);
+          closeComputerUsePreview(session);
           onClose(session);
         }}
       >

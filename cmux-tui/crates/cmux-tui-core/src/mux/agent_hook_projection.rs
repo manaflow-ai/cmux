@@ -26,9 +26,7 @@ impl Mux {
         self.reconcile_preceding_agent_hooks(&terminal_id, sequence).map_err(|error| {
             error.context(agent_hook_errors::AgentHookPrecedingProjectionPending)
         })?;
-        self.project_agent_hook_record(ingress, sequence)?;
-        self.note_terminal_warm_compact(ingress, &terminal_id);
-        Ok(())
+        self.project_agent_hook_record(ingress, sequence)
     }
 
     fn reconcile_preceding_agent_hooks(

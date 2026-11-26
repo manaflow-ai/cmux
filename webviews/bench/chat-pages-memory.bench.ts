@@ -25,11 +25,7 @@
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
-// Memory columns are Linux only (they read /proc); elsewhere (a Mac) the bench runs timing-only: the reshow,
-// shared_reshow, reopen, warm load and wakeup rows, with no renderer MB. HEADED=1 (the default on a Mac) launches a
-// windowed Chrome, so a reshow draws with the platform's GPU raster as the app's pages do (Leo, 2026-11-17:
-// "instant > memory": the shared-document switch back has to be read where it ships). Prints PERF_ROW lines
-// (chat_pages_memory.*).
+// Linux only (it reads /proc); prints PERF_ROW lines (chat_pages_memory.*).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -63,12 +59,10 @@ if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
 }
-// Renderer memory comes from /proc: Linux only. Elsewhere the run is timing-only.
-const MEMORY = process.platform === "linux";
-// A windowed launch (GPU raster), the default on a Mac; headless elsewhere unless HEADED=1.
-const HEADED = (process.env.HEADED ?? (process.platform === "darwin" ? "1" : "0")) === "1";
-if (!MEMORY)
-  console.log(`chat-pages-memory: ${process.platform}: timing only (no /proc), ${HEADED ? "headed" : "headless"}`);
+if (process.platform !== "linux") {
+  console.error("chat-pages-memory: Linux only (renderer memory from /proc)");
+  process.exit(2);
+}
 COUNTS.sort((a, b) => a - b);
 const webviews = path.resolve(import.meta.dir, "..");
 const FIRST_TEXT = `Answer ${TURNS}:`;
@@ -111,7 +105,6 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
 
 /// The renderer processes under `root` (a Chromium launch), by their command line.
 function renderers(root: number): number[] {
-  if (!MEMORY) return [];
   const children = new Map<number, number[]>();
   for (const entry of fs.readdirSync("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
@@ -213,7 +206,7 @@ try {
 
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
-    headless: !HEADED,
+    headless: true,
     args: ["--process-per-site", "--js-flags=--expose-gc"],
   });
   releases.push(() => server.close());
@@ -276,7 +269,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const pids = renderers(root);
     const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
-    if (MEMORY && process.env.DETAIL === "1") {
+    if (process.env.DETAIL === "1") {
       // Where the renderer's memory is: its mappings by name (PSS), the DOM it holds, and Blink's own counters.
       const byName = new Map<string, number>();
       for (const pid of pids) {
@@ -314,7 +307,7 @@ try {
   console.log(`chat-pages-memory: ${TURNS} turns a chat; counts ${COUNTS.join(", ")}`);
   console.log("chats | renderers | renderer MB | MB per chat | js heap MB | wakeups/s (all pages)");
   console.log(`0 | ${empty.renderers} | ${empty.mb.toFixed(1)} | - | ${empty.heap.toFixed(1)} | -`);
-  if (MEMORY) perfRow({ name: "chat_pages_memory.empty.renderer_mb", p50: empty.mb, p95: empty.mb, unit: "MB" });
+  perfRow({ name: "chat_pages_memory.empty.renderer_mb", p50: empty.mb, p95: empty.mb, unit: "MB" });
 
   const pages: { page: Page; cdp: CDPSession }[] = [];
   // KINDS=1: what one more chat adds to the shared isolate's heap, by node kind and name (heap snapshot at the
@@ -459,19 +452,16 @@ try {
     console.log(
       `${count} | ${now.renderers} | ${now.mb.toFixed(1)} | ${perChat.toFixed(1)} | ${now.heap.toFixed(1)} | ${wakeups.toFixed(1)}${sources.length ? ` (${sources.join("; ")})` : ""}`,
     );
-    if (MEMORY) {
-      perfRow({ name: `chat_pages_memory.n${count}.renderer_mb`, p50: now.mb, p95: now.mb, unit: "MB" });
-      perfRow({ name: `chat_pages_memory.n${count}.mb_per_chat`, p50: perChat, p95: perChat, unit: "MB" });
-    }
+    perfRow({ name: `chat_pages_memory.n${count}.renderer_mb`, p50: now.mb, p95: now.mb, unit: "MB" });
+    perfRow({ name: `chat_pages_memory.n${count}.mb_per_chat`, p50: perChat, p95: perChat, unit: "MB" });
     // The goal's ratio (memory-per-chat, chat_memory_vs_empty_ratio): the renderer with 10 chats open over the empty
     // renderer, both from this same run (page-total form: 10 chats against none).
-    if (MEMORY && count === 10 && empty.mb > 0) {
+    if (count === 10 && empty.mb > 0) {
       const ratio = now.mb / empty.mb;
       console.log(`chat-pages-memory: renderer MB at 10 chats / empty: ${ratio.toFixed(3)}`);
       perfRow({ name: "chat_pages_memory.n10.ratio_vs_empty", p50: ratio, p95: ratio, unit: "ratio", floor: 0.05 });
     }
-    if (MEMORY)
-      perfRow({ name: `chat_pages_memory.n${count}.renderers`, p50: now.renderers, p95: now.renderers, unit: "count" });
+    perfRow({ name: `chat_pages_memory.n${count}.renderers`, p50: now.renderers, p95: now.renderers, unit: "count" });
     perfRow({
       name: `chat_pages_memory.n${count}.idle_wakeups_per_s`,
       p50: wakeups,

@@ -76,13 +76,11 @@ final class LiveCode: ObservableObject {
     private func apply(_ patch: URL) {
         let started = Date()
         do {
-            let (count, phases) = try Interposer.apply(dylib: patch.path)
+            let count = try Interposer.apply(dylib: patch.path)
             generation += 1
             let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
-            // The harness (scripts/measure/live-code-shell.sh, dev-loop/swift_inject) reads these lines; the
-            // phases after at= say where load_ms went.
-            let split = phases.map { "\($0.0)_ms=\(String(format: "%.2f", $0.1))" }.joined(separator: " ")
-            print("view-shell: live code: applied \(patch.lastPathComponent) functions=\(count) load_ms=\(ms) at=\(Date().timeIntervalSince1970) \(split)")
+            // The harness (scripts/measure/live-code-shell.sh) reads these lines.
+            print("view-shell: live code: applied \(patch.lastPathComponent) functions=\(count) load_ms=\(ms) at=\(Date().timeIntervalSince1970)")
             DispatchQueue.main.async { self.drawn() }
         } catch {
             FileHandle.standardError.write(Data("view-shell: live code: \(patch.lastPathComponent) refused: \(error)\n".utf8))
@@ -121,21 +119,11 @@ enum Interposer {
     /// after the first patch is that patch's copy, not the executable's.
     @MainActor private static var current: [String: UnsafeRawPointer] = [:]
 
-    /// Applies the patch; returns how many functions it replaced, and each phase's ms in order
-    /// (open: dlopen; find: its image; check: the layout check; match: the symbol walk; interpose; rebind).
     @MainActor
-    static func apply(dylib path: String) throws -> (Int, [(String, Double)]) {
-        var phases: [(String, Double)] = []
-        var mark = DispatchTime.now().uptimeNanoseconds
-        func phase(_ name: String) {
-            let now = DispatchTime.now().uptimeNanoseconds
-            phases.append((name, Double(now - mark) / 1e6))
-            mark = now
-        }
+    static func apply(dylib path: String) throws -> Int {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw LiveCodeError.open(String(cString: dlerror()))
         }
-        phase("open")
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
             || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         }), let header = _dyld_get_image_header(index) else { throw LiveCodeError.noImage }
@@ -145,9 +133,7 @@ enum Interposer {
         let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         let slide = _dyld_get_image_vmaddr_slide(index)
-        phase("find")
         let changed = layoutChanges(header: header, slide: slide, patch: handle, mainOnly: mainOnly)
-        phase("check")
         // A refused patch stays loaded (no dlclose); nothing points at it, and the next patch has a new name.
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
@@ -164,9 +150,7 @@ enum Interposer {
             replaced[name] = address
         }
         guard !tuples.isEmpty, let main = _dyld_get_image_header(0) else { throw LiveCodeError.nothingToReplace }
-        phase("match")
         tuples.withUnsafeBytes { interpose(main, $0.baseAddress!, tuples.count) }
-        phase("interpose")
         // dyld_dynamic_interpose leaves a pointer that is already bound on the old code: a `body`
         // SwiftUI called before this patch kept drawing the build's view. Repoint those too.
         let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: replaced)
@@ -175,8 +159,7 @@ enum Interposer {
             FileHandle.standardError.write(Data("view-shell: live code: \(rebound.failed) symbol pointers stayed on the old code (mprotect failed)\n".utf8))
         }
         current.merge(replaced) { $1 }
-        phase("rebind")
-        return (replaced.count, phases)
+        return replaced.count
     }
 
     /// Repoints the image's symbol pointers (`__la_symbol_ptr`, `__got`; the executable is linked

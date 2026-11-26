@@ -547,20 +547,13 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
         self.assertEqual(seen, [1, 2])
-        # Shard 1 runs touched tests from the other shards' shares (--direct-out): those are its files too.
-        ps.shard_files = lambda repo, shard, count, selected: split[shard]
-        try:
-            self.assertEqual(ps.files_of(self.root, "HEAD^1", "HEAD", 3, [1], {"1": ["test/other.test.ts"]}),
-                             ["test/a.test.ts", "test/other.test.ts"])
-        finally:
-            ps.shard_files = real
 
     def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
         """--direct-out: touched tests past shard 1 fold into shard 1's one job (up to FOLD_MAX), not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {1: {"webviews/test/a.test.ts"}, 2: {"webviews/test/leaf.test.ts", "webviews/test/b.test.ts"},
-                 3: {"webviews/test/other.test.ts"}, 4: set()}
+        split = {1: set(), 2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
+                 4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
@@ -597,14 +590,14 @@ class PullRequestShardsTest(unittest.TestCase):
                 self.assertTrue(set(sample) <= set(range(2, 13)))
                 self.assertEqual((shards, own), ([1, *sample], {1: []}))
                 self.assertIn(ps.SAMPLE_WHY, why)
-            # A source edit beside it adds its touched tests to shard 1, unless a sampled shard already runs them.
+            # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
             self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
             sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
             if 5 in sample:
                 self.assertEqual((shards, own), ([1, *sample], {1: []}))
             else:
-                self.assertEqual((shards, own), ([1, *sample], {1: ["test/leaf.test.ts"]}))
+                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {1: [], 5: ["test/leaf.test.ts"]}))
         finally:
             ps.shard_files = real
         # A build input beside it still runs every shard.
@@ -881,35 +874,6 @@ class CiWebWorkflowTest(unittest.TestCase):
         self.assertFalse(picks("pull_request", "true", "main"))
         self.assertTrue(picks("pull_request", "false", "main"))
         self.assertFalse(picks("push", "false", ""))
-
-    def test_a_full_ci_head_whose_pick_ran_runs_the_picks_files(self) -> None:
-        """The shard and the base-early job narrow a full-ci head as any pull request once its pick ran (class
-        sampled or fast). Without it shard 1 ran its whole share, 406 files in 12.9 min, for a release-notes
-        highlight (cmux#53546 35726b7d). A full-ci head the pick skipped (class full) still runs every file."""
-        try:
-            import yaml  # noqa: PLC0415
-        except ImportError:
-            self.skipTest("PyYAML is not installed")
-        jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())["jobs"]
-        test = next(s for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "webview-tests")
-        early = next(s for s in jobs["react-apps-base-early"]["steps"] if s.get("id") == "pick")
-        self.assertEqual(early["env"]["REACT_APPS_CLASS"], "${{ needs.web-subarea-scope.outputs.react_class }}")
-        test_gate = next(line.strip() for line in test["run"].splitlines()
-                         if line.strip().startswith('if [ -n "$BASE_REF" ] && {'))
-        early_gate = next(line.strip() for line in early["run"].splitlines()
-                          if line.strip().startswith('if [ "$FULL_CI" != true ] ||'))
-
-        def narrows(gate: str, full_ci: str, cls: str) -> bool:
-            env = dict(os.environ, BASE_REF="HEAD^1", FULL_CI=full_ci, REACT_APPS_CLASS=cls)
-            return subprocess.run(["bash", "-c", gate + " echo narrow; else echo all; fi"], env=env,
-                                  capture_output=True, text=True, check=True).stdout.strip() == "narrow"
-
-        for gate in (test_gate, early_gate):
-            self.assertTrue(narrows(gate, "false", "sampled"))
-            self.assertTrue(narrows(gate, "true", "sampled"))
-            self.assertTrue(narrows(gate, "true", "fast"))
-            self.assertFalse(narrows(gate, "true", "full"))
-            self.assertFalse(narrows(gate, "true", ""))
 
 if __name__ == "__main__":
     unittest.main()

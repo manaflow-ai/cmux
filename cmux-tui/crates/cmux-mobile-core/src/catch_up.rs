@@ -16,7 +16,6 @@
 
 use std::collections::BTreeMap;
 
-pub mod relay;
 pub mod service;
 
 /// Bytes the list catch-up is counted at: an `unchanged` answer or a few changed rows.

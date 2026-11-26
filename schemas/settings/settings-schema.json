@@ -85669,8 +85669,7 @@
         "cmux",
         "claude",
         "codex",
-        "studio",
-        "rex"
+        "studio"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -85702,13 +85701,6 @@
             "text" : "Studio"
           },
           "value" : "studio"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarLookRex",
-            "text" : "Rex"
-          },
-          "value" : "rex"
         }
       ],
       "consumers" : [
@@ -85734,9 +85726,6 @@
         "claude",
         "codex",
         "studio",
-        "rex",
-        "minimal",
-        "sessions",
         "like",
         "app"
       ],

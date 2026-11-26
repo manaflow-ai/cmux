@@ -49,7 +49,6 @@ function page() {
     },
     removeEventListener: (type: string, listener: (event: unknown) => void) => listeners.get(type)?.delete(listener),
     fire: (type: string, event: unknown = {}) => {
-      // A copy: a listener may remove itself as it runs.
       for (const listener of Array.from(listeners.get(type) ?? [])) listener(event);
     },
   };
@@ -93,23 +92,4 @@ test("a key that edits nothing has no work sample, and a later edit is not count
   target.fire("input");
   run(microtasks);
   expect(perf.typing[0]!.work).toBeUndefined();
-});
-
-test("with a prioritized task API the paint mark is a user-blocking task, not a posted message behind later keys", () => {
-  install();
-  saved.set("scheduler", scope.scheduler);
-  const tasks: { priority: string; run: () => void }[] = [];
-  scope.scheduler = { postTask: (run: () => void, options: { priority: string }) => tasks.push({ run, ...options }) };
-  const target = page();
-  const perf = new AcpmuxPerf();
-  perf.enable(target as unknown as Document);
-  target.fire("keydown", composerKey(0));
-  now = 10;
-  run(frames);
-  expect(messages).toHaveLength(0);
-  expect(tasks.map((task) => task.priority)).toEqual(["user-blocking"]);
-  now = 14;
-  tasks.splice(0).forEach((task) => task.run());
-  expect(perf.typing[0]!.frame).toBe(10);
-  expect(perf.typing[0]!.paint).toBe(14);
 });

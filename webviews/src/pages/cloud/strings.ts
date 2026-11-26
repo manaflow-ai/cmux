@@ -68,7 +68,6 @@ export const L = {
   envVaultNotPlainText: "environment.vaultNotPlainText",
   envVaultUnreadable: "environment.vaultUnreadable",
   envVaultRefused: "environment.vaultRefused",
-  envSaveNeedsClick: "environment.saveNeedsClick",
 
   title: "page.title",
   stillTrying: "page.stillTrying",

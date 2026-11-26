@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """flicker-check.py (and recording-shifts-report.py, which runs it on CI's recordings) on seeded recordings: a layout shift (rows pushed down by a
 banner, a card pushed sideways), a blink, a glide, content arriving in place, a
-still screen, a jump in a 30 fps capture, and the flashes of
-docs/cmux-next/spurious-ui.md (a notice, a spinner or a pushing banner that
-comes and goes in under 3 s) beside what must not read as one (a notice that
-stays, one shown for a real 5 s outage, a caret, content replaced for good). The recordings are YUV4MPEG2
+still screen, and a jump in a 30 fps capture. The recordings are YUV4MPEG2
 files written here, so the test needs neither ffmpeg nor numpy, and a change
 that stops the detector seeing a planted shift fails CI.
 
@@ -48,8 +45,7 @@ class Screen:
             self.lines.append((top + n * pitch, dashes))
 
     def frame(self, *, push_from: int | None = None, push: int = 0, card_dx: int = 0,
-              card: bool = False, extra_line: bool = False, blink: bool = False, notice: bool = False,
-              spinner: int | None = None, caret: bool = False, replaced: bool = False) -> bytearray:
+              card: bool = False, extra_line: bool = False, blink: bool = False) -> bytearray:
         px = bytearray([BACKGROUND]) * (W * H)
 
         def rect(x: int, y: int, w: int, h: int, value: int) -> None:
@@ -75,22 +71,6 @@ class Screen:
             rect(12, 225, 200, 7, INK)
         if blink:
             rect(300, 30, 40, 40, 255)
-        if notice:
-            # A chip drawn over the bottom right, pushing nothing: "Reconnecting..." with a dot.
-            rect(250, 205, 120, 24, 150)
-            rect(258, 213, 8, 8, 240)
-            rect(272, 214, 70, 6, 60)
-        if spinner is not None:
-            # A loading indicator whose lit quarter turns every frame.
-            rect(300, 120, 32, 32, 70)
-            qx, qy = ((0, 0), (16, 0), (16, 16), (0, 16))[spinner % 4]
-            rect(300 + qx, 120 + qy, 16, 16, 230)
-        if caret:
-            rect(220, 196, 3, 10, 240)
-        if replaced:
-            # The bottom block drawn with other content, for good.
-            rect(8, 200, W - 16, 30, 60)
-            rect(20, 210, 150, 8, 200)
         return px
 
 
@@ -200,85 +180,6 @@ class SeededRecordings(unittest.TestCase):
         self.assertEqual(jumps[0]["dy"], 24)
 
 
-class Flashes(unittest.TestCase):
-    """The flash class of docs/cmux-next/spurious-ui.md: something drawn and then gone again, the screen as it was."""
-
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        self.screen = Screen()
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
-
-    def flashes(self, report: dict) -> list[dict]:
-        return [e for e in report["events"] if e["kind"] == "flash"]
-
-    def test_a_notice_shown_for_a_second_fails_as_one_flash(self) -> None:
-        still, shown = self.screen.frame(), self.screen.frame(notice=True)
-        path = write_y4m(self.dir / "notice.y4m", [still] * 20 + [shown] * 60 + [still] * 20)
-        code, report = run(path)
-        self.assertEqual(code, 1, report["events"])
-        flashes = self.flashes(report)
-        self.assertEqual(len(flashes), 1, report["events"])
-        self.assertEqual((flashes[0]["frame"], flashes[0]["duration_ms"]), (20, 1000))
-        box = flashes[0]["box"]
-        self.assertTrue(box[0] <= 250 and box[2] >= 370 and box[1] <= 205 and box[3] >= 229, box)
-        self.assertEqual([e["kind"] for e in report["events"]], ["flash"])
-
-    def test_a_spinner_for_a_load_that_was_already_done_fails_as_a_flash(self) -> None:
-        still = self.screen.frame()
-        spinning = [self.screen.frame(spinner=k // 4) for k in range(48)]
-        path = write_y4m(self.dir / "spinner.y4m", [still] * 20 + spinning + [still] * 20)
-        code, report = run(path)
-        self.assertEqual(code, 1)
-        self.assertEqual(len(self.flashes(report)), 1, report["events"])
-        self.assertEqual(self.flashes(report)[0]["duration_ms"], 800)
-
-    def test_a_banner_that_pushes_rows_and_goes_is_a_flash_and_two_jumps(self) -> None:
-        still, pushed = self.screen.frame(), self.screen.frame(push_from=64, push=24)
-        path = write_y4m(self.dir / "pushback.y4m", [still] * 20 + [pushed] * 90 + [still] * 20)
-        code, report = run(path)
-        self.assertEqual(code, 1)
-        self.assertEqual(report["counts"]["flash"], 1, report["events"])
-        self.assertEqual(report["counts"]["jump"], 2, report["events"])
-
-    def test_a_notice_that_stays_is_lasting_state_and_passes(self) -> None:
-        path = write_y4m(self.dir / "stays.y4m",
-                         [self.screen.frame()] * 20 + [self.screen.frame(notice=True)] * 240)
-        code, report = run(path)
-        self.assertEqual((code, report["events"]), (0, []))
-
-    def test_a_notice_for_a_real_five_second_outage_passes(self) -> None:
-        still, shown = self.screen.frame(), self.screen.frame(notice=True)
-        path = write_y4m(self.dir / "outage.y4m", [still] * 20 + [shown] * 300 + [still] * 20)
-        code, report = run(path)
-        self.assertEqual((code, report["events"]), (0, []))
-        code, report = run(path, "--flash-ms", "6000")
-        self.assertEqual(report["counts"]["flash"], 1, "--flash-ms widens the window")
-
-    def test_content_replaced_for_good_is_no_flash(self) -> None:
-        path = write_y4m(self.dir / "replaced.y4m",
-                         [self.screen.frame()] * 20 + [self.screen.frame(replaced=True)] * 100)
-        code, report = run(path)
-        self.assertEqual(self.flashes(report), [], report["events"])
-
-    def test_a_blinking_caret_is_no_flash(self) -> None:
-        frames = []
-        for k in range(8):
-            frames += [self.screen.frame(caret=k % 2 == 0)] * 30
-        path = write_y4m(self.dir / "caret.y4m", frames)
-        code, report = run(path)
-        self.assertEqual((code, report["events"]), (0, []))
-
-    def test_a_two_frame_blink_stays_a_blink(self) -> None:
-        still, lit = self.screen.frame(), self.screen.frame(blink=True)
-        path = write_y4m(self.dir / "blink2.y4m", [still] * 10 + [lit] * 2 + [still] * 10)
-        _, report = run(path)
-        self.assertEqual(self.flashes(report), [], report["events"])
-        self.assertEqual(report["counts"]["blink"] > 0, True)
-
-
 class Report(unittest.TestCase):
     """recording-shifts-report.py: one row per recording, a JSON beside each, exit 0 whatever it finds."""
 
@@ -295,8 +196,8 @@ class Report(unittest.TestCase):
                                   capture_output=True, text=True, timeout=300, env={"PATH": "/nonexistent"})
             self.assertEqual(proc.returncode, 0, proc.stderr)
             rows = {line.split("`")[1]: line for line in proc.stdout.splitlines() if line.startswith("| `")}
-            self.assertIn("| 1 | 0 | 0 | 0 | 0 | 0.17s (0,24)px", rows["after/banner.y4m"])
-            self.assertIn("| 10 | 0 | 0 | 0 | 0 | 0 | - |", rows["after/still.y4m"])
+            self.assertIn("| 1 | 0 | 0 | 0 | 0.17s (0,24)px", rows["after/banner.y4m"])
+            self.assertIn("| 10 | 0 | 0 | 0 | 0 | - |", rows["after/still.y4m"])
             self.assertIn("not read", next(v for k, v in rows.items() if k.endswith("broken.mov")))
             self.assertEqual(json.loads((folder / "banner.y4m.shifts.json").read_text())["counts"]["jump"], 1)
             self.assertEqual(summary.read_text().strip(), proc.stdout.strip())

@@ -198,11 +198,7 @@ public final class HangEpisodeRecorder: Sendable {
             change(beat: beat) { episode in
                 episode.entry.duration = duration
                 episode.entry.ongoing = ongoing
-                // A later load keeps the blocking call the hang was sampled in (the call may end before the hang).
-                if var load {
-                    if load.blockingCall == nil { load.blockingCall = episode.entry.load.blockingCall }
-                    episode.entry.load = load
-                }
+                if let load { episode.entry.load = load }
             }
         }
     }

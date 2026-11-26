@@ -205,53 +205,11 @@ export const noIntlConstruct = {
   },
 };
 
-// The chat transcript has one scroll writer (cmuxterm-hq docs/design/agent-transcript-clean-slate.md,
-// invariant 1): conversation/scrollController.ts. Twenty-odd writers that each set the offset while
-// the others were mid-flight were the jostle Leo saw (2026-11-11: "the jostling is just insane").
-// config/vite-plus/check.ts turns this on for the transcript's files only. A write to another element
-// in those files (the prompt rail's own list) says so: `// scroll-writer-ok: <why>` on its line or the
-// line above.
-const scrollWriteCalls = new Set(["scrollTo", "scrollBy", "scrollIntoView"]);
-const SCROLL_WRITER_OK = /scroll-writer-ok:\s*\S/;
-export const transcriptScrollWriter = {
-  meta: {
-    type: "problem",
-    schema: [],
-    messages: {
-      found:
-        "Only the ScrollController writes the transcript's offset: call writeScrollTop or writeScrollBy from conversation/scrollController.ts, or mark another element's write `// scroll-writer-ok: <why>`.",
-    },
-  },
-  create(context) {
-    const source = context.sourceCode ?? context.getSourceCode();
-    const lines = source.text.split("\n");
-    const marked = (node) => {
-      const line = node.loc.start.line;
-      return SCROLL_WRITER_OK.test(lines[line - 1] ?? "") || SCROLL_WRITER_OK.test(lines[line - 2] ?? "");
-    };
-    const report = (node) => {
-      if (!marked(node)) context.report({ node, messageId: "found" });
-    };
-    return {
-      AssignmentExpression(node) {
-        if (memberName(node.left) === "scrollTop") report(node);
-      },
-      UpdateExpression(node) {
-        if (memberName(node.argument) === "scrollTop") report(node);
-      },
-      CallExpression(node) {
-        if (scrollWriteCalls.has(memberName(node.callee))) report(node);
-      },
-    };
-  },
-};
-
 export default {
   meta: { name: "cmux-perf" },
   rules: {
     "layout-thrash-in-loop": layoutThrashInLoop,
     "layout-read-after-write": layoutReadAfterWrite,
     "no-intl-construct": noIntlConstruct,
-    "transcript-scroll-writer": transcriptScrollWriter,
   },
 };

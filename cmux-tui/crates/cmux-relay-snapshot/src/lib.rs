@@ -201,8 +201,7 @@ pub fn seal_with(
     out.extend_from_slice(&key_id(&source_public));
     out.extend_from_slice(&ephemeral_point);
     out.extend_from_slice(nonce);
-    let shared = ephemeral.agree(viewer)?;
-    let key = derive(&shared, &ephemeral_point, &point(viewer), &context)?;
+    let key = derive(ephemeral, viewer, &ephemeral_point, &point(viewer), &context)?;
     let mut aad = out.clone();
     aad.extend_from_slice(&context);
     let ciphertext = Aes256Gcm::new(&key.into())
@@ -267,8 +266,8 @@ fn split(bytes: &[u8]) -> Result<Parts<'_>, Error> {
 /// Opens an envelope sealed to `viewer` by `source` for `stream`. Order of refusals: shape, source key id,
 /// signature, then `floor` (a position older than it is [`Error::Stale`]; equal is accepted, a replay of
 /// what the viewer already shows), then decryption.
-pub fn open<V: Viewer + ?Sized>(
-    viewer: &V,
+pub fn open(
+    viewer: &SecretKey,
     source: &PublicKey,
     stream: &str,
     floor: Option<Position>,
@@ -291,33 +290,13 @@ pub fn open<V: Viewer + ?Sized>(
     }
     let ephemeral =
         PublicKey::from_sec1_bytes(parts.ephemeral_point).map_err(|_| Error::Malformed)?;
-    let shared = viewer.agree(&ephemeral)?;
-    let key = derive(&shared, parts.ephemeral_point, &point(&viewer_public), &context)?;
+    let key = derive(viewer, &ephemeral, parts.ephemeral_point, &point(&viewer_public), &context)?;
     let mut aad = envelope[..HEADER_LEN].to_vec();
     aad.extend_from_slice(&context);
     let plaintext = Aes256Gcm::new(&key.into())
         .decrypt(Nonce::from_slice(parts.nonce), Payload { msg: parts.ciphertext, aad: &aad })
         .map_err(|_| Error::Unopened)?;
     Ok(Opened { position: parts.header.position, plaintext })
-}
-
-/// The viewer's key agreement: a [`SecretKey`] in memory, or a key that never leaves its
-/// hardware (the phone's Secure Enclave push key, through the app's FFI), which only agrees.
-pub trait Viewer {
-    fn public_key(&self) -> PublicKey;
-    /// The ECDH shared secret's x coordinate with `peer`.
-    fn agree(&self, peer: &PublicKey) -> Result<[u8; 32], Error>;
-}
-
-impl Viewer for SecretKey {
-    fn public_key(&self) -> PublicKey {
-        SecretKey::public_key(self)
-    }
-
-    fn agree(&self, peer: &PublicKey) -> Result<[u8; 32], Error> {
-        let shared = p256::ecdh::diffie_hellman(self.to_nonzero_scalar(), peer.as_affine());
-        Ok((*shared.raw_secret_bytes()).into())
-    }
 }
 
 /// The newest position a viewer accepted for one stream and source: the rollback guard to persist.
@@ -335,9 +314,9 @@ impl Floor {
     }
 
     /// [`open`] under this floor; on success the floor rises to the snapshot's position.
-    pub fn open<V: Viewer + ?Sized>(
+    pub fn open(
         &mut self,
-        viewer: &V,
+        viewer: &SecretKey,
         source: &PublicKey,
         stream: &str,
         envelope: &[u8],
@@ -350,16 +329,18 @@ impl Floor {
 
 /// The AES key: HKDF over the ECDH x coordinate, salted with both points.
 fn derive(
-    shared: &[u8; 32],
+    secret: &SecretKey,
+    peer: &PublicKey,
     ephemeral_point: &[u8],
     viewer_point: &[u8],
     context: &[u8],
 ) -> Result<[u8; 32], Error> {
+    let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), peer.as_affine());
     let mut salt = Vec::with_capacity(2 * POINT_LEN);
     salt.extend_from_slice(ephemeral_point);
     salt.extend_from_slice(viewer_point);
     let mut key = [0u8; 32];
-    Hkdf::<Sha256>::new(Some(&salt), shared)
+    Hkdf::<Sha256>::new(Some(&salt), shared.raw_secret_bytes().as_slice())
         .expand(context, &mut key)
         .map_err(|_| Error::BadInput)?;
     Ok(key)

@@ -2,7 +2,7 @@
 // core, CPU, free memory, busy runners and how many of the person's agents run on each, with the
 // runner and queue totals on top. Without a dashboard named, or when it does not answer, the view
 // says so and offers a field to name one.
-import { useMemo, useState, type FormEvent, memo } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { agentsOnHost, fleetTotals, loadPerCore } from "../model";
@@ -97,9 +97,7 @@ function Tile({ label, value, warn }: { label: string; value: string; warn?: boo
   );
 }
 
-// A Refresh keeps an unchanged machine's object (store.ts keptReply): its row draws again only
-// when its own numbers or agent count changed.
-const MachineRow = memo(function MachineRow({
+function MachineRow({
   machine,
   agents,
   compact,
@@ -127,7 +125,7 @@ const MachineRow = memo(function MachineRow({
       )}
     </tr>
   );
-});
+}
 
 function MachineCells({
   machine,

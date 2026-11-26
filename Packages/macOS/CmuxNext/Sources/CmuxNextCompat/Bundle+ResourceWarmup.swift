@@ -72,14 +72,8 @@ extension Bundle {
     /// use (`language_packs.ensure`, pinned by sha256 in `Contents/Resources/language-packs.json`)
     /// and unpacks it as one folder holding, for each module bundle, a bundle of the same name with
     /// only that language's `.lproj`. Until it is there, and offline, strings read English.
-    ///
-    /// The folder name is taken before the lock, so the lock is held for one dictionary lookup
-    /// (hq#22770: 2-4 s main-thread hangs inside this lock's closure in `URL.lastPathComponent`).
-    /// ``inAppLanguage`` caches what this answers for an adopted bundle, so a string read on the
-    /// main thread does not come here again until the language or the pack changes.
     public var languagePackCopy: Bundle? {
-        let name = (bundlePath as NSString).lastPathComponent
-        return Self.openedResourceBundles.withLock { $0.languagePack[name] }
+        Self.openedResourceBundles.withLock { $0.languagePack[bundleURL.lastPathComponent] }
     }
 
     /// Calls `body` (on the activating thread) each time a language pack becomes active.

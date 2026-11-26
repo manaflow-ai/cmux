@@ -72,11 +72,6 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
         return hosted ?? placed
     }
 
-    /// The Chief Slack talks to (RFD 0123: cmux-api routes Slack to the default Chief): the default one, else the hosted one.
-    public var slackChief: CloudChief? {
-        [hosted, placed].compactMap { $0 }.first { $0.isDefault } ?? hosted
-    }
-
     /// The cloud Chief whose main conversation is `conversation`.
     public func chief(for conversation: String) -> CloudChief? {
         [hosted, placed].compactMap { $0 }.first { $0.mainConversation == conversation }

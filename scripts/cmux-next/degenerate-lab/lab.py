@@ -38,8 +38,6 @@ nightly report's `--god-small` reads: {"rows": [{"name", "small_p95", "god_p95"}
 
     lab.py matrix --out /tmp/lab [--preset nightly|full] [--profile]
     lab.py daemon --scale 0.1 --load cpu --churn 600 --out /tmp/lab
-    lab.py plan --preset nightly                  # the CI matrix: one job per part, scale and load
-    lab.py merge --out /tmp/lab /tmp/jobs/*       # every job's results.json into one run's outputs
 """
 
 from __future__ import annotations
@@ -61,7 +59,7 @@ TUI = ROOT / "cmux-tui"
 WEBVIEWS = ROOT / "webviews"
 
 PRESETS = {
-    # The nightly: every part at 0.1x and 1x, idle and loaded; one CI job per part, scale and load (`plan`).
+    # The nightly: every part at 0.1x and 1x, idle and loaded, about an hour on a 16-core runner.
     "nightly": {"scales": [0.1, 1.0], "loads": ["idle", "cpu", "mem"], "churn": 300, "tps": "50,500"},
     # The slope: 0.1x, 1x and 3x (3x writes about 7 GB of fixtures).
     "full": {"scales": [0.1, 1.0, 3.0], "loads": ["idle", "cpu", "mem"], "churn": 900, "tps": "50,500"},
@@ -173,23 +171,6 @@ def run_logged(cmd: list[str], env: dict, cwd: Path, out: Path, timeout: int) ->
     return code, out.read_text(errors="replace")
 
 
-# How much of a failed run's log its result carries: the panic and the lines before the exit.
-FAIL_TAIL = 30
-PANIC = re.compile(r"panicked at|^thread '|assertion|^failures:|^---- |FAILED|error(\[E\d+\])?:")
-
-
-def failure_lines(code: int, text: str) -> list[str]:
-    """A failed run's cause, from its log: every panic and assertion line, then the log's last lines.
-    The log itself is an artifact uploaded at the end of the job, which a runner shut down
-    mid-job never reaches; these go into the job's own log as `LAB-FAIL` lines."""
-    if code == 0:
-        return []
-    lines = text.splitlines()
-    picked = [line for line in lines if PANIC.search(line)][:40]
-    tail = [line for line in lines[-FAIL_TAIL:] if line not in picked]
-    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *picked, *tail]
-
-
 def cargo_env(args) -> dict:
     env = dict(os.environ)
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
@@ -229,7 +210,7 @@ def part_daemon(args, scale: float, load: str, out: Path) -> dict:
     churn = [json.loads(m) for m in re.findall(r"^CHURN (\{.*\})$", text, re.M)]
     return {"part": "daemon", "scale": scale, "load": load, "exit": code, "runs": runs,
             "ratio": json.loads(ratio[-1]) if ratio else None, "churnSamples": churn,
-            "perf": perf.detail if perf else None, "failure": failure_lines(code, text)}
+            "perf": perf.detail if perf else None}
 
 
 def part_chat(args, scale: float, load: str, out: Path) -> dict:
@@ -241,8 +222,7 @@ def part_chat(args, scale: float, load: str, out: Path) -> dict:
     cmd = ["cargo", "test", "-p", "acpmux", "--release", "--lib", "stress::god_chat", "--", "--ignored", "--nocapture"]
     code, text = run_logged(cmd, env, TUI, out / "chat.log", args.timeout)
     rows = [line for line in text.splitlines() if line.startswith("STRESS")]
-    return {"part": "chat", "scale": scale, "load": load, "exit": code, "stress": rows,
-            "failure": failure_lines(code, text)}
+    return {"part": "chat", "scale": scale, "load": load, "exit": code, "stress": rows}
 
 
 def part_webview(args, scale: float, load: str, out: Path) -> dict:
@@ -251,10 +231,9 @@ def part_webview(args, scale: float, load: str, out: Path) -> dict:
     cmd = [bun, "bench/degenerate-chat-frames.bench.ts", "--tps", args.tps, "--out", str(report)]
     if args.profile:
         cmd += ["--trace", str(out / "traces")]
-    code, text = run_logged(cmd, dict(os.environ), WEBVIEWS, out / "webview.log", args.timeout)
+    code, _ = run_logged(cmd, dict(os.environ), WEBVIEWS, out / "webview.log", args.timeout)
     data = json.loads(report.read_text()) if report.exists() else None
-    return {"part": "webview", "scale": scale, "load": load, "exit": code, "report": data,
-            "failure": failure_lines(code, text)}
+    return {"part": "webview", "scale": scale, "load": load, "exit": code, "report": data}
 
 
 def part_fixtures(args, scale: float, out: Path) -> dict:
@@ -396,9 +375,6 @@ def result_lines(r: dict) -> list[str]:
             lines.append("LAB-RESULT+ " + text[:LOG_LINE])
             text = text[LOG_LINE:]
         lines.append("LAB-RESULT " + text)
-    tag = f"LAB-FAIL {r.get('part')} x{r.get('scale', 0):g} {r.get('load')}: "
-    for line in r.get("failure") or []:
-        lines.append((tag + line)[:LOG_LINE])
     return lines
 
 
@@ -407,43 +383,10 @@ def print_result(r: dict) -> None:
         print(line, flush=True)
 
 
-def plan(preset: dict) -> list[dict]:
-    """The matrix as separate CI jobs, one per part, scale and load (a loaded run's `recovered`
-    phase stays in its job). Run serially it was about four hours, and every nightly's one job was
-    shut down before it ended (the 2026-11-25 23:18Z run was cut at 83 min, still at 0.1x)."""
-    jobs = [{"part": "fixtures", "scale": s, "load": "idle"} for s in preset["scales"]]
-    for part in ("daemon", "chat", "webview"):
-        for scale in (preset["scales"] if part != "webview" else preset["scales"][:1]):
-            jobs += [{"part": part, "scale": scale, "load": load} for load in preset["loads"]]
-    for j in jobs:
-        j["name"] = f"{j['part']}-x{j['scale']:g}-{j['load']}"
-    return jobs
-
-
-def merge(dirs: list[str], out_root: Path) -> list[dict]:
-    """Every job's `results.json` under `dirs`, in plan order, as one run's."""
-    results: list[dict] = []
-    for d in dirs:
-        for f in sorted(Path(d).rglob("results.json")):
-            results.extend(json.loads(f.read_text()))
-    order = {"fixtures": 0, "daemon": 1, "chat": 2, "webview": 3}
-    results.sort(key=lambda r: (order.get(r.get("part"), 9), r.get("scale", 0)))
-    return results
-
-
-def write_outputs(results: list[dict], out_root: Path) -> None:
-    rows = god_small_rows(results)
-    (out_root / "results.json").write_text(json.dumps(results, indent=1))
-    (out_root / "god-small.json").write_text(json.dumps({"rows": rows}, indent=1))
-    (out_root / "summary.md").write_text(summary_md(results, rows))
-    print((out_root / "summary.md").read_text())
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["matrix", "fixtures", "daemon", "chat", "webview", "plan", "merge"])
-    ap.add_argument("dirs", nargs="*", help="merge: folders holding each job's results.json")
-    ap.add_argument("--out", help="output folder (every command but plan)")
+    ap.add_argument("command", choices=["matrix", "fixtures", "daemon", "chat", "webview"])
+    ap.add_argument("--out", required=True)
     ap.add_argument("--preset", choices=sorted(PRESETS), default="nightly")
     ap.add_argument("--scale", type=float, action="append", help="scales (repeatable); default: the preset's")
     ap.add_argument("--load", action="append", choices=["idle", "cpu", "mem"], help="loads (repeatable); default: the preset's")
@@ -458,29 +401,16 @@ def main() -> int:
     ap.add_argument("--fixtures", default=os.environ.get("DEGENERATE_LAB_FIXTURES", "/tmp/degenerate-lab-fixtures"))
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
-    args = ap.parse_intermixed_args()
+    args = ap.parse_args()
     # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
     os.umask(0o022)
     preset = PRESETS[args.preset]
-    if args.command == "plan":
-        print(json.dumps({"include": plan(preset)}, separators=(",", ":")))
-        return 0
-    if not args.out:
-        ap.error("--out is required")
     scales = args.scale or preset["scales"]
     loads = args.load or preset["loads"]
     args.churn = preset["churn"] if args.churn is None else args.churn
     args.tps = args.tps or preset["tps"]
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
-    if args.command == "merge":
-        results = merge(args.dirs, out_root)
-        write_outputs(results, out_root)
-        for r in results:
-            for line in result_lines(r):
-                if line.startswith("LAB-FAIL"):
-                    print(line)
-        return 0 if results and all(r.get("exit", 0) == 0 for r in results) else 1
     Path(args.fixtures).mkdir(parents=True, exist_ok=True)
 
     parts = ["daemon", "chat", "webview"] if args.command == "matrix" else [args.command]
@@ -492,7 +422,11 @@ def main() -> int:
         for scale in (scales if part != "webview" else scales[:1]):
             for load in loads:
                 results.extend(run_part(args, part, scale, load, out_root))
-    write_outputs(results, out_root)
+    rows = god_small_rows(results)
+    (out_root / "results.json").write_text(json.dumps(results, indent=1))
+    (out_root / "god-small.json").write_text(json.dumps({"rows": rows}, indent=1))
+    (out_root / "summary.md").write_text(summary_md(results, rows))
+    print((out_root / "summary.md").read_text())
     return 0 if all(r.get("exit", 0) == 0 for r in results) else 1
 
 

@@ -16,77 +16,27 @@ public import Foundation
 public nonisolated struct BrowserDownloadPolicy: Sendable {
     public init() {}
 
-    /// Why `place` found no file for a download.
-    public enum PlaceFailure: Error, Equatable, Sendable {
-        /// Every name up to `DownloadDestination.collisionLimit` is taken.
-        case noFreeName
-        /// macOS refused the app access to the folder (Files and Folders).
-        case folderDenied
-
-        /// The download's failure reason, as the downloads list shows it.
-        public var reason: String {
-            switch self {
-            case .noFreeName: "no free file name"
-            case .folderDenied: "no access to the downloads folder"
-            }
-        }
+    /// Where a download goes: `chosen` (a save panel's file), else a new
+    /// file in `directory` named after `suggestedFilename`
+    /// (`DownloadDestination.sanitizedFilename`, then ` (1)`, ` (2)`, ... on
+    /// a collision); nil after `DownloadDestination.collisionLimit` taken
+    /// names.
+    public static func destination(chosen: URL?, suggestedFilename: String, directory: URL,
+                                   exists: (URL) -> Bool = DownloadDestination.entryExists) -> URL? {
+        chosen ?? DownloadDestination.uniqueURL(in: directory, suggestedFilename: suggestedFilename, exists: exists)
     }
 
     /// Where a download of either engine is written and lands
-    /// (`BrowserDownloadPlacement`): `chosen` (a save panel's file), else a
-    /// new file in `directory` named after `suggestedFilename`
-    /// (`DownloadDestination.sanitizedFilename`, then ` (1)`, ` (2)`, ... on
-    /// a collision), skipping names that other running downloads hold,
-    /// written to a temporary sibling until it completes.
-    ///
-    /// The names are looked up (`probe`, an `lstat` each) off the main
-    /// thread: the first look into a folder macOS protects (Downloads)
-    /// waits for the person's answer to its access prompt, and on the main
-    /// thread that froze the whole app, every tab and the control socket,
-    /// until someone answered (a fleet Mac: never). A folder macOS refuses
-    /// fails at its first look, not after `collisionLimit` refused ones.
+    /// (`BrowserDownloadPlacement`): `destination`, skipping names that
+    /// other running downloads hold, written to a temporary sibling until
+    /// it completes. Nil when no name is free (the download fails).
     @MainActor
     public static func place(chosen: URL?, suggestedFilename: String, directory: URL,
-                             reservations: BrowserDownloadReservations = .shared,
-                             probe: @escaping @Sendable (URL) -> DownloadDestination.Entry = DownloadDestination.entry(at:))
-        async -> Result<BrowserDownloadPlacement, PlaceFailure> {
-        // The save panel already asked before replacing the chosen file.
-        if let chosen { return .success(BrowserDownloadPlacement(finalURL: chosen, chosen: chosen, reservations: reservations)) }
-        // Another download can take a name while this one looks: look again
-        // with the names held now (a bounded number of times).
-        for _ in 0..<8 {
-            let held = reservations.heldPaths
-            let found = await Task.detached(priority: .userInitiated) {
-                firstFreeURL(in: directory, suggestedFilename: suggestedFilename, held: held, probe: probe)
-            }.value
-            switch found {
-            case .failure(let failure): return .failure(failure)
-            case .success(let url) where !reservations.contains(url):
-                return .success(BrowserDownloadPlacement(finalURL: url, chosen: nil, reservations: reservations))
-            case .success: continue
-            }
+                             reservations: BrowserDownloadReservations = .shared) -> BrowserDownloadPlacement? {
+        let target = destination(chosen: chosen, suggestedFilename: suggestedFilename, directory: directory) {
+            DownloadDestination.entryExists($0) || reservations.contains($0)
         }
-        return .failure(.noFreeName)
-    }
-
-    /// The first name in `directory` for `suggestedFilename` that `probe`
-    /// finds free and no running download holds (`held`, standardized
-    /// paths). Runs off the main thread.
-    nonisolated static func firstFreeURL(in directory: URL, suggestedFilename: String, held: Set<String>,
-                                         probe: (URL) -> DownloadDestination.Entry) -> Result<URL, PlaceFailure> {
-        var denied = false
-        let url = DownloadDestination.uniqueURL(in: directory, suggestedFilename: suggestedFilename) { candidate in
-            if denied || held.contains(BrowserDownloadReservations.key(candidate)) { return true }
-            switch probe(candidate) {
-            case .absent: return false
-            case .present: return true
-            case .denied:
-                denied = true
-                return true
-            }
-        }
-        if denied { return .failure(.folderDenied) }
-        return url.map(Result.success) ?? .failure(.noFreeName)
+        return target.map { BrowserDownloadPlacement(finalURL: $0, chosen: chosen, reservations: reservations) }
     }
 
     /// What happens to a complete temporary file before it is published.

@@ -125,58 +125,6 @@
       "undeclared": 0
     },
     {
-      "name": "a turn's end folds its own box and moves nothing else",
-      "frames": [
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        {
-          "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } },
-          "declared": [{ "key": 1, "event": "turn-end", "scope": "targets", "strict": true }]
-        }
-      ],
-      "undeclared": 0
-    },
-    {
-      "name": "a turn's end that pulls the rows under it up is a jump (its work folded away)",
-      "frames": [
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 120], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 220, 400, 20], "after": true } } },
-        {
-          "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } },
-          "declared": [{ "key": 1, "event": "turn-end", "scope": "targets", "strict": true }]
-        }
-      ],
-      "undeclared": 1
-    },
-    {
-      "name": "a card appended at a turn's end that shoves the rows under it down is a jump",
-      "frames": [
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        {
-          "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 314, 400, 20], "after": true } },
-          "declared": [{ "key": 1, "event": "turn-end", "scope": "targets", "strict": true }]
-        }
-      ],
-      "undeclared": 1
-    },
-    {
-      "name": "the same push is covered by an expand, which is not strict",
-      "frames": [
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        { "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 128, 400, 20], "after": true } } },
-        {
-          "samples": { "fold": { "surface": "transcript-row", "box": [0, 100, 400, 28], "targeted": true }, "below": { "surface": "transcript-row", "box": [0, 314, 400, 20], "after": true } },
-          "declared": [{ "key": 1, "event": "expand", "scope": "targets" }]
-        }
-      ],
-      "undeclared": 0
-    },
-    {
       "name": "a box an entrance animation moves is not judged until it rests",
       "frames": [
         { "samples": { "menu": { "surface": "popup", "box": [10, 10, 200, 100] } } },

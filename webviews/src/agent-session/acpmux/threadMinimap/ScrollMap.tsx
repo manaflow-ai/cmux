@@ -29,7 +29,6 @@ import {
   type RowsChange,
   replyMore,
 } from "./model";
-import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
 import { focusRoute } from "../../../ui/focusRoute";
 import {
@@ -257,11 +256,7 @@ export function ScrollMap({
     const node = scroller.current;
     if (!node) return;
     stopScroll(node);
-    writeScrollTop(
-      node,
-      physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight)),
-      "minimap",
-    );
+    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
   };
   /// The mark rail point `y` is on: the nearest mark within MAP_HIT, and on a prompt's mark the
   /// prompt nearest the point among those its band draws for (promptAt), so a pointer lands where

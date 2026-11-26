@@ -6555,8 +6555,7 @@
         "cmux",
         "claude",
         "codex",
-        "studio",
-        "rex"
+        "studio"
       ],
       "title" : "Sidebar Look",
       "type" : "string"

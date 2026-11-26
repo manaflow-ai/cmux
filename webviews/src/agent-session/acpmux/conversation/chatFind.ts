@@ -430,15 +430,17 @@ export const rowHolds =
         ? Boolean(row.items?.some((item) => searchableActivityText(item).includes(foldFind(target.needle!))))
         : true;
 
-/** Whether `item` holds what Find reveals: the call it names, else a match in its text. A windowed
- * list (stepWindow.ts) keeps such a step mounted, so its match is drawn and counted. */
-export const revealsItem = (reveal: FindRevealTarget, item: AcpmuxActivity): boolean =>
-  reveal.toolId !== undefined ? item.tool?.id === reveal.toolId : searchableActivityText(item).includes(reveal.needle);
-
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => revealsItem(reveal, item)));
+  const hit = Boolean(
+    reveal &&
+    items.some((item) =>
+      reveal.toolId !== undefined
+        ? item.tool?.id === reveal.toolId
+        : searchableActivityText(item).includes(reveal.needle),
+    ),
+  );
   useLayoutEffect(() => {
     if (!hit) return;
     open();

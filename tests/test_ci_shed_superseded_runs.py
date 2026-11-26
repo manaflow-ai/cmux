@@ -273,8 +273,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_runs_on_owned_label_never_blacksmith_or_hosted(self):
         runs_on = self.job["runs-on"]
-        self.assertEqual(runs_on, "cmux-gcp-pr-control-jit-x64")  # CI_CONTROL_RUNNER's label, as a literal (cmux#53974)
-        self.assertNotIn("vars.", runs_on)
+        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}")
         for bad in ("blacksmith", "ubuntu-", "RUNNER_POOLS", "LINUX_RUNNER", "cmux-fleet-linux"):
             self.assertNotIn(bad, runs_on)
 

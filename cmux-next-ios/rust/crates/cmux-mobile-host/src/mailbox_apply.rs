@@ -96,16 +96,6 @@ fn unavailable(why: impl Into<String>) -> Rejection {
     Rejection::Unavailable(why.into())
 }
 
-/// `_acpmux/info` refusing the session means it is gone (`not_pending`); acpmux
-/// not answering (closed, silent, unreachable) is not an answer, so the item is
-/// kept and tried again rather than settled.
-fn gone_unless_unreachable(rejection: Rejection) -> Rejection {
-    match rejection {
-        Rejection::Unavailable(why) => Rejection::Unavailable(why),
-        _ => Rejection::NotPending,
-    }
-}
-
 /// `_acpmux/info` is the authority that resolves a phone-facing alias to the
 /// ACP session id. An absent or malformed result is unknown and therefore
 /// refused before any mutation can be sent.
@@ -551,10 +541,12 @@ impl LiveApplier {
     async fn prompt(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
         // An acpmux that went quiet is not an answer: the reply is kept and tried again.
-        let info = acpmux
-            .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
-            .await
-            .map_err(gone_unless_unreachable)?;
+        let info = acpmux.call("_acpmux/info", json!({"sessionId": reply.target.session_id})).await.map_err(
+            |rejection| match rejection {
+                Rejection::Unavailable(why) => Rejection::Unavailable(why),
+                _ => Rejection::NotPending,
+            },
+        )?;
         let session = resolved_session(&info)?;
         let mut params = prompt_params(reply);
         params["sessionId"] = Value::String(session.clone());
@@ -570,7 +562,7 @@ impl LiveApplier {
         let info = acpmux
             .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
             .await
-            .map_err(gone_unless_unreachable)?;
+            .map_err(|_| Rejection::NotPending)?;
         let session = resolved_session(&info)?;
         params["sessionId"] = Value::String(session.clone());
         // Last before the change, as for a prompt: a revocation meanwhile wins.
@@ -645,8 +637,7 @@ impl Acpmux {
         if crate::acpmux_policy::refusal(&request).is_some() {
             return Err(refused("an agent from iPhone runs only in a mode that asks"));
         }
-        // A lost connection is not an answer: the item is kept and tried again.
-        self.socket.send(Message::Text(request.into())).await.map_err(|e| unavailable(e.to_string()))?;
+        self.socket.send(Message::Text(request.into())).await.map_err(|e| refused(e.to_string()))?;
         Ok(id)
     }
 
@@ -972,18 +963,6 @@ mod tests {
             Err(Rejection::NotPending)
         );
         assert!(matches!(compose_outcome("_acpmux/queue_edit", &json!({})), Err(Rejection::Refused(_))));
-    }
-
-    #[test]
-    fn an_unreachable_acpmux_is_unavailable_not_a_gone_prompt() {
-        // A lost socket or a timeout is not an answer: the item stays held and is retried.
-        assert!(matches!(gone_unless_unreachable(unavailable("acpmux closed")), Rejection::Unavailable(_)));
-        // An answer that the session or prompt is not there is final.
-        assert_eq!(
-            gone_unless_unreachable(Rejection::Refused("no such session".into())),
-            Rejection::NotPending
-        );
-        assert_eq!(gone_unless_unreachable(Rejection::NotPending), Rejection::NotPending);
     }
 
     #[test]

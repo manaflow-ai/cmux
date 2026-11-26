@@ -5,10 +5,38 @@
 // Shipped iPhone builds (Release, TestFlight, App Store) compile none of it: on iOS only a DEBUG
 // build (Debug, or ios-sim.sh's Demo with DEBUG) has the engine, so a Release binary holds no
 // loader, no interposer and no private dyld symbol name. The macOS app keeps it in every build.
-#if canImport(MachO) && (os(macOS) || DEBUG)
+#if os(macOS) || DEBUG
 import Darwin
 import Foundation
 import MachO
+
+public enum LiveCodeError: Error, CustomStringConvertible {
+    case open(String)
+    case noImage
+    case noInterposer
+    case nothingToReplace
+    case layoutChanged([String])
+    case opaqueTypeChanged([String])
+    case notOurTeam(String)
+    case nothingToUndo
+    case copy(String)
+
+    public var description: String {
+        switch self {
+        case .open(let message): "dlopen failed: \(message)"
+        case .noImage: "the patch is loaded but dyld does not list it"
+        case .noInterposer: "dyld_dynamic_interpose is not available"
+        case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
+        case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
+        case .opaqueTypeChanged(let types):
+            "a `some View` (or other opaque) result's type changed, rebuild instead (a view or modifier added or removed; "
+                + "values, strings, colors and logic inside it apply live): \(types.joined(separator: "; "))"
+        case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
+        case .nothingToUndo: "no patch is applied"
+        case .copy(let detail): "cannot take a private copy: \(detail)"
+        }
+    }
+}
 
 /// The Mach-O side: the patch's code symbols, matched by name to this executable's. Nonisolated:
 /// LiveCode's engine actor calls it, off the main thread.

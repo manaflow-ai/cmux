@@ -1,13 +1,12 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
-import { memo, useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { sameJson } from "../../agent-session/acpmux/sameJson";
+import { useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
-import { AnswerControls } from "./AnswerControls";
+import { SnapAnswerControls } from "./AnswerControls";
 import { DiffLines, shownLine } from "./DiffLines";
 import { FeedIcon, type FeedIconSize } from "./icons";
 import {
@@ -25,8 +24,7 @@ import {
   VIRTUALIZE_AFTER,
   type FeedLine,
 } from "./model";
-import { plain, type AnswerState } from "./context";
-import type { FeedStore } from "./store";
+import { isPending, plain, type FeedProps } from "./context";
 import type { FeedAttachment, ViewItem } from "./types";
 
 // MARK: - Small pieces
@@ -43,16 +41,15 @@ export function UnreadDot({ visible }: { visible: boolean }) {
   return <span className="feed-dot" data-visible={visible ? "" : undefined} aria-hidden="true" />;
 }
 
-/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). `time`: `relativeTime` of the
- * item's creation (the caller's clock; this never reads one). */
-export function PosterLine({ item, strings, time }: { item: ViewItem; strings: Strings; time: string }) {
+/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). */
+export function PosterLine({ item, strings, now }: { item: ViewItem; strings: Strings; now: number }) {
   return (
     <span className="feed-poster">
       <span className="feed-poster-label">{posterLabel(item)}</span>
       <span aria-hidden="true">·</span>
       {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
       <time className="feed-num" title={fullDate(item.created_at, strings.language)}>
-        {time}
+        {relativeTime(item.created_at, now, strings.language)}
       </time>
       {isLocal(item) ? (
         <span className="feed-local" title={strings.t("item.thisMac")}>
@@ -84,13 +81,10 @@ export function Banner({ text }: { text: string }) {
 export interface RowProps {
   line: Extract<FeedLine, { type: "row" }>;
   strings: Strings;
-  /** The row's time, `relativeTime` of its item at the page's clock: a new clock that leaves the text
-   * as it was renders no row. */
-  time: string;
+  now: number;
   style?: CSSProperties;
-  /** The list's handlers, called with the row's item id: the same functions for every row. */
-  onSelect: (id: string) => void;
-  onOpen: (id: string) => void;
+  onSelect: () => void;
+  onOpen: () => void;
   compact?: boolean;
 }
 
@@ -101,15 +95,7 @@ const revealOnSelect = (node: HTMLDivElement | null) => node?.scrollIntoView?.({
  *         Ran swift test --filter FeedModelTests: 42 passed.
  *         Claude Code · api-server › Fix login redirect · ×2
  */
-export const FeedRow = memo(function FeedRow({
-  line,
-  strings,
-  time,
-  style,
-  onSelect,
-  onOpen,
-  compact = false,
-}: RowProps) {
+export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact = false }: RowProps) {
   const item = line.entry.item;
   const { row } = item;
   const meta = metaLine(item, line.threadCount, strings);
@@ -137,13 +123,13 @@ export const FeedRow = memo(function FeedRow({
       data-detail={detail ? "" : undefined}
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
-      onClick={() => onSelect(item.id)}
-      onDoubleClick={() => onOpen(item.id)}
+      onClick={onSelect}
+      onDoubleClick={onOpen}
       onKeyDown={(event) => {
         if (event.key !== "Enter" || !plain(event)) return;
         event.preventDefault();
         event.stopPropagation();
-        onOpen(item.id);
+        onOpen();
       }}
     >
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the row's one cell, laid on its grid */}
@@ -153,7 +139,7 @@ export const FeedRow = memo(function FeedRow({
         <span className="feed-row-headline">{row.headline}</span>
         {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
         <time className="feed-row-time feed-num" title={fullDate(item.created_at, strings.language)}>
-          {time}
+          {relativeTime(item.created_at, now, strings.language)}
         </time>
         {detail ? <span className={cx("feed-row-detail", row.detail_is_code && "code")}>{detail}</span> : null}
         <span className="feed-row-meta">
@@ -167,40 +153,6 @@ export const FeedRow = memo(function FeedRow({
       </span>
     </div>
   );
-}, sameRow);
-
-/** A row draws the same: the same line (the owner sends every item again on each change, so its
- * item is compared by content), time, handlers and place. */
-function sameRow(a: RowProps, b: RowProps): boolean {
-  return (
-    a.strings === b.strings &&
-    a.time === b.time &&
-    a.compact === b.compact &&
-    a.onSelect === b.onSelect &&
-    a.onOpen === b.onOpen &&
-    sameStyle(a.style, b.style) &&
-    sameLine(a.line, b.line)
-  );
-}
-
-function sameLine(a: RowProps["line"], b: RowProps["line"]): boolean {
-  return (
-    a === b ||
-    (a.id === b.id &&
-      a.selected === b.selected &&
-      a.pending === b.pending &&
-      a.threadCount === b.threadCount &&
-      sameJson(a.entry.item, b.entry.item))
-  );
-}
-
-/** A virtual list's row style is a new object each render; the same values place the row the same. */
-function sameStyle(a: CSSProperties | undefined, b: CSSProperties | undefined): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const keys = Object.keys(a) as Array<keyof CSSProperties>;
-  if (keys.length !== Object.keys(b).length) return false;
-  return keys.every((key) => a[key] === b[key]);
 }
 
 export function GroupHeader({ title, count, style }: { title: string; count: number; style?: CSSProperties }) {
@@ -226,7 +178,6 @@ export interface LinesProps {
   compact?: boolean;
   /** The scroller the list sits in (cards above it); none: the list scrolls itself. */
   scrollParent?: string;
-  /** Called with the row's item id; pass the same functions each render (context.ts `rowActions`). */
   onSelect: (id: string) => void;
   onOpen: (id: string) => void;
   onKeyDown: (event: KeyboardEvent) => void;
@@ -253,11 +204,11 @@ export function FeedLines({
         key={line.id}
         line={line}
         strings={strings}
-        time={relativeTime(line.entry.item.created_at, now, strings.language)}
+        now={now}
         style={style}
         compact={compact}
-        onSelect={onSelect}
-        onOpen={onOpen}
+        onSelect={() => onSelect(line.entry.item.id)}
+        onOpen={() => onOpen(line.entry.item.id)}
       />
     );
   const active = lines.findIndex((line) => line.type === "row" && line.selected);
@@ -401,46 +352,21 @@ export function PromptSummary({ item, full = false }: { item: ViewItem; full?: b
   );
 }
 
-/** Its answer controls' part of the snapshot (context.ts `answerState`), and what the card draws. */
-export interface RequestCardProps extends AnswerState {
-  item: ViewItem;
-  store: FeedStore;
-  strings: Strings;
-  /** `relativeTime` of the item at the page's clock. */
-  time: string;
-}
-
-/** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
- * snapshot only, so a change to another item, a draft in another card or the selection renders it not. */
-export const RequestCard = memo(function RequestCard({
-  item,
-  store,
-  strings,
-  time,
-  pending,
-  ...answer
-}: RequestCardProps) {
+/** An open request in the list: what it asks and how to answer, inline. */
+export function RequestCard({ item, store, snap, strings }: FeedProps & { item: ViewItem }) {
   return (
-    <div className={cx("feed-card", pending && "pending")} data-item={item.id}>
+    <div className={cx("feed-card", isPending(snap, item) && "pending")} data-item={item.id}>
       <div className="feed-card-head">
         <Glyph item={item} />
         <div className="feed-card-titles">
           <span className="feed-card-title">{item.title}</span>
-          <PosterLine item={item} strings={strings} time={time} />
+          <PosterLine item={item} strings={strings} now={snap.now} />
         </div>
       </div>
       <div className="feed-card-body">
         <PromptSummary item={item} />
-        <AnswerControls item={item} store={store} strings={strings} density="inline" pending={pending} {...answer} />
+        <SnapAnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
       </div>
     </div>
   );
-}, sameCard);
-
-function sameCard(a: RequestCardProps, b: RequestCardProps): boolean {
-  for (const key in a) {
-    if (key === "item") continue;
-    if (!Object.is(a[key as keyof RequestCardProps], b[key as keyof RequestCardProps])) return false;
-  }
-  return Object.keys(a).length === Object.keys(b).length && sameJson(a.item, b.item);
 }

@@ -421,11 +421,7 @@ export function IncomingMessageLine({
   onReply,
   actions,
   githubRepository,
-  provenance,
 }: {
-  /// Where the message was sent from (SentFromLine.tsx), first under the opened message: the line
-  /// stays one row of the shared row metric (rowMetric.ts) while it is shut.
-  provenance?: ReactNode;
   /// The row's id, which keeps the line open across remounts.
   id: string;
   message: IncomingMessage;
@@ -627,7 +623,6 @@ export function IncomingMessageLine({
   // Under the words: the prompt as the agent got it, behind Details, and the reply.
   const below = (
     <>
-      {provenance}
       {raw !== undefined && (
         <div className="cv-received__details">
           <button

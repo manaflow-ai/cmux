@@ -56,7 +56,6 @@ export function BackgroundPlacementPreview({ src, value, imageSize = null, disab
       <div
         ref={frame}
         className="placement-frame"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Dragging the picture is two axes plus zoom; an <input type="range"> carries one value, so the ARIA slider with aria-valuetext for both axes is the closer fit.
         role="slider"
         tabIndex={disabled ? -1 : 0}
         aria-label={t("settingsWindow.backdropPlacement.preview")}
@@ -138,9 +137,6 @@ export function BackgroundPlacementPreview({ src, value, imageSize = null, disab
                 value={mode}
                 checked={value.mode === mode}
                 onChange={() => pickMode(mode)}
-                aria-label={t(
-                  mode === "fill" ? "settingsWindow.backdropPlacement.fill" : "settingsWindow.backdropPlacement.fit",
-                )}
               />
               {t(mode === "fill" ? "settingsWindow.backdropPlacement.fill" : "settingsWindow.backdropPlacement.fit")}
             </label>

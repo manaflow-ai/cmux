@@ -5,7 +5,7 @@
 // gesture in the pane. A card may have one text field (`input`, a secret the person types): its value
 // goes as `value`, only with a button that `submitsInput`, and is never kept here. A module store, so
 // a push that arrives before the chat mounts is kept.
-import { viewStore } from "../paneViewStore";
+import { useSyncExternalStore } from "react";
 
 /// `check`: the action is the card's checkmark ("Ask me first"), drawn checked when true; a click
 /// sends the action like a button and the host pushes the card again with the new value.
@@ -20,8 +20,8 @@ export type ToolCard = {
 };
 
 const STATES = new Set<string>(["ask", "working", "done", "failed"]);
-// One list a pane view (paneViewStore.ts); the page itself is the null view.
-const store = viewStore<ToolCard[]>([]);
+let cards: ToolCard[] = [];
+const listeners = new Set<() => void>();
 
 function readAction(value: unknown): ToolCardAction[] {
   const action = value as Partial<ToolCardAction> | null;
@@ -45,8 +45,8 @@ function readInput(value: unknown): ToolCardInput | undefined {
 }
 
 /// Replaces the cards from a host push; anything malformed is dropped.
-export function setToolCards(value: unknown, view: string | null = null): void {
-  const cards: ToolCard[] = Array.isArray(value)
+export function setToolCards(value: unknown): void {
+  cards = Array.isArray(value)
     ? value.flatMap((item): ToolCard[] => {
         const card = item as Partial<ToolCard> | null;
         if (!card || typeof card.id !== "string" || typeof card.text !== "string" || !STATES.has(String(card.state)))
@@ -64,16 +64,21 @@ export function setToolCards(value: unknown, view: string | null = null): void {
         ];
       })
     : [];
-  store.set(cards, view);
+  for (const listener of listeners) listener();
 }
 
 /// The cards kept now (the hook's snapshot; tests read it directly).
-export function currentToolCards(view: string | null = null): ToolCard[] {
-  return store.get(view);
+export function currentToolCards(): ToolCard[] {
+  return cards;
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 export function useToolCards(): ToolCard[] {
-  return store.use();
+  return useSyncExternalStore(subscribe, currentToolCards, currentToolCards);
 }
 
 declare global {
