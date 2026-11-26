@@ -120,7 +120,7 @@ const button = (container: HTMLElement, selector: string) => container.querySele
 const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 /// A button's label and the key drawn in it.
 const labelAndKey = (element: Element) => {
-  const key = element.querySelector("kbd");
+  const key = element.querySelector(".ui-key-hint");
   return [
     text(element)
       ?.slice(0, -(key?.textContent?.length ?? 0))

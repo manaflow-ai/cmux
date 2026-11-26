@@ -647,7 +647,8 @@ install_zig_with_sudo() {
     sudo rm -rf "$install_root"
     sudo cp -R "$ZIG_DIR" "$install_root"
   fi
-  sudo chown -R 0:0 "$install_root"
+  # Owned by whoever sudo runs as (root on a runner), as `sudo cp -R` left it.
+  sudo chown -R "$(sudo id -u):$(sudo id -g)" "$install_root"
   sudo ln -s "${install_root}/lib" "${lib_dir}/zig"
   # Zig 0.16 on Linux can derive lib_dir from the invoked /usr/local/bin/zig
   # symlink instead of the target executable. A wrapper pins the library root
