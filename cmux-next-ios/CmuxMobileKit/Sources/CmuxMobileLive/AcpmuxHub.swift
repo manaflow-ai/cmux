@@ -1054,15 +1054,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         default:
             break
         }
+        let stoppedTurn = runningTurnID
         Task {
             // A call the link lost (a timeout, a dropped channel) waits for the link and goes once
             // more; only one that still can't reach the Mac past ``heldPromptWindow`` says so, as
             // the chat's one quiet line (never the link's own words in a toast).
             var waitedForLink = false
-            let stoppedTurn = self.runningTurnID
             while true {
                 do {
-                    try await self.perform(intent, hub: hub)
+                    try await self.perform(intent, hub: hub, stoppedTurn: stoppedTurn)
                     return
                 } catch {
                     if Self.isTransient(error) {
@@ -1094,7 +1094,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// One non-prompt intent, sent once.
-    private func perform(_ intent: AgentClientIntent, hub: AcpmuxHub) async throws {
+    func perform(_ intent: AgentClientIntent, hub: AcpmuxHub, stoppedTurn: String?) async throws {
         let session = JSONValue.string(sessionID)
         switch intent {
         case .prompt, .cancelSend, .deleteSend, .retrySend:
@@ -1102,7 +1102,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         case .retryFailedTurn:
             _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
         case .cancel:
-            try await hub.notify("session/cancel", .object(["sessionId": session]))
+            let connection = try await hub.liveConnection()
+            // Even the first attempt may wait for a reconnect. Recheck after that wait,
+            // immediately before writing, so Stop cannot spill into the next turn.
+            guard Self.stopStillApplies(pressedFor: stoppedTurn, running: runningTurnID) else { return }
+            try await connection.notify("session/cancel", .object(["sessionId": session]))
         case .respondPermission(let permissionID, let optionID):
             try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
         case .answerElevation(let ask, let password):

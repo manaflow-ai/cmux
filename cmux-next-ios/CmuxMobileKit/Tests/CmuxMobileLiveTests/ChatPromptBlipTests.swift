@@ -17,6 +17,9 @@ import Testing
     final class Mac: @unchecked Sendable {
         private let lock = NSLock()
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
+        private var _cancels = 0
+        var cancels: Int { lock.withLock { _cancels } }
+        func cancelled() { lock.withLock { _cancels += 1 } }
         private var _fullAccess: Bool
         init(fullAccess: Bool = true) { _fullAccess = fullAccess }
         var fullAccess: Bool {
@@ -40,6 +43,9 @@ import Testing
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"lane","harness":"claude","cwd":"/tmp/w","status":"running"}]}"#)]
             case "_acpmux/attach":
                 return [reply(#"{"session":{"sessionId":"s1","status":"running","pending":[]},"hasMore":false,"lastSeq":0,"events":[]}"#)]
+            case "session/cancel":
+                mac.cancelled()
+                return []
             case "session/prompt":
                 let params = object["params"] as? [String: Any]
                 let text = ((params?["prompt"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
