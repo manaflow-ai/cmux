@@ -2236,8 +2236,17 @@ jobs:
             fi
           }
           started=$SECONDS
-          retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
-          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          # The fleet mirror is a whole, verified clone (glaeda-verified, not shallow), so a commit it
+          # holds brings every object it needs through the alternate. Asking github.com for it anyway
+          # is what failed run 45744507889 (429 x4, then 403, at 03:09Z on 11-26): fetch only what the
+          # mirror lacks.
+          if grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
+              && git --git-dir="$mirror" cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
+            echo "$BUILD_SHA is in the fleet mirror $mirror: no fetch from origin"
+          else
+            retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+            echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          fi
           git_dir="${GITHUB_WORKSPACE:?}/.git"
           for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
             git config --local --unset-all "$key" || true
@@ -7471,7 +7480,7 @@ jobs:
       # (tests/test_ci_signing_owned_mac.py).
       # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
       # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
-      # in these steps (tests/test_nightly_next_one_job.py). Why: docs/ci/nightly-workflow-notes.md#note-31
+      # in these steps (test_nightly_next_one_job.py under tests). Why: docs/ci/nightly-workflow-notes.md#note-31
       - name: Refuse stray processes before secrets (deltas)
         id: deltas-stray
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT && !env.NEWER_PUSH_WAITING"
@@ -7862,14 +7871,24 @@ jobs:
           retention-days: 3
           overwrite: true
       - name: Ask for this build's post-publication run
-        # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
-        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail. Only a
-        # refusal for the rate limit, which did nothing, waits and goes again (gh_budget_wait.sh).
+        # No loop (tests/test_ci_no_github_token_polling.py). A 4xx fails this job (report-nightly-failure lists it).
+        # A 5xx may or may not have made the run (45693929930: HTTP 500, no tail, no notes, no comments): look once
+        # for a tail started since, and ask once more only if none did, so an accepted dispatch never gets two.
         env: *dispatch-pools
         run: |
-          set -euo pipefail
-          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")"
+          set -uo pipefail
+          started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ask() { gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")" 2>"$RUNNER_TEMP/dispatch.err"; }
+          ask && exit 0
+          cat "$RUNNER_TEMP/dispatch.err" >&2
+          grep -q 'HTTP 5[0-9][0-9]' "$RUNNER_TEMP/dispatch.err" || exit 1
+          sleep 30
+          n="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml --event workflow_dispatch --branch "$GITHUB_REF_NAME" \
+            --created ">=$started" --json displayTitle \
+            --jq '[.[] | select(.displayTitle | startswith("Finish a published nightly-next build"))] | length')" || n=0
+          [ "${n:-0}" -gt 0 ] 2>/dev/null && { echo "A tail run started despite the error."; exit 0; }
+          ask || { cat "$RUNNER_TEMP/dispatch.err" >&2; exit 1; }
 
   # Where the tail runs (run_tail): a dispatched tail run, or main's, RC's or a manual run's own. The comments
   # wait for the whole-Mac publish jobs, so they never hold the mini while those wait.
@@ -7891,7 +7910,8 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      NIGHTLY_VERSION: ${{ needs.published-build.outputs.daemon_version }}
+      NIGHTLY_BUILD: ${{ needs.published-build.outputs.publish_build }}
+      FEED_BASE: ${{ needs.published-build.outputs.feed_base }}
       HEAD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}
       PUBLISHED_SHA: ${{ needs.published-build.outputs.published_sha }}
     steps:
@@ -7904,7 +7924,14 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - name: Fetch the published span
-        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+        # With the job token, for this step only: anonymous fetches got 403 four times (tail 45725593921).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
       - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
         env:
@@ -7932,8 +7959,7 @@ jobs:
       PUBLISHED_SHA: ${{ needs.published-build.outputs.published_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
-      - &checkout-step
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
           persist-credentials: false
@@ -7994,7 +8020,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - *checkout-step
+      # scripts/ci only: a full checkout stalled on the JIT VM (tails 45689720464, 45679817194).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.published-build.outputs.resolve_build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
       - *checkout-the-gh-token-wrapper
