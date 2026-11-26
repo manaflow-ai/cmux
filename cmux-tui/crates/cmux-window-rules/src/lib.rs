@@ -35,6 +35,8 @@
 //! - [`launch_recovery`]: how a launch follows the previous run (clean, a
 //!   restart with the notice, a safe restart after a restart loop).
 //! - [`keybind_route`]: which registry action a Ghostty keybind runs.
+//! - [`server`]: Add Server…'s headless approval (the code and the four
+//!   words) and the helper fix ledger Stop Serving reverts.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
@@ -55,6 +57,7 @@ pub mod notifications;
 pub mod remote;
 pub mod restore;
 pub mod screen_share;
+pub mod server;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;

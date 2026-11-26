@@ -5,7 +5,7 @@ fn id(action: Action) -> Option<String> {
     route(&action).map(|route| route.id)
 }
 
-fn parse(value: serde_json::Value) -> Action {
+fn parse(value: Value) -> Action {
     serde_json::from_value(value).expect("action")
 }
 

@@ -1,11 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
-//! `window_update_*`, `window_editors_*`, `window_keybind_*`): their tables and refusals.
+//! `window_update_*`, `window_editors_*`, `window_keybind_*`, `window_server_*`): their tables and refusals.
 
 use cmux_window_rules::{
     appearance, browser, editors, files, history, keybind_route, launch, launch_recovery,
-    notifications, remote, restore, screen_share, update_idle,
+    notifications, remote, restore, screen_share, server, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -157,7 +157,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 11] = [
+const DOMAINS: [&[u8]; 12] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -169,6 +169,7 @@ const DOMAINS: [&[u8]; 11] = [
     b"window_editors_",
     b"window_update_",
     b"window_keybind_",
+    b"window_server_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -299,6 +300,57 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_keybind_route" => {
             let action: keybind_route::Action = read(request)?;
             json!({ "route": keybind_route::route(&action) })
+        }
+        // One step of Add Server…'s headless approval (`server::approval_step`).
+        b"window_server_approval_step" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: Option<server::Approval>,
+                event: server::ApprovalEvent,
+            }
+            let request: Request = read(request)?;
+            let (state, effect) =
+                server::approval_step(request.state.unwrap_or_default(), request.event);
+            json!({ "state": state, "effect": effect })
+        }
+        // A health check's allowlisted fixes and the app's own Fix button for it.
+        b"window_server_fixes" => {
+            #[derive(Deserialize)]
+            struct Request {
+                check: String,
+            }
+            let request: Request = read(request)?;
+            json!({
+                "fixes": server::fixes_for(&request.check),
+                "localFix": server::local_fix(&request.check),
+            })
+        }
+        // What the fix ledger file holds (`text` null: missing) and what Stop Serving reverts.
+        b"window_server_ledger" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                text: Option<String>,
+            }
+            let contents = server::ledger(read::<Request>(request)?.text.as_deref());
+            json!({ "toRevert": contents.to_revert(), "contents": contents })
+        }
+        // The ledger text to write after a record, clear or reset (`text` null: nothing to write).
+        b"window_server_ledger_edit" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                text: Option<String>,
+                edit: server::LedgerEdit,
+                #[serde(default)]
+                fix: String,
+                #[serde(default)]
+                now_ms: i64,
+            }
+            let request: Request = read(request)?;
+            json!({ "text": server::ledger_edit(request.text.as_deref(), request.edit, &request.fix, request.now_ms) })
         }
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;
