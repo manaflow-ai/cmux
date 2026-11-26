@@ -1171,6 +1171,7 @@ batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newes
     git_q -C "$src" checkout -q --detach "$c"
     PROMOTE="" RUN_ID="$3" GH_TICK_CACHE="$2" request --tree-ready "$c"
     [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    printf '%s\n' "$out" > "$TMP/batch-out"
   done
   grep -c . "$TMP/precheck.log" || true
 }
@@ -1178,7 +1179,7 @@ batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newes
 for c in $(git -C "$src" rev-list "$batch_tip"); do echo 404 > "$TMP/precheck/$c"; done
 reads4=$(batch_walk 4 "$TMP/batch-tick-4" 41)
 reads12=$(batch_walk 12 "$TMP/batch-tick-12" 42)
-grep -q "not prechecked yet" <<<"$out" || fail "a commit with no verdict must be refused as not prechecked:" "$out" "keys: $(for c in $(git -C "$src" rev-list -n 14 "$batch_tip"); do echo "$c $(key "$c")"; done)" "published: $(ls "$cdn/tree")" "walk_tip~5=$(git -C "$src" rev-parse "$walk_tip~5")"
+grep -q "not prechecked yet" "$TMP/batch-out" || fail "a commit with no verdict must be refused as not prechecked:" "$(cat "$TMP/batch-out")"
 distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
 (( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
 (( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
@@ -1189,7 +1190,7 @@ reads_uncached=$(batch_walk 12 "" 43)
 for c in $(git -C "$src" rev-list "$batch_tip"); do echo down > "$TMP/precheck/$c"; done
 reads_down=$(batch_walk 12 "$TMP/batch-tick-down" 44)
 (( reads_down == 1 )) || fail "a walk while the results service is down must read it once, got $reads_down"
-grep -q "^promotable ${batch_tip:0:12}\|^promotable " <<<"$out" || fail "an outage must not block a commit:" "$out"
+grep -q "^promotable " "$TMP/batch-out" || fail "an outage must not block a commit:" "$(cat "$TMP/batch-out")"
 # A window later the service is read again.
 reads_down0=$(CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL=0 batch_walk 3 "$TMP/batch-tick-down" 45)
 (( reads_down0 == 3 )) || fail "past its window an outage must be read again, got $reads_down0"
