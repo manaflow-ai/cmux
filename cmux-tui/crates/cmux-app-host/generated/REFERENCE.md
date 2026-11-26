@@ -684,6 +684,7 @@ Ops no app may call:
 - `install.rename`
 - `install.revoke`
 - `install.sign_out`
+- `integration.approval.approve`
 - `integration.approval.get`
 - `integration.complete`
 - `integration.connect`
