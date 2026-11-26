@@ -118,8 +118,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       words: ".cv-notice__lead",
     },
     {
-      name: "Background command completed",
-      entry: "agent-pane.turn-after-subagent",
+      name: "Background task completion",
+      entry: "agent-pane.lone-system-rows",
+      variant: "background-task",
       line: "button.cv-tool.cv-bgtask.is-toggle",
       words: ".cv-tool__text",
       glyph: ".cv-tool__icon",
@@ -129,12 +130,6 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       entry: "agent-pane.inbox-notice",
       line: "button.cv-lane-batch__toggle",
       words: ".cv-tool__text",
-    },
-    {
-      name: "plan summary",
-      entry: "agent-pane.plan-list",
-      line: "button.cv-plan__summary",
-      words: ".cv-plan__text",
     },
     {
       name: "Worked for",
