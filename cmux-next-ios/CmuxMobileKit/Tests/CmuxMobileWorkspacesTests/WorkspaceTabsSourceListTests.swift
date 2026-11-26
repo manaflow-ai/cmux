@@ -173,7 +173,7 @@ import SwiftUI
     /// Review finding 1: an agent tab's title comes from its chat store; a
     /// store made after the tab was built (in a page or card body) rebuilds
     /// that tab once, after the update, so its title is not frozen.
-    @Test func chatStoreAppearingRebuildsItsTab() throws {
+    @Test func chatStoreAppearingRebuildsItsTab() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
         let queue = DeferredQueue()
         let source = Self.source(store, enqueueMainActor: queue.scheduler)
@@ -185,7 +185,7 @@ import SwiftUI
         #expect(queue.count == 1)
         _ = source.chatStore(agent, workspace)
         #expect(queue.count == 1)
-        queue.drain()
+        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
