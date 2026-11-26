@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -48,6 +48,8 @@ cmux-health-core = { path = "../cmux-health-core" }
 cmux-launch-image = { path = "../cmux-launch-image" }
 # When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
+# The Screenshots pane rules (cmux-screenshots src/ffi.rs: what a source lists, the listing, sources, the gate; the app reads disks and draws).
+cmux-screenshots = { path = "../cmux-screenshots" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-interactivity = { path = "../cmux-interactivity" }
