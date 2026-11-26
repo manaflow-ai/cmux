@@ -869,6 +869,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
         # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
+        # ready-to-land stays on for later heads; full-ci is one-shot (CI_FULL_CI_ONE_SHOT=0 makes it sticky).
         repo = {"full_name": "manaflow-ai/cmux"}
         web = ["web/app/lib/indexnow.ts"]
 
@@ -888,7 +889,14 @@ class PipelineTest(unittest.TestCase):
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
                 self.assertEqual(ready("labeled", [label], label)[0], ["pr-pipeline.yml"])
-                self.assertEqual(ready("synchronize", [label])[0], ["pr-pipeline.yml"])
+        self.assertEqual(ready("synchronize", ["ready-to-land"])[0], ["pr-pipeline.yml"])
+        with mock.patch.dict(os.environ, {"CI_FULL_CI_ONE_SHOT": "1"}):
+            start, why = ready("synchronize", ["full-ci"])
+            self.assertEqual(start, [])
+            self.assertIn("cheap tier", why["pr-pipeline.yml"])
+            self.assertEqual(ready("labeled", ["full-ci", "dev-build"], "dev-build")[0], [])
+        with mock.patch.dict(os.environ, {"CI_FULL_CI_ONE_SHOT": "0"}):
+            self.assertEqual(ready("synchronize", ["full-ci"])[0], ["pr-pipeline.yml"])
         draft_full_ci = {"action": "labeled", "label": {"name": "full-ci"},
                          "pull_request": {"draft": True, "labels": [{"name": "full-ci"}]}}
         self.assertEqual(pr_router.route(draft_full_ci, callees, web)[0], ["pr-pipeline.yml"])
