@@ -818,6 +818,26 @@ class PipelineTest(unittest.TestCase):
         # An empty change routes only the steps with no inputs: the advisory lints.
         self.assertEqual(set(json.loads(run.stdout)), {"advisory"})
 
+    def test_component_manifest_routes_on_its_inputs_in_pr_scope(self) -> None:
+        table = ci_steps.load()
+        for path in (
+            "cmux-tui/crates/cmux-customize/src/component_manifest.json",
+            "webviews/src/kit/index.ts",
+            "webviews/src/ui/surface/Surface.tsx",
+            "webviews/src/pages/example/Card.gallery.tsx",
+            "webviews/src/shared/props.ts",
+            "schemas/surface-roles/surface-roles.json",
+            "webviews/scripts/gen-component-manifest.ts",
+            "webviews/tsconfig.json",
+            "webviews/bun.lock",
+            "webviews/package.json",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("component-manifest", ci_steps.route(table, [path], pr_scope=True).get("linux", []))
+        for path in ("docs/guide.md", "webviews/src/ui/ui.css", "cmux-tui/crates/cmux-customize/src/kit.rs"):
+            with self.subTest(path=path):
+                self.assertNotIn("component-manifest", ci_steps.route(table, [path], pr_scope=True).get("linux", []))
+
     def test_every_linux_step_has_inputs_and_blocks(self) -> None:
         # A linux step with no inputs would start a runner on every head: say so with `inputs = ["**"]`.
         for step in ci_steps.load().steps.values():
