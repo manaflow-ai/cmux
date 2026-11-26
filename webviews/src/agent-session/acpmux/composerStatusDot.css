@@ -135,6 +135,13 @@
 .acpmux-status-row-words {
   flex: 1 1 auto;
   min-width: 0;
+  /* A paused queue's row names the turn's error (status.queuePaused.why): a long one wraps
+     anywhere and stops at three lines; the row's tooltip holds it whole. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .acpmux-status-row-time {
   flex: none;

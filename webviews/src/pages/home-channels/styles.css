@@ -96,7 +96,7 @@ body,
 }
 .hc-tag {
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
   line-height: 16px;
@@ -765,7 +765,7 @@ body,
   margin: 0 0 var(--ds-space-fixed-2);
   padding: var(--ds-space-fixed-1);
   border: 1px solid var(--page-separator);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   list-style: none;
 }
 .hc-scheduled-row {
@@ -774,7 +774,7 @@ body,
   gap: var(--ds-space-fixed-2);
   min-height: 32px;
   padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   color: var(--page-text-2);
 }
 .hc-scheduled-row:hover,

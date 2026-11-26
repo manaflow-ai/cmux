@@ -34,7 +34,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   gap: 6px;
   height: 26px;
   padding-inline-end: var(--ds-space-fixed-2);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   white-space: nowrap;
   cursor: default;
   user-select: none;
