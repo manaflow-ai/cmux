@@ -7,9 +7,10 @@ use cmux_layout_reducer_ffi::{ERR_BUFFER, ERR_INVALID, OK, cmux_layout_reducer_j
 use serde_json::Value;
 use std::ffi::CString;
 
-const VECTORS: [&str; 2] = [
+const VECTORS: [&str; 3] = [
     include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_vectors.json"),
     include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_split_vectors.json"),
+    include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_strip_vectors.json"),
 ];
 
 fn call(op: &str, request: &[u8]) -> Result<Value, i32> {

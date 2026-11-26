@@ -2,7 +2,9 @@
 //! every `layout_geometry_*` operation, answered by a line-by-line transliteration of the Swift
 //! (`CmuxNextLayout/Geometry` DropZoneGeometry, DockStripGeometry, DividerBand, PaneChromeGeometry;
 //! `layout_geometry_split_vectors.json`: SplitGeometry, EvenSplitRatios, PushResize, RowStackGeometry,
-//! RowResize, StripStart, UniformEdge, KeepAliveBand).
+//! RowResize, StripStart, UniformEdge, KeepAliveBand; `layout_geometry_strip_vectors.json`: ColumnGeometry,
+//! StripScrollbarGeometry, ColumnEqualizer, ScrollAreaGeometry, WindowFrameGeometry, MovedWindowPlacement,
+//! ColumnWidthLedger).
 //! Every case answers the Swift's reply; numbers compare as f64.
 
 use cmux_layout_reducer::geometry::wire;
@@ -50,6 +52,11 @@ fn layout_geometry_vectors_answer_the_swift_rules() {
 #[test]
 fn layout_geometry_split_vectors_answer_the_swift_rules() {
     replay(include_str!("data/layout_geometry_split_vectors.json"));
+}
+
+#[test]
+fn layout_geometry_strip_vectors_answer_the_swift_rules() {
+    replay(include_str!("data/layout_geometry_strip_vectors.json"));
 }
 
 #[test]

@@ -16,7 +16,13 @@
 //! - [`row_stack`]: a column of rows and a row-edge drag (`RowStackGeometry`, `RowResize`).
 //! - [`strip_math`]: column-edge drags and the keep-alive band (`StripStart`, `UniformEdge`,
 //!   `KeepAliveBand`).
+//! - [`column_strip`]: the strip's column frames, snaps, scrollbar and Equalize Splits widths
+//!   (`ColumnStripGeometry`, `StripScrollbarGeometry`, `ColumnEqualizer`, `ScrollAreaGeometry`).
+//! - [`window_frame`]: a window's docks and stage and a moved window's frame (`WindowFrameGeometry`,
+//!   `MovedWindowPlacement`).
+//! - [`width_ledger`]: the R3b check that a create keeps other columns' widths (`ColumnWidthLedger`).
 
+pub mod column_strip;
 pub mod divider_band;
 pub mod dock_strip;
 pub mod drop_zones;
@@ -24,10 +30,14 @@ pub mod pane_chrome;
 pub mod row_stack;
 pub mod split_layout;
 pub mod strip_math;
+pub mod width_ledger;
+pub mod window_frame;
 pub mod wire;
 
 #[cfg(test)]
 mod split_tests;
+#[cfg(test)]
+mod strip_tests;
 #[cfg(test)]
 mod tests;
 

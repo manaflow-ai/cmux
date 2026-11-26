@@ -3,6 +3,7 @@
 //! a rect is `{x, y, w, h}`, a missing optional field takes the Swift default, and a `None` reply
 //! (Swift `nil` or `CGRect.null`) is JSON `null`.
 
+use super::column_strip::{self, EqualizeColumn};
 use super::divider_band::DividerBand;
 use super::dock_strip::{self, Docks, FrameOrientation};
 use super::drop_zones::{
@@ -12,11 +13,13 @@ use super::pane_chrome::{self, ChromeStyle};
 use super::row_stack::{self, Row, RowStack};
 use super::split_layout::{self, DividerGeometry, PointerRatio, PushResize, SplitNode, SplitStyle};
 use super::strip_math::{self, StripStart, UniformEdge};
+use super::width_ledger::{self, LedgerColumn, LedgerRecord};
+use super::window_frame::{self, MOVED_WINDOW_GAP, WindowDock};
 use super::{DockEdge, Point, Rect, Size, SplitAxis};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// The prefix every operation here starts with.
 pub const PREFIX: &str = "layout_geometry_";
@@ -275,6 +278,121 @@ struct KeepAliveRequest {
     viewport: Rect,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StripFramesRequest {
+    widths: Vec<f64>,
+    viewport: Size,
+    gap: f64,
+    scale: Option<f64>,
+    #[serde(default)]
+    minimum_widths: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StripOffsetsRequest {
+    frames: Vec<Rect>,
+    content_width: f64,
+    viewport_width: f64,
+    gap: f64,
+    /// The offset to clamp and find the leading column at.
+    #[serde(default)]
+    offset: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollbarThumbRequest {
+    track: Rect,
+    offset: f64,
+    content_width: f64,
+    viewport_width: f64,
+    minimum_thumb_width: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollbarOffsetRequest {
+    thumb_min_x: f64,
+    thumb_width: f64,
+    track: Rect,
+    max_offset: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollbarPageRequest {
+    click_x: f64,
+    thumb: Rect,
+    offset: f64,
+    viewport_width: f64,
+    snaps: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EqualizeRequest {
+    columns: Vec<EqualizeColumn>,
+    #[serde(default)]
+    visible: BTreeSet<String>,
+    viewport_width: f64,
+    gap: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollAreaRequest {
+    window: Rect,
+    /// Set: `navigationRect(rect)` with this content width.
+    content_width: Option<f64>,
+    rect: Option<Rect>,
+    /// Set: `cells(of:)` and `overflow(of:in:style:scale:)` of this tree.
+    root: Option<SplitNode>,
+    #[serde(default)]
+    style: SplitStyle,
+    #[serde(default)]
+    scroll_areas_enabled: bool,
+    scale: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowPlaceRequest {
+    docks: Vec<WindowDock>,
+    #[serde(default)]
+    orientation: FrameOrientation,
+    gap: f64,
+    rect: Rect,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MovedWindowRequest {
+    source: Rect,
+    screen: Rect,
+    gap: Option<f64>,
+    /// Set: `frame(beside:on:avoiding:)`.
+    occupied: Option<Vec<Rect>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LedgerNoteRequest {
+    record: Option<LedgerRecord>,
+    before: Vec<LedgerColumn>,
+    after: Vec<LedgerColumn>,
+    viewport_width: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LedgerTakeRequest {
+    record: Option<LedgerRecord>,
+    current: Vec<LedgerColumn>,
+    viewport_width: f64,
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
@@ -522,6 +640,105 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
         "keep_alive" => {
             let r: KeepAliveRequest = parse(request)?;
             to_value(strip_math::keep_alive(&r.displayed, r.viewport))
+        }
+        "strip_frames" => {
+            let r: StripFramesRequest = parse(request)?;
+            let (frames, content_width) = column_strip::frames(
+                &r.widths,
+                r.viewport,
+                r.gap,
+                r.scale.unwrap_or(2.),
+                &r.minimum_widths,
+            );
+            Ok(json!({ "frames": frames, "contentWidth": content_width }))
+        }
+        "strip_offsets" => {
+            let r: StripOffsetsRequest = parse(request)?;
+            Ok(json!({
+                "maxOffset": column_strip::max_offset(r.content_width, r.viewport_width),
+                "clamped": column_strip::clamp(r.offset, r.content_width, r.viewport_width),
+                "snaps": column_strip::snap_offsets(&r.frames, r.content_width, r.viewport_width, r.gap),
+                "leading": column_strip::leading_column_index(&r.frames, r.offset, r.gap),
+            }))
+        }
+        "scrollbar_thumb" => {
+            let r: ScrollbarThumbRequest = parse(request)?;
+            to_value(column_strip::scrollbar_thumb(
+                r.track,
+                r.offset,
+                r.content_width,
+                r.viewport_width,
+                r.minimum_thumb_width,
+            ))
+        }
+        "scrollbar_offset" => {
+            let r: ScrollbarOffsetRequest = parse(request)?;
+            to_value(column_strip::scrollbar_offset(
+                r.thumb_min_x,
+                r.thumb_width,
+                r.track,
+                r.max_offset,
+            ))
+        }
+        "scrollbar_page" => {
+            let r: ScrollbarPageRequest = parse(request)?;
+            to_value(column_strip::scrollbar_page_target(
+                r.click_x,
+                r.thumb,
+                r.offset,
+                r.viewport_width,
+                &r.snaps,
+            ))
+        }
+        "equalize_columns" => {
+            let r: EqualizeRequest = parse(request)?;
+            to_value(column_strip::equalize(&r.columns, &r.visible, r.viewport_width, r.gap))
+        }
+        "scroll_area" => {
+            let r: ScrollAreaRequest = parse(request)?;
+            let navigation = match (r.content_width, r.rect) {
+                (Some(content), Some(rect)) => {
+                    Some(column_strip::scroll_area_navigation_rect(r.window, content, rect))
+                }
+                _ => None,
+            };
+            let (cells, overflow) = match &r.root {
+                Some(root) => (
+                    Some(column_strip::scroll_area_cells(root)),
+                    column_strip::scroll_area_overflow(
+                        root,
+                        r.window,
+                        &r.style,
+                        r.scroll_areas_enabled,
+                        r.scale.unwrap_or(2.),
+                    )
+                    .map(|(id, content)| json!({ "id": id, "content": content })),
+                ),
+                None => (None, None),
+            };
+            Ok(json!({ "navigationRect": navigation, "cells": cells, "overflow": overflow }))
+        }
+        "window_place" => {
+            let r: WindowPlaceRequest = parse(request)?;
+            to_value(window_frame::place(&r.docks, r.orientation, r.gap, r.rect))
+        }
+        "moved_window" => {
+            let r: MovedWindowRequest = parse(request)?;
+            let gap = r.gap.unwrap_or(MOVED_WINDOW_GAP);
+            to_value(match r.occupied {
+                Some(occupied) => {
+                    window_frame::moved_window_frame_avoiding(r.source, r.screen, &occupied, gap)
+                }
+                None => window_frame::moved_window_frame(r.source, r.screen, gap),
+            })
+        }
+        "width_ledger_note" => {
+            let r: LedgerNoteRequest = parse(request)?;
+            to_value(width_ledger::note_change(r.record, &r.before, &r.after, r.viewport_width))
+        }
+        "width_ledger_take" => {
+            let r: LedgerTakeRequest = parse(request)?;
+            to_value(width_ledger::take(r.record.as_ref(), &r.current, r.viewport_width))
         }
         _ => Err(format!("unknown operation {operation}")),
     }
