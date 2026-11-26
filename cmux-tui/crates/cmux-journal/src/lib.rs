@@ -78,6 +78,7 @@ mod storage;
 mod writer;
 
 #[cfg(any(test, feature = "sim"))]
+#[path = "test_support/sim/mod.rs"]
 mod sim;
 
 pub use format::{MAX_PAYLOAD_LEN, RECORD_HEADER_LEN};
