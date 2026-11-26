@@ -18,22 +18,26 @@
 // cmuxAcpmuxDebug.sessionChurn) the list churns at RATE changes per second:
 //   cpu_ms_per_s     every renderer's CPU (utime + stime from /proc), ms per second of wall time, the least of the
 //                    rung's CPU_WINDOWS windows (other load on a shared runner only adds CPU)
-//   cpu_window_ms_per_s  the same over all of them, total CPU over total time (CPU_WINDOWS x WINDOW, 45 s): every GC
-//                    in the run is in it (chats x100 read 1337 ms/s over one window, ThreadPoolForeg 1137, while the
-//                    least read flat)
+//   cpu_window_ms_per_s  total CPU over total time, so every GC is in it (chats x100 read 1337 ms/s over one window,
+//                    ThreadPoolForeg 1137, while the least read flat). Tabs: over CPU_WINDOWS x WINDOW (45 s). Chats:
+//                    over whole collection cycles of their shared heap, from the end of one major collection to the end
+//                    of the GC_CYCLES-th after it (traced, ladderRatio.ts cycleRate), so no rung holds a collection
+//                    more or less by phase
 //   heap_mb          the renderers' JS heap after a full collection (the chats share one isolate), MB
-//   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s
+//   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s,
+//                    over the same span as cpu_window_ms_per_s
 //   pss_mb           every renderer's proportional set size (/proc/PID/smaps_rollup), MB
 //   frame_p95_ms     the focused chat's frame intervals (rAF), p95
 // The judged number is the marginal ratio: (cost(top) - cost(mid)) / (top - mid) over (cost(mid) - cost(low)) / (mid -
 // low), per axis and metric, with a per-item noise floor (FLOOR) under both: flat is 1.0, a per-item cost that grows
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
-// The two CPU metrics carry each rung's standard error (its windows' spread over sqrt(n)). Their ratio is the same
+// The CPU metrics carry each rung's standard error (whole cycles: their jackknife; else its windows' spread over
+// sqrt(n)), and chats script time its cycles' jackknife. Their ratio is the same
 // formula; beside it the bench prints FLOOR, each marginal +- 2 standard errors and the interval the ratio lies in
 // (ladderRatio.ts ratioInterval), and a row sim_ladder.AXIS.METRIC.ratio_ci (p50 its low end, p95 its high end).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
-//     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
+//     [--window 5000] [--settle 20000] [--rate 20] [--gc-cycles 4] [--cycle-cap 170000] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
 // launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
@@ -48,7 +52,18 @@ import path from "node:path";
 import type { Browser, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
-import { FLOOR, marginalRatio, type Metric, type Sample, SIGMAS, ratioInterval } from "./ladderRatio";
+import { dlopen, FFIType, ptr } from "bun:ffi";
+import {
+  cycleRate,
+  FLOOR,
+  interpolate,
+  majorGcEnds,
+  marginalRatio,
+  type Metric,
+  type Sample,
+  SIGMAS,
+  ratioInterval,
+} from "./ladderRatio";
 import { perfRow } from "./perfRow";
 
 const argv = process.argv.slice(2);
@@ -112,6 +127,16 @@ const WINDOW_MS = Number(flag("--window") ?? 5000);
 // in 45 s counts, at the rung's own rate, and the spread of the 9 windows says how far the reading can be trusted.
 // The fidelity mode keeps its 3 (its streams last the settle and three windows).
 const CPU_WINDOWS = Number(flag("--cpu-windows") ?? (PROFILE ? 3 : 9));
+// The chats axis reads CPU and script time over whole collection cycles of the shared heap instead (ladderRatio.ts
+// cycleRate): nine 5 s windows still read chats CPU to +- 13 ms/s, as whether the 45 s held a 1.3 s (x10) or 5.9 s
+// (x50) collection was phase. Each chats rung runs until GC_CYCLES major collections after its first have ended, at
+// most CYCLE_CAP_MS (x10 cycles every 8 s, x50 and x100 every 15-20 s), and its rates are over exactly those cycles.
+// The bound: three chats rungs at most 3 x (CYCLE_CAP_MS + SETTLE_MS) of measuring, 9.5 min at the defaults.
+const GC_CYCLES = Number(flag("--gc-cycles") ?? 4);
+const CYCLE_CAP_MS = Number(flag("--cycle-cap") ?? 170_000);
+// The awake pages' ScriptDuration is read every 10 s: each reading is a CDP call per page (100 at x100) and costs the
+// renderer time of its own, in step with the pages.
+const SCRIPT_SAMPLE_MS = 10_000;
 const changesPerMin = fromProfile("sessions_changed_per_min");
 const RATE = Number(flag("--rate") ?? (changesPerMin !== null ? changesPerMin / 60 : 20));
 const FREEZE = argv.includes("--freeze");
@@ -138,7 +163,7 @@ const JSON_OUT = flag("--json");
 const HOGS = flag("--hogs");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-const VERSION = 5;
+const VERSION = 6;
 if (RUNGS.length !== 3 || RUNGS.some((n) => !Number.isInteger(n) || n < 1) || RUNGS[0] === RUNGS[1]) {
   console.error("usage: --rungs LOW,MID,TOP (three distinct counts, e.g. 1,10,100)");
   process.exit(2);
@@ -391,11 +416,59 @@ function printAllocations(profile: { head: AllocNode }, secs: number): void {
 
 /// The last rung's load collection (renderer CPU ms), kept for the summary printed at the end.
 let lastLoadMs = 0;
-/// The last measure()'s standard error of its CPU readings, ms/s: the windows' sample deviation over sqrt(n).
-let lastCpuSe = 0;
+/// The last measure()'s standard errors, ms/s, by metric: whole cycles' jackknife, or fixed windows' spread over sqrt(n).
+let lastSe: Partial<Record<Metric, number>> = {};
+/// The last measure()'s whole collection cycles (null: a fixed-window rung).
+let lastCycles: number | null = null;
+
+const libc = dlopen("libc.so.6", {
+  clock_gettime: { args: [FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
+});
+const clockBuf = new BigInt64Array(2);
+/// CLOCK_MONOTONIC in microseconds: the clock of Chrome's trace timestamps on Linux.
+function monoUs(): number {
+  libc.symbols.clock_gettime(1, ptr(clockBuf));
+  return Number(clockBuf[0]) * 1e6 + Number(clockBuf[1]) / 1e3;
+}
+
+/// Traces V8 (category "v8": MajorGC carries the pause's start, length and heap) in 15 s segments until the largest
+/// heap's renderer has ended GC_CYCLES + 1 major collections, or until the deadline (performance.now()). Chrome hands a
+/// trace's events over only when it ends, hence the segments; a collection that falls in the few ms between two is
+/// missed, which moves no rate (the rate is over whatever whole cycles lie between the first and last end seen).
+async function traceMajorGcs(browserCdp: CDPSession, deadline: number) {
+  const events: { pid: number; ts: number; dur: number; heapBefore: number }[] = [];
+  const onData = (e: { value: Record<string, any>[] }) => {
+    for (const ev of e.value)
+      if (ev.name === "MajorGC" && ev.ph === "X")
+        events.push({ pid: ev.pid, ts: ev.ts, dur: ev.dur ?? 0, heapBefore: ev.args?.usedHeapSizeBefore ?? 0 });
+  };
+  browserCdp.on("Tracing.dataCollected", onData as any);
+  try {
+    for (;;) {
+      await browserCdp.send("Tracing.start", {
+        traceConfig: { includedCategories: ["v8"], recordMode: "recordAsMuchAsPossible" },
+        transferMode: "ReportEvents",
+      });
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(15_000, deadline - performance.now()))));
+      const complete = new Promise((resolve) => browserCdp.once("Tracing.tracingComplete", resolve));
+      await browserCdp.send("Tracing.end");
+      await complete;
+      const found = majorGcEnds(events);
+      if (found.ends.length >= GC_CYCLES + 1 || performance.now() >= deadline) return found;
+    }
+  } finally {
+    browserCdp.off("Tracing.dataCollected", onData as any);
+  }
+}
 const loadMs: Record<string, number> = {};
 
-async function measure(rootPid: number, items: Item[], focused: Page): Promise<Sample> {
+async function measure(
+  rootPid: number,
+  items: Item[],
+  focused: Page,
+  browserCdp: CDPSession,
+  cycles = false,
+): Promise<Sample> {
   // Loading a rung leaves garbage (the seeded chats' parse and render temporaries: x50 held 1.8-2.2 GB live against 855 MB
   // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
   // landed inside the window of x50 in every run (610, 658, 326, 794 ms/s), a load cost read as the rung's steady state.
@@ -431,10 +504,37 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     );
     return all.reduce((sum, m) => sum + (m?.metrics.find((x) => x.name === "ScriptDuration")?.value ?? 0), 0);
   };
-  const ticks0 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+  const cpuNow = () => (pids.reduce((sum, pid) => sum + cpuTicks(pid), 0) / ticksPerSecond) * 1000;
+  // Cumulative readings on CLOCK_MONOTONIC (us), the clock of Chrome's trace timestamps: renderer CPU ms every 100 ms,
+  // the awake pages' ScriptDuration (ms) every SCRIPT_SAMPLE_MS. A rung's rates are read off them between any two
+  // moments: its fixed windows, or the ends of whole collection cycles.
+  const cpuT: number[] = [];
+  const cpuV: number[] = [];
+  const scriptT: number[] = [];
+  const scriptV: number[] = [];
+  const sampleCpu = () => {
+    cpuT.push(monoUs());
+    cpuV.push(cpuNow());
+  };
+  const sampleScript = async () => {
+    const from = monoUs();
+    const value = await script();
+    scriptT.push((from + monoUs()) / 2);
+    scriptV.push(value * 1000);
+  };
   const threads0 = threadTicks(pids);
-  const script0 = await script();
+  await sampleScript();
+  sampleCpu();
   const t0 = performance.now();
+  const start = cpuT[0]!;
+  const cpuTimer = setInterval(sampleCpu, 100);
+  let scriptOn = true;
+  const scriptLoop = (async () => {
+    while (scriptOn) {
+      await new Promise((resolve) => setTimeout(resolve, SCRIPT_SAMPLE_MS));
+      if (scriptOn) await sampleScript();
+    }
+  })();
   await focused.evaluate(() => {
     const w = window as any;
     w.__slFrames = [];
@@ -451,18 +551,16 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
       requestAnimationFrame(tick);
     });
   });
-  // Renderer CPU per third of the window, and the least of the three: other load on the machine only adds CPU, and
-  // on a shared runner (load 25-60 on 32 cores) one rung read 681 ms/s for a minute where a quiet rerun read 40.
-  // A once-a-second trace over the windows: renderer CPU ms in the second, its ThreadPoolForeground share (V8's parallel GC
+  // A once-a-second trace over the run: renderer CPU ms in the second, its ThreadPoolForeground share (V8's parallel GC
   // workers), and the focused isolate's JS heap in MB. A burst that lands with a heap drop is a major collection.
   const trace: string[] = [];
   let tracing = true;
   const sampler = (async () => {
-    let lastTicks = ticks0;
+    let lastTicks = cpuNow();
     let lastPool = threadTicks(pids).get("ThreadPoolForeg") ?? 0;
     while (tracing) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      const nowTicks = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+      const nowMs = cpuNow();
       const pool = threadTicks(pids).get("ThreadPoolForeg") ?? 0;
       const heapNow = await Promise.race([
         items[0]!.cdp
@@ -472,34 +570,38 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
         new Promise<number>((resolve) => setTimeout(() => resolve(-1), 500)),
       ]);
       trace.push(
-        `${Math.round(((nowTicks - lastTicks) / ticksPerSecond) * 1000)}/${Math.round(((pool - lastPool) / ticksPerSecond) * 1000)}/${heapNow}`,
+        `${Math.round(nowMs - lastTicks)}/${Math.round(((pool - lastPool) / ticksPerSecond) * 1000)}/${heapNow}`,
       );
-      lastTicks = nowTicks;
+      lastTicks = nowMs;
       lastPool = pool;
     }
   })();
   if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.enable");
   if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.startSampling", { samplingInterval: 16384 });
-  const thirds: number[] = [];
-  let mark = ticks0;
-  let markAt = t0;
-  for (let i = 0; i < 3; i += 1) {
-    await focused.waitForTimeout(WINDOW_MS / 3);
-    const now = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-    const at = performance.now();
-    thirds.push((((now - mark) / ticksPerSecond) * 1000) / ((at - markAt) / 1000));
-    mark = now;
-    markAt = at;
-  }
+  // The focused chat's frames over the first window.
+  await focused.waitForTimeout(WINDOW_MS);
   const frames = (await focused.evaluate(() => {
     const w = window as any;
     w.__slOn = false;
     return w.__slFrames as number[];
   })) as number[];
-  const secs = (performance.now() - t0) / 1000;
-  if (ALLOC_PROFILE) printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, secs);
-  const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
-  console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
+  if (ALLOC_PROFILE)
+    printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, (performance.now() - t0) / 1000);
+  // The chats axis runs until GC_CYCLES whole cycles of the shared heap have ended (at most CYCLE_CAP_MS); the rest
+  // run CPU_WINDOWS windows.
+  let gc: { pid: number | null; ends: number[] } = { pid: null, ends: [] };
+  if (cycles) gc = await traceMajorGcs(browserCdp, t0 + CYCLE_CAP_MS);
+  else await focused.waitForTimeout(Math.max(0, CPU_WINDOWS * WINDOW_MS - (performance.now() - t0)));
+  scriptOn = false;
+  clearInterval(cpuTimer);
+  await scriptLoop;
+  sampleCpu();
+  await sampleScript();
+  tracing = false;
+  await sampler;
+  const end = cpuT[cpuT.length - 1]!;
+  const secs = (end - start) / 1e6;
+  console.log(`SIM-LADDER   per-second cpu ms / pool ms / js heap MB: ${trace.join(" ")}`);
   const threads = [...threadTicks(pids)]
     .map(([name, t]) => [name, Math.round((((t - (threads0.get(name) ?? 0)) / ticksPerSecond) * 1000) / secs)] as const)
     .filter(([, ms]) => ms > 0)
@@ -511,33 +613,52 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   console.log(
     `SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")} | js heap ${heapMB("JSHeapUsedSize")}/${heapMB("JSHeapTotalSize")} MB`,
   );
-  const script1 = await script();
-  // The whole-run CPU is total CPU over total time across CPU_WINDOWS windows (one 5 s window is a sample of one: the x1
-  // window read 22 to 128 ms/s across runs of the same code), not a median: a collection that lands in one window is a
-  // real cost of the rung and stays in its mean. The windows' spread gives the mean its standard error.
-  const windows = [windowMsPerS];
-  let totalTicks = mark - ticks0;
-  let totalMs = markAt - t0;
-  for (let i = 1; i < CPU_WINDOWS; i += 1) {
-    const before = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-    const from = performance.now();
-    await focused.waitForTimeout(WINDOW_MS);
-    const after = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-    const ms = performance.now() - from;
-    windows.push((((after - before) / ticksPerSecond) * 1000) / (ms / 1000));
-    totalTicks += after - before;
-    totalMs += ms;
-  }
-  tracing = false;
-  await sampler;
-  console.log(`SIM-LADDER   per-second cpu ms / pool ms / js heap MB: ${trace.join(" ")}`);
-  const meanWindow = ((totalTicks / ticksPerSecond) * 1000) / (totalMs / 1000);
-  const avg = windows.reduce((sum, w) => sum + w, 0) / windows.length;
+  // Fixed windows off the CPU timeline: the run cut into WINDOW_MS windows (the profile mode: its first window in
+  // thirds). Their least is cpu_ms_per_s (other load on a shared runner only adds CPU); their spread over sqrt(n) is the
+  // standard error of a fixed-window mean.
+  const windowsOf = (from: number, to: number, lengthUs: number) => {
+    const out: number[] = [];
+    for (let a = from; a + lengthUs <= to + 1; a += lengthUs)
+      out.push(((interpolate(cpuT, cpuV, a + lengthUs) - interpolate(cpuT, cpuV, a)) * 1e6) / lengthUs);
+    return out;
+  };
+  const windows = windowsOf(start, end, WINDOW_MS * 1000);
+  const thirds = windowsOf(start, start + WINDOW_MS * 1000, (WINDOW_MS * 1000) / 3);
+  const avg = windows.reduce((sum, w) => sum + w, 0) / Math.max(1, windows.length);
   const sd = Math.sqrt(windows.reduce((sum, w) => sum + (w - avg) ** 2, 0) / Math.max(1, windows.length - 1));
-  lastCpuSe = sd / Math.sqrt(windows.length);
+  const windowSe = sd / Math.sqrt(Math.max(1, windows.length));
+  const meanAll = ((cpuV[cpuV.length - 1]! - cpuV[0]!) * 1e6) / (end - start);
+  const scriptAll = ((scriptV[scriptV.length - 1]! - scriptV[0]!) * 1e6) / (scriptT[scriptT.length - 1]! - scriptT[0]!);
   console.log(
-    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | mean ${Math.round(meanWindow)} +- ${lastCpuSe.toFixed(1)} (se) over ${Math.round(totalMs / 1000)} s`,
+    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | mean ${Math.round(meanAll)} +- ${windowSe.toFixed(1)} (se) over ${secs.toFixed(0)} s`,
   );
+  let cpuRate =
+    CPU_WINDOWS > 3 || cycles ? meanAll : [...windows].sort((a, b) => a - b)[Math.floor(windows.length / 2)]!;
+  let scriptRate = scriptAll;
+  lastSe = { cpu_window_ms_per_s: windowSe, cpu_ms_per_s: windowSe };
+  lastCycles = null;
+  if (cycles) {
+    // Whole cycles: from the end of the first major collection seen to the end of the last, every collection between
+    // counted once. Under one whole cycle in the cap, the whole run's mean stands, with its windows' error.
+    const cpu = cycleRate(gc.ends, cpuT, cpuV);
+    const scr = cycleRate(gc.ends, scriptT, scriptV);
+    lastCycles = cpu?.cycles ?? 0;
+    if (cpu && scr) {
+      cpuRate = cpu.rate * 1e6;
+      scriptRate = scr.rate * 1e6;
+      lastSe = {
+        ...lastSe,
+        cpu_window_ms_per_s: cpu.se === null ? windowSe : cpu.se * 1e6,
+        ...(scr.se === null ? {} : { script_ms_per_s: scr.se * 1e6 }),
+      };
+      console.log(
+        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s): cpu ${cpuRate.toFixed(1)} +- ${(cpu.se === null ? windowSe : cpu.se * 1e6).toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}), script ${scriptRate.toFixed(1)} +- ${scr.se === null ? "?" : (scr.se * 1e6).toFixed(1)} ms/s`,
+      );
+    } else
+      console.log(
+        `SIM-LADDER   whole gc cycles 0: ${gc.ends.length} major gc end(s) in ${secs.toFixed(0)} s (cap ${CYCLE_CAP_MS / 1000} s); the run's mean stands`,
+      );
+  }
   // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
   // read 4583 MB in one run and 5331 in the next, at the same pages).
   await Promise.all(
@@ -567,10 +688,10 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   );
   console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
-    cpu_ms_per_s: Math.round(CPU_WINDOWS > 3 ? Math.min(...windows) : Math.min(...thirds)),
-    cpu_window_ms_per_s: Math.round(CPU_WINDOWS > 3 ? meanWindow : [...windows].sort((a, b) => a - b)[1]!),
+    cpu_ms_per_s: Math.round(CPU_WINDOWS > 3 || cycles ? Math.min(...windows) : Math.min(...thirds)),
+    cpu_window_ms_per_s: Math.round(cpuRate),
     heap_mb: Math.round(heaps.reduce((sum, bytes) => sum + bytes, 0) / 1048576),
-    script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
+    script_ms_per_s: Math.round(scriptRate),
     pss_mb: Math.round(pids.reduce((sum, pid) => sum + pssMB(pid), 0)),
     frame_p95_ms: Math.round(p95(frames) * 10) / 10,
   };
@@ -618,7 +739,8 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
   // The launched Chrome is this process's descendant, and one axis runs at a time: its renderers are ours.
   const rootPid = process.pid;
   const samples: Record<number, Sample> = {};
-  const cpuSe: Record<number, number> = {};
+  const ses: Record<number, Partial<Record<Metric, number>>> = {};
+  const cycleCounts: Record<number, number | null> = {};
   let churn: Promise<unknown> | null = null;
   try {
     const browserCdp = await browser.newBrowserCDPSession();
@@ -777,7 +899,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
                 .catch((error: unknown) => ({ error: String(error) })),
             );
       try {
-        const sample = await measure(rootPid, items, focused);
+        const sample = await measure(rootPid, items, focused, browserCdp);
         return {
           sample,
           agentRssMB: Math.round(rssMB(agentPid)),
@@ -795,9 +917,10 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       while (count < rung) await add(count++);
       await focused.bringToFront();
       startChurn(RATE);
-      samples[rung] = await measure(rootPid, items, focused);
+      samples[rung] = await measure(rootPid, items, focused, browserCdp, axis === "chats");
       loadMs[`${axis}.${rung}`] = lastLoadMs;
-      cpuSe[rung] = lastCpuSe;
+      ses[rung] = lastSe;
+      cycleCounts[rung] = lastCycles;
       console.log(
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
       );
@@ -819,12 +942,20 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     await chrome.close();
   }
   report[axis] = samples;
-  report[`${axis}_cpu_se`] = Object.fromEntries(RUNGS.map((rung) => [rung, Math.round((cpuSe[rung] ?? 0) * 10) / 10]));
+  report[`${axis}_se`] = Object.fromEntries(
+    RUNGS.map((rung) => [
+      rung,
+      Object.fromEntries(Object.entries(ses[rung] ?? {}).map(([k, v]) => [k, Math.round(v * 10) / 10])),
+    ]),
+  );
+  report[`${axis}_gc_cycles`] = Object.fromEntries(RUNGS.map((rung) => [rung, cycleCounts[rung] ?? null]));
   for (const metric of [...Object.keys(FLOOR), "frame_p95_ms"] as Metric[]) {
     const values = RUNGS.map((rung) => samples[rung]![metric]);
-    // The CPU readings carry their standard error (a rung's windows); the rest are one reading after a collection.
-    const cpu = metric === "cpu_ms_per_s" || metric === "cpu_window_ms_per_s";
-    const se = cpu && CPU_WINDOWS > 3 ? RUNGS.map((rung) => cpuSe[rung] ?? 0) : undefined;
+    // The CPU and script readings carry their standard error (whole cycles, or a rung's windows) where the run had one
+    // at every rung; the rest are one reading after a collection.
+    const se = RUNGS.every((rung) => ses[rung]?.[metric] !== undefined)
+      ? RUNGS.map((rung) => ses[rung]![metric]!)
+      : undefined;
     const ratio = Math.round(marginalRatio(metric, RUNGS, values) * 100) / 100;
     ratios[`${axis}.${metric}`] = ratio;
     const low = (values[1]! - values[0]!) / (RUNGS[1]! - RUNGS[0]!);
