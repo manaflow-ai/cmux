@@ -556,7 +556,7 @@ fn the_trigram_set_never_drops_a_hit_and_a_word_no_chat_says_reads_no_text() {
 fn an_edited_doc_keeps_finding_old_and_added_words_through_its_trigram_set() {
     let stamp = Stamp { updated_ms: 0, messages: None };
     let mut doc = Doc::new(stamp, &[turn("first", "Alpha")]);
-    // Grow past the set's first size so it is read again, then once more in place.
+    // Grow past the set's first size, so it is read again off the whole text.
     let long = "filler words here ".repeat(200);
     doc.edit(1, &[turn(&long, "Bravo"), turn("x", "charlie")], 0);
     for word in ["alpha", "BRAVO", "Charlie", "filler"] {
