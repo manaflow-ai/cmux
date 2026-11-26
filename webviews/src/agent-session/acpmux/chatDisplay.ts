@@ -224,6 +224,13 @@ export const QUEUEING_KEY = "agentPane.display.queueing";
 /// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
 /// Not part of ChatDisplay.
 export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
+/// Settings > Agent Chat > Model Picker Style: what a click on the model chip opens (ModelPicker.tsx).
+/// "list", the default: on a New Tab or a chat that can switch harness, the harness rail and its
+/// model columns. "menu": the compact menu a started chat opens (QuickModelMenu.tsx), with the
+/// harness's models, an Effort submenu and Fast mode, after the Claude Code app's model menu. A look
+/// turns it on. Not part of ChatDisplay.
+export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
+export type ModelPickerStyle = "list" | "menu";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
 const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
@@ -599,6 +606,7 @@ let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
 let changesPillOn = false;
+let modelPickerStyle: ModelPickerStyle = "list";
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -695,6 +703,7 @@ export function setChatDisplay(value: unknown): void {
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
+  const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -737,7 +746,8 @@ export function setChatDisplay(value: unknown): void {
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
-    changesPill === changesPillOn
+    changesPill === changesPillOn &&
+    pickerStyle === modelPickerStyle
   )
     return;
   picked = pickedNow;
@@ -745,6 +755,7 @@ export function setChatDisplay(value: unknown): void {
   promptCoachOn = coach;
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
+  modelPickerStyle = pickerStyle;
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
@@ -914,6 +925,10 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
+const modelPickerStyleSnapshot = () => modelPickerStyle;
+/// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
+export const useModelPickerStyle = (): ModelPickerStyle =>
+  useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
