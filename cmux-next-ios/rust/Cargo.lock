@@ -798,6 +798,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-rd-screen",
  "cmux-share-approval",
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
@@ -886,6 +887,16 @@ dependencies = [
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "p256",
  "serde",
  "serde_json",
 ]

@@ -67,6 +67,8 @@ cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
 # Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.
 cmux-cloud-handlers = { path = "../../cmux-tui/crates/cmux-cloud-handlers" }
+# The screen stream's rules (cmux-mobile-link-ffi screen.rs: `screen_json`), the ones the Mac asks.
+cmux-rd-screen = { path = "../../cmux-tui/crates/cmux-rd-screen" }
 # Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
 cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 # The phone's userspace tailnet node (crates/cmux-mobile-tailnet): the join checks it shares with the
