@@ -10,9 +10,19 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 import type { UiVirtualAnchor } from "../../ui/Popover";
-import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
+import {
+  findHeading,
+  hasHeading,
+  headingAnchorsBetween,
+  headingTargets,
+  keepHeadings,
+  parseLink,
+  pastedURL,
+  relativeLinkPaths,
+  type ResolvedLink,
+} from "./links";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
-import { changedBlocks, decorateAll, redecorate } from "./redecorate";
+import { blocksAround, changedBlocks, decorateAll, redecorate } from "./redecorate";
 import type { LinkBubbleState, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
@@ -81,8 +91,11 @@ export function brokenLinkPlugin(host: LinkHost) {
           if (tr.getMeta(linkKey)) return whole(tr.doc);
           if (!tr.docChanged) return previous;
           const changed = changedBlocks(tr);
-          // An anchor link anywhere is broken or not by the headings: when they change, every link is checked.
-          if (changed.length && !sameHeadings(tr.before, tr.doc)) return whole(tr.doc);
+          if (changed.length) {
+            // An anchor link anywhere is broken or not by the headings: when they change, every link is checked.
+            if (!headingsKept(tr)) return whole(tr.doc);
+            keepHeadings(tr.before, tr.doc);
+          }
           return redecorate(previous, tr, changed, (from, to) => decorate(tr.doc, from, to));
         },
       },
@@ -91,11 +104,34 @@ export function brokenLinkPlugin(host: LinkHost) {
   });
 }
 
-/** Whether two documents have the same heading anchors, in order. */
-function sameHeadings(a: ProseNode, b: ProseNode): boolean {
-  const before = headingTargets(a);
-  const after = headingTargets(b);
-  return before.length === after.length && before.every((target, index) => target.slug === after[index]!.slug);
+/**
+ * Whether `tr` kept the document's heading anchors, in order: each step's blocks hold the same
+ * ones before and after it (the rest of the document is the same nodes). Walks only those blocks;
+ * a walk of every heading on each keystroke grew with the file.
+ */
+function headingsKept(tr: Transaction): boolean {
+  for (let index = 0; index < tr.steps.length; index++) {
+    let oldFrom = Infinity;
+    let oldTo = -Infinity;
+    let newFrom = Infinity;
+    let newTo = -Infinity;
+    tr.mapping.maps[index]!.forEach((fromA, toA, fromB, toB) => {
+      oldFrom = Math.min(oldFrom, fromA);
+      oldTo = Math.max(oldTo, toA);
+      newFrom = Math.min(newFrom, fromB);
+      newTo = Math.max(newTo, toB);
+    });
+    // A mark or attribute step changes no heading's text.
+    if (oldFrom > oldTo) continue;
+    const before = tr.docs[index]!;
+    const after = tr.docs[index + 1] ?? tr.doc;
+    const old = blocksAround(before, oldFrom, oldTo);
+    const now = blocksAround(after, newFrom, newTo);
+    const removed = headingAnchorsBetween(before, old.from, old.to);
+    const added = headingAnchorsBetween(after, now.from, now.to);
+    if (removed.length !== added.length || removed.some((anchor, at) => anchor !== added[at])) return false;
+  }
+  return true;
 }
 
 /** Re-checks link decorations (the host answered a resolve batch). */
@@ -108,7 +144,7 @@ export type LinkState = "ok" | "broken" | "checking" | "external";
 /** Whether a link's target exists: anchors against this file's headings, paths through the host. */
 export function linkState(doc: ProseNode, href: string, host: LinkHost): LinkState {
   const link = parseLink(href);
-  if (link.kind === "anchor") return findHeading(doc, link.anchor) ? "ok" : "broken";
+  if (link.kind === "anchor") return hasHeading(doc, link.anchor) ? "ok" : "broken";
   if (link.kind === "external" || link.kind === "mail" || link.kind === "app") return "external";
   if (link.kind === "unsafe") return "broken";
   const resolved = host.resolved(link.path);

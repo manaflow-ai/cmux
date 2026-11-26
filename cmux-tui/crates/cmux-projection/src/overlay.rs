@@ -2326,6 +2326,9 @@ pub mod content;
 #[path = "overlay_replay.rs"]
 pub mod replay;
 
+#[path = "overlay_age.rs"]
+mod age;
+
 #[path = "overlay_extend.rs"]
 mod extend;
 pub use extend::Extended;
