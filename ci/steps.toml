@@ -1038,7 +1038,8 @@ exit "$status"
 '''
 
 # cmux-next-guards.yml's tooling-tests job: the tests of feat-cmux-next's own CI tooling. A pull request into
-# feat-cmux-next runs these four steps (the job's tt- steps in its order, split so each stays under the cap); the job
+# feat-cmux-next runs these five steps (the job's tt- steps in its order, split so each stays well under the cap
+# on a slow runner: tt-objc-selectors-step and tt-display-suites took 83 s and 139 s there, so they sit in different steps); the job
 # keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
 # tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k (zsh from apt) and tt-tailnet
 # (cmux-tui's pinned Rust). Each step asks tooling_steps.py which tt- steps the change reaches, as the job's
@@ -1130,8 +1131,8 @@ exit "$status"
 [step.tooling-tests-3]
 job = "linux"
 timeout = 300
-title = "Tooling tests 3 (iOS, Swift package and media scripts)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-app-crate-licenses to tt-media-publish-windows, those the change reaches"
+title = "Tooling tests 3 (iOS simulator, App Store and selector scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-app-crate-licenses to tt-asc-review-package, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1163,6 +1164,35 @@ if want tt-ios-ffi-cache; then python3 -I tests/test_ios_ffi_cache.py || status=
 if want tt-ios-chief-benchmark; then python3 -I tests/test_ios_chief_benchmark_route.py || status=1; fi
 if want tt-ios-appstore-listing; then python3 -I tests/test_ios_appstore_listing_text.py || status=1; fi
 if want tt-asc-review-package; then python3 -I tests/test_asc_review_package.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-4]
+job = "linux"
+timeout = 300
+title = "Tooling tests 4 (display suites, Swift package and media scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-display-suites to tt-media-publish-windows, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
 if want tt-display-suites; then python3 scripts/ci/display_suites.py && python3 tests/test_ci_display_suites.py || status=1; fi
 if want tt-swiftpm-test-product; then python3 tests/test_swiftpm_test_product.py || status=1; fi
 if want tt-compile-string-catalogs; then python3 tests/test_compile_string_catalogs.py || status=1; fi
@@ -1172,10 +1202,10 @@ if want tt-media-publish-windows; then python3 tests/test_cmux_next_media_publis
 exit "$status"
 '''
 
-[step.tooling-tests-4]
+[step.tooling-tests-5]
 job = "linux"
 timeout = 300
-title = "Tooling tests 4 (measure, checkup, packaging and web routing scripts)"
+title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
 about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
 inputs = ["**"]
 run = '''

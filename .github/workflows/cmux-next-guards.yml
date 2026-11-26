@@ -1397,7 +1397,7 @@ jobs:
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail. On a pull request
     # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-webviews-tests-per-file,
-    # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..4 run the rest.
+    # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..5 run the rest.
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
@@ -1526,7 +1526,7 @@ jobs:
                 --branch "$HEAD_REF" --run-id "$GITHUB_RUN_ID" --summary "$GITHUB_STEP_SUMMARY" \
               || echo "::warning title=tooling-tests reuse::tooling_reuse.py failed; every selected step runs."
           fi
-          # A pull request into feat-cmux-next runs every other tt- step as ci/steps.toml's tooling-tests-1..4
+          # A pull request into feat-cmux-next runs every other tt- step as ci/steps.toml's tooling-tests-1..5
           # (pr-pipeline.yml's linux job); here it keeps only the ones that job cannot run.
           if [ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]; then
             routed="$(sed -n 's/^tooling_steps=//p' "$RUNNER_TEMP/tooling.out")"

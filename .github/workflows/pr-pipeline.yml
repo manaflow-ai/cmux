@@ -39,13 +39,15 @@ jobs:
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
     # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min): 331 min with 32 shared steps (16 waves), plus room for the checkout, so a slow step is reported
+    # counts 40 min): 337 min with 33 shared steps (17 waves), plus room for the checkout, so a slow step is reported
     # by the runner, not cut here.
-    timeout-minutes: 349
+    timeout-minutes: 355
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
+      # The base's verdict of cmux-next-guards.yml's tooling-tests job (the tooling-tests-base-red step below).
+      actions: read
     outputs:
       # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
       mac_fallback: ${{ steps.run.outputs.mac_fallback }}
@@ -67,9 +69,37 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
+      # cmux-next-guards.yml's tooling-tests-base-red job, carried over with the tooling-tests steps (Leo,
+      # 2026-11-23: "we're drowning in our own workflow"): while that job is red on feat-cmux-next, a pull request
+      # does not run tooling-tests-1..5, as it does not run the job (scripts/ci/base_red_skip.py: fails open, 10% of
+      # skips still run as the audit, label full-ci runs them, vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). The
+      # steps are left out of the run rather than passed, so no skip is stored as a pass under their inputs.
+      - name: Tooling tests red on the base right now?
+        id: tooling-tests-base-red
+        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
       - name: Run the routed linux steps (ci/steps.toml)
         id: run
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        env:
+          # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
+          TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+        run: |
+          # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
+          only=""
+          if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+              | python3 -I -c 'import json, re, sys
+          print(" ".join(n for n in json.load(sys.stdin).get("linux", []) if not re.fullmatch(r"tooling-tests-\d+", n)))')"; then
+            if [ -z "$only" ]; then
+              echo "No linux step is routed but tooling-tests-1..5, which the base's red skips."
+              exit 0
+            fi
+          fi
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -513,8 +543,6 @@ jobs:
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           # `0` runs every fast tier suite on the pull request again, not only the ones the change reaches.
           CI_FAST_TIER_PR_SCOPE: ${{ vars.CI_FAST_TIER_PR_SCOPE || '1' }}
-          # tooling-tests-1..4 leave a step only a wide reach selects to the post-merge batch, as the job does.
-          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           # `1` takes the fast tier's Swift test bundles from the fleet job that built them for this commit
           # (scripts/ci/fleet-test-products.py); with none this Mac builds them. Off unless set.
           CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && 'fleet' || 'build' }}
