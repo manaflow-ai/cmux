@@ -77,7 +77,7 @@ jobs:
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 11: the shard pick and the picked shards' file list (webviews_pr_shards.py, each bounded at 150 s) run here too.
     timeout-minutes: 11
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
@@ -267,7 +267,7 @@ jobs:
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     outputs:
@@ -490,7 +490,7 @@ jobs:
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run it
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -560,7 +560,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -641,7 +641,7 @@ jobs:
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     name: Agent pane on real acpmux
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -751,7 +751,7 @@ jobs:
     # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -848,7 +848,7 @@ jobs:
     # runner as a push does. It read linux_4 before: on 2026-11-22 its 12 shards ran 2 files at once on
     # the 4 vCPU pool for 39-71 min of tests each, about 722 runner-minutes a batch run (runs 44990794651 and
     # 44991513044), where a pull request's shards on the owned runner take 13-15 min.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -1529,7 +1529,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
     # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
@@ -1726,7 +1726,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
@@ -2198,9 +2198,9 @@ jobs:
     # base-red classifier cannot excuse it and every PR that changes a React
     # app waits on a rerun. 30 min is the headroom; the time to cut is in the
     # doctor run, not in this cap.
-    # A fork head takes CI_FORK_LINUX_RUNNER (GitHub-hosted Ubuntu by default), like every other
+    # A fork head takes GitHub-hosted Ubuntu, like every other
     # Linux job here: fork code never reaches the owned label the map names for manaflow-ai.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || fromJSON(needs.runners.outputs.map).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(needs.runners.outputs.map).linux_16 }}
     timeout-minutes: 30
     defaults:
       run:
@@ -2253,7 +2253,7 @@ jobs:
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
@@ -2314,7 +2314,7 @@ jobs:
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
@@ -2369,7 +2369,7 @@ jobs:
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -2500,7 +2500,7 @@ jobs:
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `diff-sidecar-check`
     # (pr-pipeline.yml); the docs-only fallback keeps this job for its direct reusable-workflow call.
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' && (inputs.only == '' || inputs.only == 'diff-sidecar-check') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -2584,7 +2584,7 @@ jobs:
   web-db-migrations:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' && (inputs.only == '' || inputs.only == 'web-db-migrations') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Matches web-production-build and diff-sidecar-check, the other 15s here.
     timeout-minutes: 15
     defaults:
@@ -2677,7 +2677,7 @@ jobs:
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs
