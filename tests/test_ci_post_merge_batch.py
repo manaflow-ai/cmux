@@ -386,6 +386,10 @@ class BisectTest(unittest.TestCase):
             self.assertEqual(pmb.PR_RE.search(g("log", "-1", "--format=%s")).group(1), "103")
 
 
+# Callees that take the plan's base (the last tested batch tip) besides sha and only.
+BASE_TAKERS = {"cmux-tui-spec"}
+
+
 class WiringTest(unittest.TestCase):
     """The manifest, the caller jobs and the callees agree."""
 
@@ -401,7 +405,10 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            want = {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}
+            if key in BASE_TAKERS:
+                want["base"] = "${{ needs.plan.outputs.base }}"
+            self.assertEqual(job["with"], want, key)
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
@@ -415,6 +422,16 @@ class WiringTest(unittest.TestCase):
                 gate = str(callee["jobs"][job_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
+
+    def test_cmux_tui_spec_clippy_compares_with_the_batch_base(self) -> None:
+        """The batch called cmux-tui-spec.yml with no base, so its clippy job linted the whole workspace and the
+        panic ratchet put crates no merge touched over their baseline. The plan's base reaches the comparison step."""
+        self.assertEqual(self.workflow["jobs"]["plan"]["outputs"]["base"], "${{ steps.plan.outputs.base }}")
+        callee = yaml.safe_load((WORKFLOW.parent / "cmux-tui-spec.yml").read_text())
+        on = callee.get(True) or callee.get("on")
+        self.assertIn("base", on["workflow_call"]["inputs"])
+        step = next(s for s in callee["jobs"]["clippy"]["steps"] if s.get("id") == "base")
+        self.assertTrue(step["env"]["BASE_SHA"].startswith("${{ inputs.base ||"), step["env"]["BASE_SHA"])
 
     def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
         """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
