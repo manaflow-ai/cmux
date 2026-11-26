@@ -66,7 +66,8 @@ private func rectangleText(_ surface: ghostty_surface_t, from start: ghostty_poi
 
 /// The text side of a comment's scrollback anchor, no surface: which row holds a quote, and how
 /// many rows a quote covers.
-public enum TerminalCommentAnchor {
+public struct TerminalCommentAnchor {
+    public init() {}
     /// Characters of a quote's first line a row must contain: short enough to sit in one row of
     /// any terminal wider than it, long enough that a prompt or blank does not match by chance.
     static let keyLength = 24
