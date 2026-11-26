@@ -564,7 +564,14 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
-`usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
+A Claude Code chat runs with the autocompact its person chose (`--autocompact`,
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `autoCompactWindow` in a
+Claude settings file), else Claude Code's own. `agents.claudeAutocompactWindow` (tokens) in the
+cmux settings file names a window acpmux starts such a chat, and a terminal's `claude`, with when
+nothing of theirs decides it; unset, the default, acpmux adds none (`harness_limits.rs`).
+
+`usageWarnings` (`{"subagentsPerHour": 40}`, the default, and `"autocompactCap": true` to warn on
+a Claude chat with no autocompact cap, off by default because Claude Code ships with none; with no
 `contextTokens` each session is held to its own window: its autocompact cap, else its model's
 window, else 400000 when acpmux knows neither, and `"contextTokens": N` sets one line for every
 session; 0 or false turns a rule off): a session whose usage breaks a rule gets
