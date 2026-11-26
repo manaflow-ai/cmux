@@ -116,6 +116,20 @@ CLA_ACTION_PINNED_SUCCESSORS = [
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+  ].freeze,
+  # The rate-limit-wait successor (2026-11-25): action 3b78ca2 waits for
+  # GitHub's retry-after or x-ratelimit-reset (capped at 420 s, inside the
+  # 10 minute job) when GITHUB_TOKEN and every CLA_READ_TOKEN are spent,
+  # instead of failing ("Could not retrieve repository contents. Status: 429",
+  # cmux #57196 run 45711891331), and reads CLA_READ_TOKEN as a list.
+  # CLA_READ_TOKEN becomes `secrets.CLA_READ_TOKEN` (CLA's own read-only
+  # quota-goblin-9006 pool) then the glaeda-route token, comma separated, plus
+  # the header comment that describes them. Runner and steps are unchanged.
+  %w[
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+    manaflow-ai/cla-github-action@3b78ca23b6d5da6243e24b0b57baf5dca6ad9085
+    63731642df87fa291074422ba67162c893a1fa9dce2d3351384d644b21d15b9e
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
@@ -260,7 +274,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b2eaa9067fc84e471e9d794ceb805e4774dca9c6b43d42d52af6d10f5a060077"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1490,6 +1504,7 @@ def run_action_transition_regression_matrix!
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
   read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
+  wait_from_ref, wait_from, wait_to_ref, wait_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(-1)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1530,7 +1545,14 @@ def run_action_transition_regression_matrix!
     ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
     ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
     ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
-    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to],
+    ["read-token successor to rate-limit wait", wait_from_ref, wait_to_ref, true, wait_from, nil, nil, true, wait_to],
+    ["rate-limit wait no-op", wait_to_ref, wait_to_ref, false, wait_to, nil, nil, true],
+    ["rate-limit wait to final", wait_to_ref, final, true, wait_to, nil, nil, true],
+    ["rate-limit wait reverted", wait_to_ref, wait_from_ref, true, wait_to, nil, nil, false, wait_from],
+    ["rate-limit wait bytes under the old action", wait_from_ref, wait_from_ref, true, wait_from, nil, nil, false, wait_to],
+    ["rate-limit wait action with unpinned bytes", wait_from_ref, wait_to_ref, true, wait_from, nil, nil, false, "0" * 64],
+    ["rate-limit wait with helper", wait_from_ref, wait_to_ref, true, wait_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, wait_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
