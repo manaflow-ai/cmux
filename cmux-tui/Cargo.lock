@@ -2823,6 +2823,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
@@ -2831,6 +2832,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2891,6 +2893,19 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "cmux-remote-protocol",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3019,6 +3034,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-shotdiff"
+version = "1.0.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
