@@ -242,8 +242,7 @@ comes to you."
         // send again finds it there.
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
-        let listed =
-            super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name);
+        let listed = self.page_rule_lists(&session.meta().name);
         if holds_end(ok, listed, ended.is_some())
             && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
         {

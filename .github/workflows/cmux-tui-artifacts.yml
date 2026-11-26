@@ -37,6 +37,8 @@ name: cmux-tui artifacts
 #   cmux-tui-windows/<commit-sha>/cmux-tui-x86_64-pc-windows-gnu.exe  immutable, its
 #                                                  own prefix: never in cmux-tui/latest
 #   cmux-tui-windows/<commit-sha>/manifest.json
+#   cmux-tui-windows/latest/cmux-tui-x86_64-pc-windows-gnu.exe  rolling, main
+#   cmux-tui-windows/latest/manifest.json          dispatches with Windows, forward only
 #                                                  Windows objects publish only from a
 #                                                  dispatch with include_windows (no
 #                                                  Windows release ships; build-windows)
@@ -2662,7 +2664,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("rd-notices-").removeprefix("rd-").removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("rd-notices-").removeprefix("rd-").removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("launch-preread-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -3303,7 +3305,7 @@ jobs:
             exit 1
           fi
           for file in assets/cmux-tui/cmux-tui-*; do
-            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
+            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-launch-preread-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
             fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
@@ -3421,7 +3423,8 @@ jobs:
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
 
       # Not again in the Windows pass: latest has no Windows file, and a newer
-      # commit may have moved latest since the first pass.
+      # commit may have moved latest since the first pass. The Windows pass
+      # writes its own cmux-tui-windows/latest/ (the next step).
       - name: Publish rolling latest artifacts
         if: github.ref == 'refs/heads/main' && env.CMUX_TUI_PUBLISH_PASS != 'windows'
         env:
@@ -3472,6 +3475,81 @@ jobs:
             done
           }
           publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+
+      # The stable Windows download (CMUX-570; Leo: "anyone should be able to
+      # install/use TUI"): cmux-tui-windows/latest/ rolls to the newest main
+      # commit whose Windows build published, as cmux-tui/latest/ does for
+      # macOS and Linux. Its own prefix, so the public installer's
+      # cmux-tui/latest/ still lists no Windows file. Only a main dispatch
+      # with include_windows builds Windows, and dispatches may overlap or
+      # target an older commit, so latest moves only forward (GitHub's
+      # compare says this commit is ahead of the one it names, or there is
+      # none yet). The immutable manifest is verified first, latest's
+      # manifest.json is written last, and it is read back.
+      - name: Publish rolling Windows latest artifacts
+        if: github.ref == 'refs/heads/main' && env.CMUX_TUI_PUBLISH_PASS == 'windows' && steps.windows.outputs.present == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_windows() { # <prefix> [query]
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/$1/manifest.json${2:-}" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/$1"
+          }
+          verify_windows "cmux-tui-windows/$GITHUB_SHA"
+
+          current_file="$RUNNER_TEMP/windows-latest-current.json"
+          code="$(curl -sSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$current_file" -w '%{http_code}' \
+            "https://files.cmux.com/cmux-tui-windows/latest/manifest.json?latest=$GITHUB_RUN_ID" 2>/dev/null)" || code=000
+          case "$code" in
+            404) ;;
+            200)
+              current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit", ""))' "$current_file" 2>/dev/null || true)"
+              if [[ "$current" != "$GITHUB_SHA" ]]; then
+                if [[ ! "$current" =~ ^[0-9a-f]{40}$ ]]; then
+                  echo "::warning title=Windows latest kept::cmux-tui-windows/latest names no commit this run can compare with; left as it is"
+                  exit 0
+                fi
+                status="$(curl -fsSL --proto '=https' --connect-timeout 20 --max-time 30 -H "Authorization: Bearer $GH_TOKEN" \
+                    -H 'Accept: application/vnd.github+json' \
+                    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$current...$GITHUB_SHA" 2>/dev/null |
+                  python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true)"
+                if [[ "$status" != ahead ]]; then
+                  echo "::notice title=Windows latest kept::cmux-tui-windows/latest names $current, and $GITHUB_SHA is not ahead of it (compare: ${status:-unavailable})"
+                  exit 0
+                fi
+              fi
+              ;;
+            *)
+              echo "::error title=Windows latest unreadable::could not read cmux-tui-windows/latest/manifest.json (HTTP $code)"
+              exit 1
+              ;;
+          esac
+
+          upload_file() {
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$1" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "cmux-tui-windows/latest/$(basename "$1")" \
+              --cache-control "no-cache, no-store, must-revalidate"
+          }
+          for file in assets/cmux-tui-windows/*; do
+            [[ "$(basename "$file")" == manifest.json ]] && continue
+            upload_file "$file"
+          done
+          upload_file assets/cmux-tui-windows/manifest.json
+          verify_windows "cmux-tui-windows/latest" "?verify=$GITHUB_SHA"
+          echo "Published: https://files.cmux.com/cmux-tui-windows/latest/manifest.json"
 
       # The first pass's last gate before publish-tree, read from this job's
       # own copy: the bytes it uploaded, or the earlier publication it kept
@@ -3842,7 +3920,7 @@ jobs:
               gh attestation verify "$RUNNER_TEMP/source-manifest.json" --bundle "$RUNNER_TEMP/source.sigstore.json" "${args[@]}" >/dev/null; then
             echo "The manifest of $source is attested (offline bundle)."
           else
-            gh attestation verify "$RUNNER_TEMP/source-manifest.json" "${args[@]}" >/dev/null
+            gh_waiting_out_rate_limit attestation verify "$RUNNER_TEMP/source-manifest.json" "${args[@]}" >/dev/null
             echo "The manifest of $source is attested (attestations API)."
           fi
 
@@ -4439,7 +4517,7 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
-      # Only for its acpmux, which the tree carries: with this run's bytes at
+      # For its optional companions (acpmux and login prereader), which the tree carries: with this run's bytes at
       # hand, the helper step below need not read it back from R2. Optional:
       # without it, that step reads the published acpmux as before.
       - name: Download the macOS x86_64 cmux-tui
@@ -4449,7 +4527,7 @@ jobs:
           name: cmux-tui-x86_64-apple-darwin
           path: assets/macos-x86_64
 
-      - name: Keep only the macOS x86_64 acpmux for the tree
+      - name: Keep the macOS x86_64 optional companions for the tree
         run: |
           set -euo pipefail
           for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
@@ -5561,7 +5639,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 90  # 15 for the Cloud machine channel, at most 15 more each for the Linux release file, the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
+    timeout-minutes: 115  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5632,7 +5710,7 @@ jobs:
           lr="$dir/linux-release"
           mkdir -p "$lr" && chmod 700 "$lr"
           export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY PUBLISH_TREE TREE_KEY
-          if ! timeout 900 bash -euo pipefail -c '
+          if ! timeout 1500 bash -euo pipefail -c '
                  gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
                    --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
                  mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
@@ -5657,6 +5735,12 @@ jobs:
                  fi
                  [[ -n "$tree" ]] || "${release[@]}"
                  rm -rf "$lr/binaries"
+                 # The .deb and .rpm of these binaries, uploaded and named in the payload before it is
+                 # signed (the file is written once, so only its first signing can name them). No archive
+                 # key needed: the signed release file vouches for them. Delivery, not a gate: a failure
+                 # signs the file without packages.
+                 timeout 600 scripts/ci/linux-packages.sh "$lr/payload.json" "$lr/built" "$lr/packages" ||
+                   echo "::warning::the .deb and .rpm of $GITHUB_SHA were not built; its release file names none"
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
@@ -5678,8 +5762,8 @@ jobs:
           LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
         run: scripts/ci/cmux-linux-nightly-follow.sh "$RUNNER_TEMP/linux-nightly"
 
-      # The signed apt and yum archive (cmuxterm-hq docs/design/linux-signed-packages.md phase 4): .deb
-      # and .rpm of the bytes the Linux release file above names, and repositories signed with the
+      # The signed apt and yum archive (cmuxterm-hq docs/design/linux-signed-packages.md phase 4): the .deb
+      # and .rpm the Linux release file above names (built before it was signed), and repositories signed with the
       # archive key's signing subkey (Leo, 2026-11-22, d-fce10e3659: "a certify-only primary stays out
       # of CI. Only a signing subkey with an expiry sits in the artifacts environment."). Until the secret
       # and the committed public keyring exist it publishes nothing, with a warning; like the release file
@@ -5695,6 +5779,22 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
         run: scripts/ci/linux-archive-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-archive"
+
+      # The AppImage of the same verified binaries (scripts/ci/linux-appimage-publish.sh): written once per
+      # commit, the stable link and its zsync update file move only when the Linux release channel names this
+      # commit. It needs no secret beyond R2 (with the archive key it also signs a detached .asc); delivery,
+      # not a gate.
+      - name: Publish the AppImage
+        if: ${{ needs.verify-publish.result == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-appimage"
 
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file

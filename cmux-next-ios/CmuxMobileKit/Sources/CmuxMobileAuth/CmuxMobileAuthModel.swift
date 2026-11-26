@@ -114,12 +114,13 @@ public final class CmuxMobileAuthModel {
 
     /// Builds the live model for this process. Non-DEBUG builds (Release,
     /// Production) use the production Stack project and its
-    /// `https://cmux.com/auth/callback`, and never read launch overrides.
+    /// `https://cmux.com/auth/callback`, and on a device never read launch overrides.
     /// Reads launch overrides from the environment (DEBUG only): `CMUX_MOBILE_CLEAR_AUTH=1` starts signed out,
     /// `CMUX_MOBILE_MOCK_AUTH=1` (or Settings → Developer → Mock) signs in a
     /// local mock user, and
     /// `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` auto-login a Stack test account, and
-    /// `CMUX_MOBILE_STACK_REFRESH_TOKEN` restores a session made elsewhere (``launchTokenStore(primary:environment:)``).
+    /// `CMUX_MOBILE_STACK_REFRESH_TOKEN` restores a session made elsewhere (``launchTokenStore(primary:environment:)``,
+    /// DEBUG or any simulator build).
     /// `devTag` is the build's Info.plist `CmuxMobileDevTag` (set only by the Debug configuration,
     /// project.yml); a usable one makes ``buildSpace``. `devBuild`: the app was built with the Debug
     /// configuration (not Demo), so it must have a tag of its own.
@@ -245,17 +246,23 @@ public final class CmuxMobileAuthModel {
         return model
     }
 
-    /// The token store a launch uses: the app's own, which a DEBUG build fills, while it holds no
-    /// session, from `CMUX_MOBILE_STACK_REFRESH_TOKEN`. That is a fleet step's own session (hq
+    /// The token store a launch uses: the app's own, which a DEBUG or simulator build fills, while it
+    /// holds no session, from `CMUX_MOBILE_STACK_REFRESH_TOKEN`. That is a fleet step's own session (hq
     /// build-fleet `sign_in`): its submitter signs the test account in on their Mac, the step gets
     /// only the refresh token and the submitter revokes it when the step ends, so no password reaches
     /// the simulator or the fleet. A sign-out revokes it like any session of this app's. Only the
-    /// keychain store is Swift's here; non-DEBUG builds never read the variable.
+    /// keychain store is Swift's here.
+    ///
+    /// A simulator build of a shipping configuration (Production) reads it too, so an end-to-end probe
+    /// signs the shipped configuration in, against its own production Stack project: the build's
+    /// project is unchanged, so only a session of that project refreshes. It is a compile-time gate:
+    /// a device binary (TestFlight, App Store, a signed development install) contains no read, and
+    /// whoever sets a simulator app's launch environment already owns its container and keychain.
     nonisolated static func launchTokenStore(
         primary: any StackAuthTokenStoreProtocol,
         environment: [String: String]
     ) -> any StackAuthTokenStoreProtocol {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         if let session = ImportedTokenPair(accessToken: nil, refreshToken: environment["CMUX_MOBILE_STACK_REFRESH_TOKEN"]) {
             return ImportingTokenStore(primary: primary, sources: [{ session }], sharesSessions: false)
         }
