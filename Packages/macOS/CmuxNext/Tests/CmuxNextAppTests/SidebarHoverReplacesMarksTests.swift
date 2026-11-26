@@ -58,6 +58,9 @@ struct SidebarHoverReplacesMarksTests {
                     let titleWidth = row.title.frame.width
                     row.isHovered = true
                     row.layoutSubtreeIfNeeded()
+                    // A display pass follows layout on hover. It used to restore the blue dot and
+                    // error mark. Assert every variant is still clear after that repaint.
+                    row.updateLayer()
                     let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self)
                         .filter { !$0.isHidden && $0.alphaValue > 0 }
                     try #require(!controls.isEmpty, "\(spot) pinned \(pinned): no hover control on the hovered row")
@@ -76,8 +79,8 @@ struct SidebarHoverReplacesMarksTests {
         }
     }
 
-    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin replace the blue dot, the spinner, the unread
-    /// count and the task count ("2/9"), and all of them come back when the controls go.
+    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin replace the blue dot, the spinner and the unread
+    /// count, and all of them come back when the controls go.
     @Test(arguments: [false, true])
     func aWorkspaceTileHidesEveryMarkUnderItsControls(_ unreadDot: Bool) throws {
         let view = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
@@ -85,16 +88,15 @@ struct SidebarHoverReplacesMarksTests {
         info.workspace = CmuxNextSidebar.WorkspaceID("ws")
         info.unreadDot = unreadDot
         info.activity = .working(progress: nil)
-        info.taskProgress = SidebarTaskProgress(done: 2, total: 9)
         view.onMore = {}
         view.onUnpin = {}
         view.isPinned = { true }
         view.configure(info, style: .list)
         view.layoutSubtreeIfNeeded()
-        let marks: [(String, NSView)] = [("unread", view.badge), ("rowBadge", view.rowBadge), ("activity", view.activity), ("taskCount", view.taskCount)]
+        let marks: [(String, NSView)] = [("unread", view.badge), ("rowBadge", view.rowBadge), ("activity", view.activity)]
         func drawn() -> [String] { marks.filter { !$0.1.isHidden && $0.1.frame.width > 0 && $0.1.alphaValue > 0.01 }.map(\.0) }
         let resting = drawn()
-        #expect(resting.contains("taskCount"), "the tile draws no task count at rest")
+        #expect(!resting.isEmpty, "the tile draws no mark at rest")
         view.showsMenu = true // reveals the controls as the pointer does
         view.layoutSubtreeIfNeeded()
         #expect(view.hoverMore.map { !$0.isHidden } == true, "no ⋮ on the revealed tile")

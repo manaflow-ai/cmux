@@ -12,7 +12,7 @@
 //! ignored          a file or key cmux skips (themes/x.jsonc, a key a theme may not set)
 //! shadowed         a value another file or layer overrides
 //! leftover         a layer folder no entry uses, or a web-dev.json overlay left by a cut-short write
-//! unknown-key      a settings key no setting has (or one that was retired)
+//! unknown-key      a key no setting or migration recognizes
 //! wrong-folder     a customization file where cmux does not look for it
 //! override         a file outside the usual settings that still changes cmux (cmux-tui.json, harnesses, ...)
 //! ```
@@ -38,17 +38,22 @@ use super::web_top;
 use crate::tree::{self, SETTINGS, STYLE_SURFACES};
 use crate::{Customize, Error, validate};
 
-mod defaults;
+mod menus;
 mod recover;
 mod scan;
 mod stray;
 pub use recover::{RecoverPlan, Recovery};
 use scan::{
     dir_bytes, dir_names, display_dir, display_path, file_name, line_of_key, looks_like_theme,
-    prefixes, sentence, size_words, unknown_keys,
+    sentence, size_words, unknown_keys,
 };
 
 const STATE: &str = "doctor.json";
+/// The fingerprint scheme `doctor.json` holds. 2: a finding's line is not in
+/// its fingerprint, so an edit above a key never announces it again (Leo,
+/// 2026-11-25, of a toast that came back when lines above three keys moved:
+/// "will this be fixed soon?").
+const STATE_VERSION: u32 = 2;
 const REMOVED: &str = "doctor/removed";
 /// The most findings one report holds: past it the rest are one line.
 pub const MAX_FINDINGS: usize = 200;
@@ -66,7 +71,6 @@ pub enum FindingKind {
     UnknownKey,
     WrongFolder,
     Override,
-    NotDefault,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -89,9 +93,6 @@ pub enum FixKind {
     /// Put back the file's newest version a generation holds that loads
     /// ([`recover`]); the broken one is moved aside first.
     Restore,
-    /// Take the setting out of the settings file, so its default applies.
-    #[serde(rename = "follow-default")]
-    FollowDefault,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -136,6 +137,7 @@ pub struct Finding {
     /// The first is the main one.
     pub fixes: Vec<Fix>,
     /// Changes when the finding does: a dismissed or announced one comes back.
+    /// Its line is not in it: moving the finding is not changing it.
     pub fingerprint: String,
     pub dismissed: bool,
 }
@@ -145,10 +147,11 @@ pub struct Finding {
 pub struct Report {
     /// Warnings first, then by kind and id.
     pub findings: Vec<Finding>,
-    /// `2 customization problems: pr-45206 is still on; ...`; `None` when
-    /// nothing that is not dismissed is left.
+    /// `2 customization problems: pr-45206 is still on; ...`: the warnings
+    /// not dismissed; `None` when nothing is broken (info findings never count).
     pub line: Option<String>,
-    /// With `announce`: the line for the findings not announced before.
+    /// With `announce`: the line for the warnings not announced before (the
+    /// app's toast); info findings never toast.
     pub announce: Option<String>,
     /// Back to a setup that loads, in one step ([`Customize::doctor_recover`]);
     /// `None` when there is nothing to recover from.
@@ -167,15 +170,14 @@ pub struct Fixed {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct State {
+    /// [`STATE_VERSION`]; 0 for a file written before it.
+    #[serde(default)]
+    version: u32,
     /// id to fingerprint.
     #[serde(default)]
     announced: BTreeMap<String, String>,
     #[serde(default)]
     dismissed: BTreeMap<String, String>,
-    /// For each setting the person sets, the default when the doctor first
-    /// saw it set: a default that changes since is said ([`defaults`]).
-    #[serde(default)]
-    seen_defaults: BTreeMap<String, Value>,
 }
 
 impl Customize {
@@ -185,10 +187,13 @@ impl Customize {
         let mut findings = self.findings(expiry);
         let state = self.read_doctor_state();
         for finding in &mut findings {
-            finding.dismissed =
-                state.dismissed.get(&finding.id).is_some_and(|print| *print == finding.fingerprint);
+            // A file of the old scheme held prints with the line in them: its dismissals hold by id
+            // until the next announce moves them over (`doctor_announce`).
+            finding.dismissed = state.dismissed.get(&finding.id).is_some_and(|print| {
+                state.version < STATE_VERSION || *print == finding.fingerprint
+            });
         }
-        let line = line_of(findings.iter().filter(|finding| !finding.dismissed));
+        let line = line_of(findings.iter().filter(|finding| problem(finding)));
         Report { findings, line, announce: None, recover: self.recover_plan(expiry) }
     }
 
@@ -197,18 +202,31 @@ impl Customize {
     pub fn doctor_announce(&self, expiry: &Expiry) -> Result<Report, Error> {
         let mut report = self.doctor(expiry);
         let mut state = self.read_doctor_state();
+        let upgrade = state.version < STATE_VERSION;
+        if upgrade {
+            // The old prints had the line in them, so none matches now: what that file announced
+            // or dismissed by id stays so under the new print, and nothing is said again.
+            for finding in &report.findings {
+                if state.announced.contains_key(&finding.id) {
+                    state.announced.insert(finding.id.clone(), finding.fingerprint.clone());
+                }
+                if state.dismissed.contains_key(&finding.id) {
+                    state.dismissed.insert(finding.id.clone(), finding.fingerprint.clone());
+                }
+            }
+            state.version = STATE_VERSION;
+        }
         report.announce = line_of(report.findings.iter().filter(|finding| {
-            !finding.dismissed && state.announced.get(&finding.id) != Some(&finding.fingerprint)
+            problem(finding) && state.announced.get(&finding.id) != Some(&finding.fingerprint)
         }));
         let announced: BTreeMap<String, String> = report
             .findings
             .iter()
             .map(|finding| (finding.id.clone(), finding.fingerprint.clone()))
             .collect();
-        let seen = self.note_defaults(&state.seen_defaults);
-        if announced != state.announced || seen != state.seen_defaults {
+        if upgrade || announced != state.announced {
+            state.dismissed.retain(|id, _| announced.contains_key(id));
             state.announced = announced;
-            state.seen_defaults = seen;
             self.write_doctor_state(&state)?;
         }
         Ok(report)
@@ -219,6 +237,7 @@ impl Customize {
         let finding = self.finding(id, expiry)?;
         let mut state = self.read_doctor_state();
         state.dismissed.insert(finding.id, finding.fingerprint);
+        state.version = STATE_VERSION;
         // A finding that is gone keeps nothing here.
         let ids: BTreeSet<String> = self.findings(expiry).into_iter().map(|f| f.id).collect();
         state.dismissed.retain(|id, _| ids.contains(id));
@@ -299,12 +318,13 @@ impl Customize {
                     kept: Some(kept.display().to_string()),
                 })
             }
-            (FixKind::FollowDefault, "not-default") => {
-                let said = self.follow_default(subject, expiry.now_ms)?;
-                Ok(Fixed { id: finding.id, kind, kept: None, said })
-            }
             (FixKind::Restore, "broken") => {
                 let (_, said) = self.restore_file(subject, expiry.now_ms)?;
+                Ok(Fixed { id: finding.id, kind, kept: None, said })
+            }
+            // A menu entry cmux skips: the settings file's newest version whose menus all load.
+            (FixKind::Restore, "ignored") if subject.starts_with("menu:") => {
+                let (_, said) = self.restore_settings_menus(expiry.now_ms)?;
                 Ok(Fixed { id: finding.id, kind, kept: None, said })
             }
             _ => Err(Error::Library(format!("{id} has no {} fix", kind_word(kind)))),
@@ -325,7 +345,6 @@ impl Customize {
         self.file_findings(&mut out);
         self.folder_findings(&mut out);
         self.stray_findings(&mut out);
-        self.default_findings(&mut out);
         let mut findings = out.0;
         findings.sort_by(|a, b| (a.level, a.kind, &a.id).cmp(&(b.level, b.kind, &b.id)));
         findings.dedup_by(|a, b| a.id == b.id);
@@ -608,28 +627,19 @@ impl Customize {
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
             .map(str::to_owned);
         let settings = settings_text.as_deref().and_then(|text| jsonc::parse(text).ok());
+        if let (Some(text), Some(root)) = (settings_text.as_deref(), &settings) {
+            self.menu_findings(text, root, out);
+        }
         if let (Some(text), Some(Value::Object(object))) = (settings_text.as_deref(), &settings) {
-            let mut unknown = Vec::new();
-            unknown_keys(object, &mut Vec::new(), &prefixes(), &mut unknown);
             let file = &roots.settings_file;
-            for (key, retired) in unknown {
+            for key in unknown_keys(object) {
                 let line = line_of_key(text, &key);
-                let (title, detail) = match retired {
-                    Some(why) => (
-                        format!("{key} is a retired setting"),
-                        format!("cmux no longer reads it: {why}"),
-                    ),
-                    None => (
-                        format!("{key} is not a setting"),
-                        "cmux ignores it. A typo, or a key from another app or an older cmux; `cmux settings list` names every key.".to_owned(),
-                    ),
-                };
                 out.push(
                     FindingKind::UnknownKey,
                     Level::Info,
                     &key,
-                    title,
-                    detail,
+                    format!("{key} is not a setting"),
+                    "cmux ignores this key. Check its spelling in the settings file.".to_owned(),
                     match line {
                         Some(line) => format!("{}:{line}", file_name(file)),
                         None => file_name(file),
@@ -643,6 +653,7 @@ impl Customize {
         // The theme the settings name: missing, keys it may not set, and keys
         // it takes over from the settings file.
         let Some(root) = settings.as_ref() else { return };
+        self.settings_harnesses(root, out);
         let Some(name) = theme_file::name_in(root) else { return };
         let source = theme_file::source(&roots.config_dir, name, None);
         let theme_path = theme_file::path(&roots.config_dir, name);
@@ -771,10 +782,18 @@ impl Customize {
     }
 
     fn read_doctor_state(&self) -> State {
-        std::fs::read(self.roots().state_dir.join(STATE))
+        let mut state: State = std::fs::read(self.roots().state_dir.join(STATE))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Older builds hashed the line number. The key alone identifies this
+        // finding, so keep earlier announcements and dismissals when lines move.
+        for (id, print) in state.announced.iter_mut().chain(&mut state.dismissed) {
+            if id.starts_with("unknown-key:") {
+                id.clone_into(print);
+            }
+        }
+        state
     }
 
     fn write_doctor_state(&self, state: &State) -> Result<(), Error> {
@@ -787,7 +806,7 @@ impl Customize {
 }
 
 /// Top-level files cmux or its tools read, or that hold credentials: never named stray, and
-/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux.json, ...).
+/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux-next.json, ...).
 pub(super) const KNOWN_TOP_FILES: &[&str] = &[
     "cmux-next.json",
     "cmux.json",
@@ -832,10 +851,19 @@ impl Found {
     ) {
         let id = format!("{}:{subject}", kind_name(kind));
         let path = path.map(|path| path.display().to_string());
-        let fingerprint = tree::sha256(format!("{id}\n{title}\n{detail}\n{place}").as_bytes())
-            .get(..16)
-            .unwrap_or_default()
-            .to_owned();
+        // `cmux-next.json:410` prints as `cmux-next.json`: a line that moves is the same finding.
+        let spot: &str = match line {
+            Some(line) => place.strip_suffix(&format!(":{line}")).unwrap_or(&place),
+            None => &place,
+        };
+        let fingerprint = if kind == FindingKind::UnknownKey {
+            id.clone()
+        } else {
+            tree::sha256(format!("{id}\n{title}\n{detail}\n{spot}").as_bytes())
+                .get(..16)
+                .unwrap_or_default()
+                .to_owned()
+        };
         self.0.push(Finding {
             id,
             kind,
@@ -864,7 +892,6 @@ fn kind_name(kind: FindingKind) -> &'static str {
         FindingKind::UnknownKey => "unknown-key",
         FindingKind::WrongFolder => "wrong-folder",
         FindingKind::Override => "override",
-        FindingKind::NotDefault => "not-default",
     }
 }
 
@@ -874,7 +901,6 @@ fn kind_word(kind: FixKind) -> &'static str {
         FixKind::Remove => "remove",
         FixKind::Open => "open",
         FixKind::Restore => "restore",
-        FixKind::FollowDefault => "follow-default",
     }
 }
 
@@ -884,26 +910,29 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
         "off" => Some(FixKind::Off),
         "remove" | "rm" => Some(FixKind::Remove),
         "restore" => Some(FixKind::Restore),
-        "default" | "follow-default" => Some(FixKind::FollowDefault),
         _ => None,
     }
 }
 
-/// `2 customization problems: a; b`, or one: `Customization: a`.
-fn line_of<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
-    let findings: Vec<&Finding> = findings.collect();
-    let warnings: Vec<&&Finding> = findings.iter().filter(|f| f.level == Level::Warning).collect();
-    let shown: Vec<&str> = if warnings.is_empty() {
-        findings.iter().take(2).map(|f| f.title.as_str()).collect()
-    } else {
-        warnings.iter().take(2).map(|f| f.title.as_str()).collect()
-    };
+/// A finding that counts as a problem: a warning (it breaks something now)
+/// the person has not dismissed. Info findings are listed, never counted or
+/// announced (Leo, 2026-11-25, on "Customization: presence is not a setting"
+/// and "50 things change your customization": "what is this and why is it so
+/// ugly").
+fn problem(finding: &Finding) -> bool {
+    finding.level == Level::Warning && !finding.dismissed
+}
+
+/// `2 customization problems: a; b`, or one: `Customization: a`; `None` for none.
+fn line_of<'a>(problems: impl Iterator<Item = &'a Finding>) -> Option<String> {
+    let problems: Vec<&Finding> = problems.collect();
+    let shown: Vec<&str> = problems.iter().take(2).map(|f| f.title.as_str()).collect();
     let first = *shown.first()?;
-    let rest = findings.len() - shown.len();
-    let mut line = if findings.len() == 1 {
+    let rest = problems.len() - shown.len();
+    let mut line = if problems.len() == 1 {
         format!("Customization: {first}")
     } else {
-        format!("{} things change your customization: {}", findings.len(), shown.join("; "))
+        format!("{} customization problems: {}", problems.len(), shown.join("; "))
     };
     if rest > 0 {
         line.push_str(&format!(" and {rest} more"));

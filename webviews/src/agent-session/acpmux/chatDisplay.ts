@@ -10,6 +10,7 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import { COMPACT_SHORT_TURNS_KEY, setCompactShortTurns } from "./conversation/compactShortTurns";
 import {
   DEFAULT_RAIL_SHOW,
   isRailShow,
@@ -20,7 +21,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -48,6 +49,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
@@ -141,11 +143,18 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
-/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
-/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
-/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
-/// Not part of ChatDisplay: switching it measures no transcript row again.
-export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
+/// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
+/// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
+export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
+/// Settings > Agent Chat > Header Path, off by default (taste prototype, Taste Board #20): the header's
+/// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
+/// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
+export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
+/// Settings > Agent Chat > Subagent Of in Header, off by default: a subagent's own pane says whose it is,
+/// "Subagent of <chat>" muted beside its name in the header (subagents/subagentPanes.ts `paneHeading`; Leo,
+/// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
+/// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
+export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
 /// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
 /// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
 /// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
@@ -176,6 +185,15 @@ export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+/// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
+/// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const AUTO_CLOUD_KEY = "cloud.autoCloud";
+/// Settings > Cloud > Default Image: the Cloud environment a new Cloud chat starts from, "auto" (the
+/// default) or an environment id (chatCloudEnvironment.ts). The host sends it with the chat's keys
+/// (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const DEFAULT_IMAGE_KEY = "cloud.defaultImage";
+/// A Cloud environment's id, as the cmux platform makes them.
+const CLOUD_ENVIRONMENT_ID = /^d?env_[0-9a-f]{24}$/;
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -203,9 +221,12 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -479,12 +500,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -521,9 +559,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
@@ -543,7 +580,9 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
-let pinnedPlanOn = false;
+let statusPillsOn = false;
+let headerBreadcrumbOn = false;
+let subagentOfOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -554,6 +593,8 @@ let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = false;
+let autoCloudOn = false;
+let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
@@ -612,12 +653,18 @@ export function setChatDisplay(value: unknown): void {
   configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
+  // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
+  configureKeyStyle(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
-  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
+  const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
+  const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
+  const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
+  setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
   const sendPop = raw[SEND_POP_KEY] === true;
@@ -639,6 +686,11 @@ export function setChatDisplay(value: unknown): void {
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] === true;
+  const autoCloud = raw[AUTO_CLOUD_KEY] === true;
+  const storedImage = raw[DEFAULT_IMAGE_KEY];
+  // Only a Cloud environment id (`env_` or `denv_` and 24 hex digits, cmux-tui start_chat_cli.rs valid_environment): any
+  // other value (a typo set from the CLI) would fail every Cloud send, so it reads as Auto.
+  const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
@@ -668,7 +720,9 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
-    pinnedPlan === pinnedPlanOn &&
+    statusPills === statusPillsOn &&
+    headerBreadcrumb === headerBreadcrumbOn &&
+    subagentOf === subagentOfOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -678,6 +732,8 @@ export function setChatDisplay(value: unknown): void {
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
+    autoCloud === autoCloudOn &&
+    image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
@@ -690,7 +746,9 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   minimapOn = minimap;
-  pinnedPlanOn = pinnedPlan;
+  statusPillsOn = statusPills;
+  headerBreadcrumbOn = headerBreadcrumb;
+  subagentOfOn = subagentOf;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -700,6 +758,8 @@ export function setChatDisplay(value: unknown): void {
   transcriptView = view;
   presentation = nextPresentation;
   featureTipsOn = tips;
+  autoCloudOn = autoCloud;
+  defaultImage = image;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -832,6 +892,14 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+const autoCloudSnapshot = () => autoCloudOn;
+/// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
+/// and its Cloud leg (autoCloud.ts) show only with it and the plan.
+export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
+/// Settings > Cloud > Default Image (DEFAULT_IMAGE_KEY): "auto" or the environment id a new Cloud
+/// chat starts from when it picks none (chatCloudEnvironment.ts).
+export const defaultCloudImage = (): string => defaultImage;
+export const useDefaultCloudImage = (): string => useSyncExternalStore(subscribe, defaultCloudImage, defaultCloudImage);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
@@ -846,9 +914,6 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
-const pinnedPlanSnapshot = () => pinnedPlanOn;
-/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
@@ -872,6 +937,10 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const statusPillsSnapshot = () => statusPillsOn;
+/// Whether All Chats draws a status pill on its live chats (CHAT_LIST_STATUS_PILLS_KEY).
+export const useChatListStatusPills = (): boolean =>
+  useSyncExternalStore(subscribe, statusPillsSnapshot, statusPillsSnapshot);
 const railShowSnapshot = () => railShow;
 const railControlSnapshot = () => railControlOn;
 /// What the prompt rail shows (RAIL_SHOW_KEY), separate from the measured look: a change remeasures no row.
@@ -883,6 +952,13 @@ export const setRailShow = (show: RailShow): void =>
   changeChatDisplay(RAIL_SHOW_KEY, show === DEFAULT_RAIL_SHOW ? null : show);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
+const headerBreadcrumbSnapshot = () => headerBreadcrumbOn;
+/// Whether the header draws its title as a slash path (HEADER_BREADCRUMB_KEY).
+export const useHeaderBreadcrumb = (): boolean =>
+  useSyncExternalStore(subscribe, headerBreadcrumbSnapshot, headerBreadcrumbSnapshot);
+const subagentOfSnapshot = () => subagentOfOn;
+/// Whether a subagent's own pane says "Subagent of <chat>" in its header (SUBAGENT_OF_KEY).
+export const useSubagentOf = (): boolean => useSyncExternalStore(subscribe, subagentOfSnapshot, subagentOfSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);

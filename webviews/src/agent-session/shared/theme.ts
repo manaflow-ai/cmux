@@ -2,41 +2,9 @@ import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scal
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
+import { AGENT_THEME_VARIABLES } from "./themeVariables";
 
-const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
-  isDark: null,
-  pageBackground: "--agent-page-bg",
-  surfaceBackground: "--agent-surface",
-  surfaceElevatedBackground: "--agent-surface-elevated",
-  inputBackground: "--agent-input-bg",
-  border: "--agent-border",
-  borderStrong: "--agent-border-strong",
-  text: "--agent-text",
-  mutedText: "--agent-muted",
-  softText: "--agent-soft",
-  accent: "--agent-accent",
-  accentSoft: "--agent-accent-soft",
-  litGlyph: "--agent-lit-glyph",
-  accentText: "--agent-accent-text",
-  onAccent: "--agent-on-accent",
-  danger: "--agent-danger",
-  warning: "--agent-warning",
-  success: "--agent-success",
-  highlight: "--agent-highlight",
-  highlightText: "--agent-highlight-text",
-  shadow: "--agent-shadow",
-  palette: null,
-  borders: null,
-  focusRingEnabled: null,
-  agentSignature: null,
-  toolRunLook: null,
-  turnActionsPlacement: null,
-  motion: null,
-  statusIndicators: null,
-  workingLook: null,
-  slots: null,
-  subagentTrayPlacement: null,
-};
+const cssVariables = AGENT_THEME_VARIABLES;
 
 const motionVariables = {
   hover: "--agent-motion-hover",

@@ -3,18 +3,25 @@ name = "acpmux"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: feature `tui`)"
+description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: the acpmux-tui crate)"
 license.workspace = true
 publish.workspace = true
 readme = "README.md"
 repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/crates/acpmux"
-keywords = ["acp", "agents", "multiplexer", "tmux", "tui"]
+keywords = ["acp", "agents", "multiplexer", "tmux", "headless"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "acpmux"
 path = "src/main.rs"
+
+# Dev only: the pause-policy replay (src/bin/pause_replay.rs) scores Cloud agent VM pause
+# policies over recorded session timelines. Never in a shipped build.
+[[bin]]
+name = "pause-replay"
+path = "src/bin/pause_replay.rs"
+required-features = ["pause-replay"]
 
 [[bench]]
 name = "v2"
@@ -25,6 +32,12 @@ harness = false
 name = "turn_overhead"
 harness = false
 
+# Instruction counts of the hot paths under Callgrind, checked against
+# benches/icount_baseline.json (ci/steps.toml step acpmux-icount).
+[[bench]]
+name = "icount"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -32,10 +45,12 @@ default = ["build-id"]
 # turn it off and install the same value at start, so a new stamp does not
 # recompile this crate (acpmux-build-id docs).
 build-id = ["dep:acpmux-build-id"]
-tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
+tailnet = ["dep:cmux-tailnet", "dep:cmux-tailnet-join", "dep:tokio-rustls", "cmux-tailnet-front/tsnet"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
 # a shipped build: only `cargo test --features sim --test sim` turns it on.
 sim = []
+# Dev only: builds the pause-replay bin above. Never in a shipped build.
+pause-replay = []
 # Another crate's tests' in-process daemon that serves the v2 list (src/test_support.rs; row 7c,
 # cmux-tui-core's list callers). Never in a shipped build: only a crate's dev-dependencies turn it
 # on. Its gates print and compare their rounds through `acpmux_book::gate_rounds`.
@@ -47,11 +62,6 @@ hot-modules = ["dep:acpmux-hot"]
 # machines through the Cloud carrier's relay, Noise end to end (cmux-remote's relay client and
 # handshake). Opt-in because cmux-remote builds libghostty-vt with zig; the shipping build turns it
 # on (scripts/ci/acpmux-build-features.sh).
-# The ratatui terminal UI (src/tui/): bare `acpmux`, `attach`, `new` without --detach, `chats open`.
-# Off by default, so acpmux is headless (Lawrence, 2026-11-17: "we want to keep acpmux
-# headless"); the `cmux` multicall binary turns it on (cmux-tui's Cargo.toml), and a headless
-# acpmux hands those commands to a `cmux` (src/tui_entry.rs).
-tui = ["dep:ratatui", "dep:crossterm", "dep:syntect", "dep:pulldown-cmark", "dep:unicode-width"]
 hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait", "dep:url"]
 # The heap by allocation site (dhat) for the god-fixture profile (`tests/god_daemon.rs`): the
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
@@ -66,16 +76,31 @@ cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
-cmux-felt.workspace = true
 # The share host's verified copy of the Screen Sharing helper outside the app.
 cmux-signed-bundle.workspace = true
 cmux-tailnet = { workspace = true, optional = true }
+# The join request and its checks (`tailnet/embedded_join.rs`).
+cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
-cmux-session-cloud.workspace = true
-# The Cloud account and hybrid rule a new chat's place weighs (place_mode.rs).
+# Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
+cmux-felt.workspace = true
+# The stable node's front and its placement messages (the tsnet part only with `tailnet`, and only
+# on unix); the placement table is portable, so every OS builds it.
+cmux-tailnet-front.workspace = true
+cmux-presence.workspace = true
+# A hybrid start's tool calls: held, then routed (`hub/hybrid_hold.rs`); the Cloud account and hybrid
+# rule a new chat's place weighs (place_mode.rs). One dependency, named once: the base merge that
+# brought both comments in also brought the line twice, which is a TOML duplicate key.
 cmux-cloud-start-core.workspace = true
+# The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
+cmux-cloud-disk.workspace = true
+cmux-sync.workspace = true
+cmux-session-cloud.workspace = true
+# The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
+# unavailable (peer_tailnet.rs).
+cmux-tailnet-local.workspace = true
 acpmux-book = { path = "../acpmux-book" }
 # The model catalog, RPC schema, secret rules and web page compiled in compressed.
 cmux-embed.workspace = true
@@ -93,13 +118,25 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),
+# and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
+cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-netwatch.workspace = true
 # The agent dot signature (`session/signature`, src/server/requests/signature.rs).
 cmux-wallpaper = { path = "../cmux-wallpaper", features = ["schema"] }
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
+# Auto mode's shared core (src/auto_session/): the Cloud API's types, the holder's state machine
+# and the Cloud store as a trait.
+cmux-auto-session.workspace = true
+# Auto mode's owner transport (src/auto_session/laptop.rs): the Cloud store's routes as the
+# signed-in person. The tunnel tests also read the NEXT Cloud network list (`vm.networks`)
+# through it.
+cmux-cloud-api.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
+# The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.
+cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
 cmux-cloud-client.workspace = true
 # The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
 cmux-cloud-wire.workspace = true
@@ -151,18 +188,17 @@ cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
-crossterm = { version = "0.29", features = ["event-stream"], optional = true }
 dirs = "6"
 # Read the containing app identity for DEV helper discovery and the app orphan exit
 # (src/daemon/app_orphan.rs).
 plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
-ratatui = { version = "0.30", optional = true }
 serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 # Diffs of a proposed carried-memory change (src/agent_home.rs).
 diffy.workspace = true
@@ -175,6 +211,8 @@ thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 cmux-process.workspace = true
+# Bounded waits (`hub/forward_wait.rs`): every waiting state declares its bound and recovery.
+cmux-bounded = { workspace = true, features = ["tokio"] }
 cmux-scope.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true
@@ -198,7 +236,6 @@ tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
 cmux-image-linear.workspace = true
-unicode-width = { version = "0.2", optional = true }
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
 wait-timeout.workspace = true
@@ -216,14 +253,14 @@ schemars = "1"
 reqwest.workspace = true
 tar.workspace = true
 rustls.workspace = true
-pulldown-cmark = { version = "0.13", default-features = false, optional = true }
-syntect = { version = "5.3", default-features = false, features = ["default-fancy"], optional = true }
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
 cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "dfa59bc25deb4328b06c6a8a1ada74e86f447408", default-features = false }
 cmux-host.workspace = true
 # The vault egress proxy (src/vault/egress.rs): agents get placeholders.
 cmux-vault-egress.workspace = true
+# The egress gate every outbound client passes (docs/privacy.md, Egress gate).
+cmux-egress.workspace = true
 # The hub carrier (feature `hub-carrier`).
 cmux-remote = { workspace = true, optional = true }
 cmux-remote-protocol = { workspace = true, optional = true }
@@ -237,6 +274,10 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
+# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
+# heap (RFD 0156). mimalloc returns them on its own.
+mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
@@ -255,12 +296,15 @@ cmux-build-space = { workspace = true, features = ["testing"] }
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
-# The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
-cmux-cloud-api.workspace = true
+# The Cloud store in memory, under the real store's rules (tests/auto_session.rs), also behind
+# a fake agent socket (tests/auto_machine/agent.rs).
+cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
+# The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
+cmux-api-compat = { workspace = true }
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
@@ -274,6 +318,8 @@ cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
 # The Remote and Cloud fault harness (tests/rc_faults.rs: disk-full mid-turn).
 cmux-fault.workspace = true
+# The one chat send queue the send bench's attachment leg sends through (tests/mobile_link_conditions.rs).
+cmux-composer-send.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
 # A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
@@ -299,4 +345,10 @@ required-features = ["sim"]
 [[test]]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
+required-features = ["hub-carrier"]
+
+# Relay re-homing: the relay a host serves on dies and the host and its dialers move to the next.
+[[test]]
+name = "hub_carrier_rehome"
+path = "tests/hub_carrier_rehome.rs"
 required-features = ["hub-carrier"]

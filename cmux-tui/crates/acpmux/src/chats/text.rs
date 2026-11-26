@@ -163,6 +163,16 @@ impl Doc {
         self.folds_to_ascii = folds_to_ascii(&self.text);
     }
 
+    /// A transcript's index stamp may move when its metadata changes even though the searchable
+    /// text did not. Such a stamp update must not make the saved copy rewrite every held chat.
+    fn same_content(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.messages == other.messages
+            && self.first_turn == other.first_turn
+            && self.live == other.live
+            && self.folds_to_ascii == other.folds_to_ascii
+    }
+
     /// Turn `turn` and every one after it are replaced by `turns` (numbered from `turn`), the
     /// window starts at turn `first`, and the text is held to its bound. Costs what the replaced
     /// and added text does, not what the chat holds.
@@ -284,6 +294,58 @@ impl Doc {
         }
         found
     }
+}
+
+/// Fewer held bytes than this are searched on the calling thread: below it, starting threads
+/// costs about what the pass does.
+const PAR_MIN_BYTES: usize = 4 * 1024 * 1024;
+/// The most threads one pass takes.
+const PAR_MAX_THREADS: usize = 8;
+/// Docs a thread claims at a time: small enough that one thread left with the largest docs does
+/// not hold the pass up, large enough that the shared counter is not contended.
+const PAR_CHUNK: usize = 16;
+
+/// `f` over every doc, on up to [`PAR_MAX_THREADS`] threads when they hold at least
+/// [`PAR_MIN_BYTES`] of text: a query's first key reads all held text (up to [`TOTAL_BYTES`]),
+/// one core's pass over which is most of a keystroke's time. Threads claim [`PAR_CHUNK`] docs
+/// at a time, so a few large docs do not leave the rest idle. The order of the results is not
+/// the docs' order (the caller collects them into a map).
+fn par_filter_map<R: Send>(
+    docs: &[(&String, &Arc<Doc>)],
+    f: impl Fn(&(&String, &Arc<Doc>)) -> Option<R> + Sync,
+) -> Vec<R> {
+    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(PAR_MAX_THREADS)
+        .min(docs.len().div_ceil(PAR_CHUNK));
+    if threads <= 1 || bytes < PAR_MIN_BYTES {
+        return docs.iter().filter_map(&f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work = || {
+        let mut out = Vec::new();
+        loop {
+            let from = next.fetch_add(PAR_CHUNK, std::sync::atomic::Ordering::Relaxed);
+            let Some(chunk) = docs.get(from..(from + PAR_CHUNK).min(docs.len())) else {
+                break;
+            };
+            if chunk.is_empty() {
+                break;
+            }
+            out.extend(chunk.iter().filter_map(&f));
+        }
+        out
+    };
+    std::thread::scope(|scope| {
+        let helpers: Vec<_> = (1..threads).map(|_| scope.spawn(work)).collect();
+        let mut out = work();
+        for helper in helpers {
+            // A panicking `f` panics the caller, as the one-thread pass would.
+            out.extend(helper.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+        }
+        out
+    })
 }
 
 /// At most the last `max` bytes of `text`, cut on a character boundary.
@@ -515,7 +577,7 @@ impl ChatText {
                         continue;
                     };
                     let mut inner = lock(&self.inner);
-                    let bytes = match edit {
+                    let (bytes, changed) = match edit {
                         follow::Read::Whole { first, turns } => {
                             let doc = Doc::of_turns(stamp, &turns, first);
                             let bytes = doc.text.len();
@@ -523,25 +585,35 @@ impl ChatText {
                                 inner.edge = Some((key, stamp, bytes));
                                 break;
                             }
+                            let changed =
+                                inner.docs.get(&key).is_none_or(|old| !old.same_content(&doc));
                             inner.docs.insert(key.clone(), Arc::new(doc));
-                            bytes
+                            (bytes, changed)
                         }
                         follow::Read::Tail { from, first, turns } => {
                             // Edited in place: the kept search answer is let go of first, so it
                             // holds no copy of the doc and the edit copies nothing (a search
                             // still running elsewhere keeps its own copy).
-                            inner.answer = None;
-                            let Some(doc) = inner.docs.get_mut(&key) else { continue };
-                            let doc = Arc::make_mut(doc);
-                            doc.stamp = stamp;
-                            doc.edit(from, &turns, first);
-                            doc.text.len()
+                            let (bytes, changed) = {
+                                let Some(doc) = inner.docs.get_mut(&key) else { continue };
+                                let doc = Arc::make_mut(doc);
+                                let before = doc.clone();
+                                doc.stamp = stamp;
+                                doc.edit(from, &turns, first);
+                                (doc.text.len(), !before.same_content(doc))
+                            };
+                            if changed {
+                                inner.answer = None;
+                            }
+                            (bytes, changed)
                         }
                     };
-                    read_since_publish += 1;
-                    if read_since_publish >= BATCH {
-                        self.publish(&mut inner);
-                        read_since_publish = 0;
+                    if changed {
+                        read_since_publish += 1;
+                        if read_since_publish >= BATCH {
+                            self.publish(&mut inner);
+                            read_since_publish = 0;
+                        }
                     }
                     bytes
                 }
@@ -575,9 +647,14 @@ impl ChatText {
             false
         });
         inner.evicted = (inner.evicted.0 + evicted.0, inner.evicted.1 + evicted.1);
-        if read_since_publish > 0 || gone || evicted.0 > 0 || !inner.filled {
+        let initial_fill = !inner.filled;
+        let content_changed = read_since_publish > 0 || gone || evicted.0 > 0;
+        if content_changed || initial_fill {
             inner.filled = true;
             self.publish(&mut inner);
+            if !content_changed {
+                inner.dirty = false;
+            }
         }
         // A chat gone leaves the saved copy at once, not at the next timed save: its text is not
         // kept on disk past it. A chat let go of for room is still listed and its transcript still
@@ -667,10 +744,12 @@ impl ChatText {
             let matched = doc.find(needle, &matcher)?;
             Some((key.clone(), Found { doc: doc.clone(), matched }))
         };
-        let found: HashMap<String, Found> = match &narrowed {
-            Some(last) => last.iter().filter_map(|(key, found)| search(key, &found.doc)).collect(),
-            None => inner.docs.iter().filter_map(|(key, doc)| search(key, doc)).collect(),
+        let docs: Vec<(&String, &Arc<Doc>)> = match &narrowed {
+            Some(last) => last.iter().map(|(key, found)| (key, &found.doc)).collect(),
+            None => inner.docs.iter().collect(),
         };
+        let found: HashMap<String, Found> =
+            par_filter_map(&docs, |&(key, doc)| search(key, doc)).into_iter().collect();
         #[cfg(test)]
         {
             inner.scanned += narrowed.as_ref().map_or(inner.docs.len(), |last| last.len());

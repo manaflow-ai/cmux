@@ -29,7 +29,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -101,7 +100,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -202,6 +200,12 @@
         "suggested_inputs_more": 729
       }
     },
+    ".github/workflows/cmux-next-closes-issues.yml": {
+      "close": {
+        "why": "runs on the closed event of a merged pull request to close the issues it names; reads only the event",
+        "suggested_inputs": []
+      }
+    },
     ".github/workflows/cmux-next-fast-gates.yml": {
       "fast-check-route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
@@ -225,7 +229,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -248,6 +251,10 @@
           ".github/swift-warning-budget.tsv"
         ],
         "suggested_inputs_more": 677
+      },
+      "fast-gates-fail-fast": {
+        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
+        "suggested_inputs": []
       },
       "panic-ratchet": {
         "why": "routed by its workflow's own job (needs.fast-gates.outputs.ratchet in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
@@ -381,7 +388,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -419,6 +425,10 @@
       },
       "security-holes": {
         "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
+        "suggested_inputs": []
+      },
+      "tooling-tests-fail-fast": {
+        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
         "suggested_inputs": []
       }
     },
@@ -465,13 +475,57 @@
           ".github/CODEOWNERS",
           ".github/actions/setup-cmux-tui-rust/",
           ".github/checkout-lean.json",
-          ".github/defaults-call-owners.json",
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
           "Native/OptChat/optchat-chief/inspector/",
           "Native/OptChat/optchat-chief/inspector/index.html",
           "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
+          "Packages/macOS/CmuxNext/Sources/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
+          "Resources/markdown-viewer/marked.min.js",
+          "cmux-tui/crates/cmux-action-catalog/src/bindings.rs",
+          "cmux-tui/crates/cmux-computer-use/src/server.rs",
+          "cmux-tui/crates/cmux-link/src/app_caller.rs",
+          "cmux-tui/crates/cmux-link/src/caller.rs",
+          "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+          "docs/ci/risk-tiers.md",
+          "docs/mdm/",
+          "plans/cmux-next/action-catalog.json",
+          "plans/cmux-next/action-surfaces.json",
+          "plans/cmux-next/actions.md",
+          "plans/cmux-next/links.json",
+          "schemas/defaults/",
+          "schemas/defaults/cmux-next.json",
+          "schemas/settings/",
+          "schemas/settings/settings-schema.json",
+          "scripts/build-webviews-app.sh",
+          "scripts/check-webviews-bun-version.sh",
+          "scripts/ci/defaults_guard.py",
+          "scripts/ci/init-submodule.sh"
+        ],
+        "suggested_inputs_more": 34
+      },
+      "action-exports-linux": {
+        "why": "routed by its workflow's own job (needs.action-areas.outputs.actions, needs.generated-exports.outputs.hit in its if:), as action-exports is, which it stands in for on Linux",
+        "suggested_inputs": [
+          ".github/CODEOWNERS",
+          ".github/actions/setup-cmux-tui-rust/",
+          ".github/checkout-lean.json",
+          ".github/workflows/",
+          ".github/workflows/cmux-next-batch.yml",
+          ".github/workflows/risk-tier-tests.yml",
+          "Native/OptChat/optchat-chief/inspector/",
+          "Native/OptChat/optchat-chief/inspector/index.html",
+          "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
+          "Packages/macOS/CmuxNext/LinuxActionExports/",
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
@@ -501,14 +555,12 @@
           "scripts/check-webviews-bun-version.sh",
           "scripts/ci/defaults_guard.py",
           "scripts/ci/init-submodule.sh"
-        ],
-        "suggested_inputs_more": 34
+        ]
       },
       "generated-drift": {
         "why": "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)",
         "suggested_inputs": [
           ".github/CODEOWNERS",
-          ".github/defaults-call-owners.json",
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
@@ -521,7 +573,7 @@
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
           "Packages/macOS/CmuxNext/ci-target-graph.json",
-          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
           "backend/packages/protocol/",
           "backend/packages/protocol/scripts/export-client.ts",
           "clients/ts/cloud/src/generated.ts",
@@ -576,6 +628,31 @@
           "scripts/cmux-next/",
           "scripts/install-zig-ci.sh"
         ]
+      },
+      "settings-exports-linux": {
+        "why": "routed by its workflow's own job (needs.action-areas.outputs.settings, needs.generated-exports.outputs.hit in its if:), as action-exports is, which it stands in for on Linux for the settings exports",
+        "suggested_inputs": [
+          ".github/checkout-lean.json",
+          "Packages/macOS/CmuxNext/Sources/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+          "cmux-tui/crates/cmux-action-catalog/src/bindings.rs",
+          "docs/mdm/",
+          "plans/cmux-next/action-surfaces.json",
+          "schemas/defaults/",
+          "schemas/settings/",
+          "schemas/settings/generator/",
+          "schemas/settings/retired-keys.json",
+          "schemas/settings/settings-schema.json",
+          "schemas/settings/source/",
+          "scripts/ci/defaults_guard.py",
+          "scripts/cmux-next/check-generator-inputs.sh",
+          "scripts/cmux-next/gen-settings-sources.py",
+          "scripts/cmux-next/regenerate-settings-exports-linux.sh",
+          "web/scripts/export-docs-shortcuts.ts"
+        ]
       }
     },
     ".github/workflows/cmux-next-pr-closed-cancel.yml": {
@@ -585,6 +662,12 @@
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {
+      "coalesce": {
+        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
+        "suggested_inputs": [
+          ".github/workflows/base-coalesce.yml"
+        ]
+      },
       "fast-check-route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [
@@ -607,7 +690,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -793,7 +875,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -998,6 +1079,12 @@
       }
     },
     ".github/workflows/pr-router.yml": {
+      "machine-channel-pr-head": {
+        "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-machine-channel.yml), and its plan job decides by the v2 tree key, not by paths",
+        "suggested_inputs": [
+          ".github/workflows/cmux-machine-channel.yml"
+        ]
+      },
       "pipeline": {
         "why": "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)",
         "suggested_inputs": [

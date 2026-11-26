@@ -15,8 +15,13 @@
 //! - Every wait has a deadline (`--timeout`, default an hour) and every `gh` a 45 s bound.
 //! - The judgement is `pr_state`'s (`acpmux_mcp_pr.rs`), the same one the `pr_state` tool gives.
 //!
-//! Exit: 0 green (or merged); 1 a failing check, closed unmerged, or gh failing poll after poll
-//! (the message and `--json`'s detail say which); 3 timeout; 4 the head moved off `--sha`.
+//! Each check is judged by its newest run at the head: a run cancelled for a newer run of the
+//! same check (a concurrency group, a rerun) is not failing; the newer run's verdict, or the
+//! wait for it, counts. A check whose newest run was cancelled is reported as cancelled.
+//!
+//! Exit: 0 green (or merged); 1 a failing check, a check cancelled with no newer run, closed
+//! unmerged, or gh failing poll after poll (the message and `--json`'s detail say which:
+//! `failed`, `cancelled`, `closed`); 3 timeout; 4 the head moved off `--sha`.
 
 use super::errors::{AppError, Code};
 use crate::acpmux_mcp::pr::{self, Target};
@@ -138,6 +143,12 @@ pub(crate) fn judge(
     if pending > 0 {
         return None;
     }
+    // A check whose newest run was cancelled, with no newer run queued: no verdict is coming, so
+    // the wait ends, and says cancelled (not failing): rerun it. A cancel a newer run replaced
+    // never gets here (`pr::newest_runs`).
+    if structured.get("cancelledChecks").and_then(Value::as_array).is_some_and(|c| !c.is_empty()) {
+        return done(1);
+    }
     if count("passedChecks") == 0 && since_start < NO_CHECKS_GRACE_S {
         return None;
     }
@@ -187,13 +198,13 @@ pub(crate) struct Ctx {
 }
 
 /// Where the shared state lives: `ACPMUX_PR_WAIT_DIR`, else the user cache folder's
-/// `cmux/pr-wait`. Regenerable: deleting it costs one poll.
+/// `cmux/pr-wait` (`cmux-next/pr-wait` on macOS, `cmux_config::NEXT_DIR`). Regenerable: deleting it costs one poll.
 fn state_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("ACPMUX_PR_WAIT_DIR") {
         return Ok(PathBuf::from(dir));
     }
     let cache = dirs::cache_dir().ok_or_else(|| anyhow!("no cache folder for pr-wait's state"))?;
-    Ok(cache.join("cmux").join("pr-wait"))
+    Ok(cache.join(cmux_config::NEXT_DIR).join("pr-wait"))
 }
 
 fn read_shared(path: &Path) -> Shared {
@@ -337,12 +348,16 @@ fn wait_blocking(ctx: &Ctx, args: &PrWaitArgs, json_out: bool) -> Result<()> {
                     return Ok(());
                 }
                 Some(Outcome::Done { summary, structured, .. }) => {
-                    let detail =
-                        if structured.get("state").and_then(Value::as_str) == Some("closed") {
-                            "closed"
-                        } else {
-                            "failed"
-                        };
+                    let detail = if structured.get("state").and_then(Value::as_str)
+                        == Some("closed")
+                    {
+                        "closed"
+                    } else if structured.get("status").and_then(Value::as_str) == Some("cancelled")
+                    {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    };
                     return Err(AppError::new(Code::Runtime, detail, summary)
                         .with_data(structured)
                         .into());

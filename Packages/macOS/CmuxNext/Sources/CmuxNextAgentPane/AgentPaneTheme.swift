@@ -21,7 +21,7 @@ enum AgentPaneTheme {
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
-        return [
+        var values: [String: any Sendable] = [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
@@ -76,6 +76,11 @@ enum AgentPaneTheme {
             // How agent work shows on the transcript's running rows (`data-working-look`).
             "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
+        // The theme file's slot variants as the daemon resolved them (theme.ts configureThemeSlots);
+        // none sends no `slots` key, so every slot keeps its default.
+        let slots = DesignSettings.shared.themeSlots
+        if !slots.isEmpty { values["slots"] = slots }
+        return values
     }
 
     /// The page's background: the content background where panes paint it

@@ -493,10 +493,11 @@ fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     let dir = tempfile::tempdir().unwrap();
     let Some(git_dir) = mirror(dir.path()) else { return };
     std::fs::create_dir_all(git_dir.join("objects/pack")).unwrap();
-    std::fs::write(git_dir.join("objects/pack/pack-abc.pack"), b"").unwrap();
-    std::fs::write(git_dir.join("objects/pack/pack-abc.idx"), b"").unwrap();
+    let pack = format!("pack-{}", "a".repeat(40));
+    std::fs::write(git_dir.join(format!("objects/pack/{pack}.pack")), b"").unwrap();
+    std::fs::write(git_dir.join(format!("objects/pack/{pack}.idx")), b"").unwrap();
     let beat = beat_repo(&git_dir, "manaflow-ai/cmux");
-    assert_eq!(beat.packs, vec!["pack-abc".to_owned()]);
+    assert_eq!(beat.packs, vec![pack]);
     assert!(beat.tips.is_empty(), "no branches yet");
     let json = serde_json::to_value(Beat {
         host: "h".into(),
@@ -506,4 +507,194 @@ fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     })
     .unwrap();
     assert_eq!(json["repos"][0]["repo"], "manaflow-ai/cmux");
+}
+
+#[test]
+fn a_heartbeat_keeps_registering_with_noncanonical_pack_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let packs_dir = dir.path().join("objects/pack");
+    std::fs::create_dir_all(&packs_dir).unwrap();
+    let sha1 = format!("pack-{}", "a".repeat(40));
+    let sha256 = format!("pack-{}", "b".repeat(64));
+    let ignored = [
+        "loose-42831f7628ec33270fba5abcecbec7b4d39eae32".to_owned(),
+        "tmp_pack_abc".to_owned(),
+        "pack-abc".to_owned(),
+        format!("pack-{}", "A".repeat(40)),
+        format!("pack-{}", "g".repeat(40)),
+        format!("pack-{}", "c".repeat(41)),
+    ];
+    for name in [&sha1, &sha256].into_iter().chain(ignored.iter()) {
+        std::fs::write(packs_dir.join(format!("{name}.pack")), b"pack data").unwrap();
+    }
+    // Only files can be advertised as packs, even when a directory has a valid name.
+    std::fs::create_dir(packs_dir.join(format!("pack-{}.pack", "d".repeat(40)))).unwrap();
+    let beat = beat_repo(dir.path(), "manaflow-ai/cmux");
+    assert_eq!(beat.packs, vec![sha1, sha256]);
+    for name in ignored {
+        assert_eq!(std::fs::read(packs_dir.join(format!("{name}.pack"))).unwrap(), b"pack data");
+    }
+}
+
+/// A repo of `count` one-line files at `dir/src` that serves partial clones, and a blobless bare
+/// clone of it at `dir/partial.git` (a seed's mirror: it lacks every blob, and its promisor
+/// remote holds them), with the blob ids; `None` where this host has no git.
+fn partial_mirror(dir: &Path, count: usize) -> Option<(PathBuf, PathBuf, Vec<String>)> {
+    let run = |args: &[&str], cwd: &Path| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).ok()?;
+    run(&["init", "-q"], &src)?;
+    let mut ids = Vec::new();
+    for at in 0..count {
+        let text = format!("file {at}\n");
+        std::fs::write(src.join(format!("f{at}")), &text).ok()?;
+        ids.push(blob_id(text.as_bytes(), 40));
+    }
+    run(&["add", "."], &src)?;
+    run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "files"], &src)?;
+    run(&["config", "uploadpack.allowFilter", "true"], &src)?;
+    run(&["config", "uploadpack.allowAnySHA1InWant", "true"], &src)?;
+    let url = format!("file://{}", src.display());
+    run(&["clone", "-q", "--bare", "--filter=blob:none", &url, "partial.git"], dir)?;
+    let full = dir.join("full.git");
+    run(&["clone", "-q", "--bare", &url, "full.git"], dir)?;
+    Some((dir.join("partial.git"), full, ids))
+}
+
+#[test]
+fn a_seed_never_fetches_a_blob_it_lacks_from_its_promisor_remote() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some((partial, _, ids)) = partial_mirror(dir.path(), 2) else { return };
+    write_loose(&partial, HELLO, b"hello\n").unwrap();
+    let mut reader = crate::git::ObjectReader::spawn(&partial).unwrap();
+    // A plain `cat-file` fetched this from the promisor remote: one GitHub round trip per blob.
+    assert_eq!(reader.blob(&ids[0]), None);
+    // A miss ends git's reader; the next read is still answered.
+    assert_eq!(reader.blob(HELLO), Some(b"hello\n".to_vec()));
+    assert_eq!(reader.blob(&ids[1]), None);
+    assert_eq!(reader.blob(HELLO), Some(b"hello\n".to_vec()));
+    // Nothing was fetched into the seed's store.
+    let mut fresh = crate::git::ObjectReader::spawn(&partial).unwrap();
+    assert_eq!(fresh.blob(&ids[0]), None);
+    // Over the wire: the seed streams only what it holds, and the next seed sends the rest.
+    let lacking = start_seed(partial, test_limits());
+    let mut got = Vec::new();
+    let mut ask = ids.clone();
+    ask.push(HELLO.to_owned());
+    let answer = batch_request(&lacking, &ask, Duration::from_secs(2), &mut |oid, _| {
+        got.push(oid.to_owned());
+        true
+    });
+    assert_eq!(answer, BatchAnswer::Streamed);
+    assert_eq!(got, vec![HELLO.to_owned()]);
+}
+
+/// The before/after harness for the PR: 54 blobs (the field's missing set) asked of a nearest
+/// seed whose mirror lacks them, then a seed that holds them; `fetch_ms` is [`Chain::fill`]'s
+/// wall time, alone and with 4 fills at once. Run with
+/// `cargo test -p cmux-projection measure_fill -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn measure_fill_past_a_seed_that_lacks_the_blobs() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some((partial, full, ids)) = partial_mirror(dir.path(), 54) else { return };
+    let (lacking, holding) = (start_seed(partial, test_limits()), start_seed(full, test_limits()));
+    let fill = || {
+        let chain = Chain::new(
+            vec![remote("peer", &lacking), remote("peer", &holding)],
+            Box::new(Http::new().unwrap()),
+        );
+        let started = Instant::now();
+        let (rest, filled) = chain.fill(&ids, &|_, _| Ok(()));
+        assert!(rest.is_empty(), "{} left for git", rest.len());
+        assert_eq!(filled.peer, ids.len());
+        started.elapsed().as_millis()
+    };
+    println!("fetch_ms alone: {}", fill());
+    let duress: Vec<u128> = std::thread::scope(|scope| {
+        let runs: Vec<_> = (0..4).map(|_| scope.spawn(fill)).collect();
+        runs.into_iter().map(|run| run.join().unwrap()).collect()
+    });
+    println!("fetch_ms 4 at once: {duress:?}");
+}
+
+/// A stand-in seed index: answers each connection by the next step of `steps` (`None` holds the
+/// connection past the try's bound, as the slow index does), the last step repeating. Returns its
+/// URL and the count of requests it read.
+fn beat_index(steps: Vec<Option<u16>>) -> (String, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1/seeds/heartbeat", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(0));
+    let counter = Arc::clone(&seen);
+    std::thread::spawn(move || {
+        for (n, stream) in listener.incoming().enumerate() {
+            let Ok(mut stream) = stream else { continue };
+            let step = steps[n.min(steps.len() - 1)];
+            *counter.lock().unwrap() += 1;
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                match step {
+                    None => std::thread::sleep(Duration::from_secs(3)),
+                    Some(code) => {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {code} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        );
+                    }
+                }
+            });
+        }
+    });
+    (url, seen)
+}
+
+fn beat_client() -> reqwest::blocking::Client {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::blocking::Client::builder().pool_max_idle_per_host(0).build().unwrap()
+}
+
+const TEST_POLICY: BeatPolicy = BeatPolicy {
+    attempt: Duration::from_millis(300),
+    period: Duration::from_secs(5),
+    backoff: Duration::from_millis(50),
+};
+
+#[test]
+fn a_slow_or_failing_index_is_retried_within_the_same_beat() {
+    // A try past its bound, then a 503, then the index takes it: one beat, three tries.
+    let (url, seen) = beat_index(vec![None, Some(503), Some(200)]);
+    let start = Instant::now();
+    let tries = post_beat(&beat_client(), &url, None, b"{}", TEST_POLICY, start);
+    assert_eq!(tries, Ok(3));
+    assert_eq!(*seen.lock().unwrap(), 3);
+    assert!(start.elapsed() < TEST_POLICY.period);
+}
+
+#[test]
+fn a_refused_beat_is_not_retried() {
+    let (url, seen) = beat_index(vec![Some(401)]);
+    let result = post_beat(&beat_client(), &url, None, b"{}", TEST_POLICY, Instant::now());
+    assert!(result.is_err_and(|error| error.contains("401")));
+    assert_eq!(*seen.lock().unwrap(), 1);
+}
+
+#[test]
+fn retries_stop_when_the_next_beat_is_due() {
+    let policy = BeatPolicy { period: Duration::from_secs(1), ..TEST_POLICY };
+    let (url, seen) = beat_index(vec![Some(503)]);
+    let start = Instant::now();
+    let result = post_beat(&beat_client(), &url, None, b"{}", policy, start);
+    assert!(result.is_err_and(|error| error.contains("503")));
+    assert!(*seen.lock().unwrap() >= 3, "retried within the beat");
+    assert!(start.elapsed() < policy.period + Duration::from_millis(500));
 }
