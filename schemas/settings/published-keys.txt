@@ -25,6 +25,7 @@ agentPane.display.fullWidth
 agentPane.display.harnessPlacement
 agentPane.display.inspector.placement
 agentPane.display.minimap
+agentPane.display.modelPickerOrder
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach
