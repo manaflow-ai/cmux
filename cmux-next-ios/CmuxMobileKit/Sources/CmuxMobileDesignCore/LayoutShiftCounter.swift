@@ -99,8 +99,8 @@ public struct LayoutShiftCounter: Sendable {
         shiftFrames += 1
         shiftedRows += shifted.count
         lastMoved = Self.describe(first.id, first.before, first.after)
-        for move in shifted.sorted(by: { $0.id < $1.id }) where moves.count < Self.movesKept {
-            moves.append("\(frames):\(Self.describe(move.id, move.before, move.after))")
+        for move in shifted.sorted(by: { $0.id < $1.id }) where self.moves.count < Self.movesKept {
+            self.moves.append("\(frames):\(Self.describe(move.id, move.before, move.after))")
         }
         return shifted.count
     }
