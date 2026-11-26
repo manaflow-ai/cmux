@@ -1522,7 +1522,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 // `agent-cli-phone-grid-v1`: this phone's own grid, which the Mac draws an agent
                 // CLI at (never a size report: the Mac keeps its size).
                 let view = phoneGridOffered ? (lastSize ?? pendingSize) : nil
-                func attachRequest(_ params: [String: Any]) async throws -> Data {
+                func attachRequest(_ params: sending [String: Any]) async throws -> Data {
                     var params = params
                     if let view {
                         params["view_cols"] = view.columns
