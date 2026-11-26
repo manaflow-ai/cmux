@@ -86,6 +86,7 @@ public final class SettingsApplier {
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
+        if design.agentSignature != snapshot.agentSignature { design.agentSignature = snapshot.agentSignature }
         if design.backgroundPlacements != snapshot.backgroundPlacements { design.backgroundPlacements = snapshot.backgroundPlacements }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
         if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
