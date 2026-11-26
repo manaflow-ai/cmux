@@ -123,7 +123,7 @@ public struct TerminalConnectingView: View {
 /// offline, the page says what is going on in words with Retry, and tries the attach again by
 /// itself after each of ``retryDelays`` (the last one repeating) while the cover is up.
 enum TerminalLoadWatch {
-    /// How long the skeleton shows before the page says it is still connecting.
+    /// How long the skeleton shows before the page offers Retry.
     static let bound: Duration = .seconds(8)
     /// The waits between the page's own retries of the attach, the first after ``bound``.
     static let retryDelays: [Duration] = [.seconds(8), .seconds(15), .seconds(30), .seconds(60)]
@@ -137,22 +137,19 @@ enum TerminalLoadWatch {
     enum Stage: Equatable {
         /// The skeleton (or the Mac's screen text): the rows are on their way.
         case loading
-        /// Words and Retry, no gray bars.
-        case stalled(title: String, detail: String?)
+        /// Retry, with failure details only when the connection has failed or is offline.
+        case stalled
     }
 
     static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch state {
         case .attached:
             return .loading
-        case .failed:
-            return .stalled(title: "Can't reach this terminal", detail: "Check that the Mac is on and cmux is open.")
-        case .offline:
-            return .stalled(title: state.quietLine ?? "Your Mac is offline", detail: "The terminal opens when it is back.")
-        case .connecting(let mac), .reattaching(let mac):
+        case .failed, .offline:
+            return .stalled
+        case .connecting, .reattaching:
             guard waited >= bound else { return .loading }
-            return .stalled(title: "Still connecting to \(named(mac))", detail: "Trying again.")
+            return .stalled
         }
     }
 }
@@ -160,9 +157,20 @@ enum TerminalLoadWatch {
 /// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
 /// on the page, in place of the skeleton.
 struct TerminalLoadStalledPanel: View {
-    let title: String
-    let detail: String?
+    let state: TerminalConnectionState
     let retry: @MainActor () async -> Void
+
+    /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
+    static func notice(_ state: TerminalConnectionState) -> (title: String, detail: String)? {
+        switch state {
+        case .failed:
+            return ("Can't reach this terminal", "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return (state.quietLine ?? "Your Mac is offline", "The terminal opens when it is back.")
+        case .attached, .connecting, .reattaching:
+            return nil
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -170,12 +178,12 @@ struct TerminalLoadStalledPanel: View {
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(Color.white.opacity(0.6))
                 .accessibilityHidden(true)
-            Text(verbatim: title)
-                .font(.headline)
-                .foregroundStyle(Color.white)
-                .multilineTextAlignment(.center)
-            if let detail {
-                Text(verbatim: detail)
+            if let notice = Self.notice(state) {
+                Text(verbatim: notice.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                Text(verbatim: notice.detail)
                     .font(.subheadline)
                     .foregroundStyle(Color.white.opacity(0.7))
                     .multilineTextAlignment(.center)

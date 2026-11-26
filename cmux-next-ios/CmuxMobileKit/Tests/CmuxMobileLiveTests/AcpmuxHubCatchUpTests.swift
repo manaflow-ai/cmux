@@ -138,6 +138,7 @@ import CmuxMobileLinkFFI
         #expect(hub.catchUpChats().first?.lastSeq == 200)
     }
 
+    // `MacCatchUps` lives behind `canImport(CmuxMobileLinkFFI)`; plain `swift test` on macOS has no FFI.
     #if canImport(CmuxMobileLinkFFI)
     @Test func settingOffAsksNoMac() {
         let defaults = UserDefaults(suiteName: "AcpmuxHubCatchUpTests.\(UUID().uuidString)")!
