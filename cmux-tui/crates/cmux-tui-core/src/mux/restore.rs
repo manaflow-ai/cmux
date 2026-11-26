@@ -333,6 +333,7 @@ pub(super) fn restore_resource_state(
         workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
     let workspace_id_by_key =
         workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
+    let workspace_name_numbers = crate::model::WorkspaceNameNumbers::of(&workspaces);
     // One set of route generations for the four routing tables of this session state (`crate::route_table`).
     let route_generations = crate::route_table::RouteGenerations::default();
     Ok(RestoredResourceState {
@@ -340,6 +341,7 @@ pub(super) fn restore_resource_state(
             workspaces,
             workspace_index_by_id,
             workspace_id_by_key,
+            workspace_name_numbers,
             workspace_revision,
             pane_revision: panes.len() as u64,
             resource_revision,

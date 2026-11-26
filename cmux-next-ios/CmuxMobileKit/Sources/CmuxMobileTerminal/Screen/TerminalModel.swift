@@ -60,9 +60,31 @@ public final class TerminalModel {
     var sticky = TerminalStickyModifiers()
 
     // Composer
+    /// The draft. Only the text field reads it while typing: a view body that read it was
+    /// built again on every key (the whole composer, its strip and its buttons: tens of size
+    /// questions per key in a long draft; Leo, 2026-11-23). Views read `composerHasText`.
     public var composerText = "" {
-        didSet { if composerText != oldValue { onDraftChange?() } }
+        didSet {
+            guard composerText != oldValue else { return }
+            let hasText = !composerText.isEmpty
+            if composerHasText != hasText { composerHasText = hasText }
+            if !puttingComposerText { composerEdited() }
+            onDraftChange?()
+        }
     }
+    /// Set while the model itself writes the draft (``putComposerText(_:)``): that is not the
+    /// person editing it, so a notice set with it stays.
+    @ObservationIgnored private var puttingComposerText = false
+    /// The model's own write of the draft (a dropped send coming back, a sent one cleared):
+    /// unlike the person's edit, it keeps the composer's notice. Since #52667 every write of
+    /// `composerText` counted as an edit and cleared the "not sent" notice it came back with.
+    func putComposerText(_ text: String) {
+        puttingComposerText = true
+        defer { puttingComposerText = false }
+        composerText = text
+    }
+    /// Whether the draft has any text: changes on the first key and on clearing, not per key.
+    public private(set) var composerHasText = false
     /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
     @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
@@ -111,6 +133,11 @@ public final class TerminalModel {
     public internal(set) var composerPresented = true
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
+    /// Wide (the key row's Wide key, the page menu's Wide View): the grid is
+    /// wider than the page (`TerminalHostGridLayout.wideColumns`), so a wide
+    /// table or a long line stays one row and the page pans sideways to it.
+    /// For this page's life.
+    public internal(set) var wideOutput = false
     /// A send is waiting for its attachments to reach the Mac. The composer
     /// stays usable: Send turns into Stop (``cancelSend()``), tiles can be
     /// removed, and the text can be edited meanwhile.
@@ -168,9 +195,10 @@ public final class TerminalModel {
     public var pageStarted: Bool { controller?.started == true }
 
     /// A tab rebuilt after it was cooled out of the warm set (a new, empty
-    /// surface): its page as last seen, which the page shows dimmed under the
-    /// connecting label until the Mac's terminal is attached again. Cleared on
-    /// attach, so a later dropped link never covers the live surface with it.
+    /// surface): its page as last seen, for the tab's grid card. The page itself
+    /// never shows it (a still takes no scroll or tap): its surface shows the
+    /// kept rows live (``restoreLastRows(_:)``). Cleared once the Mac's output
+    /// is drawn, so a later dropped link never stands for the live surface.
     public private(set) var coldFrame: UIImage?
 
     public func restoreLastFrame(_ image: UIImage?) {
@@ -178,6 +206,61 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+        measureColdFrame(image)
+    }
+
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured when the frame is
+    /// restored; nil for no frame or a blank one.
+    public private(set) var coldFrameRows: TerminalFrameRows?
+    /// The cached frame has been measured (its rows may still be nil: a blank still).
+    public private(set) var coldFrameMeasured = false
+
+    /// Measured at once, in the call that restores the frame: the page's first frame already
+    /// draws the still in its place (Leo, 2026-11-24: "the loading has layout shifts and
+    /// placeholder states that likely dont need to be so placeholder and better diffed"). A
+    /// measure off the main thread left a frame or two with nothing, then the still popped in.
+    /// The scan reads a 256 px wide copy (a few ms), once per restored still; the same still
+    /// handed to the next host (a reconnect, the warm set) is not measured again.
+    private func measureColdFrame(_ image: UIImage) {
+        coldFrameRows = TerminalFrameRowsMemo.rows(for: image)
+        coldFrameMeasured = true
+    }
+
+    /// The page as last seen, as rows (`TerminalSeed`): fed into this host's fresh surface
+    /// when its session starts (``takeSeed()``), so a restored page is live at once.
+    @ObservationIgnored private var seedRows: String?
+    /// The rows this host was given, kept for a host cooled before it drew the Mac's output.
+    @ObservationIgnored private var restoredRows: String?
+    /// The surface was fed the page's rows before the attach: it shows them live (scrollable,
+    /// taking keys), so nothing covers it while it connects.
+    public private(set) var seeded = false
+
+    /// The page's rows as last seen on this phone (a cold launch, a tab back from the warm set).
+    public func restoreLastRows(_ rows: String?) {
+        guard let rows, !rows.isEmpty else { return }
+        seedRows = rows
+        restoredRows = rows
+    }
+
+    /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
+    /// the Mac's screen text when it came first. Once, at the session's start.
+    func takeSeed() -> Data? {
+        guard !seeded, let rows = seedRows ?? cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) else { return nil }
+        seedRows = nil
+        seeded = true
+        return TerminalSeed.bytes(rows: rows)
+    }
+
+    /// The page's rows for the next host or launch: nil while the surface holds nothing of the
+    /// Mac's (the same gate as a frame, `TerminalFrameKeep`). Takes the surface lock: on demand.
+    public func rowsForSaving() -> String? {
+        guard drewLiveOutput, let text = controller?.surface.screenText() else { return nil }
+        return TerminalSeed.rows(fromScreenText: text)
+    }
+
+    /// What a cooled host hands the next one: its live rows, else the rows it was given.
+    public func rowsToKeep() -> String? {
+        rowsForSaving() ?? restoredRows
     }
 
     /// The cached frame this host was given (`restoreLastFrame`), kept after
@@ -193,6 +276,8 @@ public final class TerminalModel {
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
+    /// The composer's text view, for the controller's inset (`stripOverlap`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
 
     public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
                 quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -203,6 +288,8 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         quietStatus.update(down: !session.connectionState.isAttached)
+        // Listening from the first terminal on: a cached frame is laid out at the keyboard's height.
+        _ = TerminalKeyboardHeight.shared
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -344,12 +431,26 @@ public final class TerminalModel {
                 composerSendRefused = true
             } else if let held = heldComposerSend, composerText.isEmpty,
                ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
-                composerText = held.text
+                putComposerText(held.text)
             }
             heldComposerSend = nil
+        case .inputHeld(let bytes):
+            heldKeyBytes = max(0, bytes)
         case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
+    }
+
+    /// Typed bytes waiting for the attach (``TerminalSessionEvent/inputHeld(bytes:)``): while
+    /// any do, the composer says so and offers Discard (``discardHeldKeys()``).
+    public internal(set) var heldKeyBytes = 0
+
+    /// The person's Discard on the pending-keys line: the held keys are never sent, and their
+    /// predicted glyphs go.
+    public func discardHeldKeys() {
+        session.discardHeldInput()
+        heldKeyBytes = 0
+        controller?.surface.prediction?.inputDropped()
     }
 
     /// Files and links in a batch of output (the screen's per-frame batch).
@@ -446,7 +547,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
@@ -551,28 +652,57 @@ public final class TerminalModel {
     /// moved against the keyboard (down while it shows, up while it hides):
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
+    /// Pinches and double taps that zoomed the alternate screen's grid.
+    public internal(set) var zoomGestures = 0
+    /// The alternate screen's zoom over the Mac's grid (1: readable).
+    public internal(set) var zoomScale: Double = 1
+    /// The settle probe (``TerminalViewController/startSettleProbe``):
+    /// milliseconds from its start to the first display frame that shows the
+    /// full-screen app right; -1 while it runs, -2 when none came in 5 s.
+    public internal(set) var settleMs = -1
+    /// Display frames of a full-screen app drawn at a grid that is not its
+    /// final one (a size change still on its way: "uncompact then squish").
+    public internal(set) var unsettledTUIFrames = 0
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
+    /// PTY), nil while a size change is on its way (the settle probe).
+    @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
     #endif
 
-    /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    /// Refreshes `snapshot` from the live page, rendered here on the main
+    /// thread: for callers that need the picture now (the background save).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
-            #if DEBUG
-            if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
-            }
-            #endif
+            Self.dumpCard(image)
         }
+    }
+
+    /// The grid is about to open on this page: the frame is copied here and
+    /// composed off the main thread, and `snapshot` follows once it is
+    /// (`TerminalTabHost.prepareCard`). Rendered in the tap (`captureSnapshot`),
+    /// it was the zoom's first frame: Leo, 2026-11-22, "the button clicking is
+    /// not smooth. it's not 120fps." The zoom draws the live page, and the
+    /// still is first shown when the grid settles (`showsStaticCard`), a
+    /// spring later than the render takes.
+    public func captureSnapshotOffMain() {
+        guard let capture = controller?.capture(hidingCursor: false) else { return }
+        renderCard(capture)
     }
 
     /// The grid is open and the page drew output (D6): its card is taken
@@ -581,17 +711,34 @@ public final class TerminalModel {
     /// with no presented frame keeps the card as it is.
     public func refreshCardSnapshot() {
         guard let capture = controller?.capture(hidingCursor: false), capture.surface != nil || capture.fallback != nil else { return }
+        renderCard(capture)
+    }
+
+    /// Composes `capture` off the main thread into `snapshot`; a newer card
+    /// (another refresh, the grid opening, a main-thread capture) wins.
+    private func renderCard(_ capture: TerminalPageCapture) {
         cardRenders += 1
         let serial = cardRenders
         cardSnapshotAt = CACurrentMediaTime()
-        Task { @MainActor [weak self] in
+        cardRender = Task { @MainActor [weak self] in
             let image = await Task.detached(priority: .userInitiated) { capture.render() }.value
-            // A newer card (another refresh, the grid opening) wins.
             guard let self, let image, serial == self.cardRenders else { return }
             self.snapshot = image
+            Self.dumpCard(image)
         }
     }
+
+    /// The last off-main card render (tests await it).
+    @ObservationIgnored private(set) var cardRender: Task<Void, Never>?
     @ObservationIgnored private var cardRenders = 0
+
+    private static func dumpCard(_ image: UIImage) {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
+        }
+        #endif
+    }
 
     public func focusComposer() {
         directTyping = false
@@ -613,25 +760,46 @@ public final class TerminalModel {
             return
         }
         holdComposerText()
-        // A draft that goes as a paste goes to the Mac's terminal as one paste
-        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
-        // draft typed into a full-screen app, a bare Return, or a session with
-        // no Mac daemon goes through the mirror as before.
+        // The draft and its Return go to the Mac's terminal as one request when
+        // the session can: a paste plus Return (`sendPasteAndSubmit`), or a
+        // one-line draft for a full-screen app typed plus Return
+        // (`sendTypedAndSubmit`), so a blip never delivers the text without
+        // its Return. A bare Return, or a session with no Mac daemon, goes
+        // through the mirror as before.
         let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
         let text = composerText
         controller?.noteSent(text)
         composerSending = true
-        let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(
-                text,
-                notSent: { [weak self] in self?.composerSendNotSent(text) },
-                maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
-            )
+        let viaDaemon = sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerSendNotSent(text) },
+            maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
+        )
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
         }
         finishComposerSend()
+    }
+
+    /// `submit`'s text and its Return as one request where the terminal runs
+    /// (a Mac daemon's `send` with `submit`), when the session can: a paste
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``) or typed
+    /// text (``TerminalSession/sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    /// Never the text and a separate Return that a link blip can split (Leo,
+    /// 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). False: the caller sends through the mirror.
+    private func sendThroughSession(
+        _ submit: ComposerSubmit,
+        notSent: @escaping @MainActor () -> Void,
+        maybeSent: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard submit.steps.count == 2, submit.steps.last == .enter else { return false }
+        switch submit.steps.first {
+        case .paste(let text): return session.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        case .type(let text): return session.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        default: return false
+        }
     }
 
     /// Inside `send`, handing the draft to the session.
@@ -647,7 +815,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = true
         } else if composerText.isEmpty {
-            composerText = text
+            putComposerText(text)
         }
     }
 
@@ -661,7 +829,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = false
         } else if composerText == text {
-            composerText = ""
+            putComposerText("")
         }
     }
 
@@ -683,7 +851,7 @@ public final class TerminalModel {
         if composerSendRefused {
             composerSendRefused = false
         } else {
-            composerText = ""
+            putComposerText("")
         }
     }
 
@@ -700,9 +868,18 @@ public final class TerminalModel {
     /// Returns false when nothing was typed.
     @discardableResult
     public func sendVoicePrompt(_ text: String) -> Bool {
-        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
-        controller.noteSent(text)
-        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        guard connectionState.composerNotSentNotice == nil else { return false }
+        controller?.noteSent(text)
+        let submit = ComposerSubmit(text: text, pressReturn: true, fullScreenApp: isTUI)
+        if sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerNotice = TerminalConnectionState.composerSendNotSentNotice },
+            maybeSent: { [weak self] in self?.composerNotice = TerminalConnectionState.composerSendMaybeSentNotice }
+        ) {
+            return true
+        }
+        guard let controller else { return false }
+        controller.surface.perform(submit)
         return true
     }
 
@@ -811,9 +988,15 @@ public final class TerminalModel {
     private func finishAttachmentSend(paths: [String], pending: [ComposerAttachment], pressReturn: Bool) {
         isUploading = false
         uploadTask = nil
-        let submit = ComposerSubmit(attachmentPaths: paths, text: composerText, pressReturn: pressReturn)
-        if pressReturn { controller?.noteSent(composerText) }
-        controller?.surface.perform(submit)
+        let draft = composerText
+        let submit = ComposerSubmit(attachmentPaths: paths, text: draft, pressReturn: pressReturn)
+        if pressReturn { controller?.noteSent(draft) }
+        let viaDaemon = sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerSendNotSent(draft) },
+            maybeSent: { [weak self] in self?.composerSendMaybeSent(draft) }
+        )
+        if !viaDaemon { controller?.surface.perform(submit) }
         composerText = ""
         attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
     }
@@ -882,7 +1065,7 @@ public final class TerminalModel {
     #if DEBUG
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
-    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool, file: Bool = true) {
         composerText = text
         guard withAttachments else { return }
         let colors: [UIColor] = [.systemOrange, .systemTeal]
@@ -895,7 +1078,51 @@ public final class TerminalModel {
             }
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
+        guard file else { return }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// `count` characters of prose, sentences and paragraph breaks, for
+    /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
+    public static func demoProse(_ count: Int, oneParagraph: Bool = false) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.utf8.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
+        }
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
+    }
+
+    /// Demo driver `live-attach` (the pair-e2e rig's attachment leg): a picked video, as the Photos
+    /// picker hands it over (a file on the phone), starts uploading at once like any pick.
+    public func demoAttachVideo(at url: URL) {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        addAttachment(ComposerAttachment(kind: .video, name: url.lastPathComponent, byteCount: size, fileURL: url))
+    }
+
+    /// Demo driver `live-attach`: the first tile's X, as a tap on it does.
+    public func demoRemoveFirstAttachment() {
+        if let id = attachments.first?.id { removeAttachment(id) }
+    }
+
+    /// Demo driver `live-attach`: the first tile's upload, for the rig's log ("none" without one).
+    public func demoUploadState() -> String {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return "none" }
+        return "\(p.stage) \(p.ackedBytes)/\(p.totalBytes) attempt \(p.attempt)"
+    }
+
+    /// Demo driver `live-attach`: whether the first tile's upload moves bytes (past the Mac's first ack).
+    public var demoUploadAcked: Bool {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return false }
+        return p.stage == .uploading && p.ackedBytes > 0 && p.ackedBytes < p.totalBytes
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
@@ -915,12 +1142,23 @@ public final class TerminalModel {
     }
     #endif
 
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: how many key-row keys fired and the last
+    /// one's identifier ("3:ctrl-c"), read through the composer's `terminal.keyBar.fired` probe.
+    var keyBarFired = "0"
+    @ObservationIgnored private var keyBarFiredCount = 0
+    #endif
+
     func keyBar(_ key: KeyBarKey) {
+        #if DEBUG
+        keyBarFiredCount += 1
+        keyBarFired = "\(keyBarFiredCount):\(key.identifier)"
+        #endif
         guard let surface = controller?.surface else { return }
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.
         let resetsModifiers: Bool = switch key {
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        case .paste, .zoomOut, .zoomIn, .wide, .composer, .hideChrome, .launcher: true
         default: false
         }
         if resetsModifiers { surface.input.sticky.reset() }
@@ -948,6 +1186,7 @@ public final class TerminalModel {
         case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
         case .composer: composeKeyTapped()
         case .hideChrome: setChromeHidden(true)
+        case .wide: setWide(!wideOutput)
         }
         sticky = surface.input.sticky
     }
@@ -979,6 +1218,24 @@ public final class TerminalModel {
             controller?.focusTerminal()
         }
         controller?.dockChanged()
+    }
+
+    /// Wide on or off: the page claims the wide grid (or the page's own
+    /// again) and pans sideways while it is wider than the page.
+    func setWide(_ on: Bool) {
+        guard wideOutput != on else { return }
+        wideOutput = on
+        controller?.wideChanged()
+    }
+
+    /// Wide View, the dedicated view for wide output (Leo, 2026-11-23: "being
+    /// able to flip [it] horizontally and actually have a dedicated view would
+    /// help too"): Wide on and the key row, composer and keyboard away, so the
+    /// grid has the whole page. A tap on the terminal brings them back (as
+    /// Hide Toolbar); Wide stays on until its key turns it off.
+    public func openWideView() {
+        setWide(true)
+        setChromeHidden(true)
     }
 
     /// Hide Toolbar: the key row, the composer and the keyboard go away until

@@ -20,15 +20,16 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Face } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
-import { ChevronRight } from "./icons";
+import { ChevronRight, Check, Close } from "./icons";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
+import "./cardFit.css";
 import { messagePreview, type IncomingMessage } from "./incomingMessage";
 import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 import { heldLook, heldFiles } from "./queuedMessageCardModel";
-import { sentVideoFor, sentVideosOf } from "./sentVideos";
+import { sentVideosOf, sentVideoFor } from "./sentVideos";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
@@ -176,16 +177,23 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
     const files = heldFiles(row.inlineParts).filter((file) => !sentVideoFor(file, videos));
     return { videos, files, images: withoutVideoFrames(row).images };
   }, [row]);
-  const button = (approve: boolean) => (
-    <button
-      type="button"
-      className={approve ? "cv-held__approve" : "cv-held__decline"}
-      disabled={answering || updating}
-      onClick={() => answer(approve)}
-    >
-      {t(approve ? "queue.held.approve" : "queue.held.decline")}
-    </button>
-  );
+  // Words shrink to icons in a narrow card (cardFit.css); the name stays on the button.
+  const button = (approve: boolean) => {
+    const word = t(approve ? "queue.held.approve" : "queue.held.decline");
+    return (
+      <button
+        type="button"
+        className={approve ? "cv-held__approve" : "cv-held__decline"}
+        disabled={answering || updating}
+        title={word}
+        aria-label={word}
+        onClick={() => answer(approve)}
+      >
+        {approve ? <Check size={14} /> : <Close size={14} />}
+        <span className="cv-fit-label">{word}</span>
+      </button>
+    );
+  };
   const menu = (
     <span className="cv-received-actions cv-received__queued-actions">
       <Menu>
@@ -227,7 +235,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   return (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the held card takes the focus so Return approves it (design/chat-multiplayer.md)
     <div
-      className="cv-incoming cv-held"
+      className="cv-incoming cv-held cv-fit"
       data-queued-message={promptId}
       data-held={held || undefined}
       data-look={held ? look : undefined}
@@ -247,7 +255,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         actions={
           <>
             {answers && look === "inline" && (
-              <span className="cv-held__actions">
+              <span className="cv-held__actions cv-fit-actions">
                 {button(true)}
                 {button(false)}
               </span>
@@ -271,7 +279,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         }
       />
       {answers && look === "bar" && (
-        <div className="cv-held__actions cv-held__bar">
+        <div className="cv-held__actions cv-held__bar cv-fit-actions">
           {button(true)}
           {button(false)}
         </div>
@@ -285,12 +293,8 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
 function DeclinedLine({ row, person }: { row: AcpmuxRow; person?: Participant }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, row.id));
+  const { open, toggle } = useDisclosure({ message: row.id, sessionId: session });
   const text = row.text ?? "";
-  const toggle = () => {
-    setMessageOpened(session, row.id, !open);
-    setOpen(!open);
-  };
   return (
     <div className="cv-incoming cv-declined" data-declined-message={row.queuedMessage?.promptId}>
       <button type="button" className="cv-declined__line" aria-expanded={open} onClick={toggle}>

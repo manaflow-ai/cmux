@@ -53,3 +53,13 @@ public nonisolated enum WorkspaceRowKind: String, CaseIterable, Hashable, Sendab
     /// Tabs of more than one kind.
     case mixed
 }
+
+/// Where a workspace row draws its status mark (`sidebar.workspaceRow.statusPlacement`): the
+/// spinner, the blocked, done and error glyphs, or the agent mark standing in for them.
+public nonisolated enum WorkspaceRowStatusPlacement: String, CaseIterable, Hashable, Sendable {
+    /// On the trailing column, as every row draws it by default.
+    case trailing
+    /// In the leading icon slot, before the title: a minimal session list. The slot is kept while
+    /// the row is idle (its icon, or nothing), so the title never moves as work starts or stops.
+    case leading
+}
