@@ -540,6 +540,11 @@ jobs:
       # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the action exports alone.
       verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+      # The exporter ran and could not make them (it exits 2 when it cannot decide): only then does the Mac make them.
+      # A checkout, fetch or setup that failed before it (the pool's GitHub fetch timing out, 2026-11-25) leaves this
+      # job red and the exports unverified, so repair holds them back as it does when the Mac fails; the Mac fallback
+      # failed too in 282 of the 290 runs it took that day (5,700 Mac min), so it no longer runs for those.
+      fallback: ${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}
     steps:
       # git before the checkout, or it downloads a tarball with no history to fetch the pin's commit into.
       - name: Install git, python3 and curl
@@ -562,9 +567,15 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Three tries: the pool's fetch from GitHub stalled ("Operation too slow") in most of the runs that sent
+        # these exports to the Mac on 2026-11-25.
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
+          for try in 1 2 3; do
+            git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA" && exit 0
+            [[ "$try" == 3 ]] || { echo "::warning::fetch try $try failed; retrying in $((try * 10)) s"; sleep $((try * 10)); }
+          done
+          exit 1
 
       - name: Autofix scripts from the base
         env:
@@ -637,6 +648,8 @@ jobs:
       # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the settings exports alone.
       verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+      # The exporter ran and could not decide: only then does the Mac make them (see action-exports-linux).
+      fallback: ${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -654,9 +667,15 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Three tries: the pool's fetch from GitHub stalled ("Operation too slow") in most of the runs that sent
+        # these exports to the Mac on 2026-11-25.
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
+          for try in 1 2 3; do
+            git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA" && exit 0
+            [[ "$try" == 3 ]] || { echo "::warning::fetch try $try failed; retrying in $((try * 10)) s"; sleep $((try * 10)); }
+          done
+          exit 1
 
       - name: Refuse stale generator inputs
         env:
@@ -701,7 +720,7 @@ jobs:
     # them (it is skipped for a fork, so a fork regenerates here). The action exports are action-exports-linux's and
     # the settings exports settings-exports-linux's: this Mac makes each only as its fallback, when that job did not
     # (it logs why).
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true') || (needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true')) && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
     # cmux-next.yml's generated files make the same exports). They take the owned gui label only
     # when action-areas saw a gui runner idle (mac_runner, cmux_next_media_runner.py --idle-now
@@ -866,14 +885,14 @@ jobs:
       # A catalog that does not build is the pull request's own red elsewhere;
       # this job then hands over nothing and the other repairs still run.
       - name: Say why the Mac makes the action exports
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         env:
           LINUX_RESULT: ${{ needs.action-exports-linux.result }}
         run: echo "::warning title=mac fallback::action exports (Linux) did not make the action exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
 
       - name: Regenerate the action exports
         id: regenerate
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -891,14 +910,14 @@ jobs:
       # join the action-exports artifact only when the whole regeneration
       # succeeded: a failed one hands repair nothing half-made.
       - name: Say why the Mac makes the settings exports
-        if: needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
         env:
           LINUX_RESULT: ${{ needs.settings-exports-linux.result }}
         run: echo "::warning title=mac fallback::settings exports (Linux) did not make the settings exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
 
       - name: Regenerate the settings exports
         id: settings
-        if: needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -934,8 +953,8 @@ jobs:
         id: require-exports
         if: always()
         env:
-          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true' }}
-          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings == 'true' && needs.settings-exports-linux.outputs.verified != 'true' }}
+          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true') }}
+          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true') }}
           ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
           SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
           ACTIONS_OUTCOME: ${{ steps.regenerate.outcome }}
