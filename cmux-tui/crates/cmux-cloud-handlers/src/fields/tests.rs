@@ -164,6 +164,26 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
 }
 
 #[test]
+fn a_create_with_options_says_whether_its_machine_was_reused() {
+    let made = |created: f64| -> Created {
+        serde_json::from_value(json!({
+            "machine": {"id": "vm-5", "title": "t", "status": "running", "createdAt": created},
+            "askedAt": 1_764_000_000.0,
+        }))
+        .unwrap()
+    };
+    let reused = created(&NewMachine::default(), &made(1_764_000_000.0 - 600.0));
+    assert_eq!(reused["reused"], json!(true));
+    let own = created(&NewMachine::default(), &made(1_764_000_000.0 + 40.0));
+    assert_eq!(own["reused"], json!(false));
+    assert!(own["created_at"].is_string());
+    // NaN or infinite times (a broken record) claim nothing.
+    let mut broken = made(0.0);
+    broken.machine.created_at = Some(f64::NAN);
+    assert!(!created(&NewMachine::default(), &broken).contains_key("reused"));
+}
+
+#[test]
 fn a_create_with_no_script_says_none() {
     let made: Created = serde_json::from_value(json!({
         "machine": {"id": "vm-4", "title": "t", "status": "running"},
