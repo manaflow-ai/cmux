@@ -87,7 +87,11 @@ pub(super) fn run(_global: &GlobalArgs, command: &Command) -> i32 {
     match done {
         Ok(report) => {
             let mut line = serde_json::to_value(&report).unwrap_or_else(|_| json!({}));
-            line["ok"] = json!(true);
+            if let Some(fields) = line.as_object_mut() {
+                fields.insert("ok".to_owned(), json!(true));
+            } else {
+                line = json!({ "ok": true });
+            }
             let _ = writeln!(std::io::stdout().lock(), "{line}");
             0
         }

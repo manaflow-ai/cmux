@@ -55,7 +55,8 @@ pub fn publish(tree: &Path, out: &Path) -> Result<Published> {
     })?;
     let mut w = Writer::default();
     for c in manifest.distinct_chunks() {
-        w.push(c.id, &files[&c.id])?;
+        let bytes = files.get(&c.id).ok_or("every distinct chunk was encoded")?;
+        w.push(c.id, bytes)?;
     }
     let (pack, index) = w.finish();
     let pack_id = index.pack.ok_or("a finished pack has an id")?;
