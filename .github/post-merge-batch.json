@@ -454,7 +454,8 @@
         "schemas/instrument/instrument.json",
         "schemas/layout-grid/layout-grid.json",
         "schemas/motion-scale/motion-scale.json",
-        "schemas/type-scale/type-scale.json"
+        "schemas/type-scale/type-scale.json",
+        "schemas/design-scale/scene-scale.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
