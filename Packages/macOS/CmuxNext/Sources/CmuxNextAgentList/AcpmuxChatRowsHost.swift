@@ -65,11 +65,12 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
     }
 
     /// A batch out to the page: its number, the driver it came from (nil: a carried batch, which
-    /// owes no driver an ack), the page call that carried it, and when it goes again untaken.
+    /// owes no driver an ack), the JSON text that carried it (resent as it is: the same number), and
+    /// when it goes again untaken.
     private struct Outstanding {
         var batch: Int
         var driver: AcpmuxClientByteConnection?
-        var script: String
+        var batchText: String
         /// How long the page has from the last send (``ackWait``, doubled each send to ``lastAckWait``).
         var wait: TimeInterval
         /// Uptime nanoseconds when ``wait`` runs out.
@@ -115,6 +116,8 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
     private let state = Mutex(State())
     private let socketPath: String
     private let deliver: @Sendable (String) -> Void
+    /// The page's fixed call for every batch; `deliver`'s text is its `batch` argument.
+    public static let receiveBody = AcpmuxChatRowsBatch.receiveBody
     private let makeClient: @Sendable () -> AcpmuxClient
     private let connector: Connector
     /// ``hiddenInterval``, or a test's own.
@@ -124,7 +127,9 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
 
     /// - Parameters:
     ///   - socketPath: The pane's own daemon socket on this machine.
-    ///   - deliver: Runs the page's call for one batch; called off the main actor, once a batch.
+    ///   - deliver: Runs the page's call for one batch, given the batch's JSON text
+    ///     (``AcpmuxChatRowsBatch/argument(batch:changes:)``), as the `batch` argument of the fixed
+    ///     ``AcpmuxChatRowsBatch/receiveBody``; called off the main actor, once a batch.
     public convenience init(socketPath: String, deliver: @escaping @Sendable (String) -> Void) {
         self.init(socketPath: socketPath, deliver: deliver, makeClient: { AcpmuxClient(surfaces: ["chat"]) }, connector: .socket)
     }
@@ -326,13 +331,13 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
         } else {
             let number = state.nextBatch
             state.nextBatch += 1
-            let script = AcpmuxChatRowsBatch.script(batch: number, changes: changes)
+            let batch = AcpmuxChatRowsBatch.argument(batch: number, changes: changes)
             let now = DispatchTime.now().uptimeNanoseconds
-            state.outstanding = Outstanding(batch: number, driver: next.driver, script: script, wait: firstAckWait,
+            state.outstanding = Outstanding(batch: number, driver: next.driver, batchText: batch, wait: firstAckWait,
                                             deadline: now &+ Self.nanoseconds(firstAckWait))
             state.counters.bridgeCalls += 1
             state.lastCall = now
-            deliver(script)
+            deliver(batch)
             armAckDeadline(&state)
         }
         guard fallback else { return }
@@ -385,7 +390,7 @@ public nonisolated final class AcpmuxChatRowsHost: Sendable {
                 state.outstanding = out
                 state.counters.resends += 1
                 state.lastCall = now
-                deliver(out.script)
+                deliver(out.batchText)
             }
             armAckDeadline(&state)
         }

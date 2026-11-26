@@ -27,11 +27,11 @@ def load(dirs: list[Path]) -> list[dict]:
         for meta_path in sorted(d.rglob("meta.json")):
             res_path = meta_path.with_name("result.json")
             meta = json.loads(meta_path.read_text())
-            if res_path.exists():
-                row = json.loads(res_path.read_text())
-            elif meta.get("unsupported"):
+            if meta.get("unsupported"):
                 row = {"app": meta.get("app"), "flow": meta.get("flow"), "unsupported": meta["unsupported"],
                        "source": meta.get("source")}
+            elif res_path.exists():
+                row = json.loads(res_path.read_text())
             else:
                 continue
             row["_clip"] = str(meta_path.with_name("clip.mp4"))

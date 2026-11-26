@@ -19,6 +19,7 @@ public extension PageDescriptor {
     /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace, CustomizeChatPage.namespace],
+        nativeOps: [PageVisibleSlices.stream],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
@@ -444,8 +445,10 @@ public final class AgentPageProvider: PageProvider {
             case .failure(let error): throw PageError(code: error.code, message: error.message)
             }
         }
-        AgentPaneTailCache.keepHandOver(of: method, params: params.foundationObject as? [String: Any], pageGeneration: tailGeneration)
-        let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
+        AgentPaneTailCache.keepHandOver(of: method, params: params, pageGeneration: tailGeneration)
+        // A kept hand-over's tail is the store's, never the model's: it is not walked into Foundation
+        // on the main actor for a request that never reads it (cmuxterm-hq#19028).
+        let request = AgentPaneRequest(body: ["method": method, "params": Self.withoutHandOver(params, of: method).foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
         if request == .ready { onHandshake?() }
@@ -453,6 +456,14 @@ public final class AgentPageProvider: PageProvider {
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.
         return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
+    }
+
+    /// `params` less a `chat.subagentPane`'s `handOver` (``AgentPaneTailCache/keepHandOver(of:params:pageGeneration:)``);
+    /// every other method's params as they are.
+    nonisolated static func withoutHandOver(_ params: JSONValue, of method: String) -> JSONValue {
+        guard method == "chat.subagentPane", case .object(var members) = params,
+              members.removeValue(forKey: "handOver") != nil else { return params }
+        return .object(members)
     }
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and

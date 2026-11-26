@@ -13,7 +13,7 @@ import type { AcpmuxRow, QueuedPrompt } from "../model";
 import { answeredBy } from "../multiplayer/participants";
 import { DECISION_TEXT, PERMISSION_RECORD, type PermissionDecision } from "../permissions/record";
 import type { IncomingContext } from "../conversation/incomingMessage";
-import { BOOK_REVISION } from "./bookRevision";
+import { BOOK_REVISION, BOOK_EDITION } from "./bookRevision";
 import { type UserBody, userPrompt } from "./incoming";
 import type { ChatRowEntry, ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
@@ -73,7 +73,7 @@ export class ChatAdapter {
         const group = row.kind === "notice" && row.group ? held.get(row.group) : undefined;
         let made = this.#made.get(row);
         if (!made || made.group !== group) {
-          made = { group, rows: adaptRow(entry, held, this.context, ++this.#viewVersion) };
+          made = { group, rows: adaptRow(entry, held, this.context, ++this.#viewVersion, snapshot.edition) };
           this.#made.set(row, made);
         }
         rows.push(...made.rows);
@@ -96,11 +96,18 @@ export function adaptRow(
   held: ReadonlyMap<number, ChatRow>,
   context: ChatRowsContext,
   viewVersion = entry.rev,
+  edition?: number,
 ): AcpmuxRow[] {
   const row = entry.row;
   if (!row) return [];
   const body = (row.body ?? {}) as Record<string, any>;
-  const head = { id: `row-${row.id}`, version: viewVersion, at: body.atMs ?? row.at * 1000, [BOOK_REVISION]: row.rev };
+  const head = {
+    id: `row-${row.id}`,
+    version: viewVersion,
+    at: body.atMs ?? row.at * 1000,
+    [BOOK_REVISION]: row.rev,
+    [BOOK_EDITION]: edition,
+  };
   switch (row.kind) {
     case "user":
       return [

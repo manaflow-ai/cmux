@@ -355,9 +355,16 @@ where
 
     /// Resolves a held page sid to the daemon's stable chat id. Row measurements
     /// use that id so closing and reopening a page sid can reuse its cache while
-    /// an unrelated chat cannot observe it.
-    pub(crate) fn chat_cache_sid(&self, sid: &str) -> Option<String> {
-        self.chats.get(sid).and_then(chat::ChatSub::chat_id).map(str::to_owned)
+    /// an unrelated chat cannot observe it. Validate the entire batch against the
+    /// current window before accessing the cache: old observers may still submit
+    /// measurements after an edition replacement. No window means no known edition.
+    pub(crate) fn chat_cache_sid(
+        &self,
+        sid: &str,
+        mut editions: impl Iterator<Item = u32>,
+    ) -> Option<String> {
+        let (chat, edition) = self.chats.get(sid)?.cache_identity()?;
+        editions.all(|row_edition| row_edition == edition).then(|| chat.to_owned())
     }
 
     pub fn connected(&mut self) {

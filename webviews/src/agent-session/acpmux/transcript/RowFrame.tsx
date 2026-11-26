@@ -121,7 +121,9 @@ function UnrenderedRow() {
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
-/// (a font that loads, a custom renderer that grows).
+/// (a font that loads, a custom renderer that grows). A row kind fills the frame's slots (`lead`,
+/// `body`, `meta`, `actions`) through RowSlots (conversation/RowSlots.tsx), which places them, its
+/// actions in the fixed end slot; a prompt's footer does so far (UserBubble.tsx).
 export const RowFrame = React.memo(function RowFrame({
   row,
   kind,

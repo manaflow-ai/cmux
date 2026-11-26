@@ -5,7 +5,7 @@
 // keeps the height already placed. The placed heights are the same as when the commit read them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { BOOK_REVISION } from "../src/agent-session/acpmux/rows/bookRevision";
+import { BOOK_EDITION, BOOK_REVISION } from "../src/agent-session/acpmux/rows/bookRevision";
 import type { MeasuredRow } from "../src/agent-session/acpmux/rows/heights";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller } from "./support/jsdomScroller";
@@ -229,16 +229,17 @@ test("v2 places the delivered border box, including a visible empty row", async 
 
 test("a reopened v2 subscription places a native height and reports a changed border box", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
-  const source = { ...row("row-17", "user", "Question", 99), [BOOK_REVISION]: 3 };
+  const source = { ...row("row-17", "user", "Question", 99), [BOOK_REVISION]: 3, [BOOK_EDITION]: 7 };
   const page = dom.window as unknown as Window;
   const written: MeasuredRow[] = [];
   const requested: Omit<MeasuredRow, "height">[] = [];
   let cached: number | null = null;
+  let cachedEdition: number | null = null;
   page.cmuxAcpmuxActions = {
     "chat.rows.heights.read": async ({ rows }) => {
       const keys = rows as Omit<MeasuredRow, "height">[];
       requested.push(...keys);
-      return { rows: keys.map((key) => ({ ...key, height: cached })) };
+      return { rows: keys.map((key) => ({ ...key, edition: cachedEdition ?? key.edition, height: cached })) };
     },
     "chat.rows.heights.write": async ({ entries }) => {
       written.push(...(entries as MeasuredRow[]));
@@ -275,7 +276,7 @@ test("a reopened v2 subscription places a native height and reports a changed bo
     await report(1380.5);
     const placed = spacerHeight();
     expect(placed).toBeGreaterThan(estimated + 500);
-    expect(written.at(-1)).toMatchObject({ id: 17, rev: 3, height: 1380.5 });
+    expect(written.at(-1)).toMatchObject({ id: 17, rev: 3, edition: 7, height: 1380.5 });
     await report(1380.5);
     expect(written).toHaveLength(1);
     cached = written[0].height;
@@ -284,6 +285,10 @@ test("a reopened v2 subscription places a native height and reports a changed bo
     const { height: _, ...expected } = written[0];
     expect(requested.at(-1)).toEqual(expected);
     expect(spacerHeight()).toBe(placed);
+    cachedEdition = 6;
+    await act(async () => render("stale-edition"));
+    await act(nextFrame);
+    expect(spacerHeight()).toBe(estimated);
   } finally {
     delete page.cmuxAcpmuxActions;
     await act(async () => root.unmount());

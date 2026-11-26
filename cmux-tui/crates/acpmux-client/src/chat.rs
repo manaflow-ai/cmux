@@ -119,8 +119,8 @@ pub(crate) struct ChatSub {
 }
 
 impl ChatSub {
-    pub(crate) fn chat_id(&self) -> Option<&str> {
-        self.request.stream.as_str().strip_prefix("chat:")
+    pub(crate) fn cache_identity(&self) -> Option<(&str, u32)> {
+        Some((self.request.stream.as_str().strip_prefix("chat:")?, self.edition?))
     }
 
     /// What a reconnect or a drop sends: the cursor and edition once a window was taken, else

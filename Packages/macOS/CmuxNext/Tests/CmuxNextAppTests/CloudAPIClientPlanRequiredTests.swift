@@ -1,4 +1,5 @@
-import CmuxNextCloud
+@testable import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -7,40 +8,34 @@ import Testing
 /// plan's ordinary limit and a credits top-up stay plain HTTP refusals. Bodies are the server's own (web/services/vms/routeHelpers.ts).
 @Suite(.serialized)
 struct CloudAPIClientPlanRequiredTests {
-    nonisolated final class RefusingAPI: URLProtocol {
-        nonisolated(unsafe) static var body = ""
-
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-        override func startLoading() {
-            guard let url = request.url,
-                  let response = HTTPURLResponse(url: url, statusCode: 402, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(Self.body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        }
-
-        override func stopLoading() {}
+    /// A refusal as the app's own HTTP routes read it (``CloudAPIError/from(status:data:headerCode:)``). The machine
+    /// routes (a desktop setup, a Run's cancel) are the daemon's now, whose Rust reads those bodies the same way
+    /// (cmux-cloud-machine's error tests, cmux-cloud-api's `a_desktop_setup_refusal_reads_as_a_machine_routes`).
+    private func create(answering body: String) async -> (any Error)? {
+        CloudAPIError.from(status: 402, data: Data(body.utf8), headerCode: nil)
     }
 
-    /// A refusal of a route the app still sends over HTTP itself: a Worker machines client's
-    /// desktop setup. (A Run's cancel was this route until #39022 moved the runs.* calls into the
-    /// daemon, whose Rust reads those bodies: cmux-cloud-api's tests.)
-    private func create(answering body: String) async -> (any Error)? {
-        RefusingAPI.body = body
-        guard let baseURL = URL(string: "https://vm-api.standin.invalid") else { return nil }
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [RefusingAPI.self]
-        let api = CloudAPIClient.workerMachines(baseURL: baseURL, accessToken: { "access" },
-                                                teamID: { "team-1" }, session: URLSession(configuration: sessionConfiguration))
-        do {
-            try await api.setupDesktop("vm-1")
-            return nil
-        } catch {
-            return error
+    /// A desktop setup is the daemon's `machine.setup_desktop`, and its plan refusal comes back typed.
+    @Test func aDesktopSetupIsTheDaemonsCallAndItsPlanRefusalIsTyped() async throws {
+        let seen = Mutex<Data?>(nil)
+        guard let baseURL = URL(string: "https://vm-api.standin.invalid") else { return }
+        var api = CloudAPIClient.workerMachines(baseURL: baseURL, accessToken: { "access" }, teamID: { "team-1" })
+        api.daemon.daemonCall = { input, _ in
+            seen.withLock { $0 = input }
+            return Data(#"{"ok":false,"error":{"kind":"plan_required","message":"Cloud VMs require a cmux Pro subscription.","upgrade_url":"https://cmux.com/pricing","plan":"pro"}}"#.utf8)
         }
+        await #expect(throws: CloudAPIError.planRequired(message: "Cloud VMs require a cmux Pro subscription.",
+                                                         upgradeURL: URL(string: "https://cmux.com/pricing"))) {
+            try await api.setupDesktop("vm_aaaaaaaaaaaaaaaaaaaa")
+        }
+        let body = try #require(seen.withLock { $0 })
+        let request = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(request["call"] as? String == "machine.setup_desktop")
+        #expect(request["auth"] as? String == "owner")
+        #expect(request["credential"] as? String == "access")
+        #expect((request["args"] as? [String: Any])?["id"] as? String == "vm_aaaaaaaaaaaaaaaaaaaa")
+        api.daemon.daemonCall = { _, _ in Data(#"{"ok":true,"body":{"ok":true}}"#.utf8) }
+        try await api.setupDesktop("vm_aaaaaaaaaaaaaaaaaaaa")
     }
 
     @Test func aFreeAccountsCreateIsThePlanRefusal() async {

@@ -256,20 +256,26 @@ impl State {
         let tool = call
             .as_ref()
             .and_then(|id| self.tools.get_mut(id))
-            .filter(|tool| approval && tool.turn == self.turn);
+            .filter(|tool| approval && tool.turn == row.turn);
         let drawn_on_tool = tool.is_some();
         if let Some(tool) = tool {
             tool.fields.insert("approved".into(), "true".into());
             out.row(tool);
         } else if approval && let Some(call) = call {
-            let hint = self
-                .recent_calls
-                .iter()
-                .rev()
-                .find(|(key, _)| *key == prompt_hash(&call))
-                .map(|(_, id)| *id);
-            if hint.is_some() || self.calls_overflowed {
-                out.emit(Change::Approve { ask: row.id, call, turn: self.turn, hint });
+            // The index belongs to the current prompt. An older ask can outlive it, including
+            // when the new prompt reuses the call ID; search the book in the ask's own turn.
+            let same_turn = row.turn == self.turn;
+            let hint = same_turn
+                .then(|| {
+                    self.recent_calls
+                        .iter()
+                        .rev()
+                        .find(|(key, _)| *key == prompt_hash(&call))
+                        .map(|(_, id)| *id)
+                })
+                .flatten();
+            if hint.is_some() || self.calls_overflowed || !same_turn {
+                out.emit(Change::Approve { ask: row.id, call, turn: row.turn, hint });
             } else {
                 self.permission_line();
             }
