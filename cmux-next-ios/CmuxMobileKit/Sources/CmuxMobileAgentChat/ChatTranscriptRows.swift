@@ -35,7 +35,6 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case toolGroup([ACPToolCall], turnRunning: Bool)
         /// A finished edit's snippet; `files` is nil while its diff computes.
         case edit(ACPToolCall, files: [ChatDiffCache.EditPreview]?)
-        case plan([ACPPlanEntry])
         /// `offersChoices`: the composer took the bar's place ("Reply instead"); the card
         /// brings the choices back.
         case permission(PermissionRecord, offersChoices: Bool)
@@ -52,6 +51,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
         /// (`WhoElseCard`), in place of the tool row.
         case whoElse(String, WhoElseCall)
+        /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
+        /// the line when it is open.
+        indirect case worked(WorkedFold)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -84,6 +86,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var nextPrompt: String?
     /// The tones the chat gave this turn's senders' sessions (`AgentTones`), by session id.
     var senderTones: [String: Int] = [:]
+    /// A finished turn folds its work under "Worked for" (`WorkedFold`).
+    var foldsWork = true
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -141,7 +145,7 @@ final class ChatTranscriptBuilder {
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
-               earlierHistory: Bool = false) -> [ChatTurnRows] {
+               earlierHistory: Bool = false, foldsWork: Bool = true) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
@@ -153,7 +157,7 @@ final class ChatTranscriptBuilder {
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
-                                          senderTones: turnTones(turn))
+                                          senderTones: turnTones(turn), foldsWork: foldsWork)
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -253,13 +257,24 @@ final class ChatTranscriptBuilder {
                 prompt = envelope.task
                 gap = 6
             }
-            rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                                kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
-                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
-                                gap: gap))
+            // A prompt with nothing to show (a turn started by a notice or another agent with no
+            // text, an image-only prompt whose images were left out) draws no bubble: an empty grey
+            // bubble is a placeholder (Leo, 2026-11-24: "chase all these placeholders down and
+            // prevent them"). Its turn's rows keep the gap the bubble would have taken.
+            if turn.incoming == nil, turn.attachments.isEmpty,
+               prompt.allSatisfy({ $0.isWhitespace || $0.isNewline }) {
+                nextGap = gap
+            } else {
+                rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
+                                    kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
+                                        ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                                    gap: gap))
+            }
         }
-        let turnRows = turn.rows
         let running = turn.status == .running
+        // Ended, a steer the agent was finishing when it came draws over its final reply (Leo,
+        // 2026-11-25); running, every row draws as it came.
+        let turnRows = running ? turn.rows : TurnRow.lateSteersLast(turn.rows)
         // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
         // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
         let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
@@ -276,6 +291,11 @@ final class ChatTranscriptBuilder {
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
         }
+        // A finished turn's work folds under "Worked for" (WorkedFold): the rows from here to the
+        // closing cards, but for the final reply (`replyRows`).
+        let workStart = rows.count
+        let finalReply = running ? nil : turnRows.lastIndex(where: { if case .message = $0 { true } else { false } })
+        var replyRows: Set<String> = []
         for (index, row) in turnRows.enumerated() {
             let isLastRow = index == turnRows.count - 1
             switch row {
@@ -304,6 +324,7 @@ final class ChatTranscriptBuilder {
                     nextGap = 10
                 }
                 blockRows[key] = BlockRows(messageID: messageID, turnID: turnID, firstGap: firstGap, rows: answerRows)
+                if index == finalReply { replyRows.formUnion(answerRows.map(\.id)) }
                 if let ask {
                     let answer = context.nextPrompt.map { ask.chosenAnswer($0) }
                     add("n-\(row.id)", .nextStep(ask, answer: answer, canAnswer: answer == nil && context.isLast))
@@ -328,8 +349,6 @@ final class ChatTranscriptBuilder {
                     if files == nil { waits = true }
                     add(row.id, .edit(call, files: files))
                 }
-            case .plan(_, let entries):
-                add(row.id, .plan(entries))
             case .permission(let record):
                 add(row.id, .permission(record, offersChoices: record.request.id == context.choicesFor))
             case .question(let id):
@@ -339,6 +358,41 @@ final class ChatTranscriptBuilder {
             case .steer(var message):
                 message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
                 add(row.id, .steer(message))
+            }
+        }
+        if !running, context.foldsWork {
+            // In order around a message that came in mid-turn (the Mac's default arm of
+            // turn-fold-steered, `in-order`): the turn's Worked for ends at a steer the agent went on
+            // working after, and the work after it folds under its own line below it, so the fold
+            // never pulls that work up above the steer (Leo, 2026-11-11: "it sort of, like, steals
+            // commands that came in ... and it just shunts them to the top"). A late steer
+            // (`TurnRow.lateSteersLast`) has no work after it and keeps the one fold.
+            var stretches: [(start: Int, steer: SteeredMessage?)] = [(workStart, nil)]
+            for index in workStart..<rows.count {
+                guard case .steer(let message) = rows[index].kind else { continue }
+                let after = rows[(index + 1)...]
+                if after.contains(where: { !replyRows.contains($0.id) && WorkedFold.folds($0.kind) }) {
+                    stretches.append((index + 1, message))
+                }
+            }
+            var end = rows.count
+            var stretchEnd: Date? = turn.endedAt
+            for stretch in stretches.reversed() {
+                // Each Worked for times its own stretch: from the turn's start or the steer that
+                // opened it, to the next steer or the turn's end.
+                let from = stretch.steer?.at ?? turn.startedAt
+                var seconds: TimeInterval?
+                if stretches.count == 1 {
+                    seconds = turn.duration
+                } else if let from, let stretchEnd {
+                    seconds = max(0, stretchEnd.timeIntervalSince(from))
+                }
+                stretchEnd = stretch.steer?.at
+                WorkedFold.fold(&rows, work: stretch.start..<end, keeping: replyRows, turnID: turnID,
+                                status: turn.status, seconds: seconds,
+                                rowID: stretch.steer.map { "\(WorkedFold.rowID(turnID: turnID))-\($0.promptID)" })
+                // The steer row that opened this stretch ends the one before it.
+                end = stretch.start - (stretch.steer == nil ? 0 : 1)
             }
         }
         if let wrapUp {
@@ -380,7 +434,7 @@ enum ChatNativeEligibility {
     /// A kind with a native layout (math blocks need the web renderer).
     static func isCandidate(_ kind: ChatRow.Kind) -> Bool {
         switch kind {
-        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions: true
+        case .sessionStart, .prompt, .thought, .tool, .toolGroup, .edit, .editedFiles, .actions, .worked: true
         case .block(_, let block): if case .math = block.kind { false } else { true }
         default: false
         }
@@ -398,15 +452,19 @@ enum ChatNativeEligibility {
         case .tool(let call) where isSettling("tool-\(call.id)"): return false
         case .toolGroup(let calls, _) where isSettling("group-\(calls.first?.id ?? "")"): return false
         case .thought where isSettling("thought-\(row.id)"): return false
+        case .worked where isSettling(WorkedFold.key(turnID: row.turnID)): return false
         default: break
         }
         switch row.kind {
         // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
         // SwiftUI snippet wraps them.
         case .edit: return !wrapCode
-        case .tool(let call): return isOpen("tool-\(call.id)") != true
+        // A call holding pictures draws them in SwiftUI under its line (`ToolOutputImages`).
+        case .tool(let call): return !call.hasImages && isOpen("tool-\(call.id)") != true
         case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
         case .thought: return isOpen("thought-\(row.id)") == nil
+        // Open, it draws its rows in SwiftUI under the line (`WorkedForRow`).
+        case .worked: return isOpen(WorkedFold.key(turnID: row.turnID)) != true
         default: return true
         }
     }

@@ -1,6 +1,6 @@
-//! The Screen Sharing helper a share runs (cmux#44069: `<app> Screen Sharing.app`, bundle id
-//! `<app id>.screen-sharing`, executable `Contents/MacOS/cmux-screen-sharing serve`), and the
-//! join's facts the registration carries.
+//! The Screen Sharing helper a share runs (cmux#44069: `<app> Helper.app`, `<app> Screen
+//! Sharing.app` in older builds; bundle id `<app id>.screen-sharing`, executable
+//! `Contents/MacOS/cmux-screen-sharing serve`), and the join's facts the registration carries.
 //!
 //! The join (lane share-join-zero-touch, `acpmux::screen_share`) installs a verified copy of the
 //! helper beside the daemon's state and keeps the machine's screen-share status; until that
@@ -10,22 +10,22 @@
 //! In order, a share runs: `CMUX_SCREEN_HELPER_APP`, the join's install, then a helper of the
 //! cmux app holding this binary, cmux NIGHTLY or cmux in /Applications. The join's install runs
 //! where it is, checked against cmux's Developer ID requirement (the floor). A helper inside an
-//! app bundle is never run from there: it is copied to this daemon's own slot,
-//! `~/Library/Application Support/cmux-next/screen-sharing/<scope>/daemon/<digest>/` (the app
-//! stages its own beside it, never here), and the copy is checked against the source bundle's
-//! own designated requirement (so a DEV build's helper runs too).
+//! app bundle is never run from there: it is copied to the helper's one fixed path,
+//! `~/Library/Application Support/cmux-next/helper/<bundle id>/<bundle name>.app`
+//! (`cmux_signed_bundle::helper_folder`, shared under its lock with the cmux-tui daemon's
+//! Computer Use and the app, so every build runs the same path and macOS keeps its
+//! screen-capture approval), and the copy is checked against the source bundle's own
+//! designated requirement (so a DEV build's helper runs too).
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// The helper's executable inside its bundle.
 pub(crate) const EXECUTABLE: &str = "cmux-screen-sharing";
-/// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-pub(crate) const BUNDLE_SUFFIX: &str = " Screen Sharing.app";
 /// cmux's signing team, the floor the join's install must carry.
 const TEAM: &str = "7WLXT3NR37";
 /// The apps whose helper a share runs, after the app holding this binary.
-const APPS: [&str; 2] = ["/Applications/cmux NIGHTLY.app", "/Applications/cmux.app"];
+const APPS: [&str; 2] = cmux_signed_bundle::INSTALLED_APPS;
 /// The join's folder under the acpmux home (`screen_share::DIR`) and its files.
 const JOIN_DIR: &str = "screen-sharing";
 const JOIN_HELPER_RECORD: &str = "helper.json";
@@ -34,6 +34,8 @@ const JOIN_MARK: &str = "joined-from-another-device";
 const STATUS_SCHEMA: &str = "cmux.screen-share.status/1";
 /// What the last share resolved, for `share-host status`.
 const RESOLVED_RECORD: &str = "helper.json";
+/// The grants the helper last read in its own process (`<helper> permissions`).
+const GRANTS_RECORD: &str = "helper-permissions.json";
 
 /// The join's installed helper executable, when there is one.
 ///
@@ -97,25 +99,12 @@ impl Source {
 
 /// The helper bundles `app` carries in `Contents/Library`, sorted.
 pub(crate) fn helpers_in(app: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(app.join("Contents/Library")) else { return Vec::new() };
-    let mut found: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name().is_some_and(|n| n.to_string_lossy().ends_with(BUNDLE_SUFFIX))
-                && p.join("Contents/MacOS").join(EXECUTABLE).is_file()
-        })
-        .collect();
-    found.sort();
-    found
+    cmux_signed_bundle::helpers_in(app, EXECUTABLE)
 }
 
 /// The app bundle holding `executable` (`X.app/Contents/Resources/bin/acpmux` -> `X.app`).
 pub(crate) fn app_of(executable: &Path) -> Option<PathBuf> {
-    executable
-        .ancestors()
-        .find(|p| p.extension().is_some_and(|e| e == "app"))
-        .map(Path::to_path_buf)
+    cmux_signed_bundle::app_of(executable)
 }
 
 /// Every helper a share may run, in order: `env`, `join`, then the helpers of `apps`.
@@ -136,16 +125,18 @@ pub(crate) fn sources(
     out
 }
 
-/// This daemon's staging root for a helper of bundle id `bundle_id`: its own sibling slot of
-/// the app's (`.../screen-sharing/<scope>/<helper>.app`), under `daemon/`.
-///
-/// TODO(ss-helper-land): `<scope>` is the helper's bundle id until SignedHelperLaunch (#44069)
-/// names its scope folder; use the same name then.
+/// The folder of the one copy of the helper with bundle id `bundle_id`, the same folder the
+/// cmux-tui daemon's Computer Use and the app stage it in.
 pub(crate) fn staging_root(user_home: &Path, bundle_id: &str) -> PathBuf {
-    user_home
-        .join("Library/Application Support/cmux-next/screen-sharing")
-        .join(bundle_id)
-        .join("daemon")
+    cmux_signed_bundle::helper_folder(user_home, bundle_id)
+}
+
+/// This daemon's folder of the per-digest layout before the fixed path
+/// (`.../cmux-next/screen-sharing/<bundle id>/daemon/<16 hex>/`), and the folder its cleanup
+/// stops at.
+pub(crate) fn legacy_root(user_home: &Path, bundle_id: &str) -> (PathBuf, PathBuf) {
+    let support = user_home.join("Library/Application Support/cmux-next");
+    (support.join("screen-sharing").join(bundle_id).join("daemon"), support)
 }
 
 /// The helper a share runs, how it was found, and the digest of its staged copy.
@@ -212,6 +203,8 @@ fn resolve_one(source: &Source, user_home: &Path) -> Result<Resolved, String> {
             let staged = cmux_signed_bundle::stage(bundle, &root, &parts, |copy| {
                 cmux_signed_bundle::verify(copy, &requirement)
             })?;
+            let (legacy, stop) = legacy_root(user_home, &id);
+            cmux_signed_bundle::remove_legacy_root(&legacy, &stop);
             Ok(Resolved {
                 executable: staged.executable(EXECUTABLE),
                 source: source.name(),
@@ -233,11 +226,61 @@ fn keep(home: &Path, resolved: &Resolved) {
     let _ = cmux_hub_host::identity::write_private(&file, record.to_string().as_bytes());
 }
 
-/// What the last share resolved, as `share-host status` shows it, with the join's install.
+/// What the last share resolved, as `share-host status` shows it, with the join's install and
+/// the grants the helper read itself (`permissions`, null until a share ran it).
 pub(crate) fn status_json(home: &Path) -> Value {
-    let last = cmux_hub_host::identity::read_private(&super::dir(home).join(RESOLVED_RECORD))
-        .ok()
-        .flatten()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-    json!({"joinInstall": installed(home), "lastResolved": last})
+    let read = |name: &str| {
+        cmux_hub_host::identity::read_private(&super::dir(home).join(name))
+            .ok()
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+    };
+    json!({
+        "joinInstall": installed(home),
+        "lastResolved": read(RESOLVED_RECORD),
+        "permissions": read(GRANTS_RECORD),
+    })
+}
+
+/// The System Settings item `executable`'s grants are listed under: its innermost app bundle's
+/// name (`cmux NIGHTLY Screen Sharing.app/Contents/MacOS/cmux-screen-sharing` is "cmux NIGHTLY
+/// Screen Sharing"), else "cmux Computer Use".
+pub(crate) fn listed_as(executable: &Path) -> String {
+    executable
+        .ancestors()
+        .filter_map(|p| p.file_name()?.to_str()?.strip_suffix(".app"))
+        .next()
+        .unwrap_or("cmux Computer Use")
+        .to_owned()
+}
+
+/// The record of the helper's own grant reading (`<helper> permissions` printed `printed`), as
+/// `cmux remote-host grants` reads it: the item that actually captures, named.
+pub(crate) fn grants_record(executable: &Path, printed: &str, at_ms: u64) -> Option<Value> {
+    let reading: Value = serde_json::from_str(printed.trim()).ok()?;
+    let flag = |key: &str| reading.get(key).and_then(Value::as_bool);
+    Some(json!({
+        "screen_recording": flag("screen_recording")?,
+        "accessibility": flag("accessibility")?,
+        "listed_as": listed_as(executable),
+        "at": at_ms,
+    }))
+}
+
+/// Runs `<helper> permissions` as its own responsible process (macOS checks the helper's grants,
+/// as when it captures) and keeps what it read for `share-host status`. A helper too old to
+/// answer, or one that fails, leaves the last reading as it was.
+pub(crate) fn read_grants(home: &Path, executable: &Path) {
+    let mut command = cmux_process::Command::new(executable);
+    command.arg("permissions");
+    #[cfg(target_os = "macos")]
+    command.disclaim_responsibility().new_session();
+    let Ok(output) = command.output() else { return };
+    if !output.status.success() {
+        return;
+    }
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let Some(record) = grants_record(executable, &printed, crate::store::now_ms()) else { return };
+    let file = super::dir(home).join(GRANTS_RECORD);
+    let _ = cmux_hub_host::identity::write_private(&file, record.to_string().as_bytes());
 }

@@ -1,0 +1,20 @@
+[package]
+name = "cmux-computer-use-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish.workspace = true
+description = "C ABI of cmux Computer Use for the macOS Computer Use worker in cmux Remote (libcmux_computer_use.dylib)"
+
+[lib]
+name = "cmux_computer_use_ffi"
+doctest = false
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-computer-use = { path = "../cmux-computer-use" }
+serde_json = { workspace = true }

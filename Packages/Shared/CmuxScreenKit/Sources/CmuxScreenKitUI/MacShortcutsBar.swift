@@ -57,7 +57,7 @@ public struct MacShortcutsBar: View {
             HStack(spacing: 6) {
                 ForEach(shortcuts) { shortcut in
                     Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        ScreenKitHaptics.impact(.light)
                         session.tap(shortcut.key, modifiers: shortcut.modifiers)
                     } label: {
                         Label(shortcut.id, systemImage: shortcut.symbol)

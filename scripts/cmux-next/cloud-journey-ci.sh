@@ -45,6 +45,40 @@ fi
 phase="${JOURNEY_PHASE:-}"
 status=0
 regressed=0
+# JOURNEY_RUST=1 (backend.yml journey-staging): the journey's core again on the shipped client,
+# `cmux cloud journey` in CMUX_PATH (cmux-tui cli/cloud_journey.rs; cmuxterm-hq ARCHITECTURE-2026-11 M1b):
+# create machine, running, first exec, model stub, pass Claude login, start agent, send chat, reply,
+# delete. Its red is the job's red, retried once like the TS run. The rest of the journey (listed, pause
+# and resume, carrier, later turns, daemon restart, clean room, gateway, GitHub) is still the TS script's.
+# The summary ends with both drivers' times for the steps they share, from the same job and runner.
+rust_run() { # label, ts dir, extra args...
+  local label="$1" ts="$2"; shift 2
+  local dir="$ts-rust"
+  local args=(cloud journey --backend "$TARGET" --out "$dir")
+  if [ "${JOURNEY_MODEL:-}" = stub ]; then args+=(--model-stub "$here/../../tests/fixtures/model-stub/model_stub.py"); fi
+  if ! "$CMUX_PATH" "${args[@]}" "$@"; then
+    { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+    echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
+    rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
+    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+    if "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
+  fi
+  { printf '### %s%s, Rust driver (cmux cloud journey)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+  python3 -I - "$ts/journey.json" "$dir/journey.json" >> "$summary" 2>/dev/null <<'PY' || true
+import json, sys
+ts, rs = (json.load(open(p))["steps"] for p in sys.argv[1:3])
+t = {s["step"]: s for s in ts}
+rows, tt, rt = [], 0, 0
+for s in rs:
+    o = t.get(s["step"])
+    if not o or s["status"] != "pass" or o["status"] != "pass" or s["step"] == "sign in (agent test account)":
+        continue
+    rows.append(f"| {s['step']} | {o['ms']} | {s['ms']} |")
+    tt += o["ms"]; rt += s["ms"]
+print("Driver times, the steps both passed (same job, same runner):\n\n| step | TS ms | Rust ms |\n|---|---:|---:|")
+print("\n".join(rows)); print(f"| **total** | **{tt}** | **{rt}** |\n")
+PY
+}
 run() { # label, extra args...
   local label="$1"; shift
   local dir="$out/${phase:+$phase-}$label"
@@ -55,14 +89,24 @@ run() { # label, extra args...
   # by the guest chat (the staging smoke uses the local model stub, never a real credential).
   if [ -n "${CMUX_PATH:-}" ]; then args+=(--cmux "$CMUX_PATH"); else args+=(--skip sync); fi
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
+  # cmux-autocloud (RFD 0139) chats over the carrier after the journey's own dial; needs --cmux.
+  if [ -n "${AUTOCLOUD_TUI_PATH:-}" ] && [ -n "${CMUX_PATH:-}" ]; then args+=(--autocloud-tui "$AUTOCLOUD_TUI_PATH"); fi
   if ! bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
     { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
     echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
     rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+    sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
     if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+  # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
+  # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.
+  if [ -f "$dir/send-trace.json" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+    local name=send-trace.json
+    [ "${phase:+$phase-}$label" = test-team ] || name="send-trace-${phase:+$phase-}$label.json"
+    { mkdir -p "$RUNNER_TEMP/$TARGET" && cp "$dir/send-trace.json" "$RUNNER_TEMP/$TARGET/$name"; } || true
+  fi
+  if [ "${JOURNEY_RUST:-}" = 1 ] && [ -n "${CMUX_PATH:-}" ]; then rust_run "$label" "$dir" "$@"; fi
   if [ "$phase" = after ]; then
     # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,
     # which is reported and never rolls the Worker back.

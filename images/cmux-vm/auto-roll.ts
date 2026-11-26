@@ -10,10 +10,16 @@
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
-//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
+//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>] [--platform-wrangler <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
-//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
-//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
+//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked. --platform-wrangler
+//     (cmux-platform's root wrangler.jsonc) names its CLOUD_VM_API_IMAGE pins, which are never trimmed.
+//   bun images/cmux-vm/auto-roll.ts behind --pin <40-hex> [--lock <path>] [--repo <checkout>]
+//     Exits 3 when the pin is older than the cmux-tui the lock pins (a newer roll landed while this one baked),
+//     0 when it may roll; fails closed on a shallow checkout or a commit it lacks. image-roll-push.sh asks before
+//     it writes the pin onto the tip.
+//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>] [--platform-wrangler <path>]
+//     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
 //   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
@@ -46,7 +52,7 @@ export const MAX_ENTRIES = 32;
  * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
 export const MAX_BYTES = 5_120;
 export const SERVICES = {
-  production: ["cloud-platform-production", "ci-product-smoke"],
+  production: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
 } as const;
 /** The paths whose change is a change to what the image carries (the push trigger's paths). */
@@ -60,8 +66,20 @@ export type BootImage = {
   services: string[];
   /** The image's inputs key (bake.ts bakeInputsSha256): absent on entries from before it and on bakes it does not cover. */
   inputs_sha256?: string;
+  /**
+   * The same bake at another size (bake.ts --large): its own snapshot and the size a VM made from it boots at. The
+   * Worker boots it for a create that asks for exactly this size, so no resize follows; any other create boots
+   * `snapshotId` and grows.
+   */
+  large?: LargeVariant;
 };
+export type LargeVariant = { snapshotId: string; vcpus: number; memoryMib: number; diskMib: number };
 type Env = keyof typeof SERVICES;
+/**
+ * The environments whose entry lists a roll's large image: staging only (the cmux-vm development and staging share),
+ * until booting it there has been watched. Production's entry never carries one, so production creates are unchanged.
+ */
+export const LARGE_ENVS: ReadonlyArray<Env> = ["staging"];
 
 // ---- wrangler.jsonc: the VM_BOOT_IMAGES value of one environment ----
 
@@ -102,9 +120,11 @@ export function validate(images: BootImage[], env: string): void {
   if (images.length > MAX_ENTRIES) fail(`${images.length} entries, at most ${MAX_ENTRIES}`);
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
-    const keys = Object.keys(i).sort().join(",");
-    if (keys !== "displayName,id,revision,services,snapshotId" && keys !== "displayName,id,inputs_sha256,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    const keys = Object.keys(i).filter((k) => k !== "inputs_sha256" && k !== "large").sort().join(",");
+    if (keys !== "displayName,id,revision,services,snapshotId") fail(`${i.id}: fields ${Object.keys(i).sort().join(",")}`);
     if (i.inputs_sha256 !== undefined && !SHA256.test(i.inputs_sha256)) fail(`${i.id}: bad inputs_sha256`);
+    // The Worker drops a malformed large image and keeps the entry; this tool never writes one.
+    if ("large" in i && !validLarge(i.large, i.snapshotId)) fail(`${i.id}: bad large`);
     if (!/^[a-z][a-z0-9-]*$/u.test(i.id) || i.id.length > 63) fail(`bad id ${i.id}`);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(i.revision) || i.revision.length > 64) fail(`${i.id}: bad revision`);
     if (i.displayName.length < 1 || i.displayName.length > 100 || [...i.displayName].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
@@ -116,16 +136,55 @@ export function validate(images: BootImage[], env: string): void {
 }
 
 const SHA256 = /^[0-9a-f]{64}$/u;
+const SNAPSHOT_ID = /^sh-[0-9a-f]{32}$/u;
+
+/** A large image as the Worker takes it (src/upstream/live-images.ts Variant): its own snapshot and a whole size. */
+function validLarge(large: unknown, imageSnapshot: string): large is LargeVariant {
+  if (typeof large !== "object" || large === null) return false;
+  const l = large as Record<string, unknown>;
+  const whole = (v: unknown, max: number) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
+  return (
+    Object.keys(l).sort().join(",") === "diskMib,memoryMib,snapshotId,vcpus" &&
+    typeof l["snapshotId"] === "string" && SNAPSHOT_ID.test(l["snapshotId"]) && l["snapshotId"] !== imageSnapshot &&
+    whole(l["vcpus"], 64) && whole(l["memoryMib"], 1_048_576) && whole(l["diskMib"], 4_194_304)
+  );
+}
+
+/** Whether the Worker source beside this wrangler.jsonc decodes an entry's `large` (src/upstream/live-images.ts). */
+export function workerTakesLarge(wrangler: string): boolean {
+  try {
+    return /^\s*large: Schema\.optional\(/mu.test(readFileSync(path.join(path.dirname(wrangler), "src/upstream/live-images.ts"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The candidate's large image as an entry lists it, or undefined: only one whose own smoke passed (the bake records
+ * `large` in channel-dev.json only then, and this checks it again), with its own snapshot and a whole size.
+ */
+export function largeOf(candidate: Candidate): LargeVariant | undefined {
+  const l = candidate.large;
+  if (typeof l !== "object" || l === null || l.smoke?.result !== "PASSED" || typeof l.snapshot_id !== "string") return undefined;
+  const size = l.size ?? {};
+  const large = { snapshotId: l.snapshot_id, vcpus: size.vcpu, memoryMib: Number(size.mem_gib) * 1024, diskMib: Number(size.disk_gib) * 1024 };
+  return validLarge(large, candidate.snapshot_id) ? large : undefined;
+}
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = [], keepAuto = KEEP_AUTO): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || ++seen <= KEEP_AUTO);
+  // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= keepAuto);
   return newestFirst ? kept : kept.reverse();
 }
 
-export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
+export type Candidate = {
+  snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string;
+  /** The bake's large image, when it made one and its own smoke passed (cloud-vm-image-bake.yml, input large_image). */
+  large?: { snapshot_id?: string; size?: { vcpu?: number; mem_gib?: number; disk_gib?: number }; smoke?: { result?: string } };
+};
 
 /**
  * cmux-platform's fallback image (fallback-image.json): what its CLOUD_VM_API_IMAGE pin names in every environment, the
@@ -159,17 +218,66 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
   return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
 }
 
-/** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
-export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
+/**
+ * cmux-platform's CLOUD_VM_API_IMAGE pins, from its wrangler.jsonc text (every environment, each id once): the image a
+ * create boots before its isolate reads a list, and the one a create that recorded the pin boots after. A pin a list no
+ * longer names fails as cloud.provider.image_withdrawn (production, 2026-11-20: cloud-native-auto-9d5f6bd6-44156090531-1,
+ * trimmed by KEEP_AUTO), so approve and rollback keep every pin listed.
+ */
+export function platformPins(text: string): string[] {
+  const pins = [...text.matchAll(/"CLOUD_VM_API_IMAGE"\s*:\s*"([^"]+)"/gu)].map((m) => m[1]!);
+  return [...new Set(pins)];
+}
+
+/**
+ * The approved entry for a baked candidate: production first, staging last (its order is append-only).
+ *
+ * The entry's large image is listed only in LARGE_ENVS. Older entries keep theirs while the list fits (each is about
+ * 106 bytes of a 5,120 byte binding) and lose them first when it does not. It is never
+ * a gate: when the list would not fit with it, the entry is listed without it and creates grow as before. `large`
+ * says whether it was listed.
+ */
+export function approve(text: string, entry: BootImage, keep: readonly string[] = []): { text: string; previousFirst: string; large: boolean } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
-  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
-  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
-  let out = replaceList(text, "production", nextProd);
-  out = replaceList(out, "staging", nextStaging);
-  return { text: out, previousFirst: prod[0]?.id ?? "" };
+  const { large, ...plain } = entry;
+  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
+  const lists = (withLarge: boolean, keepOlder: boolean, keepAuto: number) => {
+    const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
+    const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
+    return {
+      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep, keepAuto), "production", fallback),
+      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep, keepAuto), "staging", fallback),
+    };
+  };
+  // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
+  // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
+  // when the list is too long, then this entry's.
+  //
+  // Only when no list fits at KEEP_AUTO rolls does each keep fewer, oldest unpinned roll first, down to this roll
+  // alone. A pinned roll does not count toward KEEP_AUTO, so with one pinned a list holds KEEP_AUTO + 1 rolls: at about
+  // 376 bytes each, production came to 5,150 bytes and every promote threw (roll 45625813906, 2026-11-25). A
+  // hand-approved entry, a pin and this roll are never trimmed.
+  const wants = large !== undefined;
+  const variants = (n: number) => [lists(wants, true, n), lists(wants, false, n), lists(false, false, n)];
+  let next = variants(KEEP_AUTO)[2]!;
+  let at = -1;
+  for (let n = KEEP_AUTO; n >= 1 && at < 0; n--) {
+    const tries = variants(n);
+    at = tries.findIndex((t) => fits(t.production) && fits(t.staging));
+    if (at >= 0) next = tries[at]!;
+  }
+  const listLarge = wants && at >= 0 && at < 2;
+  for (const [before, after, env] of [[prod, next.production, "production"], [staging, next.staging, "staging"]] as const) {
+    for (const id of keep) {
+      if (before.some((i) => i.id === id) && !after.some((i) => i.id === id)) throw new Error(`approve would take cmux-platform's pinned ${id} out of ${env}'s list`);
+    }
+  }
+  let out = replaceList(text, "production", next.production);
+  out = replaceList(out, "staging", next.staging);
+  return { text: out, previousFirst: prod[0]?.id ?? "", large: listLarge };
 }
 
 /**
@@ -177,10 +285,11 @@ export function approve(text: string, entry: BootImage): { text: string; previou
  * second only until that newer roll is rolled back, and would then boot again with no check; removing it wherever
  * it is means it can never come back.
  */
-export function rollback(text: string, id: string): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
+export function rollback(text: string, id: string, keep: readonly string[] = []): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
   const prod = locate(text, "production").images;
   const first = prod[0]?.id ?? "";
   if (!id.startsWith(AUTO_PREFIX)) return { text, rolledBack: false, reason: `${id} is not an auto-rolled image`, nowFirst: first };
+  if (keep.includes(id)) return { text, rolledBack: false, reason: `cmux-platform pins ${id} (CLOUD_VM_API_IMAGE); move its pin first`, nowFirst: first };
   const staging = locate(text, "staging").images;
   const inProd = prod.some((i) => i.id === id);
   if (!inProd && !staging.some((i) => i.id === id)) return { text, rolledBack: false, reason: `${id} is in neither list`, nowFirst: first };
@@ -212,6 +321,8 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     services: [],
     // cmux-platform compares it across rolls: equal means only cmux-tui changed, so a spare stays claimable.
     ...(typeof candidate.inputs_sha256 === "string" && SHA256.test(candidate.inputs_sha256) ? { inputs_sha256: candidate.inputs_sha256 } : {}),
+    // approve lists it only where LARGE_ENVS says, and only while the list fits.
+    ...(largeOf(candidate) === undefined ? {} : { large: largeOf(candidate)! }),
   };
 }
 
@@ -349,6 +460,24 @@ function pinnedCmuxTui(lockText: string): string {
   return version;
 }
 
+/**
+ * Why PIN must not roll onto the tip whose lock pins PINNED ("" when it may): PIN is older. plan() refuses an older
+ * build only against the pin at plan time, and a newer roll can land while this one bakes. Roll 44191283358's
+ * re-run (attempt 2, 2026-11-18) promoted cmux-tui 6c776483 at 04:53Z, 23 min after roll 44224051230 had put
+ * ecd5f536 first: image-roll-push.sh wrote the older pin over the tip's newer one and approve() put it first in
+ * production. Fails closed like plan(): a shallow checkout or a commit the checkout lacks throws.
+ */
+function behindTip(pin: string, pinned: string): string {
+  if (!/^[0-9a-f]{40}$/u.test(pin)) throw new Error("--pin must be 40 hex");
+  if (pin === pinned) return "";
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") throw new Error("behind needs full history; the checkout is shallow (fetch-depth: 0)");
+  for (const commit of [pin, pinned]) {
+    if (!gitOk(["cat-file", "-e", `${commit}^{commit}`])) throw new Error(`cmux-tui ${commit.slice(0, 12)} is not in this checkout; fetch it first`);
+  }
+  if (!gitOk(["merge-base", "--is-ancestor", pin, pinned])) return "";
+  return `cmux-tui ${pin.slice(0, 12)} is older than the tip's pinned ${pinned.slice(0, 12)}: a newer roll landed while this one baked`;
+}
+
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
@@ -407,6 +536,15 @@ function arg(argv: string[], name: string, fallback?: string): string {
   return value;
 }
 
+/** --platform-wrangler PATH: cmux-platform's root wrangler.jsonc, whose CLOUD_VM_API_IMAGE pins approve and rollback keep. */
+function pinsFrom(rest: string[]): string[] {
+  const file = rest.includes("--platform-wrangler") ? arg(rest, "--platform-wrangler") : "";
+  if (!file) return [];
+  const pins = platformPins(readFileSync(file, "utf8"));
+  if (pins.length === 0) throw new Error(`${file} names no CLOUD_VM_API_IMAGE: not cmux-platform's wrangler.jsonc`);
+  return pins;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const wrangler = arg(rest, "--wrangler", DEFAULT_WRANGLER);
@@ -424,6 +562,12 @@ async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify(result, null, 2));
     return 0;
   }
+  if (command === "behind") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
+    const reason = behindTip(arg(rest, "--pin"), pinnedCmuxTui(readFileSync(lock, "utf8")));
+    console.log(JSON.stringify({ behind: reason !== "", reason }, null, 2));
+    return reason ? 3 : 0;
+  }
   if (command === "approve") {
     const candidate = JSON.parse(readFileSync(arg(rest, "--candidate"), "utf8")) as Candidate;
     const lockText = readFileSync(lock, "utf8");
@@ -432,16 +576,23 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: the lock here (${digest.slice(0, 12)}) is not the lock the image was baked from (${candidate.lock_sha256.slice(0, 12)}); the tip moved its image inputs`);
       return 4;
     }
-    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    const rolled = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    // The list is deployed with the Worker source beside it (cmux's, or cmux-platform's copy with --wrangler). A
+    // Worker from before the large image refuses the whole list over one unknown field, so it is listed only there.
+    const takesLarge = workerTakesLarge(wrangler);
+    if (rolled.large !== undefined && !takesLarge) console.error(`approve: ${rolled.id} is listed without its large image: the Worker beside ${wrangler} does not take one`);
+    const { large: _large, ...withoutLarge } = rolled;
+    const entry: BootImage = takesLarge ? rolled : withoutLarge;
     const before = readFileSync(wrangler, "utf8");
-    const { text, previousFirst } = approve(before, entry);
+    const { text, previousFirst, large } = approve(before, entry, pinsFrom(rest));
     writeFileSync(wrangler, text);
-    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst }, null, 2));
+    if (entry.large !== undefined && !large) console.error(`approve: ${entry.id} is listed without its large image: staging's VM_BOOT_IMAGES would pass ${MAX_BYTES} bytes with it`);
+    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst, large }, null, 2));
     return 0;
   }
   if (command === "rollback") {
     const before = readFileSync(wrangler, "utf8");
-    const result = rollback(before, arg(rest, "--image"));
+    const result = rollback(before, arg(rest, "--image"), pinsFrom(rest));
     if (result.rolledBack) writeFileSync(wrangler, result.text);
     console.log(JSON.stringify({ rolledBack: result.rolledBack, reason: result.reason, nowFirst: result.nowFirst }, null, 2));
     return 0;

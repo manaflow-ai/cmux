@@ -91,10 +91,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-UPSTREAM = "origin/feat-cmux-next"
+# Every remote-tracking ref is handed to git by its full name (refs/remotes/<remote>/<name>), never the short
+# `origin/feat-cmux-next`: in a clone with a local branch literally named `origin/feat-cmux-next`
+# (refs/heads/origin/feat-cmux-next, which some tool creates) git reads the short name as that local branch
+# ("refname is ambiguous"). 2026-11-20: a stale local twin turned a plain base merge (merged parent 7209f01, the
+# remote tip) into a push "over e8c36a3", and the gate refused it for the crash ratchet and string tables in files
+# only the base changed. full_ref() maps a short name for git; short_ref() is what reports print.
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"
 # Long-lived integration branches with their own merge trains (see the module docstring): a branch cut from one
 # is judged over where it left it, even with no upstream configured. Add a new one here.
-INTEGRATION_REFS = ("origin/perf/chrome-parity", "origin/main")
+INTEGRATION_REFS = ("refs/remotes/origin/perf/chrome-parity", "refs/remotes/origin/main")
 DEFAULT_REMOTE = "origin"
 ZERO_SHA = "0" * 40
 
@@ -150,6 +156,11 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
     # A hook runs with git's GIT_INDEX_FILE / GIT_WORK_TREE for the pushing checkout: never let them reach a
     # read of another tree.
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    # Every read here is of refs and commits. In a worktree of a blobless mirror, a ref whose commit the mirror lacks
+    # made git lazy-fetch that commit's whole history (noop negotiation, GBs), and the push sat in the hook for
+    # 526 to 1436 s (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18). With lazy fetch
+    # off such a ref reads as absent, which every caller already handles. A full clone ignores the variable.
+    env["GIT_NO_LAZY_FETCH"] = "1"
     result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env)
     return result.returncode, result.stdout.strip()
 
@@ -236,9 +247,20 @@ def upstream_of(repo: Path, local_ref: str | None, remote: str | None) -> str | 
     return upstream if upstream.startswith(f"refs/remotes/{remote}/") else None
 
 
-def _full_ref(ref: str) -> str:
-    """REF as a full ref name: `origin/x` -> `refs/remotes/origin/x`."""
-    return ref if ref.startswith("refs/") else f"refs/remotes/{ref}"
+def full_ref(ref: str) -> str:
+    """Remote-tracking ref REF as a full ref name: `origin/x` -> `refs/remotes/origin/x` (a full name stays). Git
+    reads a short `origin/x` as the local branch refs/heads/origin/x when one exists (see UPSTREAM). A bare name with
+    no `<remote>/` (`upstream`) is no remote-tracking ref: it stays as given, so a caller (the ratchet and layer gate
+    tests) can name a local branch as the upstream."""
+    return ref if ref.startswith("refs/") or "/" not in ref else f"refs/remotes/{ref}"
+
+
+_full_ref = full_ref
+
+
+def short_ref(ref: str) -> str:
+    """REF as reports print it: `refs/remotes/origin/x` -> `origin/x`."""
+    return ref.removeprefix("refs/remotes/")
 
 
 def _cut_from_note(repo: Path, base: str, upstream_ref: str, cut_from: list[str], branch_upstream: str | None) -> str:
@@ -329,6 +351,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     (the caller leaves out a remote head it does not have), and when nothing the remote has bounds the pushed
     commits.
     """
+    upstream_ref = _full_ref(upstream_ref)  # a caller's `origin/x` too: never a local branch of that name
     name = remote_name(repo, remote)
     shown = name or remote or DEFAULT_REMOTE
     tracked_ref = tracking_ref(repo, name, remote_ref) if name and remote_ref else None
@@ -337,7 +360,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     # A push onto an integration branch itself is judged over that branch alone (see the module docstring).
     # The pushed ref names one (the hook), or, with no pushed ref (a manual run, the guardrails, the web lint), the
     # local branch does, so a manual run on feat-cmux-next reads what its push will.
-    branches = {f"refs/heads/{ref.split('/', 1)[-1]}" for ref in integration}
+    branches = {f"refs/heads/{short_ref(ref).split('/', 1)[-1]}" for ref in integration}
     landing = (remote_ref in branches if remote_ref else local_branch(repo, local_ref or head) in branches) or (
         tracked_ref is not None and _full_ref(tracked_ref) in {_full_ref(ref) for ref in integration})
     known_refs = {_full_ref(ref) for ref in (upstream_ref, remote_head, tracked_ref) if ref}
@@ -349,7 +372,8 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     extra = [_full_ref(ref) for ref in (configured.split() if code == 0 else [])]
     extra = [ref for ref in extra if name and ref.startswith(f"refs/remotes/{name}/")]
     cut_from = [] if landing else list(dict.fromkeys(
-        ref for ref in (branch_upstream, *INTEGRATION_REFS, *extra) if ref and _full_ref(ref) not in known_refs))
+        _full_ref(ref) for ref in (branch_upstream, *INTEGRATION_REFS, *extra)
+        if ref and _full_ref(ref) not in known_refs))
     # Every revision in one rev-parse (it was one each: 4 or more git processes per push).
     resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head, *cut_from])
     tip, known_shas = resolved[0], resolved[1:1 + len(known)]
@@ -377,7 +401,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         own, edge = _walk(repo, tip, negatives, bound)
     how = ""
     if bound:
-        why = (f"no remote head, tracking ref, {upstream_ref} or remote HEAD in this clone" if not negatives
+        why = (f"no remote head, tracking ref, {short_ref(upstream_ref)} or remote HEAD in this clone" if not negatives
                else "the walk did not meet those refs")
         how += f"; bounded by every {shown} ref ({why})"
     if not own:
@@ -510,6 +534,7 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
     when it is fresh, or was left alone (a push to a URL, a remote whose refspecs do not map the branch there, a clone
     without the ref: the fallbacks), else the report's note on why the stale copy bounds the walk (see the module
     docstring)."""
+    upstream_ref = short_ref(upstream_ref)  # `origin/x` for the note; git is handed TRACKED, the full name
     name = remote_name(repo, remote)
     if not name or not upstream_ref.startswith(f"{name}/"):
         return ""
@@ -701,7 +726,7 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
     remote head bounds the walk) or deletes.
     """
     ranges, errors = [], []
-    branch = upstream_ref.split("/", 1)[-1]
+    branch = short_ref(upstream_ref).split("/", 1)[-1]
     rows = [line.split() for line in lines]
     pushing = [parts for parts in rows if len(parts) == 4 and parts[1] != ZERO_SHA]
     stale = ""
