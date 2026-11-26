@@ -548,9 +548,14 @@ class GreenBaseMergeTests(BranchRepo):
         recent = self.now - 2 * DAY - 60
         tier = self.tier
         facts = self.facts(True)
-        for label in ("full-ci", "ready-to-land"):
-            self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
-                                  now=recent)[0], "full", label)
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
+                              now=recent)[0], "full")
+        # The labelled base merge rule: a ready-to-land head runs nothing too (the land pulses the label), unless
+        # its switch is off.
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("ready-to-land",)), facts=facts,
+                              now=recent)[0], "none")
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("ready-to-land",)), facts=facts,
+                              now=recent, labelled_switch="0")[0], "full")
         self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, green_switch="0")[0],
                          "cheap")
         # Where the green-head rule does not apply, the sync rule's cheap tier (or, with it off, the full tier) stays.
@@ -621,8 +626,9 @@ class SamePatchTests(unittest.TestCase):
         decided = self.tier(self.event(), facts)
         self.assertEqual(decided, ("none", decided[1]))
         self.assertIn("same change as bbbbbbbbbb", decided[1])
-        for label, usual in (("full-ci", "full"), ("ready-to-land", "full")):
+        for label, usual in (("full-ci", "full"), ("ready-to-land", "none")):
             self.assertEqual(self.tier(self.event((label,)), facts)[0], usual, label)
+        self.assertEqual(self.tier(self.event(("ready-to-land",)), facts, labelled_switch="0")[0], "full")
         self.assertEqual(self.tier(self.event(), facts, green_switch="0")[0], "cheap")
         self.assertEqual(self.tier(self.event(), {**facts, "same_patch_green": False})[0], "cheap")
 
@@ -648,8 +654,14 @@ class SamePatchTests(unittest.TestCase):
                 self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
                 calls.clear()
                 head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(sha) or "k"
-                for ev in (self.event(before="0" * 39), self.event(("full-ci",)), self.event(("ready-to-land",))):
+                for ev in (self.event(before="0" * 39), self.event(("full-ci",))):
                     head_tier.decide("pull_request", ev)
+                self.assertEqual(calls, [])
+                head_tier.decide("pull_request", self.event(("ready-to-land",)))  # the labelled base merge rule
+                self.assertEqual(calls, ["a" * 40, "b" * 40])
+                calls.clear()
+                with unittest.mock.patch.dict(os.environ, {"CI_LABELLED_BASE_MERGE_SKIP": "0"}):
+                    head_tier.decide("pull_request", self.event(("ready-to-land",)))
                 self.assertEqual(calls, [])
         finally:
             head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key = real
@@ -724,6 +736,13 @@ class LandCarryTests(BranchRepo):
         # rule's own full-or-carried verdict shows.
         saved = os.environ.get("CI_LAND_FULL_PER_PR")
         os.environ["CI_LAND_FULL_PER_PR"] = "1"
+        # The labelled base merge rule (on by default) gives a green previous head the tier none before the carry
+        # rule; pin it off here (LabelledBaseMergeTests covers it). The red-head rerun rule reads the runs first; pin
+        # it off too so this test shows the carry rule's own reads (RedBaseMergeTests covers it).
+        labelled = unittest.mock.patch.dict(os.environ, {"CI_LABELLED_BASE_MERGE_SKIP": "0",
+                                                         "CI_RED_BASE_MERGE_RERUN": "0"})
+        labelled.start()
+        self.addCleanup(labelled.stop)
         try:
             head_tier.land_status_at = lambda *a: calls.append(("status", a[1])) or state["value"]
             head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or [
@@ -1050,10 +1069,35 @@ class LandHandoffOnlyTests(unittest.TestCase):
         decided = head_tier.tier("pull_request", ev, land_switch="1")
         return pr_router.route(ev, self.CALLEES, ["cmux-tui/src/a.rs"], decided=decided, land_update=land_update)[0]
 
-    def test_the_land_handoff_starts_it(self) -> None:
+    def test_the_land_handoff_skips_it_by_default(self) -> None:
+        """72 of 112 PR head builds (13-17Z 2026-11-26) were label handoffs no merge took: the train tip builds."""
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
-                self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), ["mc.yml"])
+                with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("CI_MC_HANDOFF_LABEL_SKIP", None)
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+                with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "1"}):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+
+    def test_the_land_handoff_starts_it_when_the_skip_is_off(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "0"}):
+            for label in ("ready-to-land", "full-ci"):
+                with self.subTest(label=label):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)),
+                                     ["mc.yml"])
+
+    def test_the_skip_leaves_other_callees_on_the_handoff(self) -> None:
+        callees = dict(self.CALLEES, **{"other.yml": {"types": ["opened", "synchronize", "reopened",
+                                                               "ready_for_review"]}})
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        start, why = pr_router.route(ev, callees, ["cmux-tui/src/a.rs"], decided=decided)
+        self.assertEqual(start, ["other.yml"])
+        self.assertIn("merge train", why["mc.yml"])
+
+    def test_pr_router_passes_the_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        self.assertIn("CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}", text)
 
     def test_a_push_to_a_labeled_pr_does_not(self) -> None:
         for labels in (("ready-to-land",), ("full-ci",), ()):
@@ -1107,6 +1151,178 @@ class LandHandoffOnlyTests(unittest.TestCase):
 
     def test_the_machine_channel_callee_is_land_handoff_only(self) -> None:
         self.assertTrue(pr_router.load_manifest()["cmux-machine-channel.yml"].get("land_handoff_only"))
+
+
+
+def _pr_event(labels: tuple[str, ...] = (), action: str = "synchronize") -> dict:
+    repo = {"full_name": "manaflow-ai/cmux"}
+    return {"action": action, "pull_request": {
+        "draft": False, "base": {"ref": "feat-cmux-next", "repo": repo},
+        "head": {"sha": "a" * 40, "repo": repo}, "labels": [{"name": n} for n in labels]}}
+
+
+def _run(id_: int, path: str, conclusion: str | None, status: str = "completed") -> dict:
+    return {"id": id_, "path": f".github/workflows/{path}", "status": status, "conclusion": conclusion}
+
+
+class LabelledBaseMergeTests(unittest.TestCase):
+    """Cut (a): a ready-to-land head's base merge onto a green head runs nothing; the land pulses the label."""
+
+    FACTS = {"base_merge_only": True, "own_last": time.time(), "by_github": True, "previous": "b" * 40,
+             "previous_green": True}
+
+    def tier(self, ev: dict, **kwargs) -> tuple[str, str]:
+        kwargs.setdefault("land_switch", "1")
+        return head_tier.tier("pull_request", ev, facts=self.FACTS, now=time.time(), **kwargs)
+
+    def test_a_labelled_base_merge_onto_a_green_head_runs_nothing_and_keeps_the_land_tier_pending(self) -> None:
+        ev = _pr_event(("ready-to-land",))
+        decided = self.tier(ev)
+        self.assertEqual(decided[0], "none")
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            # pending with the cheap tier's description: land-judge pulses ready-to-land at this head.
+            self.assertEqual(pr_router.land_status(ev, decided), "pending")
+        callees = pr_router.load_manifest()
+        start, _ = pr_router.route(ev, callees, ["README.md"], decided=decided, land_update=True)
+        self.assertEqual(start, [])
+
+    def test_the_land_handoff_full_ci_and_the_switch_run_the_usual_tier(self) -> None:
+        # The land's own labeled event (the pulse) is not a synchronize: the land tier runs there.
+        self.assertNotEqual(self.tier(_pr_event(("ready-to-land",), "labeled"))[0], "none")
+        self.assertEqual(self.tier(_pr_event(("ready-to-land", "full-ci")))[0], "full")
+        self.assertNotEqual(self.tier(_pr_event(("ready-to-land",)), labelled_switch="0")[0], "none")
+        self.assertFalse(head_tier.green_rule_applies(_pr_event(("ready-to-land",)), "1", "1", "0"))
+        self.assertTrue(head_tier.green_rule_applies(_pr_event(("ready-to-land",)), "1", "1", "1"))
+
+    def test_a_red_or_unread_previous_head_keeps_the_usual_tier(self) -> None:
+        for green in (False, None):
+            facts = {**self.FACTS, "previous_green": green}
+            decided = head_tier.tier("pull_request", _pr_event(("ready-to-land",)), facts=facts, now=time.time(),
+                                     land_switch="1")
+            self.assertNotEqual(decided[0], "none", green)
+
+
+class RedBaseMergeTests(unittest.TestCase):
+    """Cut (b): a base merge onto a red head reruns only what was not green there; anything unread runs all."""
+
+    RED = [_run(1, "ci.yml", "success"), _run(2, "cmux-next.yml", "failure"), _run(3, "pr-router.yml", "failure")]
+
+    def decide(self, ev: dict, runs: list | None, workflow: str, env: dict | None = None) -> tuple:
+        real = head_tier.head_facts, head_tier.runs_at
+        try:
+            head_tier.head_facts = lambda e: {"base_merge_only": True, "own_last": time.time(), "by_github": True,
+                                              "previous": "b" * 40}
+            head_tier.runs_at = lambda *a: runs
+            ref = f"manaflow-ai/cmux/.github/workflows/{workflow}@refs/pull/1/merge" if workflow else ""
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                       "GITHUB_WORKFLOW_REF": ref, **(env or {})}):
+                return head_tier.decide_with_facts("pull_request", ev)
+        finally:
+            head_tier.head_facts, head_tier.runs_at = real
+
+    def test_a_workflow_green_at_the_red_previous_head_runs_nothing(self) -> None:
+        decided, facts = self.decide(_pr_event(), self.RED, "ci.yml")
+        self.assertEqual(decided[0], "none")
+        self.assertTrue(head_tier.rerun(decided), decided)
+        self.assertEqual(facts["previous_runs"], self.RED)
+
+    def test_a_workflow_red_cancelled_skipped_running_or_missing_there_runs_its_usual_tier(self) -> None:
+        self.assertFalse(head_tier.rerun(self.decide(_pr_event(), self.RED, "cmux-next.yml")[0]))
+        for runs in ([_run(1, "ci.yml", "cancelled"), _run(2, "x.yml", "failure")],
+                     [_run(1, "ci.yml", "skipped"), _run(2, "x.yml", "failure")],
+                     [_run(1, "ci.yml", None, "in_progress"), _run(2, "x.yml", "failure")],
+                     [_run(2, "x.yml", "failure")],
+                     [_run(5, "ci.yml", "failure"), _run(1, "ci.yml", "success")]):  # the newest run counts
+            self.assertNotEqual(self.decide(_pr_event(), runs, "ci.yml")[0][0], "none", runs)
+
+    def test_it_fails_open(self) -> None:
+        self.assertNotEqual(self.decide(_pr_event(), None, "ci.yml")[0][0], "none")  # runs unread
+        self.assertNotEqual(self.decide(_pr_event(), self.RED, "")[0][0], "none")  # own workflow unknown
+
+    def test_full_ci_the_switch_the_land_handoff_and_forks_run_everything(self) -> None:
+        self.assertEqual(self.decide(_pr_event(("full-ci",)), self.RED, "ci.yml")[0][0], "full")
+        self.assertNotEqual(self.decide(_pr_event(), self.RED, "ci.yml", {"CI_RED_BASE_MERGE_RERUN": "0"})[0][0],
+                            "none")
+        self.assertNotEqual(self.decide(_pr_event(("ready-to-land",), "labeled"), self.RED, "ci.yml")[0][0], "none")
+        fork = _pr_event()
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.decide(fork, self.RED, "ci.yml")[0][0], "full")
+
+    def test_a_landing_head_keeps_the_land_tier_pending(self) -> None:
+        ev = _pr_event(("ready-to-land",))
+        decided = self.decide(ev, self.RED, "ci.yml")[0]
+        self.assertEqual(decided[0], "none")
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            self.assertEqual(pr_router.land_status(ev, decided), "pending")
+
+    def test_helpers(self) -> None:
+        self.assertEqual(head_tier.workflow_file("o/r/.github/workflows/ci.yml@refs/heads/x"), "ci.yml")
+        self.assertEqual(head_tier.workflow_file(None), "")
+        self.assertTrue(head_tier.passed_there(self.RED, "ci.yml"))
+        self.assertFalse(head_tier.passed_there(self.RED, "pr-router.yml"))
+        self.assertFalse(head_tier.passed_there(self.RED, ""))
+        self.assertFalse(head_tier.passed_there(["junk"], "ci.yml"))
+
+
+class RouterRerunPlanTests(unittest.TestCase):
+    """Cut (b) inside the router: callees and table jobs that passed at the red previous head stay off."""
+
+    @staticmethod
+    def job(name: str, conclusion: str | None = "success", seconds: int = 600, status: str = "completed") -> dict:
+        return {"name": name, "status": status, "conclusion": conclusion, "started_at": "2026-11-26T10:00:00Z",
+                "completed_at": f"2026-11-26T10:{seconds // 60:02d}:{seconds % 60:02d}Z"}
+
+    def names(self) -> dict:
+        return pr_router.caller_names(pr_router.ENTRY.read_text())
+
+    def test_caller_names_cover_every_callee(self) -> None:
+        names = self.names()
+        self.assertEqual(names["pr-pipeline.yml"], "pr pipeline")
+        self.assertEqual(set(names), set(pr_router.caller_jobs(pr_router.ENTRY.read_text())))
+
+    def test_only_red_cancelled_short_or_absent_reruns(self) -> None:
+        jobs = [self.job("pr router"),
+                self.job("Swift packages on Linux / test (shared)"),
+                self.job("Swift packages on Linux / test (ios)", "skipped", 0),
+                self.job("cmux-next fast gates / gate", "failure"),
+                self.job("cmux-next size budget / check", "success", 20),  # under a minute: reruns
+                self.job("classic API guard / guard", "cancelled"),
+                self.job("pr pipeline / linux"),
+                self.job("pr pipeline / web-browser", "failure"),
+                self.job("iOS link FFI on Linux", "skipped", 0)]  # skipped there: never proved
+        carried, rows = pr_router.rerun_plan(jobs, self.names(), ["linux", "web-browser"])
+        self.assertEqual(carried, {"swift-linux-packages.yml"})
+        self.assertEqual(rows, {"linux"})
+        self.assertEqual(pr_router.rerun_plan(None, self.names(), ["linux"]), (set(), set()))
+
+    def test_route_keeps_carried_callees_off(self) -> None:
+        callees = pr_router.load_manifest()
+        ev = _pr_event()
+        start, why = pr_router.route(ev, callees, None, decided=("full", "ready for review"))
+        self.assertIn("swift-linux-packages.yml", start)
+        start, why = pr_router.route(ev, callees, None, decided=("full", "ready for review"),
+                                     carried={"swift-linux-packages.yml"})
+        self.assertNotIn("swift-linux-packages.yml", start)
+        self.assertTrue(why["swift-linux-packages.yml"].startswith(head_tier.RERUN_REASON))
+
+    def test_plan_for_fails_open_and_reads_only_a_red_previous_head(self) -> None:
+        callees = pr_router.load_manifest()
+        runs = [_run(1, "pr-router.yml", "failure")]
+        real = pr_router.router_jobs_at
+        try:
+            pr_router.router_jobs_at = lambda *a: [self.job("Swift packages on Linux / test")]
+            facts = {"previous_green": False, "previous_runs": runs}
+            self.assertEqual(pr_router.plan_for(("full", ""), facts, callees), ({"swift-linux-packages.yml"}, set()))
+            for f in (None, {**facts, "previous_green": None}, {**facts, "previous_green": True},
+                      {"previous_green": False}):
+                self.assertEqual(pr_router.plan_for(("full", ""), f, callees), (set(), set()), f)
+            self.assertEqual(pr_router.plan_for(("none", ""), facts, callees), (set(), set()))
+            pr_router.router_jobs_at = lambda *a: None  # unread jobs
+            self.assertEqual(pr_router.plan_for(("full", ""), facts, callees), (set(), set()))
+        finally:
+            pr_router.router_jobs_at = real
+        self.assertIsNone(pr_router.router_jobs_at([_run(1, "ci.yml", "failure")], "manaflow-ai/cmux", "t"))
+        self.assertIsNone(pr_router.router_jobs_at(runs, "manaflow-ai/cmux", ""))
 
 
 if __name__ == "__main__":

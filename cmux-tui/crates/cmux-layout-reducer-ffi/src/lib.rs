@@ -35,6 +35,7 @@
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
+//! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -54,7 +55,8 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
@@ -64,7 +66,7 @@
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), agent cursor visibility
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
@@ -100,6 +102,7 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -124,6 +127,7 @@ pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
 mod tab_groups;
+mod tab_layout;
 mod tab_strip;
 pub mod typed;
 mod vnc;
@@ -608,6 +612,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"focus_input_world" => {
                 let request: cmux_focus_core::invariants::Observation =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -650,6 +666,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_sequence::respond(operation, request)?
             }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            operation if cloud_launch::handles(operation) => {
+                cloud_launch::respond(operation, request)?
+            }
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
@@ -669,6 +688,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
+            operation if tab_layout::handles(operation) => tab_layout::respond(operation, request)?,
             operation if notification_rings::handles(operation) => {
                 notification_rings::respond(operation, request)?
             }
