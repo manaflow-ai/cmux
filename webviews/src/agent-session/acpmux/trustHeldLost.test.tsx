@@ -96,7 +96,7 @@ function fakeHost() {
         lostPrompt: { sessionId: "chat-1", promptId: entry.id } satisfies LostPrompt,
       });
       journal.push({ entry, resent: () => undefined });
-      return new Promise<string | undefined>((_, reject) => setTimeout(() => reject(error), 0));
+      return Promise.reject(error);
     },
     /// lostPrompt.ts `resentAfterLoss`, as App wires it: true once the lost prompt shows on the
     /// next connection (the journal's resend), here once the host is back.
@@ -111,12 +111,6 @@ function fakeHost() {
 }
 
 type Hold = ReturnType<typeof useTrustHeldPrompts>;
-
-/// Yield to queued macrotasks (the fake host's lost-send rejects, the flush's next send): no wall
-/// clock, so a loaded runner cannot outrun it.
-async function macrotasks(turns = 8) {
-  for (let turn = 0; turn < turns; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 async function scenario(withResendWait: boolean) {
   const main = mountDom();
@@ -160,15 +154,12 @@ async function scenario(withResendWait: boolean) {
     setHolds(false);
   });
   await act(async () => {
-    await macrotasks();
+    await Promise.resolve();
   });
   // The host is back: its journal sends the lost one again under its own id.
   await act(async () => {
     host.back();
-    await macrotasks();
-  });
-  await act(async () => {
-    await macrotasks();
+    await Promise.resolve();
   });
   return { host, givenBack };
 }
