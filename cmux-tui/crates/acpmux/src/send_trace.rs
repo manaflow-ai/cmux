@@ -51,6 +51,7 @@ struct Pending {
 
 /// Traced prompts by session id; [`PENDING_COUNT`] lets every untraced call skip the lock.
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Default::default);
+pub static PROBE_FIRST: AtomicBool = AtomicBool::new(false);
 static PENDING_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Set when the edge could not be reached: no more posts from this process.
 static EDGE_DOWN: AtomicBool = AtomicBool::new(false);
@@ -117,6 +118,14 @@ pub fn mint_trace_id() -> String {
 /// the id it carries, or a minted one when it carries none. A newer prompt of the same session
 /// replaces an older one.
 pub fn received(session: &str, params: &Value) {
+    PROBE_FIRST.store(true, Ordering::Relaxed);
+    tracing::warn!(
+        "PROBE-STAGE {} ms={}",
+        "received",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis())
+    );
     if !enabled() {
         return;
     }
@@ -142,6 +151,13 @@ pub fn waiting(session: &str) -> bool {
 
 /// The prompt of `session` was written to its agent; `cold` when the agent was started for it.
 pub fn handed(session: &str, cold: bool) {
+    tracing::warn!(
+        "PROBE-STAGE {} ms={}",
+        if cold { "handed-cold" } else { "handed" },
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis())
+    );
     if PENDING_COUNT.load(Ordering::Relaxed) == 0 {
         return;
     }
@@ -158,6 +174,15 @@ pub fn handed(session: &str, cold: bool) {
 
 /// The agent of `session` sent its first model update: post the trace's spans.
 pub fn first_update(session: &str) {
+    if PROBE_FIRST.swap(false, Ordering::Relaxed) {
+        tracing::warn!(
+            "PROBE-STAGE {} ms={}",
+            "first_update",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis())
+        );
+    }
     if PENDING_COUNT.load(Ordering::Relaxed) == 0 {
         return;
     }

@@ -1505,9 +1505,23 @@ impl Hub {
         session.resumed_cut.store(false, Ordering::SeqCst);
         // Whether this prompt's agent starts for it, for its start trace (`send_trace.rs`); read
         // only when the session has one.
+        tracing::warn!(
+            "PROBE-STAGE {} ms={}",
+            "before-child_for",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis())
+        );
         let trace_cold =
             crate::send_trace::waiting(&session.id) && session.child.lock().await.is_none();
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
+        tracing::warn!(
+            "PROBE-STAGE {} ms={}",
+            "after-child_for",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis())
+        );
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
@@ -1787,6 +1801,13 @@ impl Hub {
             // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
             super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref())
         };
+        tracing::warn!(
+            "PROBE-STAGE {} ms={}",
+            "before-hook",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis())
+        );
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
