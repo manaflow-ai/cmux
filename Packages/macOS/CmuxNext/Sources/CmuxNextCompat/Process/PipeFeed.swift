@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 
 /// Hands bytes to a child's stdin pipe on a serial queue of its own, never on the caller's thread.
 ///
@@ -18,7 +22,9 @@ public final class PipeFeed: Sendable {
     ///   ``close()``, never directly, so a close never races a write in flight.
     public init(_ handle: FileHandle) {
         self.handle = handle
+        #if canImport(Darwin)
         _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #endif
     }
 
     /// Queues `data`; a failed write (the child ended) is dropped, as the child is gone.

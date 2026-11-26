@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 package import Darwin
+#else
+package import Glibc
+#endif
 import Foundation
 
 /// The app's open-file limit (RLIMIT_NOFILE).

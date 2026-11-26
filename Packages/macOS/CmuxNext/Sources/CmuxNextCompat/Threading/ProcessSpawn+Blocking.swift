@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
 /// Spawns a process, like `posix_spawn`, as a checked blocking call
 /// (``assertBlockingAllowed(_:fileID:line:)``): a spawn on the main thread stalls it. Spawn from an actor

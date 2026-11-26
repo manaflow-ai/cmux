@@ -1,5 +1,9 @@
 @testable import CmuxNextCompat
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 import Testing
 
@@ -114,7 +118,7 @@ struct BlockingCheckTests {
     }
     #endif
 
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
     // MARK: record mode (Nightly, and Debug by default)
 
     @MainActor @Test func recordModeRecordsEachCallSiteOnceAndCountsRepeats() async {
@@ -421,7 +425,7 @@ struct BlockingCheckTests {
     #endif
 }
 
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 /// A semaphore made with value 0 and signaled once: one wait returns at once and leaves it at its initial
 /// value. (A semaphore made with value 1 and waited on is below its initial value when it is released, and
 /// libdispatch traps on that: the SIGTRAP of the suite runs at 1b71848e3c4 and ee33c68f2a3.)

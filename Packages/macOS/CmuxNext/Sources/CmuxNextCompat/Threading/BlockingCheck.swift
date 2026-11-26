@@ -1,6 +1,10 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 // The inlinable check below calls pthread_main_np(), so Darwin is a public import here.
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 #endif
 
 /// Marks a call that blocks: in builds with the detector (Debug, bench and Nightly), a blocking call on the main thread
@@ -26,7 +30,7 @@ public import Darwin
 ///   - line: The calling code's `#line`.
 @inlinable @inline(__always)
 public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line) {
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
     }
@@ -52,7 +56,7 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
 public func allowBlocking<Result, Failure: Error>(
     _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
     guard pthread_main_np() != 0 else { return try body() }
     let table = BlockingViolationTable.active
     let token = table.enterAllowance(reason)
