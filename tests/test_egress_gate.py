@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Egress gate guard: every outbound connection cmux NEXT opens goes through the egress gate.
 
-docs/privacy.md lists the hosts the app talks to, and tests/test_outbound_hosts.py keeps that list exact at CI time.
-The gate enforces it at run time: in nightly and dev builds a connection to a host with no `connects` row is
+The gate's allowlist (cmux-tui/crates/cmux-egress/hosts.txt, each host with what the app sends there) is the one
+source: the Rust gate compiles it in, the Swift gate's EgressHosts.swift must equal it, and docs/privacy.md's
+"The app connects to" table is generated from it (scripts/privacy_hosts_from_gate.py), so the doc cannot drift from
+what the gate lets through. tests/test_outbound_hosts.py keeps the doc exact against the code at CI time. The gate
+enforces it at run time: in nightly and dev builds a connection to a host with no `connects` row is
 refused (goals/privacy-runtime-egress-enforced.md in cmuxterm-hq; Leo, 2026-11-21: "we need to get more
 ambitious"). A connection the code opens without the gate is a hole the run-time check never sees, so this guard
 finds every place the code makes an HTTP client or socket by hand:
@@ -33,14 +36,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_classic_cloud_routes import clean, in_scope  # noqa: E402
-from test_outbound_hosts import DOC, SCAN, listed  # noqa: E402
+from test_outbound_hosts import DOC, SCAN  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import privacy_hosts_from_gate as gate_doc  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNGATED = ROOT / "tests" / "egress_ungated.json"
 # The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift: CmuxEgress).
 GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/", "Packages/Shared/CmuxEgress/Sources/")
-# The `connects` hosts the Rust gate lets through, generated from docs/privacy.md (--write).
-GATE_HOSTS = ROOT / "cmux-tui" / "crates" / "cmux-egress" / "hosts.txt"
+# The allowlist: the `connects` hosts the Rust gate lets through, each with what the app sends there. The source
+# docs/privacy.md's connects table is generated from (scripts/privacy_hosts_from_gate.py).
+GATE_HOSTS = gate_doc.HOSTS
 # The same hosts as Swift, for the Swift gate (Packages/Shared/CmuxEgress).
 GATE_HOSTS_SWIFT = ROOT / "Packages" / "Shared" / "CmuxEgress" / "Sources" / "CmuxEgress" / "EgressHosts.swift"
 FORMS = {
@@ -118,16 +125,21 @@ def problems(found: dict[str, dict[str, int]], listed: dict[str, dict[str, int]]
     return out
 
 
-def gate_hosts_text(doc: str) -> str:
-    rows, _ = listed(doc)
-    hosts = sorted(h for h, (kind, _) in rows.items() if kind == "connects")
-    return ("# docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: "
-            "python3 tests/test_egress_gate.py --write\n" + "".join(f"{h}\n" for h in hosts))
+def gate_hosts() -> list[str]:
+    """The allowlist's hosts, in file order."""
+    return [row.host for row in gate_doc.read_hosts(GATE_HOSTS.read_text())]
 
 
 def swift_gate_hosts() -> list[str]:
     """The hosts EgressHosts.swift (hand-kept data, no generated header) lists, in file order."""
     return re.findall(r'^\s+"([^"]+)",\s*$', GATE_HOSTS_SWIFT.read_text(), re.M)
+
+
+def connects_outside_table(doc: str) -> list[str]:
+    """`connects` rows written by hand outside the generated table: every one belongs in hosts.txt."""
+    start, end = doc.find("<!-- egress-hosts:begin"), doc.find(gate_doc.END)
+    outside = doc[:start] + doc[end:]
+    return re.findall(r"^\|\s*`([^`]+)`\s*\|\s*connects\s*\|", outside, re.M)
 
 
 def summary(files: dict[str, dict[str, int]]) -> dict:
@@ -139,7 +151,6 @@ def summary(files: dict[str, dict[str, int]]) -> dict:
 
 
 def write(found: dict[str, dict[str, int]]) -> None:
-    GATE_HOSTS.write_text(gate_hosts_text(DOC.read_text()))
     UNGATED.write_text(json.dumps({
         "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; "
                  "tests/test_egress_gate.py keeps it exact.",
@@ -151,16 +162,36 @@ class EgressGate(unittest.TestCase):
         bad = problems(scan(), load())
         self.assertFalse(bad, "\n" + "\n".join(bad))
 
-    def test_the_gate_lets_through_exactly_the_doc_hosts(self):
-        self.assertEqual(GATE_HOSTS.read_text(), gate_hosts_text(DOC.read_text()),
-                         "cmux-egress/hosts.txt differs from docs/privacy.md's connects rows: run --write")
+    def test_the_allowlist_is_sorted_and_described(self):
+        hosts = gate_hosts()  # raises on a host with no description or listed twice
+        self.assertEqual(hosts, sorted(hosts), "cmux-egress/hosts.txt: keep the hosts sorted")
 
-    def test_the_swift_gate_lets_through_exactly_the_doc_hosts(self):
-        rows, _ = listed(DOC.read_text())
-        want = sorted(h for h, (kind, _) in rows.items() if kind == "connects")
-        self.assertEqual(swift_gate_hosts(), want,
-                         "CmuxEgress/EgressHosts.swift differs from docs/privacy.md's connects rows: edit it to match "
+    def test_a_row_missing_sends_when_or_off_fails(self):
+        whole = "# the API\n# sends: a\n# when: b\n# off: c\napi.cmux.dev\n"
+        self.assertEqual(gate_doc.read_hosts(whole)[0].off, "c")
+        for key in gate_doc.FIELDS:
+            short = "".join(line + "\n" for line in whole.splitlines() if not line.startswith(f"# {key}:"))
+            with self.assertRaisesRegex(ValueError, f"no `# {key}:`"):
+                gate_doc.read_hosts(short)
+
+    def test_the_doc_is_generated_from_the_allowlist(self):
+        doc = DOC.read_text()
+        self.assertEqual(doc, gate_doc.render(doc, gate_doc.read_hosts(GATE_HOSTS.read_text())),
+                         "docs/privacy.md's connects table differs from cmux-egress/hosts.txt (the source): edit "
+                         "hosts.txt, then run python3 scripts/privacy_hosts_from_gate.py")
+        self.assertEqual(gate_doc.main(["--check"]), 0)
+
+    def test_the_swift_gate_lets_through_exactly_the_allowlist(self):
+        self.assertEqual(swift_gate_hosts(), sorted(gate_hosts()),
+                         "CmuxEgress/EgressHosts.swift differs from cmux-egress/hosts.txt: edit it to match "
                          "(it is hand-kept, sorted, one host per line)")
+
+    def test_a_connects_row_outside_the_generated_table_fails(self):
+        doc = DOC.read_text()
+        end = doc.index(gate_doc.END) + len(gate_doc.END)
+        hand = doc[:end] + "\n| `stray.cmux.dev` | connects | x |\n" + doc[end:]
+        self.assertEqual(connects_outside_table(hand), ["stray.cmux.dev"])
+        self.assertEqual(connects_outside_table(doc), [])
 
     def test_the_counts_are_the_sum(self):
         data = json.loads(UNGATED.read_text())
