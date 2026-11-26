@@ -54,7 +54,8 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
@@ -64,7 +65,7 @@
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), agent cursor visibility
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
@@ -585,6 +586,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_focus_core::wire::ChildWindowKeyRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_input_world" => {
