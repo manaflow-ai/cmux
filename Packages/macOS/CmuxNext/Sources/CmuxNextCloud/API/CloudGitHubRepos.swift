@@ -139,11 +139,8 @@ extension CloudOwnerAPIClient {
         }
         let answer = CloudGitHubConnects.answer(failure)
         // Why it opened nothing: the HTTP status and the API's error code (no tokens, no page).
-        if case .http(let status, let code, _, _, _) = failure {
-            CloudGitHubConnects.logger.notice("github connect: HTTP \(status, privacy: .public) error \(code ?? "-", privacy: .public) return link \(returnTo != nil, privacy: .public)")
-        } else {
-            CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
-        }
+        let why = if case .http(let status, let code, _, _, _) = failure { "HTTP \(status) error \(code ?? "-")" } else { "no answer" }
+        CloudGitHubConnects.logger.notice("github connect: \(why, privacy: .public) (return link \(returnTo != nil, privacy: .public))")
         return answer
     }
 
