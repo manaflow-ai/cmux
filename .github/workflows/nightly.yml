@@ -2192,6 +2192,9 @@ jobs:
       - &x9
         name: Checkout build ref (warm nightly-next builder)
         if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        # Usually 10-40 s. Run 45782377330 (2026-11-26) sat in this step 40+ min holding the signing Mac,
+        # under only the job's 300 min; failing at 15 lets retry-nightly-next and the tick move on.
+        timeout-minutes: 15
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
