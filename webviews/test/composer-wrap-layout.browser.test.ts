@@ -8,6 +8,7 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { installPaintedFrames } from "./support/paintedFrames";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { UI_ANCHOR_GAP } from "../src/ui/anchor";
+import { SUGGESTIONS_GAP } from "../src/agent-session/acpmux/newtab/suggestionsAnchor";
 
 await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   type ComposerPaint = {
@@ -28,14 +29,28 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   const layouts = [
     // New Tab's +, mic and Send stand on the box's bottom edge as the draft grows (newtab/screen.css;
     // Leo 2026-11-22: the buttons must "stick with teh bottom of the composer").
-    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: true, holds: "top" },
+    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: true, holds: "top", capped: false },
     // The chat composer's controls stand on the box's bottom edge too, and its text rides that edge
     // while the box grows upward from it (fieldGrowth.ts; Leo 2026-11-22: "the caret gets shot
     // down past the composer as it goes"): its last line holds still on the bottom edge, not its first
     // on the top. New Tab grows downward from a fixed top, so its text holds the top.
-    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, bottom: true, holds: "bottom" },
+    {
+      entry: "agent-pane.composer-row",
+      variant: "wrap-one-line",
+      newTab: false,
+      bottom: true,
+      holds: "bottom",
+      capped: true,
+    },
     // Codex's prompt has its own two-line floor, so its first line holds the top as New Tab's does.
-    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, bottom: true, holds: "top" },
+    {
+      entry: "agent-pane.composer-look",
+      variant: "codex-grow-line",
+      newTab: false,
+      bottom: true,
+      holds: "top",
+      capped: false,
+    },
   ];
   beforeAll(async () => {
     vite = await createServer({
@@ -55,7 +70,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
 
   const measure = (page: Page, newTab: boolean) =>
     page.evaluate(
-      ({ newTab, gap }) => {
+      ({ newTab, gap, cardGap }) => {
         const read = () => {
           const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
           const bounds = box.getBoundingClientRect();
@@ -73,15 +88,9 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
           const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
           let anchorBottom = anchor.getBoundingClientRect().bottom;
           if (anchor !== box) {
-            const labels = anchor.querySelectorAll(
-              ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
-            );
-            for (const label of labels) {
-              const rect = label.getBoundingClientRect();
-              if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
-              anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
-              break;
-            }
+            // New Tab's card: the suggestions open SUGGESTIONS_GAP under it at the composer's zoom (suggestionsAnchor.ts).
+            const zoom = Number.parseFloat(getComputedStyle(anchor).getPropertyValue("--cmux-composer-zoom")) || 1;
+            anchorBottom = bounds.bottom + cardGap * zoom - gap;
           }
           return {
             width: text.width,
@@ -123,7 +132,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
           });
         });
       },
-      { newTab, gap: UI_ANCHOR_GAP },
+      { newTab, gap: UI_ANCHOR_GAP, cardGap: SUGGESTIONS_GAP },
     );
 
   const frame = (page: Page) => page.evaluate(() => window.cmuxPaintFrame());
@@ -330,8 +339,8 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             expect(await page.locator(fieldSelector).evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(
               true,
             );
-            if (layout.newTab || !layout.bottom) {
-              const capped = await measure(page, layout.newTab);
+            if (layout.capped) {
+              const capped = await measure(page, false);
               for (let index = 0; index < before.controls.length; index++)
                 expect(Math.abs(capped.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);
             }

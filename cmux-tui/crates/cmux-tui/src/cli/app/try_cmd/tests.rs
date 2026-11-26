@@ -12,8 +12,8 @@ use super::helper::{self, Signing};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
-    ChannelApply, Command, Live, Plan, Scope, apply_channel, choose, finish, nearest, parse,
-    plan_human, plan_json, try_live, undo_live,
+    ChannelApply, Command, Live, Plan, Scope, app_build, apply_channel, choose, finish, nearest,
+    parse, plan_human, plan_json, try_live, try_live_checked, undo_live,
 };
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1135,7 +1135,9 @@ impl Signing for NoSigning {
 }
 
 const HELPER_ID: &str = "com.cmuxterm.app.nightly.screen-sharing";
-const HELPER_NAME: &str = "cmux NIGHTLY Screen Sharing.app";
+const HELPER_NAME: &str = "cmux NIGHTLY Helper.app";
+/// The same helper in an app built before the rename.
+const LEGACY_HELPER_NAME: &str = "cmux NIGHTLY Screen Sharing.app";
 /// What `codesign -d -r-` prints for the NIGHTLY's helper, byte for byte (ss-host-helper's ask (a)).
 const REQUIREMENT: &str = "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
 /// The requirement form without the Developer ID clauses (cmux_signed_bundle::team_requirement).
@@ -1227,7 +1229,10 @@ impl Signing for FakeSigning {
         Ok(())
     }
     fn requirement(&self, bundle: &Path) -> Result<String, String> {
-        assert!(bundle.ends_with(HELPER_NAME), "the INSTALLED helper's requirement: {bundle:?}");
+        assert!(
+            bundle.ends_with(HELPER_NAME) || bundle.ends_with(LEGACY_HELPER_NAME),
+            "the INSTALLED helper's requirement: {bundle:?}"
+        );
         Ok(self.installed.to_owned())
     }
     fn verify(&self, bundle: &Path, requirement: &str) -> Result<(), String> {
@@ -1352,6 +1357,42 @@ fn app_try_with_the_helper_key_swaps_the_bundle_and_undo_restores_it() {
     assert!(undone.changed);
     assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+}
+
+/// An app built before the rename holds `<app> Screen Sharing.app`: the try still finds it,
+/// swaps in the commit's helper (named `<app> Helper.app` in the zip) under the app's own name,
+/// and undo puts the old one back.
+#[test]
+fn app_try_still_finds_a_helper_named_screen_sharing_and_keeps_its_name() {
+    let (fixture, unpacked) = helper_fixture();
+    let library = fixture.app.join(helper::LIBRARY);
+    fs::remove_dir_all(library.join(HELPER_NAME)).unwrap();
+    write_helper(&library.join(LEGACY_HELPER_NAME), HELPER_ID, OLD_HELPER);
+    let exe =
+        |name: &str| fs::read(library.join(name).join("Contents/MacOS").join(helper::EXECUTABLE));
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert_eq!(applied.helper_step.as_ref().unwrap()["did"], "swapped");
+    assert_eq!(exe(LEGACY_HELPER_NAME).unwrap(), NEW_HELPER);
+    assert!(!library.join(HELPER_NAME).exists(), "the app keeps its own helper name");
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior, "screen_sharing_helper": applied.helper_undo}}))
+        .unwrap();
+    undo_live(&fixture.store, &daemon).unwrap();
+    assert_eq!(exe(LEGACY_HELPER_NAME).unwrap(), OLD_HELPER);
 }
 
 /// A bundle that fails the installed helper's requirement is refused before anything changes.
@@ -1630,7 +1671,7 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap();
-        // The script's own shell variables (`SUFFIX=" Screen Sharing"`), to read its destination.
+        // The script's own shell variables (`SUFFIX=" Helper"`), to read its destination.
         let vars: Vec<(String, String)> = text
             .lines()
             .filter_map(|line| {
@@ -1657,8 +1698,8 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
     );
     for (script, bundle) in &helpers {
         // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
-        // `<app name> Screen Sharing.app`.
-        let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
+        // `<app name> Helper.app` (or the older `<app name> Screen Sharing.app`).
+        let covered = bundle.strip_prefix("$name").is_some_and(|tail| helper::is_helper_name(tail));
         assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
     }
 }
@@ -1760,4 +1801,230 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
         panic!("expected daemon-only live, got {plan:?}")
     };
     assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
+}
+
+#[path = "cu_upgrade_tests.rs"]
+mod cu_upgrade_tests;
+
+const TREE: &str = "cccccccccccccccccccccccccccccccccccccccc";
+const SIGNED_CMUX: &[u8] = b"new cmux, Team-signed, longer still";
+const SIGNED_HOST: &[u8] = b"new app host, Team-signed";
+
+/// The tree's Team-signed set beside the fixture's files (cmux_tui_team_sign.py's layout), each
+/// file named by the sha256 of the ad-hoc build it signs.
+fn team_set(fixture: &Fixture) -> Value {
+    let root = fixture.base.strip_prefix("file://").unwrap();
+    let mut files = serde_json::Map::new();
+    for (file, unsigned, signed) in
+        [("cmux", NEW_CMUX, SIGNED_CMUX), ("cmux-app-host", NEW_HOST, SIGNED_HOST)]
+    {
+        let dir = Path::new(root).join(format!("tree/{TREE}/team-signed/{}", sha(signed)));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(file), signed).unwrap();
+        files.insert(
+            file.to_owned(),
+            json!({"sha256": sha(signed), "size": signed.len(), "unsigned_sha256": sha(unsigned)}),
+        );
+    }
+    json!({"schema": 1, "key": TREE, "target": "aarch64-apple-darwin", "team": "7WLXT3NR37", "files": files})
+}
+
+#[test]
+fn a_team_signed_app_takes_the_trees_team_signed_set_bound_by_the_unsigned_sha256() {
+    let fixture = fixture();
+    let completion = team_set(&fixture);
+    let files = live_files(&fixture, &found(good_targets()));
+    let signed = live::team_signed(files.clone(), TREE, &completion, &fixture.base).unwrap();
+    let cmux = signed.iter().find(|wanted| wanted.file == "cmux").unwrap();
+    let binary = cmux.binary.as_ref().unwrap();
+    assert_eq!(binary.sha256, sha(SIGNED_CMUX));
+    assert_eq!(
+        binary.url,
+        format!(
+            "https://files.cmux.com/cmux-tui/tree/{TREE}/team-signed/{}/cmux",
+            sha(SIGNED_CMUX)
+        )
+    );
+    // A file the build lacks stays absent (the app's goes, as before).
+    assert!(signed.iter().any(|wanted| wanted.file == "cmux-holder" && wanted.binary.is_none()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let checked = Cell::new(0);
+    let applied = try_live_checked(
+        &fixture.app,
+        &signed,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+        &|_| {
+            checked.set(checked.get() + 1);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(applied.changed);
+    assert_eq!(checked.get(), 2, "every fetched file passes the Team ID check");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(SIGNED_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(SIGNED_HOST));
+
+    // A set signed from other bytes, of another tree, or missing a file refuses the whole set.
+    let mut other = completion.clone();
+    other["files"]["cmux-app-host"]["unsigned_sha256"] = json!(sha(b"other build"));
+    assert!(live::team_signed(files.clone(), TREE, &other, &fixture.base).is_err());
+    assert!(live::team_signed(files.clone(), &"d".repeat(40), &completion, &fixture.base).is_err());
+    let mut missing = completion.clone();
+    missing["files"].as_object_mut().unwrap().remove("cmux");
+    assert!(live::team_signed(files.clone(), TREE, &missing, &fixture.base).is_err());
+    let mut null = completion;
+    null["files"]["cmux"] = Value::Null;
+    assert!(live::team_signed(files, TREE, &null, &fixture.base).is_err());
+}
+
+#[test]
+fn a_file_failing_the_team_check_changes_nothing() {
+    let fixture = fixture();
+    let completion = team_set(&fixture);
+    let files = live_files(&fixture, &found(good_targets()));
+    let signed = live::team_signed(files, TREE, &completion, &fixture.base).unwrap();
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live_checked(
+        &fixture.app,
+        &signed,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+        &|path| Err(format!("{}: not signed by this app's team", path.display())),
+    )
+    .unwrap_err();
+    assert!(error.contains("not signed by this app's team"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
+}
+
+// ------------------------------------------------------------------ the app-build path (app_build.rs)
+
+fn app_payload(commit: &str) -> Value {
+    json!({
+        "schema": 1, "purpose": app_build::PURPOSE, "commit": commit, "configuration": "release",
+        "arch": "arm64",
+        "app": { "url": app_build::zip_url(commit), "sha256": sha(b"zip"), "size": 3 },
+        "run_id": "123",
+    })
+}
+
+#[test]
+fn app_payload_verifies_only_its_own_commit_and_zip() {
+    let good = app_build::verify(&envelope(&app_payload(COMMIT)), &keys(), COMMIT).unwrap();
+    assert_eq!(good.app.sha256, sha(b"zip"));
+    assert_eq!(good.run_id, "123");
+    let other = "f".repeat(40);
+    assert!(app_build::verify(&envelope(&app_payload(&other)), &keys(), COMMIT).is_err());
+    let mut wrong = app_payload(COMMIT);
+    wrong["purpose"] = json!("cmux-mac-live-update");
+    assert!(app_build::verify(&envelope(&wrong), &keys(), COMMIT).is_err());
+    let mut elsewhere = app_payload(COMMIT);
+    elsewhere["app"]["url"] = json!("https://example.com/cmux.zip");
+    assert!(app_build::verify(&envelope(&elsewhere), &keys(), COMMIT).is_err());
+    let mut huge = app_payload(COMMIT);
+    huge["app"]["size"] = json!(app_build::ZIP_MAX_BYTES + 1);
+    assert!(app_build::verify(&envelope(&huge), &keys(), COMMIT).is_err());
+    let mut bad_sha = app_payload(COMMIT);
+    bad_sha["app"]["sha256"] = json!("not-a-sha");
+    assert!(app_build::verify(&envelope(&bad_sha), &keys(), COMMIT).is_err());
+    // Unsigned bytes are refused before anything reads them.
+    assert!(
+        app_build::verify(app_payload(COMMIT).to_string().as_bytes(), &keys(), COMMIT).is_err()
+    );
+}
+
+#[test]
+fn app_payload_reads_from_the_files_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = format!("file://{}/", dir.path().display());
+    assert_eq!(app_build::read(COMMIT, &base), Ok(None));
+    fs::create_dir_all(dir.path().join(COMMIT)).unwrap();
+    fs::write(dir.path().join(COMMIT).join("mac-app.json"), b"{}").unwrap();
+    assert!(app_build::read(COMMIT, &base).is_err());
+}
+
+#[test]
+fn reidentified_takes_the_apps_identity_and_keeps_the_builds_code() {
+    let mut build = plist::Dictionary::new();
+    build.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.debug.pr".into());
+    build.insert("CFBundleExecutable".into(), "cmux".into());
+    build.insert("CMUXCommit".into(), "0123456789ab".into());
+    build.insert("SUFeedURL".into(), "https://example.com/pr.xml".into());
+    build.insert("CMUXInPlaceTry".into(), "stale".into());
+    let mut app = plist::Dictionary::new();
+    app.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.nightly".into());
+    app.insert("CFBundleName".into(), "cmux NIGHTLY".into());
+    app.insert("CMUXCommit".into(), "89abcdef0123".into());
+    app.insert("SUFeedURL".into(), "https://example.com/nightly.xml".into());
+    app.insert("CMUXIrohRelay".into(), "relay".into());
+    let mut marker = plist::Dictionary::new();
+    marker.insert("commit".into(), COMMIT.into());
+    let out = app_build::reidentified(&build, &app, marker);
+    let get = |key: &str| out.get(key).and_then(plist::Value::as_string);
+    assert_eq!(get("CFBundleIdentifier"), Some("com.cmuxterm.app.nightly"));
+    assert_eq!(get("CFBundleName"), Some("cmux NIGHTLY"));
+    assert_eq!(get("SUFeedURL"), Some("https://example.com/nightly.xml"));
+    assert_eq!(get("CMUXIrohRelay"), Some("relay"));
+    // The build's own code and commit stay its own.
+    assert_eq!(get("CFBundleExecutable"), Some("cmux"));
+    assert_eq!(get("CMUXCommit"), Some("0123456789ab"));
+    let marker = out.get(app_build::MARKER).and_then(plist::Value::as_dictionary).unwrap();
+    assert_eq!(marker.get("commit").and_then(plist::Value::as_string), Some(COMMIT));
+}
+
+#[test]
+fn app_build_commit_and_process_checks() {
+    assert!(app_build::commit_matches(Some("0123456789ab"), COMMIT));
+    assert!(app_build::commit_matches(Some(COMMIT), COMMIT));
+    assert!(!app_build::commit_matches(Some("012345"), COMMIT));
+    assert!(!app_build::commit_matches(Some("fedcba987654"), COMMIT));
+    assert!(!app_build::commit_matches(None, COMMIT));
+    // Nothing answers on a socket that is not there: the app is not running.
+    assert_eq!(app_build::identify(Path::new("/nonexistent/cmux.sock"), Path::new("/A.app")), None);
+    assert!(app_build::identity_key("SUPublicEDKey"));
+    assert!(app_build::identity_key("CMUX_IROH_RELAY"));
+    assert!(!app_build::identity_key("CMUXCommit"));
+    assert!(!app_build::identity_key("CFBundleExecutable"));
+}
+
+#[test]
+fn app_build_plan_path_and_swap_word() {
+    let payload = app_build::verify(&envelope(&app_payload(COMMIT)), &keys(), COMMIT).unwrap();
+    let plan = Plan::App { payload: Box::new(payload) };
+    assert_eq!(plan.path(), "app");
+    let value = plan_json(&plan, COMMIT, Path::new("/A.app"), Some(APP_COMMIT));
+    assert_eq!(value["path"], "app");
+    assert_eq!(value["sha256"], json!(sha(b"zip")));
+    assert_eq!(
+        parse(&words(&[app_build::SWAP_VERB, "/tmp/swap.json"])).unwrap(),
+        Command::Swap { spec: PathBuf::from("/tmp/swap.json") }
+    );
+    assert!(parse(&words(&[app_build::SWAP_VERB, "/tmp/swap.json", "--dry-run"])).is_err());
+}
+
+#[test]
+fn app_build_undo_after_an_update_drops_the_kept_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store { root: dir.path().join("store") };
+    let app = dir.path().join("cmux NIGHTLY.app");
+    fs::create_dir_all(app.join("Contents")).unwrap();
+    plist::Value::Dictionary(plist::Dictionary::new())
+        .to_file_xml(app.join("Contents/Info.plist"))
+        .unwrap();
+    let original = app_build::original_path(&store, &app);
+    fs::create_dir_all(&original).unwrap();
+    assert!(!app_build::is_try(&app));
+    let last = json!({ "action": "try", "ok": true, "path": "app", "commit": COMMIT, "app": app.to_string_lossy(), "original": original.to_string_lossy() });
+    store.record(&last).unwrap();
+    let global = super::GlobalArgs::default();
+    assert_eq!(super::undo_app(&global, &store, &last, COMMIT, &app, false), 0);
+    assert!(!original.exists());
+    assert_eq!(store.last().unwrap()["action"], "undo");
 }

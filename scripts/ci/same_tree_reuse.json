@@ -127,7 +127,6 @@
   "cmux-next-guards.yml": {
    "pinned-asset-store": "reads secrets; reads pull request metadata or the base (github.event.before), not only the tree",
    "nightly-guards": "calls a reusable workflow: no step here can record its pass; publish, release, deploy, live or cloud work (by its name)",
-   "signing-runner-variables": "below break-even: 82 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "ci-guard-group": "reads pull request metadata or the base (github.event.before), not only the tree; checks out ${{ steps.changes.outputs.base }}, not the run's commit",
    "static-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
    "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
@@ -174,6 +173,7 @@
    "cancelled": "reads pull request metadata or the base (github.event.action), not only the tree"
   },
   "cmux-next-react-doctor.yml": {
+   "coalesce": "calls a reusable workflow: no step here can record its pass",
    "react-doctor": "below break-even: 100 runs, 103 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty"
   },
@@ -291,9 +291,6 @@
   "cmux-vnc.yml": {
    "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "coderouter-ci.yml": {
-   "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "device-hub.yml": {
    "test": "needed by deploy-dev, deploy-prod: a skip would skip them or read as no verdict",
    "deploy-dev": "needed by deploy-prod: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
@@ -314,6 +311,11 @@
   },
   "fleet-rd-host-macos.yml": {
    "check": "below break-even: 3 runs, 0 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "gallery-advisory.yml": {
+   "mark-stale": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.changes, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
+   "capture": "needed by comment: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.changes), not only the tree; checks out ${{ github.event.pull_request.head.sha || github.sha }}, not the run's commit",
+   "comment": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.body, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit"
   },
   "ios-e2e.yml": {
    "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by backend, ios-e2e-status, mac-ios-e2e: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.number), not only the tree",
@@ -354,9 +356,6 @@
    "cla-assistant": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "cla-policy-guard": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "namespace-autofix.yml": {
-   "autofix": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.draft, github.event.pull_request.head.ref), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
-  },
   "nightly-next-canary.yml": {
    "pick": "its outputs feed later jobs; a skipped run leaves them empty; needed by canary, verdict: a skip would skip them or read as no verdict",
    "canary": "its outputs feed later jobs; a skipped run leaves them empty; needed by verdict: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
@@ -388,9 +387,6 @@
   "risk-tier-tests.yml": {
    "tests": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "risk-tier.yml": {
-   "evidence": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.number), not only the tree; checks out ${{ github.workflow_sha }}, not the run's commit"
-  },
   "rust-workspaces.yml": {
    "receipt": "its outputs feed later jobs; a skipped run leaves them empty; needed by plan, summary: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.body, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
    "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by summary, workspace: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
@@ -413,12 +409,6 @@
    "mobile-core-package": "needed by ios-tests: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref, github.event.pull_request.labels), not only the tree; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
    "ios-simulator-build": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-tests: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
    "ios-tests": "below break-even: 21 runs, 1 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
-  },
-  "thunderdome-label.yml": {
-   "label": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.labels, github.event.pull_request.number, github.event.pull_request.title), not only the tree"
-  },
-  "web-complexity-trusted.yml": {
-   "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ env.TRUSTED_SHA }}, not the run's commit"
   },
   "web-complexity.yml": {
    "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree"

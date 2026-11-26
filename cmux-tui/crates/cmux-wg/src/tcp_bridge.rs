@@ -144,7 +144,7 @@ impl TcpStack {
                         };
                         let accept = accept.clone();
                         let (conn, stream) = self.bridge(handle, local, remote, peer);
-                        self.conns.push(Conn {
+                        self.admit(Conn {
                             pending_stream: Some((Handoff::Accept(accept), stream)),
                             ..conn
                         });
@@ -273,6 +273,7 @@ impl TcpStack {
                     }
                     match socket.send_slice(pending) {
                         Ok(written) => {
+                            conn.send.moved(written);
                             pending.advance(written);
                             progressed |= written > 0;
                             if pending.is_empty() {

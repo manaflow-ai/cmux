@@ -14,6 +14,12 @@
 //!   `--version`) has no launch. Muse Code keeps no worktree flag (`-w`
 //!   would make a new worktree instead of resuming in the session's) and no
 //!   `--image` (it would attach the image again).
+//! - `wrapper`: the words before the program word when the CLI was started
+//!   through a launcher that runs it by name (`sr2 claude ...`, a routing
+//!   wrapper), so the resume goes through the same launcher. Never an
+//!   interpreter that runs the CLI's script (`node .../claude`, `bash
+//!   .../claude`): that is the CLI itself. Dropped whole when a word looks
+//!   like a credential.
 //! - `env`: the harness's account directory only (`CLAUDE_CONFIG_DIR` for
 //!   Claude Code, `CODEX_HOME` for Codex; none for Muse Code), an absolute
 //!   path. Never a token or key: the CLI reads its sign-in from that
@@ -35,6 +41,8 @@ pub(crate) const AGENT_JOB_ENV_KEYS: &[&str] = &["CLAUDE_CONFIG_DIR", "CODEX_HOM
 pub(crate) struct AgentLaunch {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// The launcher words before the harness's name (`["sr2"]`), else none.
+    pub wrapper: Vec<String>,
 }
 
 /// Whether a respawn knows how to resume a session of `harness`: Claude
@@ -74,7 +82,75 @@ pub(crate) fn agent_launch_from_job(
         })
         .map(|(key, dir)| vec![(key.to_string(), dir.clone())])
         .unwrap_or_default();
-    Some(AgentLaunch { args, env })
+    let wrapper = argv
+        .iter()
+        .position(|argument| is_program(harness, argument))
+        .map(|at| kept_wrapper(harness, &argv[..at], Some(&argv[at])))
+        .unwrap_or_default();
+    Some(AgentLaunch { args, env, wrapper })
+}
+
+/// Programs that run a CLI's script file rather than launch the CLI by name:
+/// a word before the program word that is one of these is not a wrapper.
+const INTERPRETERS: &[&str] = &[
+    "node", "bun", "deno", "npx", "bunx", "sh", "bash", "zsh", "dash", "ksh", "fish", "env",
+    "python", "python3", "ruby", "perl",
+];
+
+/// The launcher words `before` the harness's program word `program` as kept:
+/// only when the launcher runs the CLI by its bare name (`sr2 claude`, not
+/// `node .../cli.js`), no word is an interpreter, and none looks like a
+/// credential. A launcher that is a script shows as its interpreter and its
+/// path (`/bin/bash /Users/a/bin/sr2 claude`): the interpreter is dropped when
+/// the next word is an absolute path to an executable file, which runs by
+/// itself. `program` is `None` when read back from a stored record.
+pub(crate) fn kept_wrapper(
+    harness: &str,
+    before: &[String],
+    program: Option<&String>,
+) -> Vec<String> {
+    let by_name = program.is_none_or(|program| {
+        Path::new(program).file_name().and_then(|name| name.to_str()) == Some(harness)
+    });
+    let interpreter = |word: &String| {
+        let name = Path::new(word).file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        INTERPRETERS.contains(&name)
+            || name.starts_with("python")
+            || name.starts_with("node")
+            || resumable_harness(name)
+    };
+    let before = match before {
+        [first, script, ..] if interpreter(first) && executable_script(script) => &before[1..],
+        _ => before,
+    };
+    if before.is_empty() || !by_name || before.iter().any(interpreter) {
+        return Vec::new();
+    }
+    let words = before
+        .iter()
+        .any(|word| word.is_empty() || word.chars().any(char::is_control) || holds_secret(word));
+    let mut line = vec![String::new()];
+    line.extend(before.iter().cloned());
+    if words || stored_argv(&line).is_none() {
+        return Vec::new();
+    }
+    before.to_vec()
+}
+
+/// Whether `path` is an absolute path to a file anyone may execute.
+fn executable_script(path: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Path::new(path).is_absolute()
+            && std::fs::metadata(path)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// Claude Code's subcommands: none starts a session.

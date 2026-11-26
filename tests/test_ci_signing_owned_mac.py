@@ -490,6 +490,8 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
         "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     ("cmux-tui-team-signed.yml", "sign"):
         "signs the Team-signed tree on a literal Blacksmith label only (keychain rule 7); no route reaches an owned Mac",
+    ("cmux-tui-team-signed.yml", "sign-helper"):
+        "signs the Screen Sharing helper on sign's literal Blacksmith label only (cmux#47936); no route reaches an owned Mac",
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).
@@ -1548,13 +1550,7 @@ class PresenceConditionTests(unittest.TestCase):
         """Dropping the condition must not drop the variable that actually gives the label."""
         runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.SOME_SHARED_RUNNER {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["SOME_SHARED_RUNNER"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.SOME_SHARED_RUNNER" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
 
     def test_a_variable_both_tested_and_read_is_still_checked(self) -> None:
         """Whether or not the condition is dropped, a variable that can give the label still faces checks.
@@ -1574,13 +1570,7 @@ class PresenceConditionTests(unittest.TestCase):
         before. Only MODE_VARIABLES names are dropped now."""
         runs_on = f"${{{{ vars.BAD != '' && 'macos-26' {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["BAD"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.BAD" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
         self.assertNotIn("BAD", keychain_guard.MODE_VARIABLES)
 
     def test_a_mode_variable_selecting_a_literal_is_not_dropped(self) -> None:
@@ -1588,13 +1578,7 @@ class PresenceConditionTests(unittest.TestCase):
         runs-on), so a mode clause that selects a literal keeps the mode variable in view and fails."""
         runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && 'macos-26' {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_MINI"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_MINI" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
 
     def test_a_mode_variable_selecting_the_signer_label_is_dropped(self) -> None:
         """The one literal a mode clause may select is the signer's own label, the value runner_label_policy
@@ -1648,17 +1632,8 @@ class OwnedRouteVariableTests(unittest.TestCase):
     def gate(self, workflow: str) -> dict:
         return {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash", "run": claim_gate_for(workflow)}
 
-    def test_a_job_outside_the_exclusive_class_may_not_read_the_variable(self) -> None:
-        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("other.yml"), self.SPARKLE]}
-        found = self.failures("other.yml sign", job)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
-
-    def test_a_job_in_the_class_without_the_verbatim_gate_may_not_read_it(self) -> None:
-        gate = self.gate("nightly.yml")
-        gate["run"] = gate["run"].replace("exit 1", "exit 0")
-        job = {"runs-on": self.RUNS_ON, "steps": [gate, {"run": f"bash {CLAIM}"}, self.SPARKLE]}
-        found = self.failures("nightly.yml generate-nightly-deltas", job)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+    # #53754 deleted rule 7: a job outside the exclusive class or without the verbatim gate may read a runner
+    # variable, so the two tests that it may not are gone.
 
     def test_a_gated_job_still_needs_the_claim_script_before_its_secret(self) -> None:
         gate = self.gate("nightly.yml")
@@ -1761,17 +1736,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
     def test_an_owned_variable_only_tested_in_a_condition_is_not_the_route(self) -> None:
         """router-review F1 at 1e9095d099b: the waiver is for the variable that gives the label. Tested in a
         condition, it lets whatever it selects be the label, and the claim gate does nothing on a hosted Mac."""
-        for runs_on in ("${{ vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_NIGHTLY_SIGN_RUNNER && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_NIGHTLY_SIGNING_POOL == 'x' && vars.SOME_SHARED_RUNNER || "
-                        "'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_SIDE_LANE_RUNNER != '' && 'macos-26' }}"):
-            with self.subTest(runs_on=runs_on):
-                job = {"runs-on": runs_on,
-                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
-                found = self.failures("nightly.yml generate-nightly-deltas", job)
-                self.assertTrue(any("picks its runner from vars." in why or "other than as" in why
-                                    for why in found), found)
+        # #53754 deleted rule 7, so a runs-on whose variable is only tested in a condition is no longer refused.
         # the tree's shape: the variable gives the label, after a mode test or among alternatives
         for runs_on in ("${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}",

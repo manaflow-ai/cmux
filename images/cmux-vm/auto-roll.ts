@@ -52,7 +52,7 @@ export const MAX_ENTRIES = 32;
  * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
 export const MAX_BYTES = 5_120;
 export const SERVICES = {
-  production: ["cloud-platform-production", "ci-product-smoke"],
+  production: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
 } as const;
 /** The paths whose change is a change to what the image carries (the push trigger's paths). */
@@ -172,11 +172,11 @@ export function largeOf(candidate: Candidate): LargeVariant | undefined {
 }
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = [], keepAuto = KEEP_AUTO): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
   // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= KEEP_AUTO);
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= keepAuto);
   return newestFirst ? kept : kept.reverse();
 }
 
@@ -243,22 +243,32 @@ export function approve(text: string, entry: BootImage, keep: readonly string[] 
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
   const { large, ...plain } = entry;
-  const lists = (withLarge: boolean, keepOlder: boolean) => {
+  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
+  const lists = (withLarge: boolean, keepOlder: boolean, keepAuto: number) => {
     const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
     const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
     return {
-      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep), "production", fallback),
-      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep), "staging", fallback),
+      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep, keepAuto), "production", fallback),
+      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep, keepAuto), "staging", fallback),
     };
   };
-  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
   // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
   // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
   // when the list is too long, then this entry's.
+  //
+  // Only when no list fits at KEEP_AUTO rolls does each keep fewer, oldest unpinned roll first, down to this roll
+  // alone. A pinned roll does not count toward KEEP_AUTO, so with one pinned a list holds KEEP_AUTO + 1 rolls: at about
+  // 376 bytes each, production came to 5,150 bytes and every promote threw (roll 45625813906, 2026-11-25). A
+  // hand-approved entry, a pin and this roll are never trimmed.
   const wants = large !== undefined;
-  const tries = [lists(wants, true), lists(wants, false), lists(false, false)];
-  const at = tries.findIndex((t) => LARGE_ENVS.every((env) => fits(t[env])));
-  const next = tries[at < 0 ? 2 : at]!;
+  const variants = (n: number) => [lists(wants, true, n), lists(wants, false, n), lists(false, false, n)];
+  let next = variants(KEEP_AUTO)[2]!;
+  let at = -1;
+  for (let n = KEEP_AUTO; n >= 1 && at < 0; n--) {
+    const tries = variants(n);
+    at = tries.findIndex((t) => fits(t.production) && fits(t.staging));
+    if (at >= 0) next = tries[at]!;
+  }
   const listLarge = wants && at >= 0 && at < 2;
   for (const [before, after, env] of [[prod, next.production, "production"], [staging, next.staging, "staging"]] as const) {
     for (const id of keep) {

@@ -4,6 +4,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use cmux_cloud_disk::{self as disk, DiskReport, DiskState, DiskView, SegmentKind};
+
 use crate::Fields;
 use crate::args::{BootstrapKind, NewMachine, create_size};
 use crate::time;
@@ -247,6 +249,19 @@ pub struct Status {
     pub memory_total_mb: Option<f64>,
     pub disk_used_mb: Option<f64>,
     pub disk_total_mb: Option<f64>,
+    /// The guest's free and its split of the used (RFD 0068 disk bar), MiB;
+    /// an older guest reports none.
+    pub disk_free_mb: Option<f64>,
+    pub disk_system_mb: Option<f64>,
+    pub disk_project_mb: Option<f64>,
+    pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (its `disk_health`, cmux-cloud-machine `Machine.disk`);
+    /// read before the MiB facts above.
+    pub disk: Option<DiskReport>,
+    /// Each chat's bytes on the disk, largest first (`Machine.disk_chats`).
+    pub disk_chats: Vec<disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (`Machine.disk_evicted`).
+    pub disk_evicted: Option<disk::DiskEviction>,
     pub ipv4: Option<String>,
     pub desktop: bool,
     pub cost: Option<Cost>,
@@ -346,6 +361,11 @@ pub fn status_fields(status: &Status) -> Fields {
     put("memory_total_mb", status.memory_total_mb.map(Value::from));
     put("disk_used_mb", status.disk_used_mb.map(Value::from));
     put("disk_total_mb", status.disk_total_mb.map(Value::from));
+    put("disk", status.disk().and_then(|view| serde_json::to_value(view).ok()));
+    if !status.disk_chats.is_empty() {
+        put("disk_chats", serde_json::to_value(&status.disk_chats).ok());
+    }
+    put("disk_evicted", status.disk_evicted.as_ref().and_then(|e| serde_json::to_value(e).ok()));
     put("address", status.ipv4.clone().map(Value::from));
     fields.insert("desktop".into(), json!(status.desktop));
     if let Some(cost) = &status.cost {
@@ -380,9 +400,10 @@ pub fn describe(status: &Status) -> String {
     if let (Some(used), Some(total)) = (status.memory_used_mb, status.memory_total_mb) {
         lines.push(format!("memory: {used:.0} / {total:.0} MB"));
     }
-    if let (Some(used), Some(total)) = (status.disk_used_mb, status.disk_total_mb) {
-        lines.push(format!("disk: {used:.0} / {total:.0} MB"));
+    if let Some(disk) = status.disk() {
+        lines.extend(disk_lines(&disk));
     }
+    lines.extend(disk_chat_lines(&status.disk_chats, status.disk_evicted.as_ref()));
     if let Some(address) = &status.ipv4 {
         lines.push(format!("address: {address}"));
     }
@@ -406,6 +427,83 @@ pub fn describe(status: &Status) -> String {
     lines.join("\n")
 }
 
+impl Status {
+    /// The disk bar: used over the disk's size, split when the guest splits it.
+    pub fn disk(&self) -> Option<DiskView> {
+        let report = record_or_stats(self.disk, || {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
+        disk::view(None, &report)
+    }
+}
+
+/// The record's disk report when it carries sizes (a total or a used), else the
+/// per-call stats: one sample's numbers, never a mix of two, and a partial record
+/// (a split alone) never hides the stats.
+fn record_or_stats(record: Option<DiskReport>, stats: impl FnOnce() -> DiskReport) -> DiskReport {
+    record.filter(|r| r.total_bytes.is_some() || r.used_bytes.is_some()).unwrap_or_else(stats)
+}
+
+/// The disk bar as `machine-status` prints it: "disk: 13.2 / 20 GB", then the
+/// split when the guest reports one, and "almost full" under 4 GiB or 15% free.
+pub fn disk_lines(disk: &DiskView) -> Vec<String> {
+    let mut first = format!("disk: {}", disk.label);
+    if disk.state == DiskState::AlmostFull {
+        first.push_str(", almost full");
+    }
+    let mut lines = vec![first];
+    let split: Vec<String> = disk
+        .segments
+        .iter()
+        .filter(|s| s.kind != SegmentKind::Used)
+        .map(|s| {
+            let name = match s.kind {
+                SegmentKind::System => "system",
+                SegmentKind::Project => "project",
+                SegmentKind::Caches => "caches",
+                SegmentKind::Used => "used",
+                SegmentKind::Free => "free",
+            };
+            format!("{name} {}", disk::number(s.gb))
+        })
+        .collect();
+    if split.len() > 1 {
+        lines.push(format!("disk split: {} GB", split.join(", ")));
+    }
+    lines
+}
+
+/// How many chats `machine-status` names on its disk line, largest first.
+pub const DISK_CHATS_SHOWN: usize = 3;
+
+/// The chats filling the disk ("disk chats: c-1 4.2, c-2 1.1 GB, 12 more") and the guest's last
+/// eviction ("disk cleared: 3.1 GB of caches and idle build output at 1700000000000").
+pub fn disk_chat_lines(
+    chats: &[disk::ChatDisk],
+    evicted: Option<&disk::DiskEviction>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !chats.is_empty() {
+        let named: Vec<String> = chats
+            .iter()
+            .take(DISK_CHATS_SHOWN)
+            .map(|c| format!("{} {}", c.id, disk::number(disk::gb(c.bytes))))
+            .collect();
+        let more = chats.len().saturating_sub(DISK_CHATS_SHOWN);
+        let more = if more > 0 { format!(", {more} more") } else { String::new() };
+        lines.push(format!("disk chats: {} GB{more}", named.join(", ")));
+    }
+    if let Some(e) = evicted {
+        lines.push(format!(
+            "disk cleared: {} GB of caches and idle build output at {}",
+            disk::number(disk::gb(e.freed_bytes)),
+            e.at
+        ));
+    }
+    lines
+}
+
 /// One machine of `cloud list-machines`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -421,6 +519,18 @@ pub struct Listed {
     /// When it last started running, unix seconds; none while paused.
     pub running_since: Option<f64>,
     pub failure: Option<Failure>,
+    /// The machine's disk size (its record's `size.disk_mb`) and the guest's
+    /// last report of it, MiB: the row's `disk` bar. All optional: a row
+    /// without them has no `disk`, one with the size alone the size alone.
+    pub disk_allocated_mb: Option<f64>,
+    pub disk_total_mb: Option<f64>,
+    pub disk_used_mb: Option<f64>,
+    pub disk_free_mb: Option<f64>,
+    pub disk_system_mb: Option<f64>,
+    pub disk_project_mb: Option<f64>,
+    pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (`Machine.disk`); read before the MiB facts above.
+    pub disk: Option<DiskReport>,
 }
 
 impl Listed {
@@ -428,6 +538,15 @@ impl Listed {
     /// started running (the order cmux-cloud-machine's `cap` gives a person's busy machines).
     fn last_active_at(&self) -> Option<f64> {
         self.last_api_activity_at.map(|ms| ms / 1000.0).or(self.running_since)
+    }
+
+    /// The row's disk bar ([`disk::view`]), none when nothing says how big the disk is.
+    pub fn disk(&self) -> Option<DiskView> {
+        let report = record_or_stats(self.disk, || {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
+        disk::view(disk::mib(self.disk_allocated_mb), &report)
     }
 }
 
@@ -463,13 +582,17 @@ pub fn machine_list(list: &MachineList) -> Fields {
         list.machines
             .iter()
             .map(|m| {
-                json!({
+                let mut row = json!({
                     "machine_id": m.machine_id, "target": format!("machine:{}", m.machine_id), "title": m.title,
                     "status": m.status, "owner": owner, "created_by": m.created_by,
                     "created_at": m.created_at.map(time::iso8601),
                     "last_active_at": m.last_active_at().map(time::iso8601),
                     "error": m.failure.as_ref().map(|f| json!({"code": f.code, "message": f.message})),
-                })
+                });
+                if let Some(disk) = m.disk().and_then(|view| serde_json::to_value(view).ok()) {
+                    row["disk"] = disk;
+                }
+                row
             })
             .collect()
     } else {

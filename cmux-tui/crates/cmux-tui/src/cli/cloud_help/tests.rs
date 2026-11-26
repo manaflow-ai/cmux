@@ -192,14 +192,17 @@ fn quick_start_commands_parse() {
             })
             // These (secrets, client sessions, team keys, model connections) run in this CLI, not through the app's catalog;
             // `cloud env` lines parse in `cloud_environment.rs` (`the_help_env_lines_parse`), `cloud connect` and
-            // `cloud connections` lines in `cloud_connect.rs` (`the_help_connect_lines_parse`).
+            // `cloud connections` lines in `cloud_connect.rs` (`the_help_connect_lines_parse`), `cloud provider` lines in
+            // `cloud_provider.rs` (`the_help_provider_lines_parse`).
             .filter(|line| {
                 !line.contains("secret")
                     && !line.contains("client-session")
                     && !line.contains("team-keys")
                     && !line.starts_with("cmux vm connect")
             })
-            .filter(|line| !line.starts_with("cmux vm env "))
+            .filter(|line| {
+                !line.starts_with("cmux vm env ") && !line.starts_with("cmux vm provider ")
+            })
             .collect::<Vec<_>>();
         // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up, eight machine lines
         // (most of them short verbs, and `vm new`) and two desktop lines. No line is a
@@ -399,8 +402,10 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                 // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
                 let flag = if flag == "yes" { "confirm" } else { flag };
                 // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
-                // argument the app takes.
-                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // argument the app takes. `--contents-file` is read by the CLI and sent as
+                // `contents` (app.rs `run_action`).
+                (!["target", "focus", "no-focus", "arg", "contents-file"].contains(&flag))
+                    .then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);
@@ -426,4 +431,40 @@ fn verbs_cloud_refuses_are_marked_in_the_list_and_their_help() {
     assert!(help.starts_with("Cloud does not offer this yet"), "{help}");
     assert!(help.contains("--yes"), "{help}");
     assert!(!verb_help("kill-machine", false).unwrap().contains("does not offer"));
+}
+
+/// CMUX-674 item 15: `cmux vm status --help` printed the whole overview. Every short verb
+/// (vm_short.rs) answers its own usage and names the long spelling it runs.
+#[test]
+#[cfg(unix)]
+fn short_verbs_answer_their_own_help() {
+    let overview = overview(false);
+    let shorts = [
+        "ls", "list", "status", "pause", "shutdown", "resume", "rm", "resize", "fork", "rename",
+        "exec", "ssh", "move",
+    ];
+    for short in shorts {
+        let long = super::super::vm_short::long_verb(short).expect(short);
+        let help = verb_help(short, false).unwrap_or_else(|| panic!("no help for {short}"));
+        assert_ne!(help, overview, "{short}");
+        assert!(help.starts_with(&format!("usage: cmux vm {short}")), "{short}: {help}");
+        assert!(help.contains(&format!("cmux vm {long}")), "{short}: {help}");
+        let japanese = verb_help(short, true).unwrap();
+        assert!(japanese.starts_with(&format!("使い方: cmux vm {short}")), "{short}: {japanese}");
+    }
+    assert!(verb_help("rm", false).unwrap().contains("[--yes]"));
+    let exec = verb_help("exec", false).unwrap();
+    assert!(exec.starts_with("usage: cmux vm exec [NAME|ID] -- COMMAND..."), "{exec}");
+    let rename = verb_help("rename", false).unwrap();
+    assert!(rename.starts_with("usage: cmux vm rename [NAME|ID] NEW_NAME"), "{rename}");
+    assert!(verb_help("shutdown", false).unwrap().contains("`shutdown` is `pause`"));
+    // Review F3 on #48221: only the VM API's own verbs claim its fallback.
+    for short in ["status", "resize", "rename", "ssh", "move"] {
+        let help = verb_help(short, false).unwrap();
+        assert!(!help.contains("verb of the same name"), "{short}: {help}");
+        assert!(help.contains("needs the cmux app"), "{short}: {help}");
+    }
+    for short in ["pause", "resume", "rm", "fork", "ls"] {
+        assert!(verb_help(short, false).unwrap().contains("verb of the same name"), "{short}");
+    }
 }
