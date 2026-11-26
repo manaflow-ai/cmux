@@ -407,6 +407,9 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
+            /tests/test_egress_gate.py
+            /tests/test_outbound_hosts.py
+            /tests/test_classic_cloud_routes.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
