@@ -78,6 +78,7 @@ on:
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-launch-image/**"
       - "cmux-tui/crates/cmux-pane-pictures/**"
+      - "cmux-tui/crates/cmux-acpmux-remote-wire/**"
       - "cmux-tui/crates/cmux-screenshots/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"

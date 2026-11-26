@@ -168,6 +168,69 @@ class LandTierTests(unittest.TestCase):
         self.assertEqual(self.tier(land_event(base="main")), "full")
         self.assertEqual(head_tier.tier("pull_request", land_event())[0], "full")  # land_switch defaults off
 
+    def test_a_ready_pr_naming_a_leo_ask_is_handed_off_from_its_first_head(self) -> None:
+        # The ask rule: an ask PR runs the landing tier at open, not only once ready-to-land is added.
+        ev = land_event(action="opened")
+        ev["pull_request"]["body"] = "Leo asked for this (ask-dccba52b6f)."
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        self.assertEqual(decided[0], "full")
+        self.assertIn("Leo ask", decided[1])
+        # With the hourly full tier rule (production: CI_LAND_FULL_PER_PR=0) it lands on the affected tier, as a
+        # ready-to-land head does, and cmux/land-tier is success at once.
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        labelled = head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), land_switch="1",
+                                  land_full_switch="0")
+        self.assertEqual(decided[0], labelled[0])
+        self.assertTrue(head_tier.land_affected(decided))
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+
+    def test_the_ask_rule_needs_an_ask_id_a_ready_pr_and_its_switch(self) -> None:
+        def ev(body: object, draft: bool = False) -> dict:
+            e = land_event(draft=draft, action="opened")
+            e["pull_request"]["body"] = body
+            return e
+        self.assertEqual(self.tier(ev("no ask here; task-0123456789; ask-xyz")), "cheap")
+        self.assertEqual(self.tier(ev(None)), "cheap")
+        self.assertEqual(self.tier(ev("mask-0123456789")), "cheap")  # a word that only ends in ask- is not an id
+        self.assertEqual(self.tier(ev("ask-0123456789", draft=True)), "cheap")
+        self.assertFalse(head_tier.for_ask(ev("ask-0123456789"), switch="0"))
+        self.assertTrue(head_tier.for_ask(ev("ask-0123456789"), switch="1"))
+        old = os.environ.get("CI_ASK_LANDING")
+        try:
+            os.environ["CI_ASK_LANDING"] = "0"
+            self.assertEqual(self.tier(ev("ask-0123456789")), "cheap")
+        finally:
+            if old is None:
+                os.environ.pop("CI_ASK_LANDING", None)
+            else:
+                os.environ["CI_ASK_LANDING"] = old
+
+    def test_the_ask_rule_hands_off_only_the_head_at_open_or_ready_never_a_later_push(self) -> None:
+        # lane-9's CI-minutes goal: a push after open must not pay the landing tier again; it waits for ready-to-land.
+        for action in ("opened", "reopened", "ready_for_review"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertTrue(head_tier.for_ask(e, switch="1"), action)
+            self.assertEqual(self.tier(e), "full", action)
+        for action in ("synchronize", "edited", "labeled"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertFalse(head_tier.for_ask(e, switch="1"), action)
+        e = land_event(action="synchronize")
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "cheap")
+        e = land_event(action="synchronize", labels=("ready-to-land",))
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "full")  # the label still hands a later push off, as for any PR
+
     def test_decide_reads_the_switch_from_the_environment(self) -> None:
         old = os.environ.get("CI_LAND_TIER")
         try:
@@ -797,7 +860,7 @@ GATED = {
 # signal kept on every head (pr-body-checks, risk tier, language boundaries, merge freeze, pr-checks, web complexity,
 # classic frozen guard) or already skips feat-cmux-next pull requests (scripts/ci/affected_jobs.py PR_SKIP_IF).
 GATED = {name: "pull_request" for name in (
-    "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+    "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
     "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloudflare-relay.yml",
     "cmux-cloud-cli.yml", "cmux-next-car-guards.yml", "cmux-next-fast-gates.yml", "cmux-next-guards.yml",
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
