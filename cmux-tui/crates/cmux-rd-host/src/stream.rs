@@ -254,6 +254,8 @@ struct FrameLog {
     idr_reason: Option<&'static str>,
     /// With a resolution ladder: the picture this frame was encoded at.
     picture: Option<Picture>,
+    /// The congestion controller's target for this frame.
+    target_kbps: u32,
 }
 
 impl Timing {
@@ -290,6 +292,10 @@ impl Timing {
             fields.insert("height".into(), p.height.into());
             fields.insert("eighths".into(), p.eighths.into());
             fields.insert("max_qp".into(), p.max_qp.into());
+            // The budget the ladder sized this picture for: target over pixels at the fps
+            // cap is the bits per pixel per frame the ladder holds at or above its floor.
+            fields.insert("fps".into(), p.fps.into());
+            fields.insert("target_kbps".into(), log.target_kbps.into());
         }
         line
     }
@@ -428,6 +434,14 @@ impl OpenedDesktop {
             ready_us: now_us(),
         })
     }
+
+    /// Whether its stream suits a viewer that negotiated `profile`: the one it was opened for,
+    /// or baseline from an encoder that only makes Constrained Baseline (OpenH264). Opening the
+    /// desktop again for the profile alone put a whole open (capture and encoder, 340-410 ms on a
+    /// Linux VM) between the viewer's start and the first keyframe.
+    fn serves_profile(&self, profile: &str) -> bool {
+        self.profile == profile || (profile == "baseline" && self.frames.constrained_baseline())
+    }
 }
 
 impl MediaSession {
@@ -460,7 +474,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let cfg = &*session_cfg(cfg, negotiated_caps);
         let cursor = wants_cursor(negotiated_caps);
-        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+        let opened = if opened.cursor == cursor && opened.serves_profile(&cfg.profile) {
             opened
         } else {
             // The capture closes before it opens again.
@@ -851,6 +865,7 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
             picture: req.picture,
+            target_kbps: req.target_kbps,
         });
         self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
