@@ -61,6 +61,7 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
+import { waitingMessagesOrder } from "../agent-session/acpmux/conversation/waitingMessagesOrder.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
 import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
 import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
@@ -168,6 +169,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  waitingMessagesOrder,
   workedLine,
   toolRowWords,
   sinceLook,
