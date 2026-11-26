@@ -140,7 +140,7 @@ class MacRowTests(unittest.TestCase):
         self.assertNotIn("rig Mac", text)
 
     def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
-        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}
+        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig, Not shared"}
         alert = {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"}
         button = {"type": "Button", "AXLabel": "Share rig"}
         phone = PairSharePhone.__new__(PairSharePhone)
@@ -202,6 +202,43 @@ class MacRowTests(unittest.TestCase):
                 patch("cmux_next_pair_share_phone.time.sleep"):
             with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
                 phone.request_share("rig", "abc-1")
+
+    def test_an_offline_row_is_not_tapped_and_the_failure_says_it_never_read_not_shared(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Offline"}])
+        phone.ui.run = lambda *args, **kwargs: None
+        phone.ui.udid = "sim"
+        taps = []
+        phone.ui.tap = taps.append
+        phone.screenshot = lambda name: None
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, r"never read Not shared in 90 s .*\(rig name\) Offline"):
+                phone.request_share("rig", "abc-1")
+        self.assertEqual(taps, [])
+
+    def test_a_row_that_comes_online_is_tapped_once_it_reads_not_shared(self):
+        row = {"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Offline"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"},
+                           {"type": "Button", "AXLabel": "Share rig"}])
+        phone.ui.udid = "sim"
+        phone.ui.run = lambda *args, **kwargs: row.update(AXLabel="rig, Not shared")
+        taps = []
+        phone.ui.tap = taps.append
+        with patch("cmux_next_pair_share_phone.time.sleep"):
+            phone.request_share("rig", "abc-1")
+        self.assertEqual([t.get("AXLabel") for t in taps], ["rig, Not shared", "Share rig"])
+
+    def test_no_share_alert_names_the_alert_that_came_instead(self):
+        row = {"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Not shared"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, {"type": "StaticText", "AXLabel": "Couldn't share rig"}])
+        phone.ui.tap = lambda node: None
+        phone.screenshot = lambda name: None
+        with self.assertRaisesRegex(PairShareFailure, "Share alert after tapping a Not shared row "
+                                                      r"\(alert: couldn't share; page state: none; Mac rows: 1"):
+            phone.request_share("rig", "abc-1")
 
 
 class ShareLogTests(unittest.TestCase):

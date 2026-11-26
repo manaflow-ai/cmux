@@ -65,6 +65,10 @@ jobs:
           test -f scripts/ci/cmux_next_pair_e2e.py || { echo "::error::this ref has no scripts/ci/cmux_next_pair_e2e.py"; exit 1; }
           grep -q 'pair-e2e' scripts/ci/cmux-next-ios-sim.sh || { echo "::error::this ref's cmux-next-ios-sim.sh has no pair-e2e mode"; exit 1; }
 
+      # Seconds, before the long VM run: a rig regression fails here, not after pair-e2e.
+      - name: Check pairing and share receipt matching
+        run: python3 -m unittest discover -s tests -p 'test_pair_e2e_*.py'
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -158,10 +162,6 @@ jobs:
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           export HOME="$RUNNER_TEMP/pair-home"
           bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
-
-      - name: Check pairing and share receipt matching
-        if: ${{ !cancelled() }}
-        run: python3 -m unittest discover -s tests -p 'test_pair_e2e_*.py'
 
       - name: Summarize
         if: always()
