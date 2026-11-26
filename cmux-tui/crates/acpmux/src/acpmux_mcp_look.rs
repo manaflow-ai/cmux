@@ -15,7 +15,7 @@ pub(super) const NAME: &str = "look";
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "See the page you are building, now: a picture (at most 512 px) of this chat's agent-driven browser page (a dev server or file you opened beside the chat with the browser or open tools), plus how far it moved since the turn's first frame. The person already sees frames of it live in the chat as you edit, at no cost to you; call this only when you need to check the result yourself. To click or type in it, use the browser or computer-use tools on the same tab.",
+        "description": "See the page you are building, now: a picture (at most 512 px) of this chat's agent-driven browser page (a dev server or file you opened beside the chat with the browser or open tools), else of the booted iOS Simulator, else of the cmux window, plus how far it moved since the turn's first frame. The person already sees frames of it live in the chat as you edit, at no cost to you; call this only when you need to check the result yourself. To click or type in it, use the browser or computer-use tools on the same tab.",
         "inputSchema": {"type": "object", "properties": {}}
     })
 }
