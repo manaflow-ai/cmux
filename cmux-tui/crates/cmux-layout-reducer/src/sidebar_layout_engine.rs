@@ -70,14 +70,14 @@ impl Section {
         }
     }
 
-    fn machine(&self) -> Option<MachineKind> {
+    pub(crate) fn machine(&self) -> Option<MachineKind> {
         match &self.kind {
             SectionKind::Machine { kind, .. } => Some(*kind),
             _ => None,
         }
     }
 
-    fn doc_id(&self) -> Option<&str> {
+    pub(crate) fn doc_id(&self) -> Option<&str> {
         match &self.kind {
             SectionKind::Custom(id) => Some(id),
             _ => None,
@@ -223,6 +223,9 @@ pub struct Workspace {
     /// The chevron `rowContent` gives a parent of subagents.
     #[serde(default)]
     pub tree_fold: Option<TreeFold>,
+    /// `machineID`: the computer the workspace runs on (`SidebarEdits.canPlace`).
+    #[serde(default)]
+    pub machine_id: Option<String>,
 }
 
 /// `SidebarListItem`: a link, tab or app row.
@@ -267,7 +270,7 @@ pub struct Group {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Member<'a> {
+pub(crate) enum Member<'a> {
     Workspace(&'a Workspace),
     Item(&'a Item),
 }
@@ -275,7 +278,7 @@ enum Member<'a> {
 impl Group {
     /// `members`: the workspaces, each item after the workspace it follows (first when none; last when that
     /// workspace is not here).
-    fn members(&self) -> Vec<Member<'_>> {
+    pub(crate) fn members(&self) -> Vec<Member<'_>> {
         if self.items.is_empty() {
             return self.workspaces.iter().map(Member::Workspace).collect();
         }
@@ -285,7 +288,7 @@ impl Group {
         for entry in &self.items {
             match entry.after.as_deref() {
                 Some(anchor) if present.contains(anchor) => {
-                    after.entry(anchor).or_default().push(&entry.item)
+                    after.entry(anchor).or_default().push(&entry.item);
                 }
                 Some(_) => last.push(&entry.item),
                 None => first.push(&entry.item),
@@ -320,7 +323,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    fn resolved(mut self, o: &Options) -> Metrics {
+    pub(crate) fn resolved(mut self, o: &Options) -> Metrics {
         if o.expanded && !o.workspaces_as_tabs {
             self.two_line_rows = true;
         }
@@ -336,7 +339,7 @@ impl Metrics {
     }
 
     /// `height(for: WorkspaceRowContent())`: an item, fold or Show more row.
-    fn empty_content_height(&self) -> f64 {
+    pub(crate) fn empty_content_height(&self) -> f64 {
         self.row_step().max(self.row_height)
     }
 }
@@ -380,6 +383,11 @@ impl Grouping {
 
     fn groups_by_recents(&self) -> bool {
         self.by == GroupBy::Recents && !self.by_status
+    }
+
+    /// `isGrouped`: by Status, Folder or Recents.
+    pub(crate) fn is_grouped(&self) -> bool {
+        self.by != GroupBy::None || self.by_status
     }
 }
 
@@ -626,7 +634,7 @@ impl Default for Options {
 
 impl Options {
     /// `visible`: not dragged out, and a match while filtering.
-    fn visible(&self, ws: &Workspace) -> bool {
+    pub(crate) fn visible(&self, ws: &Workspace) -> bool {
         !self.excluded_workspaces.contains(&ws.id)
             && self.filter_matches.as_ref().is_none_or(|f| f.contains(&ws.id))
     }
@@ -636,7 +644,7 @@ impl Options {
     }
 
     /// `shown(inCollapsed:)`: the revealed rows of a collapsed group, and the active one.
-    fn shown_in_collapsed(&self, group: &str, id: &str) -> bool {
+    pub(crate) fn shown_in_collapsed(&self, group: &str, id: &str) -> bool {
         self.revealed_workspaces.get(group).is_some_and(|s| s.contains(id)) || self.is_active(id)
     }
 
@@ -644,14 +652,14 @@ impl Options {
         self.filter_matches.is_none() && self.session_tree.as_ref().is_none_or(|t| t.hides_started)
     }
 
-    fn settles(&self, ws: &Workspace) -> bool {
+    pub(crate) fn settles(&self, ws: &Workspace) -> bool {
         !self.settled.is_empty()
             && self.settled.contains(&ws.id)
             && !self.is_active(&ws.id)
             && self.folds_started()
     }
 
-    fn automates(&self, ws: &Workspace) -> bool {
+    pub(crate) fn automates(&self, ws: &Workspace) -> bool {
         !self.automatic.is_empty()
             && self.automatic.contains(&ws.id)
             && !self.is_active(&ws.id)
@@ -660,7 +668,7 @@ impl Options {
 }
 
 /// A list's header row: Projects or Recents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ListHeader {
     Projects,
@@ -668,7 +676,7 @@ pub enum ListHeader {
 }
 
 /// `SidebarRowKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Key {
     Section(SectionId),
@@ -695,7 +703,7 @@ pub struct Content {
 }
 
 impl Content {
-    fn base(ws: &Workspace) -> Content {
+    pub(crate) fn base(ws: &Workspace) -> Content {
         Content { tree_depth: 0, tree_fold: ws.tree_fold, roll_up: None }
     }
 }
@@ -722,7 +730,7 @@ pub struct Row {
 }
 
 impl Row {
-    fn new(key: Key, y: f64, height: f64, section: SectionId) -> Row {
+    pub(crate) fn new(key: Key, y: f64, height: f64, section: SectionId) -> Row {
         Row {
             key,
             y,
@@ -1214,7 +1222,7 @@ impl Section {
 }
 
 /// `SidebarDocStore.pinnedSection`.
-const DOC_PINNED_SECTION: &str = "sec_pinned";
+pub(crate) const DOC_PINNED_SECTION: &str = "sec_pinned";
 
 /// `withoutArchived`: the sections without their archived rows and groups; `active` keeps its place.
 fn without_archived(sections: Vec<Section>, active: Option<&str>) -> Vec<Section> {
@@ -1429,7 +1437,7 @@ impl Chats {
 }
 
 /// The rows `make` builds, where the next one goes, and the drop gap.
-struct Builder<'o> {
+pub(crate) struct Builder<'o> {
     o: &'o Options,
     m: Metrics,
     gap_height: f64,
@@ -1438,7 +1446,17 @@ struct Builder<'o> {
     gap_y: Option<f64>,
 }
 
-impl Builder<'_> {
+impl<'o> Builder<'o> {
+    /// A builder that lays rows out from `y` with no drop gap (a splice's container, `SidebarDragLook`).
+    pub(crate) fn at(o: &'o Options, m: Metrics, y: f64) -> Builder<'o> {
+        Builder { o, m, gap_height: 0.0, rows: Vec::new(), y, gap_y: None }
+    }
+
+    /// The rows laid out and the y after them.
+    pub(crate) fn finish(self) -> (Vec<Row>, f64) {
+        (self.rows, self.y)
+    }
+
     /// `openGap`: the drop gap, when it opens at `section`, `group`, `index` and has not opened yet.
     fn open_gap(&mut self, section: &SectionId, group: Option<&str>, index: isize) {
         let Some(gap) = &self.o.gap else { return };
@@ -1514,7 +1532,7 @@ impl Builder<'_> {
 
     /// `appendGroup`: a group's header (or the one row it draws as), its members and its folds.
     #[allow(clippy::too_many_arguments)]
-    fn append_group(
+    pub(crate) fn append_group(
         &mut self,
         group: &Group,
         children: &[&Workspace],
@@ -1746,7 +1764,7 @@ struct EmitContext<'a> {
 }
 
 /// `soleMember`: the workspace a group draws as its one row, or nil when it keeps its header.
-fn sole_member<'a>(
+pub(crate) fn sole_member<'a>(
     group: &Group,
     members: &[Member<'a>],
     has_subgroups: bool,
