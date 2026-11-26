@@ -120,6 +120,9 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # A guest still unbound two minutes into its create, read and maybe restarted (cmux-platform CloudCore
+    # nudgeLateBinds): kept with its bind_probe projection and `kicked`.
+    "cloud.machine.bind_late",
     "cloud.machine.ledger_wake",
     "cloud.machine.power_overdue",
     "cloud.machine.scaler_pause_held",
@@ -352,6 +355,11 @@ def idle_kept(j):
 PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
 PROBE_HTTPS = re.compile(r"^https (\S+) (.*)$")
 PROBE_TIMES = (("connect_s", "connect_ms"), ("tls_s", "tls_ms"), ("total_s", "total_ms"))
+# The bind agent's own state (cmux-platform NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+PROBE_AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                              r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+PROBE_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
 
 
 def bind_probe(p):
@@ -390,6 +398,20 @@ def bind_probe(p):
             dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
         elif ln == "curl=absent":
             out["probe_curl"] = "absent"
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            out["probe_bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            out["probe_host_service"] = v if v in PROBE_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            out["probe_noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            out["probe_agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            out["probe_agent_bind"] = v if PROBE_AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            out["probe_journal"] = "absent"
         else:
             m = PROBE_HTTPS.match(ln)
             if m:
@@ -434,7 +456,9 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
-    if msg == "cloud.machine.start_overdue" and isinstance(j.get("bind_probe"), dict):
+    if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
+        out["kicked"] = j["kicked"]
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and isinstance(j.get("bind_probe"), dict):
         out.update(bind_probe(j["bind_probe"]))
     if "error" in j:
         out["error"] = True
