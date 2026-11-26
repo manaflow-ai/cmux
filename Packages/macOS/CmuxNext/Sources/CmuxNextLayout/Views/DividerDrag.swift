@@ -70,6 +70,7 @@ struct DividerDrag {
             }
             apply(at: windowPoint, phase: .ended)
             screen.context.frameTiming?.changed(in: screen.window) // a move and its release in one frame
+            screen.context.frameTiming?.ended() // the drag's work line: its page detaches, attaches and fence joins
             screen.activeDrag?.hintToast?.dismiss()
             screen.activeDrag = nil
             model.setGestureActive(false)
