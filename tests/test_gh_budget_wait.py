@@ -199,10 +199,13 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", hand_off)
         self.assertIn("continue-on-error: true", hand_off)
+        # No runner sleeps for a reset (Leo, 2026-11-21, paraphrased: even 300 VMs an hour is a luxury we cannot afford):
+        # with every pool spent the dispatch fails at once, as a warning; the controller's own plan of the PR run
+        # (cmuxterm-hq hot_verify_plan.go) queues the same look under the same step key.
         wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
         timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
-        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
-        self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
+        self.assertEqual(wait, 0, "no runner waits for a budget reset")
+        self.assertLessEqual(timeout, 15)
 
     def test_a_refused_spare_token_waits_as_before(self) -> None:
         h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot")
