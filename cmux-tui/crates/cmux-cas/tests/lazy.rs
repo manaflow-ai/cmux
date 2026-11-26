@@ -29,7 +29,7 @@ fn fixture(dir: &std::path::Path) -> (Lazy<DirSource>, BTreeMap<String, Vec<u8>>
     let packs = dir.join("packs");
     std::fs::create_dir_all(&packs).unwrap();
     std::fs::write(packs.join(format!("{}.pack", idx.pack.unwrap().hex())), &pack_bytes).unwrap();
-    let src = DirSource { dir: packs, rtt: std::time::Duration::ZERO };
+    let src = DirSource { dir: packs, rtt: std::time::Duration::ZERO, bytes_per_s: 0 };
     (Lazy::new(m, vec![idx], store::Store::new(dir.join("store")), src), raw)
 }
 
@@ -76,6 +76,19 @@ fn prefetch_restores_everything_verified() {
         l.verify(p).unwrap();
         assert_eq!(l.read(p, 0, u64::MAX).unwrap(), *b);
     }
+}
+
+#[test]
+fn parallel_prefetch_restores_everything_verified() {
+    let d = tempfile::tempdir().unwrap();
+    let (l, raw) = fixture(d.path());
+    l.prefetch_all(4, 100_000).unwrap();
+    let reqs = l.stats().requests.load(Relaxed);
+    for (p, b) in &raw {
+        l.verify(p).unwrap();
+        assert_eq!(l.read(p, 0, u64::MAX).unwrap(), *b);
+    }
+    assert_eq!(l.stats().requests.load(Relaxed), reqs, "reads after prefetch fetch nothing");
 }
 
 #[test]

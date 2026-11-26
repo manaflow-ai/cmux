@@ -39,6 +39,8 @@ pub struct DirSource {
     pub dir: PathBuf,
     /// A pause per request, to model a round trip (0 for none).
     pub rtt: std::time::Duration,
+    /// Bytes a second one request moves, to model a link (0 for unlimited).
+    pub bytes_per_s: u64,
 }
 
 impl Source for DirSource {
@@ -51,6 +53,11 @@ impl Source for DirSource {
         f.seek(SeekFrom::Start(start))?;
         let mut buf = vec![0u8; usize::try_from(end - start)?];
         f.read_exact(&mut buf)?;
+        if self.bytes_per_s > 0 {
+            std::thread::sleep(std::time::Duration::from_secs_f64(
+                buf.len() as f64 / self.bytes_per_s as f64,
+            ));
+        }
         Ok(buf)
     }
 }
@@ -243,6 +250,40 @@ impl<S: Source> Lazy<S> {
         }
         self.fetch(&batch)?;
         Ok(*cursor >= self.manifest.files.len())
+    }
+
+    /// Fetch the whole tree on `streams` threads, each taking the next run of whole files in
+    /// manifest order worth about `batch` bytes. Two streams wanting the same chunk both may
+    /// fetch it; the store keeps one (writes are rename-into-place).
+    pub fn prefetch_all(&self, streams: usize, batch: u64) -> Result<()> {
+        let files = &self.manifest.files;
+        let total = self.manifest.size().max(1);
+        let step = usize::try_from((batch * files.len() as u64 / total).max(1))?;
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let failed: std::sync::Mutex<Option<crate::Error>> = std::sync::Mutex::new(None);
+        std::thread::scope(|s| {
+            for _ in 0..streams.max(1) {
+                s.spawn(|| {
+                    loop {
+                        let from = next.fetch_add(step, Ordering::Relaxed);
+                        if from >= files.len() {
+                            return;
+                        }
+                        let to = (from + step).min(files.len());
+                        let want: Vec<Chunk> =
+                            files[from..to].iter().flat_map(|f| f.chunks.iter().copied()).collect();
+                        if let Err(e) = self.fetch(&want) {
+                            failed.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert(e);
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        match failed.into_inner().unwrap_or_else(|p| p.into_inner()) {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Check `path` end to end: every chunk present and decoding to its id, the whole file
