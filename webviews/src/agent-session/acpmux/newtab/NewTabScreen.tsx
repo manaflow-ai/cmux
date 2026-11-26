@@ -3222,7 +3222,8 @@ export function NewTabScreen(props: Props) {
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
-          hostGlass={false}
+          // One material with the box (composerStates.css, ONE MATERIAL FAMILY): the App's popover glass,
+          // with its cover, as Popover draws by default (#50119).
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}
