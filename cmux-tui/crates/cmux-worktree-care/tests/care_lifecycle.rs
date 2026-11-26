@@ -931,6 +931,7 @@ fn care_a_linked_worktree_in_a_guarded_location_is_left_alone() {
         guarded: guarded_under(&desk),
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: false,
     };
