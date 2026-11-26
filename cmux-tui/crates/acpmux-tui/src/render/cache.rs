@@ -54,8 +54,9 @@ impl TranscriptCache {
         } else {
             self.markdown.retain(|&item, _| item < dirty);
         }
-        // Keep queued messages in the tail: promotion can move their item
-        // indices, and they are displayed after the live turn.
+        // The live turn is the tail, from the newest turn prompt. Queued prompts dock after it
+        // (`Transcript::queue`), outside `items`; any `queued` row still in `items` stays in the
+        // tail too, so nothing in the prefix moves.
         let first_queued = t
             .items
             .iter()
