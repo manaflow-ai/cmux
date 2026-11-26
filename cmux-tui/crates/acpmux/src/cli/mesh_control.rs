@@ -52,6 +52,13 @@ fn target(key: &str, id: bool) -> Value {
     if id || uuid::Uuid::parse_str(key).is_ok() {
         json!({"sessionId": key})
     } else if let Some((host, name)) = key.split_once('/') {
+        // `HOST/SESSION-ID`, as `ls` and a move's `movedTo` print it: the id names one chat
+        // on every machine, so it goes as one. Sent as a name, the hub found no chat of that
+        // name and refused it (`mesh.unknown_recipient`), so `session stop HOST/ID --mesh`
+        // never stopped a chat a move left on a hub machine (session-move-gcp, 2026-11-26).
+        if uuid::Uuid::parse_str(name).is_ok() {
+            return json!({"sessionId": name});
+        }
         json!({"name": name, "host": host})
     } else {
         json!({"name": key})
@@ -124,8 +131,10 @@ pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
         Ok(reply) => reply,
         Err(error) => {
             if let Some(key) = request["idempotencyKey"].as_str() {
+                // The hub's own words first: the key alone said nothing of why it failed.
+                let why = format!("{error}");
                 return Err(error.context(format!(
-                    "mesh enqueue key {key}; reuse --idempotency-key {key} if retrying"
+                    "{why} (mesh enqueue key {key}; reuse --idempotency-key {key} if retrying)"
                 )));
             }
             return Err(error);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::command::{Cli, Command, flatten};
+use crate::cli::command::{flatten, Cli, Command};
 use clap::Parser;
 
 fn parse(args: &[&str]) -> Value {
@@ -32,6 +32,10 @@ fn mesh_cli_keeps_start_policy_and_exact_recipients() {
     assert_eq!(start["params"]["_meta"]["acpmux"]["harness"], "codex");
     let stop = parse(&["acpmux", "session", "stop", "worker/review", "--mesh"]);
     assert_eq!(stop["to"], json!({"host": "worker", "name": "review"}));
+    // `HOST/SESSION-ID`, as a move's `movedTo` prints it, goes as the id, not as a name.
+    let id = "01a21858-8b6b-7681-9020-63c037858477";
+    let stop = parse(&["acpmux", "session", "stop", &format!("worker/{id}"), "--mesh"]);
+    assert_eq!(stop["to"], json!({"sessionId": id}));
     let resume = parse(&["acpmux", "session", "resume", "stable-id", "--mesh", "--id"]);
     assert_eq!(resume["to"], json!({"sessionId": "stable-id"}));
     let receipt = parse(&["acpmux", "session", "receipt", "msg_test"]);
