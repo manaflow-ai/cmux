@@ -38,6 +38,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextAgentUpdates",
+        "CmuxNextBrowser",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -47,6 +48,7 @@
         "CmuxNextIcons",
         "CmuxNextOnboarding",
         "CmuxNextPages",
+        "CmuxNextPopups",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
