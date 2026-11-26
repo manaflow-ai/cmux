@@ -48,3 +48,17 @@ async fn resolution_can_be_cancelled_while_authenticating() {
     );
     assert_eq!(source.started.elapsed(), Duration::from_secs(2));
 }
+
+#[tokio::test(start_paused = true)]
+async fn outer_recovery_deadline_excludes_authentication() {
+    let source = AuthenticatingSource {
+        started: tokio::time::Instant::now(),
+        authentication: Duration::from_secs(3),
+        previously_spent: Duration::ZERO,
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    assert!(
+        resolve_reconnect_group_until(&source, deadline, std::future::pending()).await.is_none()
+    );
+    assert_eq!(source.started.elapsed(), Duration::from_secs(4));
+}

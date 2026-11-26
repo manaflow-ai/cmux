@@ -1701,8 +1701,11 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             .map_or(Duration::ZERO, |clock| clock.excluded(Instant::now()))
     }
 
-    async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+    fn begin_resolution(&self) {
         self.options.ssh.connection_share.retry_unavailable();
+    }
+
+    async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,

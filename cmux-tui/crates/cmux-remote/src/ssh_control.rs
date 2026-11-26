@@ -234,6 +234,12 @@ impl SshConnectionShare {
                 Ok(arguments)
             }
             None => {
+                // A reconnect may have started while authentication was in
+                // flight. Cache the failure under the generation that is
+                // current now, so that newer work does not immediately retry
+                // the same unavailable socket because it observed an old
+                // generation before opening the master.
+                let generation = inner.reconnect_generation.load(Ordering::Acquire);
                 *shared = Some(Shared::Unavailable(generation));
                 Ok(Vec::new())
             }
