@@ -40,9 +40,10 @@ env:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
-    # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # It mints the cmux bot App token (below), so no variable picks its machine: the nightly JIT VM, then the
+    # Blacksmith Linux sizes it names, as nightly-next-tick.yml's request and unstick jobs (#50923). CI_CONTROL_RUNNER
+    # may name a reused machine, and a job holding a secret never follows it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # read runs and dispatch continuation/starvation builds

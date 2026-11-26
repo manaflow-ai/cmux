@@ -241,26 +241,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
 
-    def test_control_jobs_can_leave_blacksmith_linux_with_one_variable(self) -> None:
-        """CI_CONTROL_RUNNER moves the tick and the feed watch off Blacksmith Linux.
-
-        2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
-        hour while Blacksmith macOS served; these light jobs had nowhere else to go.
-        Unset, they keep their Blacksmith Linux default. A first attempt goes to
-        the one-job JIT nightly VM ahead of both (2026-11-20, nightly priority on
-        Linux); re-runs keep CI_CONTROL_RUNNER and then Blacksmith. The tick's request
-        job left it on 2026-11-22: it holds the cmux-bot App key for its promotion
-        dispatch, so it takes the unstick job's named runners (below).
-        """
-        for name, job in (("nightly-next-feed-watch.yml", "watch"),):
-            text = (WORKFLOWS / name).read_text(encoding="utf-8")
-            body = text[text.index(f"\n  {job}:\n"):]
-            runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-            with self.subTest(workflow=name):
-                self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                          "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
-                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
-
     def test_the_tick_jobs_holding_the_app_key_name_their_runners(self) -> None:
         """The request and unstick jobs mint the cmux-bot token, so no variable picks a machine
         outside the nightly JIT VM and the Blacksmith Linux sizes they name."""
@@ -274,6 +254,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["runs-on"], expected)
                 self.assertNotIn("CI_CONTROL_RUNNER", jobs[job]["runs-on"])
+        # The feed watch left CI_CONTROL_RUNNER the same way once it minted the cmux bot token (#57868).
+        watch = yaml.safe_load((WORKFLOWS / "nightly-next-feed-watch.yml").read_text(encoding="utf-8"))["jobs"]["watch"]
+        self.assertEqual(watch["runs-on"], expected)
 
     def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
         """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""
