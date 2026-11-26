@@ -50,15 +50,7 @@ import {
   type WalkValues,
   type WalkWrite,
 } from "./walk";
-import {
-  SHELF_SETUPS,
-  keepSetup,
-  revertSetup,
-  shelfValues,
-  trySetup,
-  type SetupId,
-  type Shelf,
-} from "./setupShelf";
+import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
 import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
@@ -273,20 +265,29 @@ function SetupShelf({ choices }: { choices: MakeItYoursState }) {
               </span>
               <span className="onb-setups-actions">
                 {entry == null && (
-                  <Button size="sm" aria-label={`${strings.t("onboarding.makeItYours.setups.try")} ${name}`}
-                    onClick={() => run(trySetup(shelf, id, current))}>
+                  <Button
+                    size="sm"
+                    aria-label={`${strings.t("onboarding.makeItYours.setups.try")} ${name}`}
+                    onClick={() => run(trySetup(shelf, id, current))}
+                  >
                     {strings.t("onboarding.makeItYours.setups.try")}
                   </Button>
                 )}
                 {entry?.status === "trying" && (
                   <>
-                    <Button size="sm" variant="ghost"
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       aria-label={`${strings.t("onboarding.makeItYours.setups.revert")} ${name}`}
-                      onClick={() => run(revertSetup(shelf, id, current))}>
+                      onClick={() => run(revertSetup(shelf, id, current))}
+                    >
                       {strings.t("onboarding.makeItYours.setups.revert")}
                     </Button>
-                    <Button size="sm" aria-label={`${strings.t("onboarding.makeItYours.setups.keep")} ${name}`}
-                      onClick={() => setShelf(keepSetup(shelf, id))}>
+                    <Button
+                      size="sm"
+                      aria-label={`${strings.t("onboarding.makeItYours.setups.keep")} ${name}`}
+                      onClick={() => setShelf(keepSetup(shelf, id))}
+                    >
                       {strings.t("onboarding.makeItYours.setups.keep")}
                     </Button>
                   </>
