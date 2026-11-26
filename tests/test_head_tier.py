@@ -209,6 +209,20 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_full_ci_added_then_taken_off_still_runs_the_full_tier(self) -> None:
+        # land-judge's full-ci pulse (add, then remove a second later): GitHub built the labeled event's payload
+        # after the removal, so its labels held ready-to-land but not full-ci, and the router ran the affected tier
+        # and skipped pr-pipeline.yml (cmux#52441, router run 45831524947). The event's own label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml", "heavy.yml"])
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        # only a labeled event adds its label: an unlabeled full-ci is gone
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+
     def test_the_route_job_runs_on_full_ci_added_and_skips_other_labels(self) -> None:
         text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
         cond = re.search(r"^    if: \$\{\{ (.*) \}\}$", text.split("  route:", 1)[1], re.M).group(1)
