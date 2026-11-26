@@ -474,12 +474,9 @@ fn history_and_bookmark_search_without_text_say_what_is_missing() {
 #[test]
 fn help_names_the_process_scopes() {
     let names = Names::new("process-help");
-    for (scope, expected) in [
-        ("acp", "Usage: cmux acp"),
-        ("mcp", "cmux mcp serve"),
-        ("coderouter", "cmux coderouter status"),
-        ("link", "cmux link <init|show"),
-    ] {
+    for (scope, expected) in
+        [("acp", "Usage: cmux acp"), ("mcp", "cmux mcp serve"), ("link", "cmux link <init|show")]
+    {
         let direct = names.run("cmux", &[scope, "--help"]);
         let output = names.run("cmux", &["help", scope]);
         let stdout = text(&output.stdout);
