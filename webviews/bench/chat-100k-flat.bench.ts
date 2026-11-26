@@ -1130,6 +1130,42 @@ try {
           setStatus(shown, "running");
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
+        const shownPage = pages.at(-1)!.page;
+        await shownCdp.send("Performance.enable");
+        const metric = async () =>
+          Object.fromEntries(
+            (
+              (await shownCdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] }
+            ).metrics.map((m) => [m.name, m.value]),
+          );
+        const m0 = await metric();
+        await shownPage.evaluate(() => {
+          const w = window as unknown as {
+            __rm?: { removed: number; added: number; kinds: Record<string, number>; obs: MutationObserver };
+          };
+          w.__rm?.obs.disconnect();
+          const st = {
+            removed: 0,
+            added: 0,
+            kinds: {} as Record<string, number>,
+            obs: null as unknown as MutationObserver,
+          };
+          const size = (n: Node) => (n instanceof Element ? 1 + n.getElementsByTagName("*").length : 0);
+          st.obs = new MutationObserver((ms) => {
+            for (const m of ms) {
+              m.removedNodes.forEach((n) => {
+                st.removed += size(n);
+                if (n instanceof Element) {
+                  const key = `${(m.target as Element).getAttribute?.("data-testid") ?? (m.target as Element).className?.toString().slice(0, 40)} > ${n.tagName}.${n.className.toString().slice(0, 50)}${n.getAttribute("data-row-kind") ? "[" + n.getAttribute("data-row-kind") + "]" : ""}`;
+                  st.kinds[key] = (st.kinds[key] ?? 0) + size(n);
+                }
+              });
+              m.addedNodes.forEach((n) => (st.added += size(n)));
+            }
+          });
+          st.obs.observe(document.body, { childList: true, subtree: true });
+          w.__rm = st;
+        });
         if (profile && round === 0) {
           await shownCdp.send("Profiler.enable");
           await shownCdp.send("Profiler.start");
@@ -1156,6 +1192,30 @@ try {
               await Bun.sleep(5);
             }
           }),
+        );
+        const m1 = await metric();
+        const d = (k: string) => m1[k] - m0[k];
+        console.log(
+          `  ${name} round ${round}: style ${d("RecalcStyleCount")}x ${(d("RecalcStyleDuration") * 1e3).toFixed(0)} ms, layout ${d("LayoutCount")}x ${(d("LayoutDuration") * 1e3).toFixed(0)} ms, script ${(d("ScriptDuration") * 1e3).toFixed(0)} ms, task ${(d("TaskDuration") * 1e3).toFixed(0)} ms, nodes ${m1.Nodes}`,
+        );
+        console.log(
+          `  ${name} round ${round}: ${streamWindows.at(-1)!.toFixed(2)} %; DOM`,
+          JSON.stringify(
+            await shownPage.evaluate(() => {
+              const w = window as unknown as {
+                __rm: { removed: number; added: number; kinds: Record<string, number> };
+              };
+              const top = Object.entries(w.__rm.kinds)
+                .sort((x, y) => y[1] - x[1])
+                .slice(0, 8);
+              return {
+                removed: w.__rm.removed,
+                added: w.__rm.added,
+                now: document.getElementsByTagName("*").length,
+                top,
+              };
+            }),
+          ),
         );
         if (profile && round === 0) {
           const { profile: cpu } = (await shownCdp.send("Profiler.stop")) as {
