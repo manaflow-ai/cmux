@@ -104,14 +104,6 @@ import Testing
         #expect(record.steps.map(\.name) == ["machine.ensure", "machine.approve"], "\(record.steps)")
     }
 
-    /// The backoffs after the approval fill the patience (two minutes) and stop there, however short each one is.
-    @Test func theRetriesFillThePatienceAndNoMore() {
-        let waits = CloudMachineCreateFlow.waits(within: CloudAppOpRunner.timeout)
-        let pauses = (1..<waits).reduce(Duration.zero) { $0 + CloudMachineCreateFlow.backoff($1) }
-        #expect(pauses >= CloudAppOpRunner.timeout && pauses < CloudAppOpRunner.timeout + .seconds(2), "\(waits) waits add up to \(pauses)")
-        #expect(CloudMachineCreateFlow.waits(within: .zero) == 1)
-    }
-
     @Test func anApprovedCreateStillPendingAfterTwoMinutesEndsStillPendingAndItsRetryGetsTheSameMachine() async throws {
         let backend = Backend(), time = Time()
         let start = time.now

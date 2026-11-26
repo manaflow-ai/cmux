@@ -402,11 +402,15 @@ extension CloudStartSession {
 
     /// `--from-folder` as written (`..` resolves after its symlinks), checked before anything starts: absolute, no `--cwd`, never home or a credential folder (read through realpath when it exists). Any origin, as `cloudFileWrite` (which writes any file there) takes any.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
-        guard let text = invocation["fromFolder"]?.stringValue, !text.allSatisfy(\.isWhitespace) else { return nil }
-        guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
-        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let plain = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
-        if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { path in defer { free(path) }; return String(cString: path) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
-        return text.count > 1 && text.hasSuffix("/") ? String(text.dropLast()) : text
+        switch CloudStartCore().launchFolder(invocation["fromFolder"]?.stringValue, hasCwd: cwd != nil) {
+        case .none: return nil
+        case .withCwd: throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd)
+        case .check(let text, let folder):
+            guard let plain = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
+            if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { path in defer { free(path) }; return String(cString: path) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
+            return folder
+        case .invalid: throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid)
+        }
     }
 
     static func requireOwned(_ session: CloudMachineSession) async throws { if await CloudMove.ownerAnswer(session).vmKind != "owner" { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(session.machine.title)) } }
