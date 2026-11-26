@@ -13,8 +13,7 @@ extension Data {
     /// - Throws: What `Data(contentsOf:options:)` throws.
     @inlinable
     public init(blockingContentsOf url: URL, options: Data.ReadingOptions = [], fileID: StaticString = #fileID, line: UInt = #line) throws {
-        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
-        try self.init(contentsOf: url, options: options)
+        self = try blockingCall(.fileIO, fileID: fileID, line: line) { try Data(contentsOf: url, options: options) }
     }
 
     /// Writes the bytes to a file, like `write(to:options:)`, as a checked blocking call
@@ -28,7 +27,6 @@ extension Data {
     /// - Throws: What `write(to:options:)` throws.
     @inlinable
     public func blockingWrite(to url: URL, options: Data.WritingOptions = [], fileID: StaticString = #fileID, line: UInt = #line) throws {
-        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
-        try write(to: url, options: options)
+        try blockingCall(.fileIO, fileID: fileID, line: line) { try write(to: url, options: options) }
     }
 }
