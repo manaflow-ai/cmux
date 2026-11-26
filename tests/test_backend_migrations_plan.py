@@ -194,19 +194,115 @@ class TreelessProbe(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertNotIn("same=true", output)
 
-    def test_the_base_checkout_is_bounded_and_retried(self):
-        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
-        by_id = {s.get("id"): s for s in steps}
-        for sid in ("checkout", "checkout-retry"):
-            self.assertEqual(by_id[sid]["timeout-minutes"], 1)
-            self.assertTrue(by_id[sid]["continue-on-error"])
-            self.assertEqual(by_id[sid]["with"]["sparse-checkout"], "backend")
-            self.assertEqual(by_id[sid]["with"]["filter"], "blob:none")
-        self.assertIn("steps.checkout.outcome == 'failure'", by_id["checkout-retry"]["if"])
-        failed = next(s for s in steps if s.get("name") == "Base checkout did not finish")
-        self.assertIn("steps.checkout-retry.outcome == 'failure'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+    def test_the_probe_reads_the_runners_mirror_without_the_network(self):
+        # The pool's mirror holds both commits: no fetch, so an unreachable github.com does not matter.
+        (self.src / "App.tsx").write_text("ui change\n")
+        git(self.src, "commit", "-qam", "ui")
+        head = git(self.src, "rev-parse", "HEAD")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.src), str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["plan"]["steps"] if s.get("id") == "same-tree")
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        output = self.tmp / "output"
+        output.write_text("")
+        env = {**os.environ, "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r", "GITHUB_OUTPUT": str(output),
+               "CMUX_GIT_MIRROR": str(mirror), **NO_NETWORK}
+        result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True)
+        log = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, log)
+        self.assertIn("same=true", output.read_text(), log)
+        self.assertIn("runner's git mirror", log)
 
+
+# github.com rewritten to a path that does not exist: any network fetch fails at once.
+NO_NETWORK = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "url.file:///nonexistent/r.git.insteadOf",
+              "GIT_CONFIG_VALUE_0": "https://github.com/o/r.git"}
+
+
+class BaseCheckout(unittest.TestCase):
+    """The base's backend/ comes from the pool runner's git mirror when it holds the commit, else a bounded,
+    retried blobless fetch. A 60 s actions/checkout timed out twice on PRs 56905, 53402 and 57565 (2026-11-26)
+    while the runner's mirror already held the base."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        src = self.tmp / "src"
+        src.mkdir()
+        git(src, "init", "-q", "-b", "main")
+        git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
+        git(src, "config", "uploadpack.allowFilter", "true")
+        (src / "backend/db/migrations").mkdir(parents=True)
+        (src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        (src / "webviews").mkdir()
+        (src / "webviews/App.tsx").write_text("base\n")
+        git(src, "add", "-A")
+        git(src, "commit", "-qm", "base")
+        self.base = git(src, "rev-parse", "HEAD")
+        self.src = src
+
+    def step(self) -> dict:
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+        return next(s for s in steps if s.get("id") == "checkout")
+
+    def checkout(self, network: dict, mirror: Path | None = None, pause_free: bool = True) -> tuple[int, Path, str]:
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        run = self.step()["run"]
+        if pause_free:
+            run = run.replace('sleep "$pause"', ':')
+        env = {**os.environ, "BASE_SHA": self.base, "REPO": "o/r", "RUNNER_NAME": "r-test",
+               "CMUX_GIT_MIRROR": str(mirror or self.tmp / "no-mirror"), **network}
+        result = subprocess.run(["bash", "-e", "-c", run], cwd=work, env=env, capture_output=True, text=True)
+        return result.returncode, work / "trusted", result.stdout + result.stderr
+
+    def test_the_mirror_serves_the_base_with_no_network(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.src), str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        code, trusted, log = self.checkout(NO_NETWORK, mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("from the runner's git mirror", log)
+        self.assertTrue((trusted / "backend/db/migrations/0001_init.sql").is_file(), log)
+        self.assertFalse((trusted / "webviews").exists(), "sparse: backend/ only")
+        self.assertEqual(git(trusted, "rev-parse", "HEAD"), self.base)
+
+    def test_a_mirror_not_ready_or_without_the_commit_fetches_from_github(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        redirect = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.file://{self.src}.insteadOf",
+                    "GIT_CONFIG_VALUE_0": "https://github.com/o/r.git"}
+        code, trusted, log = self.checkout(redirect, mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("from github.com", log)
+        self.assertTrue((trusted / "backend/db/migrations/0001_init.sql").is_file(), log)
+        self.assertFalse((trusted / "webviews").exists(), "sparse: backend/ only")
+
+    def test_a_failed_fetch_is_retried_and_names_its_cause(self):
+        code, _, log = self.checkout(NO_NETWORK)
+        self.assertNotEqual(code, 0, log)
+        self.assertIn("failed on 3 attempts", log)
+        self.assertEqual(log.count("rc=128"), 3, log)
+        self.assertIn("runner r-test", log)
+        self.assertIn("not the PR", log)
+
+    def test_the_base_checkout_is_bounded_and_retried(self):
+        step = self.step()
+        self.assertNotIn("continue-on-error", step)
+        self.assertLessEqual(step["timeout-minutes"], 5)
+        run = step["run"]
+        for bound in ("timeout 75 git", "http.lowSpeedTime=30", "timeout 90 git", "--filter=blob:none --depth=1",
+                      "for pause in 0 10 30", "sparse-checkout set --cone backend"):
+            self.assertIn(bound, run)
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+        self.assertFalse([s for s in steps if s.get("id") == "checkout-retry"])
+
+    def test_head_fetches_use_a_refspec_the_mirror_shim_can_serve(self):
+        # The pool's git shim answers a fetch from the mirror only when every refspec is "<sha>:refs/...".
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn('origin "$HEAD_SHA" ', text)
+        self.assertIn('origin "+$HEAD_SHA:refs/remotes/origin/head"', text)
 
 if __name__ == "__main__":
     unittest.main()

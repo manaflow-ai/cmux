@@ -83,7 +83,15 @@ jobs:
           set -uo pipefail
           git init -q probe && cd probe || exit 0
           git remote add origin "https://github.com/$REPO.git"
-          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+          # A pool runner's git mirror (fetched each minute: branch tips, every PR's head and merge) holds both
+          # commits nearly always; borrowing its objects answers with no network. GitHub's shallow, filtered
+          # fetch of this repository is what timed out here (60 s, runs 45772484255 and 45744047896).
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
+          inmirror() { [ -e "$mirror/cmux-ready" ] && git -c safe.directory="$mirror" --git-dir="$mirror" cat-file -e "$1^{commit}" 2>/dev/null; }
+          if inmirror "$BASE_SHA" && inmirror "$HEAD_SHA"; then
+            echo "$mirror/objects" > .git/objects/info/alternates
+            echo "base and head read from the runner's git mirror"
+          elif ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
             echo "treeless fetch failed: full plan"; exit 0
           fi
           base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
@@ -101,41 +109,53 @@ jobs:
           else
             echo "base ${base_tree:-unresolved}, head ${head_tree:-unresolved}: full plan"
           fi
-      # Only backend/ is read from the base (migrate.ts, its lockfile, the migrations), so the checkout is
-      # blobless and sparse: the full one-commit fetch of main (about 150 MB) hung on the gate pool until the
-      # job's 10-minute cancel on every attempt (run 45091304441). Each attempt is bounded and tried twice,
-      # so a hang fails in about 2 minutes with its cause named.
+      # Only backend/ is read from the base (migrate.ts, its lockfile, the migrations). On a pool runner the
+      # base comes from the runner's git mirror (/var/lib/cmux-git/cmux.git, fetched each minute: branch tips
+      # and every PR's head and merge), borrowed through objects/info/alternates: no network. Elsewhere, or
+      # when the mirror lacks the commit, it is a blobless one-commit fetch from github.com. That fetch is
+      # GitHub building a shallow, filtered pack of a 3 GB repository: p50 66 s, p95 286 s on the pool
+      # (2026-11-24, pool.sh's mirror notes), so a 60 s bound failed both attempts on PRs 56905, 53402 and
+      # 57565 on 2026-11-26 while the runner's mirror already held the base. Each network attempt is bounded
+      # with a low-speed abort, tried three times with backoff, and a failure names its cause.
       - name: Checkout base (trusted tooling)
         id: checkout
         if: steps.same-tree.outputs.same != 'true'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          path: trusted
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: backend
-      - name: Checkout base (trusted tooling), second attempt
-        id: checkout-retry
-        if: steps.same-tree.outputs.same != 'true' && steps.checkout.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          path: trusted
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: backend
-      - name: Base checkout did not finish
-        if: steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 5
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "::error::base checkout of $BASE_SHA from github.com failed or hung past 60 s on both attempts (runner ${RUNNER_NAME:-unknown}): a fetch problem on this runner, not the PR"
-          exit 1
+          set -uo pipefail
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
+          rm -rf trusted && git init -q trusted && cd trusted || { echo "::error::could not create trusted/"; exit 1; }
+          git remote add origin "https://github.com/$REPO.git"
+          git config gc.auto 0
+          how=""
+          if [ -e "$mirror/cmux-ready" ] && git -c safe.directory="$mirror" --git-dir="$mirror" cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "$mirror/objects" > .git/objects/info/alternates
+            how="the runner's git mirror, no network"
+          else
+            tried=""
+            for pause in 0 10 30; do
+              sleep "$pause"
+              t0=$SECONDS rc=0
+              GIT_TERMINAL_PROMPT=0 timeout 75 git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+                fetch -q --no-tags --filter=blob:none --depth=1 origin "+$BASE_SHA:refs/remotes/origin/base" || rc=$?
+              if [ "$rc" = 0 ]; then how="github.com in $((SECONDS - t0)) s"; break; fi
+              tried="$tried rc=$rc after $((SECONDS - t0)) s;"
+            done
+            if [ -z "$how" ]; then
+              echo "::error::base fetch of $BASE_SHA from github.com failed on 3 attempts (${tried% }; 124 is the 75 s bound) on runner ${RUNNER_NAME:-unknown}, and the runner has no git mirror holding it: a fetch problem on this runner, not the PR"
+              exit 1
+            fi
+          fi
+          git sparse-checkout set --cone backend || { echo "::error::sparse-checkout of backend/ failed"; exit 1; }
+          # A blobless base fetches backend/'s blobs here: bound it too.
+          if ! GIT_TERMINAL_PROMPT=0 timeout 90 git -c advice.detachedHead=false checkout -q --detach "$BASE_SHA"; then
+            echo "::error::checking out backend/ at $BASE_SHA failed or hung past 90 s (from $how) on runner ${RUNNER_NAME:-unknown}"
+            exit 1
+          fi
+          echo "base $BASE_SHA backend/ from $how"
       # The file list, when the migrations tree differs, is read on the manaflow-glaeda-route
       # App's own budget (GITHUB_TOKEN's, which every workflow shares, ran out on 2026-10-21);
       # a failed mint or a refused read uses GITHUB_TOKEN. Pull requests only: a merge group
@@ -152,7 +172,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
@@ -189,7 +209,7 @@ jobs:
             # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
             # The same backend/db/migrations tree as the base means no migration change; a
             # different one (the PR's change, or a base move it has not merged) is listed below.
-            GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
             head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
             if [ "$base_tree" = "$head_tree" ]; then
@@ -212,7 +232,7 @@ jobs:
           fi
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
           # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound it too.
           GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted archive -o head-migrations.tar "$HEAD_SHA" backend/db/migrations || { echo "::error::reading the head's migrations ($HEAD_SHA) failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
           tar -x -C head-migrations --strip-components=3 -f head-migrations.tar && rm -f head-migrations.tar
