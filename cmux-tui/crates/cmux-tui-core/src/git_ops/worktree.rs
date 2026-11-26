@@ -41,7 +41,7 @@ use cmux_config::session_worktrees::{self, SessionWorktrees};
 use cmux_config::worktree_names;
 use cmux_json::JsonSet as _;
 
-const OPERATION: &str = "git.worktree.create";
+pub(super) const OPERATION: &str = "git.worktree.create";
 /// The prefix of the branches cmux makes unless `worktrees.branchPrefix` names another.
 pub(super) const BRANCH_PREFIX: &str = worktree_names::DEFAULT_BRANCH_PREFIX;
 const MAX_NAME_CHARS: usize = 48;
