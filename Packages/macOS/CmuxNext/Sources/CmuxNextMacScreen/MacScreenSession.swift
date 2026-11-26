@@ -411,7 +411,7 @@ public final class MacScreenSession {
                     }
                 case let .ended(why):
                     switch why {
-                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case .connectionLost: failLostUnlessLinkExplains(transport: transport)
                     case let .hostFailed(reason): hostFailed(reason)
                     case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     default: end(String(describing: why))
@@ -441,6 +441,21 @@ public final class MacScreenSession {
         let wasConnected = phase == .connected
         disconnect()
         phase = wasConnected ? .ended : .failed(message: reason, needsSignIn: false)
+    }
+
+    /// How long a lost stream waits for the link's own `ended` line (stdout) before the card says only "lost".
+    @ObservationIgnored var lostGrace: Duration = .seconds(1)
+
+    /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
+    /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
+    private func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport) {
+        let grace = lostGrace
+        // task-owner: one grace wait; ends at its deadline or when disconnect() cancels `tasks`.
+        tasks.append(Task { [weak self] in
+            try? await Task.sleep(for: grace)
+            guard let self, !Task.isCancelled, self.transport === transport else { return }
+            fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+        })
     }
 
     private func fail(_ message: String) {
