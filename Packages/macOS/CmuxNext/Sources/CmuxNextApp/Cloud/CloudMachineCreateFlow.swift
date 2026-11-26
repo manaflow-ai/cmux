@@ -59,8 +59,8 @@ struct CloudMachineCreateFlow {
         /// The person declined the confirmation; nothing was created.
         case declined
         /// The approval was answered, and the backend still held the create
-        /// after every retry; the request stays in the feed.
-        case stillPending(request: String)
+        /// after every retry; the request stays in the feed. `lastRunError`: why the backend's approved run went back to pending.
+        case stillPending(request: String, lastRunError: String? = nil)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
         /// The plan cannot create a machine; nothing was created. A person's create then shows the cap card
@@ -153,17 +153,17 @@ struct CloudMachineCreateFlow {
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?, since = now() // `since`: when this attempt learned the approval was answered
-        var attempt = 0; let ensure = self.beside, waits = Self.waits(within: patience) // the clock ends it first
+        var attempt = 0, lastRunError: String?; let ensure = self.beside, waits = Self.waits(within: patience) // the clock ends it first
         async let besideDone: Void = ensure()
         for _ in 0...max(waits, 0) {
             do {
                 let answer = try await run(op, args, key, .user); await besideDone; return answer
             } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
-                guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
+                guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }; lastRunError = failure.lastRunError ?? lastRunError
                 if approved == nil, request == earlier { approved = request; since = now() }
                 if let approved {
                     // The answer is in; the approved op runs in the backend, for as long as `patience` (and a clock that stands still ends at `waits`).
-                    guard approved == request, now() - since < patience, attempt < waits else { throw Failure.stillPending(request: request) }
+                    guard approved == request, now() - since < patience, attempt < waits else { throw Failure.stillPending(request: request, lastRunError: lastRunError) }
                     try await pause(attempt)
                     attempt += 1
                     continue
@@ -193,7 +193,7 @@ struct CloudMachineCreateFlow {
                 attempt = 1
             }
         }
-        throw Failure.stillPending(request: approved ?? "")
+        throw Failure.stillPending(request: approved ?? "", lastRunError: lastRunError)
     }
 
     /// 250 ms, 500 ms, then 1 s between the same-key calls after the approval. A pending call costs about 200 ms, and
@@ -230,7 +230,7 @@ extension CloudMachineCreateFlow.Failure: CustomStringConvertible, LocalizedErro
     nonisolated var description: String {
         switch self {
         case .declined: "declined"
-        case .stillPending: CloudStrings.createStillPending
+        case .stillPending(_, let why): why.map { "\(CloudStrings.createStillPending) (\($0))" } ?? CloudStrings.createStillPending
         case .noApprovalRequest: CloudStrings.createApproveInFeed
         case .upgradeRequired: CloudStrings.upgradeRequired
         }
