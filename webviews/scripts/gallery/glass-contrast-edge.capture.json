@@ -1,29 +1,11 @@
 {
   "envs": [
-    [
-      "light",
-      "photo-light"
-    ],
-    [
-      "dark",
-      "photo-light"
-    ],
-    [
-      "light",
-      "photo-dark"
-    ],
-    [
-      "dark",
-      "photo-dark"
-    ],
-    [
-      "light",
-      "photo-busy"
-    ],
-    [
-      "dark",
-      "photo-busy"
-    ]
+    ["light", "photo-light"],
+    ["dark", "photo-light"],
+    ["light", "photo-dark"],
+    ["dark", "photo-dark"],
+    ["light", "photo-busy"],
+    ["dark", "photo-busy"]
   ],
   "shots": [
     {

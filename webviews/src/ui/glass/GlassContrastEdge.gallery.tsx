@@ -24,19 +24,21 @@ function GlassContrastEdgeGallery({ edge }: Props) {
           <p key={row}>{row}</p>
         ))}
       </div>
-      <div className="ui-tooltip ui-card ui-glass glass-contrast-gallery-card" role="tooltip">
-        <strong>Fix the scroll anchor and land</strong>
-        <span className="ui-tooltip-detail">Disconnected · 0s</span>
-      </div>
-      <div className="ui-popup ui-glass ui-menu glass-contrast-gallery-menu" role="menu">
-        {MENU_ROWS.map((row) => (
-          <div key={row} role="menuitem">
-            {row}
-          </div>
-        ))}
-      </div>
-      <div className="ui-tooltip ui-glass glass-contrast-gallery-tip" role="tooltip">
-        <span className="ui-tooltip-text">Show sidebar</span> <KeyHint keys="⌘S" className="ui-tooltip-hint" />
+      <div className="glass-contrast-gallery-stage">
+        <div className="ui-tooltip ui-card ui-glass glass-contrast-gallery-card" role="tooltip">
+          <strong>Fix the scroll anchor and land</strong>
+          <span className="ui-tooltip-detail">Disconnected · 0s</span>
+        </div>
+        <div className="ui-popup ui-glass ui-menu glass-contrast-gallery-menu" role="menu">
+          {MENU_ROWS.map((row) => (
+            <div key={row} role="menuitem">
+              {row}
+            </div>
+          ))}
+        </div>
+        <div className="ui-tooltip ui-glass glass-contrast-gallery-tip" role="tooltip">
+          <span className="ui-tooltip-text">Show sidebar</span> <KeyHint keys="⌘S" className="ui-tooltip-hint" />
+        </div>
       </div>
     </div>
   );

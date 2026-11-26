@@ -14,13 +14,18 @@
 .glass-contrast-gallery-rows > * {
   margin: 0 0 var(--grid-base);
 }
+.glass-contrast-gallery-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-6, 24px);
+  padding-top: var(--ds-space-2, 8px);
+}
 .glass-contrast-gallery .ui-glass {
-  position: absolute;
+  position: static;
+  flex: none;
   margin: 0;
 }
 .glass-contrast-gallery-card {
-  left: 24px;
-  top: 64px;
   display: grid;
   gap: var(--grid-base);
   width: 260px;
@@ -28,8 +33,6 @@
   font-size: var(--text-detail);
 }
 .glass-contrast-gallery-menu {
-  left: 320px;
-  top: 40px;
   width: 200px;
   padding: var(--ui-popup-padding);
   border-radius: var(--ui-popup-radius);
@@ -41,8 +44,6 @@
   padding: 0 var(--ds-space-2);
 }
 .glass-contrast-gallery-tip {
-  left: 560px;
-  top: 72px;
   white-space: nowrap;
 }
 
