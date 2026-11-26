@@ -11,6 +11,25 @@ extension AgentPaneView {
     /// Follows the page's reports for as long as the view lives (called once from init).
     func installHostGlass() {
         model.hostGlass.onChange = { [weak self] in self?.layoutHostGlass() }
+        // Interface Scale changed the page's zoom (Cmd +/- comes through ``applyZoom``).
+        page?.onZoomChange = { [weak self] in self?.pageZoomChanged() }
+    }
+
+    /// View points per CSS pixel for a Session Info cut-out or the toasts' stack the page measured at
+    /// `reported` (webviews ui/glass/hostGlass.ts `hostGlassPageZoom`), or at the pane's zoom now for an
+    /// older page's box: the same rule as the glass (``AgentPaneHostGlassSurface/placementZoom(paneZoom:)``).
+    /// Leo, 2026-11-12, of the "Also working here" popover: "evidently you zoom in and it doesn't really,
+    /// you know, it doesn't follow, right?"
+    func pageBoxZoom(_ reported: CGFloat?) -> CGFloat {
+        max(0.25, reported ?? CGFloat(uiPointerPageZoom))
+    }
+
+    /// The page's zoom changed: every box the App draws from the page is placed again (an older
+    /// page's at the new zoom; a newer page's report at the new zoom follows).
+    func pageZoomChanged() {
+        layoutSessionInfo()
+        layoutHostGlass()
+        toastAvoidanceMoved()
     }
 
     /// Makes, moves and removes the glass views for the page's last report, in the page's frame.
@@ -26,12 +45,12 @@ extension AgentPaneView {
         let pageView: NSView = page ?? webView
         let container = holder.container ?? makeHostGlassContainer(below: pageView)
         if container.frame != pageView.frame { container.frame = pageView.frame }
-        let zoom = max(0.25, CGFloat(uiPointerPageZoom))
         let bounds = CGRect(origin: .zero, size: container.frame.size)
         var kept = Set<String>()
         for surface in holder.surfaces {
             kept.insert(surface.id)
             let view = holder.views[surface.id] ?? makeHostGlassView(surface, in: container)
+            let zoom = surface.placementZoom(paneZoom: CGFloat(uiPointerPageZoom))
             let frame = Self.hostGlassFrame(surface.rect, page: bounds, zoom: zoom, flipped: container.isFlipped)
             if view.frame != frame { view.frame = frame }
             let radius = surface.radius * zoom

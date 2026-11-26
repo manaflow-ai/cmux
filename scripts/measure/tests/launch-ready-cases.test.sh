@@ -16,12 +16,16 @@ sha=0123456789abcdef0123456789abcdef01234567
 ok kept "" warm own home "" small || { echo "state=kept front=home refused" >&2; exit 1; }
 ok kept update warm own home "$sha" small || { echo "state=kept case=update front=home refused" >&2; exit 1; }
 ok kept "" cold own home "" small || { echo "state=kept daemon=cold front=home refused" >&2; exit 1; }
+ok kept "" warm own chat "" small || { echo "state=kept front=chat refused" >&2; exit 1; }
+ok kept "" warm own chat "" stress3 || { echo "front=chat session=stress3 refused" >&2; exit 1; }
+! LR_KEYS=1 ok kept "" warm own chat "" small || { echo "keys=1 front=chat accepted" >&2; exit 1; }
+LR_KEYS=1 ok kept "" warm own home "" small || { echo "keys=1 front=home refused" >&2; exit 1; }
 ok kept "" warm unknown "" "" small || { echo "snapshot=unknown refused" >&2; exit 1; }
 ! ok kept "" warm unknown home "" small || { echo "snapshot=unknown front=home accepted" >&2; exit 1; }
 ! ok kept update warm own "" "" small || { echo "case=update without base= accepted" >&2; exit 1; }
 ! ok bare "" cold own "" "" small || { echo "state=fresh daemon=cold accepted" >&2; exit 1; }
 ! ok bare "" warm own home "" small || { echo "state=fresh front=home accepted" >&2; exit 1; }
-! ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 accepted" >&2; exit 1; }
+ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 refused" >&2; exit 1; }
 echo 'launch-ready cases: the case arguments combine as agreed'
 
 # cold_daemon: kills only the pids running from OUT/SIDE/.

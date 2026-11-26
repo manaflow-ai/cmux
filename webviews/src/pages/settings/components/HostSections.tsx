@@ -20,6 +20,7 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces } from "../cardRows";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -37,7 +38,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
 
 /** A machine row's color, from the whole map of picks: what its well shows and offers. */
 type MachinePick = {
-  /** The pick for this machine's color key, if any ("Big-Red " and "big-red" are the same key). */
+  /** The pick for this machine's color key, if any ("My-VM " and "my-vm" are the same key). */
   pick: string | undefined;
   disabled: boolean;
   /** Writes this machine's pick (null: Automatic), keeping every other machine's. */
@@ -114,11 +115,12 @@ const HostRow = memo(function HostRow({
         {machine && onPick && <MachineColor row={row} pick={pick} disabled={disabled} onPick={onPick} />}
       </div>
       {machine && <MachineVmHost row={row} />}
+      {machine && <MachineAutoCloud row={row} />}
     </div>
   );
 });
 
-/** The pick for a color key: cmux.json may spell the machine another way ("Big-Red "); the app reads
+/** The pick for a color key: cmux.json may spell the machine another way ("My-VM "); the app reads
  * the first in key order. */
 function pickOf(picks: Record<string, string>, key: string): string | undefined {
   const own = Object.keys(picks)
@@ -127,23 +129,21 @@ function pickOf(picks: Record<string, string>, key: string): string | undefined 
   return own.length > 0 ? picks[own[0]!] : undefined;
 }
 
-/** Spaces (General): the active window's spaces, or why the host has none. */
+/**
+ * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
+ * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
+ */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  const rooms = host?.rooms ?? [];
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
-  const fade = useLoadFade(Boolean(host));
-  if (!host) return null;
+  const fade = useLoadFade(rooms.length > 1);
+  if (rooms.length < 2) return null;
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
-        {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
-        ) : (
-          <div className="row">
-            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-          </div>
-        )}
+        <ListRows rows={rooms} empty={t("settingsWindow.roomsEmpty")} marks />
       </div>
     </section>
   );
@@ -442,8 +442,78 @@ function MachineVmHost({ row }: { row: HostListRow }) {
   );
 }
 
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
+/** The capability badges AutoCloud matches work against, in the order a person scans them, and
+ * each one's label. */
+const AUTOCLOUD_CAPS: ReadonlyArray<readonly [string, string]> = [
+  ["macos", "settingsWindow.autoCloudCap.macos"],
+  ["xcode", "settingsWindow.autoCloudCap.xcode"],
+  ["ios-simulator", "settingsWindow.autoCloudCap.ios-simulator"],
+  ["gpu-metal", "settingsWindow.autoCloudCap.gpu-metal"],
+  ["linux", "settingsWindow.autoCloudCap.linux"],
+  ["gpu-nvidia", "settingsWindow.autoCloudCap.gpu-nvidia"],
+];
+
+/**
+ * A Remote machine's AutoCloud enrollment (acpmux `_acpmux/autocloud_enroll` on that machine, its
+ * `health.autoCloud`): on, AutoCloud may place work there after this Mac and before the cloud
+ * pool, only while its owner is away; the owner's own use always wins. Only the owner's own client
+ * turns it on, so this row reads it: the policy, whether it takes work now, and what it can run.
+ */
+function MachineAutoCloud({ row }: { row: HostListRow }) {
+  const ac = row.autocloud;
+  if (!ac) return null;
+  const policy = ac.policy;
+  const teams = policy?.teams ?? [];
+  const parts = [teams.length === 0 ? t("settingsWindow.autoCloudOwnerOnly") : teams.join(", ")];
+  if (policy?.agents.length) parts.push(policy.agents.join(", "));
+  if (policy?.hours)
+    parts.push(t("settingsWindow.autoCloudHours", hourText(policy.hours.from), hourText(policy.hours.to)));
+  const status = !ac.on
+    ? t("settingsWindow.autoCloudOff")
+    : ac.accepting
+      ? t("settingsWindow.autoCloudAccepting")
+      : ac.owner_idle === false
+        ? t("settingsWindow.autoCloudOwnerActive")
+        : t("settingsWindow.autoCloudPaused");
+  const caps = AUTOCLOUD_CAPS.filter(([cap]) => ac.caps?.includes(cap));
+  return (
+    <div className="row-main device-full-access" data-machine-autocloud={row.id} data-autocloud-on={ac.on}>
+      <div className="row-label">
+        <div className="row-title">{t("settingsWindow.autoCloudEnroll")}</div>
+        <div className="row-help" data-autocloud-status>
+          {status}
+        </div>
+        {ac.on && (
+          <div className="row-help" data-autocloud-policy>
+            {parts.join(" · ")}
+          </div>
+        )}
+        {ac.on && caps.length > 0 && (
+          <div className="autocloud-caps" data-autocloud-caps>
+            {caps.map(([cap, key]) => (
+              <span key={cap} className="autocloud-cap">
+                {t(key)}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="row-help">{t("settingsWindow.autoCloudEnrollHelp")}</div>
+        {ac.error && (
+          <div className="row-help" role="alert">
+            {ac.error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "9:00" for 9, local hours as acpmux keeps them. */
+function hourText(h: number): string {
+  return `${Math.floor(h)}:00`;
+}
+
+export { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces };
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

@@ -31,6 +31,12 @@ pub static VERBS: &[VerbSpec] = &[
         help: "server.pair.status",
     },
     VerbSpec {
+        path: &["unpair"],
+        positionals: &[],
+        flags: &[("local", false)],
+        help: "server.unpair",
+    },
+    VerbSpec {
         path: &["install"],
         positionals: &["ssh://host?"],
         flags: &[
@@ -42,14 +48,22 @@ pub static VERBS: &[VerbSpec] = &[
             ("session-name", true),
             ("yes", false),
             ("nightly", false),
+            ("user", false),
+            ("label", true),
         ],
         help: "keep cmux running here as a service (or on ssh://[user@]host[:port], installed there first)",
     },
     VerbSpec {
         path: &["uninstall"],
         positionals: &["ssh://host?"],
-        flags: &[("purge", false), ("no-backup", false), PG_BIN, ("yes", false)],
+        flags: &[("purge", false), ("no-backup", false), PG_BIN, ("yes", false), ("user", false)],
         help: "stop and remove the service, shim and store; keep state unless --purge",
+    },
+    VerbSpec {
+        path: &["logs"],
+        positionals: &[],
+        flags: &[("follow", false), ("lines", true)],
+        help: "show the service's log (--lines N or -n N, default 100; --follow or -f to keep reading)",
     },
     VerbSpec {
         path: &["up"],
@@ -186,16 +200,22 @@ fn find_spec(words: &[String]) -> Option<&'static VerbSpec> {
         .max_by_key(|v| v.path.len())
 }
 
-/// Parses `args` (after `cmux server`; a leading `server` word is skipped,
-/// so the standalone binary also accepts Postgres's
-/// `… server db archive-wal %p %f`).
-pub fn parse(args: &[String]) -> Result<Args> {
-    let mut out = Args::default();
+/// The words and the `--` flags (name, value) of `args`, in order, with a
+/// leading `server` word dropped. With `log_aliases`, `-f`, `-n` and
+/// `-n=N` before any `--` read as `--follow`, `--lines` and `--lines=N`.
+fn split(args: &[String], log_aliases: bool) -> (Vec<String>, Vec<(String, Option<String>)>) {
     let mut words = Vec::new();
     let mut raw_flags = Vec::new();
     let mut iter = args.iter().peekable();
     let mut only_positional = false;
     while let Some(arg) = iter.next() {
+        let alias = match arg.as_str() {
+            _ if only_positional || !log_aliases => None,
+            "-f" => Some("--follow".to_owned()),
+            "-n" => Some("--lines".to_owned()),
+            other => other.strip_prefix("-n=").map(|v| format!("--lines={v}")),
+        };
+        let arg = alias.as_ref().unwrap_or(arg);
         if only_positional || !arg.starts_with("--") {
             words.push(arg.clone());
             continue;
@@ -218,6 +238,23 @@ pub fn parse(args: &[String]) -> Result<Args> {
     if words.first().map(String::as_str) == Some("server") {
         words.remove(0);
     }
+    (words, raw_flags)
+}
+
+/// Parses `args` (after `cmux server`; a leading `server` word is skipped,
+/// so the standalone binary also accepts Postgres's
+/// `… server db archive-wal %p %f`).
+pub fn parse(args: &[String]) -> Result<Args> {
+    // `cmux server logs` also takes the short flags the Rex docs use, `-n N`
+    // for `--lines N` and `-f` for `--follow`. They are read in the same
+    // pass as the long flags, in order, and only when that reading gives
+    // the logs verb: every other verb keeps such words as positionals (a
+    // file may be named `-n`).
+    let (words, raw_flags) = match split(args, true) {
+        (words, flags) if find_spec(&words).is_some_and(|s| s.path == ["logs"]) => (words, flags),
+        _ => split(args, false),
+    };
+    let mut out = Args::default();
     for (name, value) in raw_flags {
         match name.as_str() {
             "json" => out.json = true,
@@ -296,6 +333,7 @@ pub fn help() -> String {
         let help = match v.help {
             "server.pair.begin" => pairing.pair_help,
             "server.pair.status" => pairing.status_help,
+            "server.unpair" => pairing.unpair_help,
             other => other,
         };
         out.push_str(&format!("  {line:28} {help}\n"));

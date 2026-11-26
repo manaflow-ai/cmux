@@ -226,66 +226,66 @@ public struct BrowserDeviceMenu {
 
     /// The menu's text (BrowserDevices.xcstrings).
     nonisolated enum Strings {
-        static var noDevice: String { String(localized: "browserDevices.none", defaultValue: "No Device", table: "BrowserDevices", bundle: .module) }
-        static var allDevices: String { String(localized: "browserDevices.all", defaultValue: "All Devices", table: "BrowserDevices", bundle: .module) }
+        static var noDevice: String { String(localized: "browserDevices.none", defaultValue: "No Device", table: "BrowserDevices", bundle: .localizedModule) }
+        static var allDevices: String { String(localized: "browserDevices.all", defaultValue: "All Devices", table: "BrowserDevices", bundle: .localizedModule) }
         /// The menu rows of the two fits (the palette actions `browserFitDesktop` and `browserFitDesktop1280` have their own strings).
         static var fitDesktop: String {
-            String(localized: "browserDevices.fitDesktop", defaultValue: "Fit as 16:9 Desktop", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.fitDesktop", defaultValue: "Fit as 16:9 Desktop", table: "BrowserDevices", bundle: .localizedModule)
         }
         static var fitDesktop1280: String {
-            String(localized: "browserDevices.fitDesktop1280", defaultValue: "Fit as Desktop (1280)", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.fitDesktop1280", defaultValue: "Fit as Desktop (1280)", table: "BrowserDevices", bundle: .localizedModule)
         }
-        static var custom: String { String(localized: "browserDevices.custom", defaultValue: "Custom", table: "BrowserDevices", bundle: .module) }
+        static var custom: String { String(localized: "browserDevices.custom", defaultValue: "Custom", table: "BrowserDevices", bundle: .localizedModule) }
 
         static func details(width: Int, height: Int, ratio: Double) -> String {
             let ratioText = ratio.formatted(.number.precision(.fractionLength(0...3)))
             return String(localized: "browserDevices.details", defaultValue: "\(width) × \(height), device pixel ratio \(ratioText)",
-                          table: "BrowserDevices", bundle: .module)
+                          table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// A section of the menu: the daemon's `group`.
         static func group(_ group: String) -> String {
             switch group {
-            case "foldable": String(localized: "browserDevices.category.foldable", defaultValue: "Foldables", table: "BrowserDevices", bundle: .module)
-            case "tablet": String(localized: "browserDevices.group.tablet", defaultValue: "Tablets", table: "BrowserDevices", bundle: .module)
-            case "laptop": String(localized: "browserDevices.group.laptop", defaultValue: "Laptops", table: "BrowserDevices", bundle: .module)
+            case "foldable": String(localized: "browserDevices.category.foldable", defaultValue: "Foldables", table: "BrowserDevices", bundle: .localizedModule)
+            case "tablet": String(localized: "browserDevices.group.tablet", defaultValue: "Tablets", table: "BrowserDevices", bundle: .localizedModule)
+            case "laptop": String(localized: "browserDevices.group.laptop", defaultValue: "Laptops", table: "BrowserDevices", bundle: .localizedModule)
             case "desktop":
-                String(localized: "browserDevices.group.desktop", defaultValue: "Desktops & Displays", table: "BrowserDevices", bundle: .module)
+                String(localized: "browserDevices.group.desktop", defaultValue: "Desktops & Displays", table: "BrowserDevices", bundle: .localizedModule)
             case "smart-display":
-                String(localized: "browserDevices.category.smartDisplay", defaultValue: "Smart Displays", table: "BrowserDevices", bundle: .module)
-            default: String(localized: "browserDevices.group.phone", defaultValue: "Phones", table: "BrowserDevices", bundle: .module)
+                String(localized: "browserDevices.category.smartDisplay", defaultValue: "Smart Displays", table: "BrowserDevices", bundle: .localizedModule)
+            default: String(localized: "browserDevices.group.phone", defaultValue: "Phones", table: "BrowserDevices", bundle: .localizedModule)
             }
         }
 
         /// A rumored device's row: "iPhone 18 (Rumored)".
         static func rumored(_ title: String) -> String {
-            String(localized: "browserDevices.rumored", defaultValue: "\(title) (Rumored)", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.rumored", defaultValue: "\(title) (Rumored)", table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// The brand submenu of phones whose maker the list does not name.
         static var otherBrand: String {
-            String(localized: "browserDevices.brand.other", defaultValue: "Other", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.brand.other", defaultValue: "Other", table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// The search field's placeholder in All Devices.
         static var search: String {
-            String(localized: "browserDevices.search", defaultValue: "Search Devices", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.search", defaultValue: "Search Devices", table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// The disabled row a search with no match shows.
         static var noMatch: String {
-            String(localized: "browserDevices.noMatch", defaultValue: "No Matching Devices", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.noMatch", defaultValue: "No Matching Devices", table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// The daemon's orientation names (vertical, horizontal, vertical-spanned, horizontal-spanned).
         static func orientation(_ name: String) -> String {
             switch name {
-            case "vertical": String(localized: "browserDevices.portrait", defaultValue: "Portrait", table: "BrowserDevices", bundle: .module)
-            case "horizontal": String(localized: "browserDevices.landscape", defaultValue: "Landscape", table: "BrowserDevices", bundle: .module)
+            case "vertical": String(localized: "browserDevices.portrait", defaultValue: "Portrait", table: "BrowserDevices", bundle: .localizedModule)
+            case "horizontal": String(localized: "browserDevices.landscape", defaultValue: "Landscape", table: "BrowserDevices", bundle: .localizedModule)
             case "vertical-spanned":
-                String(localized: "browserDevices.unfoldedPortrait", defaultValue: "Unfolded, Portrait", table: "BrowserDevices", bundle: .module)
+                String(localized: "browserDevices.unfoldedPortrait", defaultValue: "Unfolded, Portrait", table: "BrowserDevices", bundle: .localizedModule)
             default:
-                String(localized: "browserDevices.unfoldedLandscape", defaultValue: "Unfolded, Landscape", table: "BrowserDevices", bundle: .module)
+                String(localized: "browserDevices.unfoldedLandscape", defaultValue: "Unfolded, Landscape", table: "BrowserDevices", bundle: .localizedModule)
             }
         }
     }

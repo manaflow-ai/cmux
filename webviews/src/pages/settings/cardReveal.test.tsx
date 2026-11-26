@@ -11,7 +11,6 @@ import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { installCardRects, settingsCardSizes } from "../../../test/support/settingsCardSizes";
-import { manyShares } from "../../../test/support/settingsCardFixtures";
 
 const restore = installDom();
 afterAll(() => {
@@ -21,6 +20,7 @@ afterAll(() => {
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage } = await import("./testing");
+const { manyShares } = await import("../../../test/support/settingsCardFixtures");
 const { mockLongLibrary } = await import("./mockLibrary");
 
 const NOW = new Date(2026, 10, 18, 10, 0).getTime();

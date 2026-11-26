@@ -1,4 +1,4 @@
-// Personalization > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
+// Appearance > Customization Library (cmux-customize `library.rs`). Leo, 2026-11-14: "for
 // customization i wonder if there's good ways to have like an accumulated collection of those
 // things". Everything the person applies (an ask, a profile, a kept try-on, an import) is saved as
 // one entry; entries stack top first, each turns on and off, and where two that are on set the same
@@ -6,20 +6,40 @@
 // lists `cmux customize library` and runs its verbs (on, off, order, remove) through the host's
 // bundled CLI, so the card and the CLI never differ. The list is read with the section
 // (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
-// `#/settings/personalization?focus=card.customizeLibrary`.
+// `#/settings/appearance?focus=card.customizeLibrary`.
+//
+// A `pr-N` entry (`cmux customize use pr:N`) is an unmerged pull request's web layer on this app:
+// its row names the PR (number, title, short head, a link to it), what it cannot carry ("Needs a
+// build: ..."), and the last refresh's word on it (why it turned off). Leo, 2026-11-14: "I want
+// people to not accidentally soft lock themselves and like have good recovery options". Its switch
+// and Remove run the same CLI verbs through the host as every other entry, never anything the
+// experiment serves, and the sidebar's "N experiments on" mark (native, so a broken layer cannot
+// take it down) opens this card and turns them off too.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
-import { cardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
+import { useCardWindow, windowGap, type CardWindow, cardBusy } from "../cardWindow";
 import { useStore } from "../context";
-import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
+import {
+  beatenByEntry,
+  beatenLine,
+  entryDetail,
+  sourceLabel,
+  step,
+  type Beaten,
+  codeCanTurnOn,
+  codeTitle,
+  prUrl,
+  shortSha,
+} from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
-import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
+import type { LibraryEntry, LibraryListing, LibraryRun, LibraryCode } from "../ops";
+import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -57,6 +77,8 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
         if (answer.library)
           queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
         setRefusal(answer.refusal);
+        // The Standup panel shares this library's words and must not retain the pre-change report.
+        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
       })
       .finally(() => {
         setBusy(false);
@@ -371,10 +393,15 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
       />
     </span>
   );
+  const code = entry.code ?? null;
+  const title = code ? codeTitle(code) : entry.name;
+  // A PR with no web part has nothing a running app can take: it stays off (its lines say why), and
+  // one that is on can always be turned off.
+  const stuckOff = code !== null && !entry.on && !codeCanTurnOn(code);
   const toggle = (
     <Switch
       checked={entry.on}
-      disabled={false}
+      disabled={stuckOff}
       labelId={labelId}
       onToggle={(next) => actions.onToggle(entry.name, next)}
     />
@@ -393,6 +420,7 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
     "data-library-entry": entry.name,
     "data-on": entry.on ? "" : undefined,
     "data-overridden": beaten.length > 0 ? "" : undefined,
+    "data-library-code": code ? String(code.pr) : undefined,
   };
   if (layout === "cards") {
     return (
@@ -400,11 +428,11 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
         <LibrarySwatches entry={entry} wide />
         <div className="library-tile-head">
           <span className="row-title" id={labelId}>
-            {entry.name}
+            {title}
           </span>
           {toggle}
         </div>
-        <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
+        <EntryDetail entry={entry} />
         {lines}
         {order}
       </div>
@@ -412,23 +440,27 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
-        <div className="row-main">
-          <span className="library-position row-help">{entry.position}</span>
-          <LibrarySwatches entry={entry} />
-          <span className="row-label">
-            <span className="row-title" id={labelId}>
-              {entry.name}
-            </span>
-            <span className="row-help"> · {sourceLabel(entry.source)}</span>
-            {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
-          </span>
-          <span className="row-control library-controls">
-            {order}
-            {toggle}
-          </span>
-        </div>
-      </div>
+      <WithFacts facts={[{ value: entryDetail(entry) }]}>
+        {(facts) => (
+          <div {...facts} className="row library-line" {...shared}>
+            <div className="row-main">
+              <span className="library-position row-help">{entry.position}</span>
+              <LibrarySwatches entry={entry} />
+              <span className="row-label">
+                <span className="row-title" id={labelId}>
+                  {title}
+                </span>
+                <span className="row-help"> · {sourceLabel(entry.source)}</span>
+                {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
+              </span>
+              <span className="row-control library-controls">
+                {order}
+                {toggle}
+              </span>
+            </div>
+          </div>
+        )}
+      </WithFacts>
     );
   }
   return (
@@ -437,9 +469,9 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
         <LibrarySwatches entry={entry} />
         <div className="row-label">
           <div className="row-title" id={labelId}>
-            {entry.name}
+            {title}
           </div>
-          <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
+          <EntryDetail entry={entry} />
           {lines}
         </div>
         <span className="row-control library-controls">
@@ -452,13 +484,13 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
 });
 
 /** The entry at a glance: the colors it sets (no capture: the engine's thumbnail is its swatches
- * and keys), or the layers mark when it sets no color. */
+ * and keys), the layers mark when it sets no color, or the flask for a PR's code. */
 function LibrarySwatches({ entry, wide = false }: { entry: LibraryEntry; wide?: boolean }) {
-  const swatches = entry.thumbnail.swatches.slice(0, wide ? 6 : 3);
+  const swatches = entry.code ? [] : entry.thumbnail.swatches.slice(0, wide ? 6 : 3);
   if (swatches.length === 0) {
     return (
       <span className="library-mark" data-wide={wide ? "" : undefined} aria-hidden="true">
-        <Icon name="layers" />
+        <Icon name={entry.code ? "flask" : "layers"} />
       </span>
     );
   }
@@ -468,6 +500,44 @@ function LibrarySwatches({ entry, wide = false }: { entry: LibraryEntry; wide?: 
         <span className="library-swatch" key={`${color}-${index}`} style={{ background: color }} />
       ))}
     </span>
+  );
+}
+
+/** The line under an entry's title: what asked for it and what it sets, or for a PR entry where it
+ * comes from, its short head and a link to the PR, then what needs a build and the last refresh's
+ * note. */
+function EntryDetail({ entry }: { entry: LibraryEntry }) {
+  if (!entry.code) return <div className="row-help library-detail selectable">{entryDetail(entry)}</div>;
+  return <CodeLines code={entry.code} />;
+}
+
+/** A PR entry's lines. The note is the CLI's own words ("merged: in your build", "no longer
+ * applies: ..."), shown as it says them, as a refusal is. */
+function CodeLines({ code }: { code: LibraryCode }) {
+  return (
+    <>
+      <div className="row-help library-detail">
+        <span className="selectable">{code.repo}</span>
+        {" · "}
+        <span className="font-mono selectable" data-library-head="">
+          {shortSha(code.head)}
+        </span>
+        {" · "}
+        <a href={prUrl(code)} className="channel-link" data-library-pr-link={code.pr}>
+          {t("settingsPage.customizeLibrary.code.openPr")}
+        </a>
+      </div>
+      {(code.needs_build ?? []).map((line) => (
+        <div className="row-help library-needs-build selectable" data-library-needs-build="" key={line}>
+          {t("settingsPage.customizeLibrary.code.needsBuild", line)}
+        </div>
+      ))}
+      {code.note && (
+        <div className="row-help library-note selectable" data-library-note="">
+          {code.note}
+        </div>
+      )}
+    </>
   );
 }
 

@@ -6,14 +6,15 @@
 // Opened at this card by `#/settings/privacy?focus=card.sharedLinks`. The list is read with the
 // section (sectionQueries) and after each revoke; it does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { SHARES_KEY, sharesQuery } from "../sectionQueries";
-import { cardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
+import { useCardWindow, windowGap, type CardWindow, cardBusy } from "../cardWindow";
 import { keepUnchangedLinks, shareDate, sharedLinkRows, startOfDay, type SharedLinkRow } from "../sharedLinks";
 import { locale, t } from "../strings";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const store = useStore();
@@ -214,6 +215,15 @@ const SharedLinkItem = memo(function SharedLinkItem({
 }) {
   const lang = locale();
   const chat = row.chat ?? t("settingsPage.sharedLinks.untitled");
+  // The compact row's tooltip anchor and the list's measure are both refs on one element.
+  const factsRef = useRef<((node: HTMLElement | null) => void) | null>(null);
+  const compactRef = useCallback(
+    (node: HTMLElement | null) => {
+      factsRef.current?.(node);
+      measure?.(node);
+    },
+    [measure],
+  );
   const place = {
     ref: measure,
     "data-index": index,
@@ -249,15 +259,22 @@ const SharedLinkItem = memo(function SharedLinkItem({
   }
   if (layout === "compact") {
     return (
-      <div className="row" data-shared-link={row.id} title={sharedLinkDetail(row, today)} {...place}>
-        <div className="row-main">
-          <span className="row-label">
-            <span className="row-title">{chat}</span>
-            <span className="row-help"> · {sharedLinkKind(row)}</span>
-          </span>
-          {revoke}
-        </div>
-      </div>
+      <WithFacts facts={[{ value: sharedLinkDetail(row, today) }]}>
+        {(facts) => {
+          factsRef.current = facts.ref;
+          return (
+            <div {...facts} {...place} ref={compactRef} className="row" data-shared-link={row.id}>
+              <div className="row-main">
+                <span className="row-label">
+                  <span className="row-title">{chat}</span>
+                  <span className="row-help"> · {sharedLinkKind(row)}</span>
+                </span>
+                {revoke}
+              </div>
+            </div>
+          );
+        }}
+      </WithFacts>
     );
   }
   return (

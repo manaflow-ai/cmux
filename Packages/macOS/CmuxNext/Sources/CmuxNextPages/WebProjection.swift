@@ -182,6 +182,6 @@ public final class WebProjection {
     static var noTest: String { t("projection.refusal.noTest", "This projection has no test. Pass one with --test.") }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 }

@@ -8,6 +8,8 @@
 # with no public URL, such as a pull request's signed candidate. The step is submitted with CMUX_WORKSPACE_ID=W, and the
 # download is checked against HEX. Every run prints LP-GATE rows for the DMG and its app before the arms:
 # `spctl --assess` (open for the DMG, exec for the app) and `stapler validate`, as Gatekeeper sees the copy it runs.
+# Then one LP-LAYOUT row (bundle_layout: stub=yes|no, the executable's and the framework's size; layout.txt in the
+# report has the ls -l, otool -L and codesign -dv it rests on).
 # A launch reaches `main` in 30 to 80 ms when launches follow each other closely, and 600 to 1170 ms when about 60 s
 # have passed since a full run began. Each arm is one pair (A, then the measured launch B), interleaved per rep, each
 # pair started only while the Mac's 1-minute load is under 8. A and B are open (LaunchServices) launches, as the Dock
@@ -101,6 +103,26 @@ gate() {
   echo "LP-GATE $what stapler rc=$rc $(printf '%s' "$text" | tail -1)"
 }
 
+# bundle_layout APP FILE PREFIX: which layout the measured build has, so every report says it and no reader infers it
+# from the commit: FILE gets `ls -l` of Contents/MacOS and of CmuxNextApp.framework, `otool -L` of the main executable
+# and `codesign -dv` of it and of the framework; one "PREFIX-LAYOUT" line says stub=yes when the main executable links
+# CmuxNextApp.framework and the framework's binary is in the bundle (cmux#44204's stub layout), else stub=no.
+bundle_layout() {
+  local app="$1" file="$2" prefix="$3" exe fw links=no present=no
+  exe="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+  fw="$app/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
+  {
+    echo "== ls -l Contents/MacOS"; ls -l "$app/Contents/MacOS"
+    echo "== ls -lL CmuxNextApp.framework"; ls -lL "$app/Contents/Frameworks/CmuxNextApp.framework" 2>&1
+    echo "== otool -L $(basename "$exe")"; xcrun otool -L "$exe" 2>&1
+    echo "== codesign -dv $(basename "$exe")"; codesign -dv "$exe" 2>&1
+    echo "== codesign -dv CmuxNextApp.framework"; codesign -dv "$app/Contents/Frameworks/CmuxNextApp.framework" 2>&1
+  } >"$file"
+  xcrun otool -L "$exe" 2>/dev/null | grep -q 'CmuxNextApp\.framework/' && links=yes
+  [[ -f "$fw" ]] && present=yes
+  echo "$prefix-LAYOUT stub=$([[ $links == yes && $present == yes ]] && echo yes || echo no) exe_bytes=$(stat -f %z "$exe") links_framework=$links framework=$present framework_bytes=$([[ $present == yes ]] && stat -L -f %z "$fw") file=$(basename "$file")"
+}
+
 # fetch_dmg DMG FILE: DMG (nightly: the newest the NIGHTLY feed offers; https://...; sha256:HEX) downloaded into FILE,
 # with its "LP dmg" line. Returns 2 for a malformed sha256:, 3 when nothing was downloaded (launch-reboot.sh uses it).
 fetch_dmg() {
@@ -186,6 +208,7 @@ main() {
   OUT="$out" fresh_keychain "$out/home/h" || true
   APP="$(copy_app "$out/app.dmg" "$out/mnt" "$out/copy")" || exit 3
   gate app exec "$APP"
+  bundle_layout "$APP" "$out/layout.txt" LP
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
   # The app's code on a stub-executable build (cmux#44204): its link count and ctime are recorded beside the
@@ -295,17 +318,19 @@ pair() {
     a) launch open A 60 quit && ended && fsrec a && measured open ;;
     b) launch open A 60 quit && ended && cat "$EXE" >/dev/null && measured open ;;
     c) launch open A 60 quit && ended && stub && measured open ;;
-    g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;
-    d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;
+    g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;  # sleep-ok: arm g's 60 s idle is the condition under test
+    d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;  # sleep-ok: B's fixed 3 s after A, as in every arm
     k) launch open A 0 term && ended && relink && measured open ;;
     t1|t3|t6) launch open A "${ARM#t}" quit && ended && measured open ;;
-    e) launch exec X && other_app 60 && sleep 3 && measured exec ;;
-    e2) launch exec X && sleep 63 && measured exec ;;
+    e) launch exec X && other_app 60 && sleep 3 && measured exec ;;  # sleep-ok: B's fixed 3 s after the other app quit (arm e)
+    e2) launch exec X && sleep 63 && measured exec ;;  # sleep-ok: e2's 63 s of idle is the condition under test (e's control)
     x) launch open A 60 quit && ended && measured exec ;;
     f) launch open A 60 quit && ended && measured sampled ;;
   esac
 }
 
+# sleep-ok: the study's fixed 3 s from A's end to B (the header: B is measured 3 s after A ended); quiesce waited for
+# the copy's processes to be gone first
 ended() { quiesce 0; sleep 3; }
 
 # relink: a second hard link to the executable made and removed, as Chromium's code-sign clone links it into
@@ -385,7 +410,7 @@ fsrec() {
   [[ "$REP" == 1 ]] || return 0
   sudo -n -l /usr/bin/fs_usage >/dev/null 2>&1 || return 0
   sudo -n /usr/bin/fs_usage -w -t 8 -f diskio -f filesys >"$OUT/fs-$1.txt" 2>&1 &
-  sleep 1
+  sleep 1  # sleep-ok: the recording's documented 1 s lead before B (8 s of fs_usage started 1 s before B)
 }
 
 # stub: the bundle's smallest executable, exec'd and timed to exit, in the console session.
@@ -422,7 +447,9 @@ sampled() {
   if [[ -n "$pid" ]]; then
     sudo -n /usr/bin/sample "$pid" 5 1 -mayDie -file "$OUT/sample-$REP.txt" >>"$OUT/root.log" 2>&1 &
     sampler=$!
-    sleep 1.5 # sample's own attach (a measurement script, not runtime code)
+    # sample's own attach: it says "Sampling process PID" once it has the process (10 s at most).
+    for ((i = 0; i < 100; i++)); do grep -q "Sampling process $pid" "$OUT/root.log" 2>/dev/null && break; sleep 0.1; done
+    grep -q "Sampling process $pid" "$OUT/root.log" 2>/dev/null || echo "LP sampled: sample did not say it attached to $pid in 10 s" >&2
   fi
   touch "$hold" && chmod 0666 "$hold"
   wait "$probe"
@@ -452,7 +479,7 @@ quiesce() {
       awk 'index($0, ENVIRON["LP_MACOS"]) || index($0, ENVIRON["LP_FRAMEWORKS"]) { n++ } END { print n + 0 }')" == 0 ]] && break
     sleep 0.1
   done
-  sleep "$1"
+  sleep "$1"  # sleep-ok: the caller's quiet period after the copy's processes are gone (quiesce 2 before a pair)
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi

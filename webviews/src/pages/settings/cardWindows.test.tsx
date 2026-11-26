@@ -14,7 +14,6 @@ import {
   SHARED_LINK_HEIGHT,
   settingsCardSizes,
 } from "../../../test/support/settingsCardSizes";
-import { manyKeys, manyShares } from "../../../test/support/settingsCardFixtures";
 import { rowPropsRenders } from "../../../test/support/rowPropsRenders";
 
 const restore = installDom();
@@ -25,6 +24,7 @@ afterAll(() => {
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage, settle, click } = await import("./testing");
+const { manyKeys, manyShares } = await import("../../../test/support/settingsCardFixtures");
 const { SHARES_KEY, KEYS_KEY, LIBRARY_KEY } = await import("./sectionQueries");
 const { mockLongLibrary, runLibrary } = await import("./mockLibrary");
 

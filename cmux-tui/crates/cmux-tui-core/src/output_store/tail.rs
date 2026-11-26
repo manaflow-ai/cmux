@@ -39,8 +39,6 @@ const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
 /// `CAN` (aborts a control string) and a final Kitty chunk (ends a chunked
 /// upload): what a restore writes when its screen ends inside an upload.
 const UNFINISHED_UPLOAD_END: &[u8] = b"\x18\x1b_Gm=0;\x1b\\";
-/// Scrollback of the scratch terminal a restore rebuilds in.
-const REBUILD_SCROLLBACK_BYTES: usize = 10_000_000;
 
 pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
@@ -256,26 +254,24 @@ fn header_extent(file: &Path) -> Option<(String, u64, u64)> {
 /// ([`bytes_after`]): the screen the terminal had at the end of its tail, as
 /// a bounded replay that fits a respawn seed. The snapshot alone when no tail
 /// continues it.
-pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8]) -> TerminalReplay {
+///
+/// `scrollback` is the respawned terminal's own scrollback limit: the
+/// scratch terminal keeps as much history as the terminal it seeds will, no
+/// less (it was a fixed 10 MB, below a larger configured `scrollback`).
+pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8], scrollback: usize) -> TerminalReplay {
     if tail.is_empty() {
         return snapshot;
     }
-    rebuild(&snapshot, tail).unwrap_or(snapshot)
+    rebuild(&snapshot, tail, scrollback).unwrap_or(snapshot)
 }
 
-fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
+fn rebuild(snapshot: &TerminalReplay, tail: &[u8], scrollback: usize) -> Option<TerminalReplay> {
     let (cols, rows) = (snapshot.cols.max(1), snapshot.rows.max(1));
-    let mut terminal = ghostty_vt::Terminal::new(
-        cols,
-        rows,
-        REBUILD_SCROLLBACK_BYTES,
-        ghostty_vt::Callbacks::default(),
-    )
-    .ok()?;
+    let mut terminal =
+        ghostty_vt::Terminal::new(cols, rows, scrollback, ghostty_vt::Callbacks::default()).ok()?;
     terminal.vt_write(&snapshot.bytes);
     terminal.vt_write(tail);
-    // Room for the respawn's marker line and mode reset.
-    let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
+    let budget = crate::surface::SEED_REPLAY_MAX_BYTES;
     let replay = match terminal.vt_replay_bounded(budget) {
         Ok(replay) => replay,
         Err(_) => {
@@ -291,94 +287,5 @@ fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn directory(name: &str) -> PathBuf {
-        let stamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let directory = std::env::temp_dir()
-            .join(format!("cmux-output-tail-{name}-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
-
-    fn id() -> TerminalPublicId {
-        TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap()
-    }
-
-    #[test]
-    fn tail_bytes_continue_the_snapshot_offset_and_stop_at_a_gap_or_cut_frame() {
-        let directory = directory("gap");
-        let id = id();
-        append(&directory, &id, "g1", 100, 100, b"abc", false).unwrap();
-        append(&directory, &id, "g1", 100, 103, b"def", true).unwrap();
-        // A gap: offset 109 does not follow 106.
-        append(&directory, &id, "g1", 100, 109, b"zzz", false).unwrap();
-        assert_eq!(bytes_after(&directory, &id, "g1", 100), b"abcdef");
-        assert_eq!(bytes_after(&directory, &id, "g1", 102), b"cdef");
-        assert!(bytes_after(&directory, &id, "g2", 100).is_empty(), "another generation");
-        assert!(bytes_after(&directory, &id, "g1", 99).is_empty(), "a gap before the tail");
-        // A cut last frame (a crash mid-write) ends the read; earlier frames stay.
-        remove(&directory, &id);
-        append(&directory, &id, "g1", 0, 0, b"one", false).unwrap();
-        append(&directory, &id, "g1", 0, 3, b"two", false).unwrap();
-        let file = path(&directory, &id);
-        let len = fs::metadata(&file).unwrap().len();
-        fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(len - 2).unwrap();
-        assert_eq!(bytes_after(&directory, &id, "g1", 0), b"one");
-        assert_eq!(stream_ends(&directory).get(&id), Some(&("g1".to_string(), 3)));
-        let _ = fs::remove_dir_all(&directory);
-    }
-
-    #[test]
-    fn restore_writes_the_tail_over_the_snapshot_screen() {
-        let directory = directory("restore");
-        let id = id();
-        let mut source = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
-        source.vt_write(b"first\r\nsecond\r\n");
-        let snapshot = TerminalReplay {
-            cols: 40,
-            rows: 5,
-            bytes: source.vt_replay_bounded(1 << 20).unwrap().into_self_contained_bytes(),
-        };
-        let tail = b"third\r\nfourth\r\nfifth\r\nsixth\r\n";
-        append(&directory, &id, "g", 15, 15, tail, false).unwrap();
-        source.vt_write(tail);
-        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 15));
-        let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
-        rebuilt.vt_write(&restored.bytes);
-        assert_eq!(rebuilt.plain_text().unwrap(), source.plain_text().unwrap());
-        let _ = fs::remove_dir_all(&directory);
-    }
-
-    /// Failure-mode table, "unreplayable screen": a tail that ends inside a
-    /// Kitty upload too large to replay still restores the text before it.
-    #[test]
-    fn a_tail_that_ends_inside_an_oversized_upload_still_restores_its_text() {
-        let directory = directory("upload");
-        let id = id();
-        let mut source = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
-        source.vt_write(b"first\r\n");
-        let snapshot = TerminalReplay {
-            cols: 40,
-            rows: 5,
-            bytes: source.vt_replay_bounded(1 << 20).unwrap().into_self_contained_bytes(),
-        };
-        let mut tail = b"after-snapshot\r\n".to_vec();
-        // Chunks of a multipart upload past what a replay can hold, never ended.
-        let chunk = vec![b'A'; 1 << 20];
-        for _ in 0..16 {
-            tail.extend_from_slice(b"\x1b_Ga=t,f=100,m=1;");
-            tail.extend_from_slice(&chunk);
-            tail.extend_from_slice(b"\x1b\\");
-        }
-        append(&directory, &id, "g", 7, 7, &tail, false).unwrap();
-        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 7));
-        let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
-        rebuilt.vt_write(&restored.bytes);
-        let text = rebuilt.plain_text().unwrap();
-        let _ = fs::remove_dir_all(&directory);
-        assert!(text.contains("after-snapshot"), "the tail's text was dropped: {text:?}");
-    }
-}
+#[path = "tail_tests.rs"]
+mod tests;
