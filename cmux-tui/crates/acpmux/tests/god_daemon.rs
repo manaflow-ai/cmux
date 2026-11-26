@@ -2001,8 +2001,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
 /// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
 const CHAT_SIZES: &str = "1M,100M,1G,4G";
 
-/// Cold opens per size; the sweep reports their median (cold_home.rs).
-const COLD_SAMPLES: usize = 3;
+/// Cold opens per size; the sweep reports the fastest (cold_home.rs).
+const COLD_SAMPLES: usize = 5;
 
 /// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
 const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
@@ -2343,7 +2343,10 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
     // One cold open moves by tens of ms between runs, so the first `COLD_SAMPLES - 1` opens are
     // taken on daemons stopped right after their attach, with the home put back after each
-    // (cold_home.rs); the last is the run's own daemon. The fields hold the median.
+    // (cold_home.rs); the last is the run's own daemon. On Actions the samples fall in two
+    // bands, ~40 ms and 70-120 ms, in any order and at every size, so even a
+    // median of 3 moved 0.95x-1.38x between runs: the fields hold the fastest, the open's own
+    // cost without the runner's stalls.
     let profile = std::env::var("ACPMUX_GOD_DHAT")
         .is_ok_and(|v| v == "1")
         .then(|| scratch.join("dhat-heap.json"));
@@ -2382,8 +2385,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let cold = rpc.call("_acpmux/attach", app_attach(&id));
     cold_us_samples.push(micros(asked));
     cold_ms_samples.push(ms(daemon.spawned));
-    let cold_attach_us = median(&cold_us_samples);
-    let cold_attach_ms = median(&cold_ms_samples);
+    let cold_attach_us = cold_us_samples.iter().min().copied();
+    let cold_attach_ms = cold_ms_samples.iter().min().copied();
     let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
     rpc.notes.clear();
     let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
