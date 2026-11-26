@@ -242,7 +242,9 @@ impl HybridViewer {
     /// The viewer of a terminal of `cols` x `rows` whose screen `replay` rebuilds, and its
     /// first `agent-cli-frame`: a keyframe, or a delta from the frame `resume` names when its
     /// stream is still kept. A shell's viewer whose terminal is full-screen has no first frame:
-    /// the attach sends `vt-state`, and frames start when the program ends.
+    /// the attach sends `vt-state`, and frames start when the program ends. The attach calls
+    /// [`HybridViewer::start_with`]; this is the tests' form, with no phone grid.
+    #[cfg(test)]
     pub(super) fn start(
         surface: SurfaceId,
         cols: u16,
