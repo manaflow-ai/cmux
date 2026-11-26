@@ -339,6 +339,11 @@ path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hourly_full_tier.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_hourly_full_tier.py"
+
+[[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 

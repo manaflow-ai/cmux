@@ -33,6 +33,16 @@ land-judge waits for the full tier instead of landing on the cheap one. Adding `
 ci.yml, cmux-next.yml and the router on the full tier at the same head. Leo, 2026-11-21: "whatever we need to cut,
 we cut."
 
+Hourly full tier rule (cmuxterm-hq goals/ci-runner-min-per-day-50k.md, cut 2): with the land rule on, a landing
+head (`ready-to-land`, not a draft) gets the cheap tier as well, the tier its changed paths call for, and
+`cmux/land-tier` is `success` at once, so land-judge lands when that tier's checks are green. The full tier runs once an hour
+on feat-cmux-next's own head instead (cmux-next-hourly-full-tier.yml, .github/hourly-full-tier.json), only when the
+head moved; a red names the PRs merged since the last green hourly run (first-parent log), and the base-breaker's
+owner reverts or fixes forward. On 11-25..26, about 100k runner-minutes a day were full-tier runs on
+`ready-to-land` heads whose branch never merged. Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci
+time, period." `full-ci` still gives a head the full tier. The repository variable CI_LAND_FULL_PER_PR=1 restores
+the full tier on every landing head (and turns the hourly run off).
+
 Sync rule: a head that only merges the base into a pull request, and that an agent's own `git merge` made (the
 merge commit's committer is not GitHub), runs the cheap tier. On 2026-11-24, 115 of 600 cmux-next heads were such merges, each
 a whole suite, and 80% of those runs were cancelled by the next head (34% of all cancelled workflow minutes). The
@@ -53,7 +63,8 @@ head's usual tier. A head that merges something else, carries its own commit, or
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
-off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off. Stdlib only; anything unreadable gives
+off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_FULL_PER_PR=1 turns the
+hourly full tier rule off (a landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
 """
 
@@ -73,6 +84,7 @@ LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to lan
 LAND_BASE = "feat-cmux-next"
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 IDLE_HOURS = 24
+LAND_AFFECTED_REASON = "landing on the affected tier"  # the hourly full tier rule's reason prefix
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
 GREEN = frozenset({"success", "skipped", "neutral"})
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
@@ -163,9 +175,15 @@ def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = 
             and not labels & {FULL_CI, LAND_LABEL})
 
 
+def land_affected(decided: tuple[str, str]) -> bool:
+    """Whether DECIDED is the hourly full tier rule's cheap tier for a landing head: its green verdict is the land's
+    (pr_router.land_status posts cmux/land-tier success on it)."""
+    return decided[0] == "cheap" and str(decided[1]).startswith(LAND_AFFECTED_REASON)
+
+
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
-         green_switch: str = "1") -> tuple[str, str]:
+         green_switch: str = "1", land_full_switch: str = "1") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
@@ -197,6 +215,11 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if land_on and not landing:
         return "cheap", (f"not handed off to land yet: the full tier runs when `{LAND_LABEL}` is added (land-judge "
                          f"adds it when asked to land) or with full-ci; {LAND_STATUS} stays pending until then")
+    if landing and land_on and (land_full_switch or "0").strip() != "1":
+        return "cheap", (f"{LAND_AFFECTED_REASON}: the full tier runs once an hour on {LAND_BASE}'s head "
+                         f"(cmux-next-hourly-full-tier.yml); {FULL_CI} gives this head the full tier, and "
+                         f"CI_LAND_FULL_PER_PR=1 restores it for every landing head; {LAND_STATUS} is success, so "
+                         f"land waits on this tier's checks")
     if landing:
         return "full", f"{LAND_LABEL} label"
     return "full", "ready for review"
@@ -265,6 +288,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     land_switch = os.environ.get("CI_LAND_TIER", "1")
     sync_switch = os.environ.get("CI_SYNC_MERGE_CHEAP", "1")
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
+    land_full_switch = os.environ.get("CI_LAND_FULL_PER_PR", "0")
     labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
@@ -276,7 +300,8 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
             runs = runs_at(os.environ.get("GITHUB_REPOSITORY", ""), str(facts.get("previous") or ""),
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
-    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch)
+    return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
+                land_full_switch)
 
 
 def _load(path: str) -> dict:

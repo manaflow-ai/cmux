@@ -91,7 +91,7 @@ env:
 
 jobs:
   plan:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards plan
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
@@ -175,7 +175,7 @@ jobs:
 
   linux:
     needs: plan
-    if: ${{ (needs.plan.outputs.linux == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (needs.plan.outputs.linux == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards (portable)
     outputs:
       status: ${{ steps.guards.outputs.status }}
@@ -297,7 +297,7 @@ jobs:
 
   mac:
     needs: plan
-    if: ${{ (needs.plan.outputs.mac == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (needs.plan.outputs.mac == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards (mac)
     outputs:
       status: ${{ steps.guards.outputs.status }}

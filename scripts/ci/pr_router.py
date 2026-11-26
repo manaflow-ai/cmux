@@ -265,10 +265,11 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
 
 def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
-    it on the cheap tier (or idle), `success` once it runs the full tier, empty where the land rule does not apply."""
+    it on the cheap tier (or idle), `success` once it runs the full tier or lands on the affected tier (the hourly
+    full tier rule), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
-    return "success" if decided[0] == "full" else "pending"
+    return "success" if decided[0] == "full" or head_tier.land_affected(decided) else "pending"
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,

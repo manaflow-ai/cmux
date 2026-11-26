@@ -193,6 +193,60 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_a_landing_head_runs_the_affected_tier_unless_the_switch_restores_the_full_tier(self) -> None:
+        landing = land_event(labels=("ready-to-land",))
+        decided = head_tier.tier("pull_request", landing, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided[0], "cheap")
+        self.assertTrue(head_tier.land_affected(decided))
+        self.assertIn("CI_LAND_FULL_PER_PR=1", decided[1])
+        self.assertEqual(head_tier.tier("pull_request", landing, land_switch="1", land_full_switch="1")[0], "full")
+        # full-ci still gives the full tier; the land rule off, a fork or another base keeps it too.
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=("ready-to-land", "full-ci")),
+                                        land_switch="1", land_full_switch="0")[0], "full")
+        for ev, land in ((landing, "0"), (land_event(labels=("ready-to-land",), head_repo="x/cmux"), "1"),
+                         (land_event(labels=("ready-to-land",), base="main"), "1")):
+            self.assertEqual(head_tier.tier("pull_request", ev, land_switch=land, land_full_switch="0")[0], "full")
+        # A head not handed off keeps the land rule's own cheap tier, never land_affected.
+        self.assertFalse(head_tier.land_affected(head_tier.tier("pull_request", land_event(), land_switch="1",
+                                                                land_full_switch="0")))
+
+    def test_decide_reads_ci_land_full_per_pr_unset_as_the_affected_tier(self) -> None:
+        keys = ("CI_LAND_TIER", "CI_LAND_FULL_PER_PR")
+        old = {key: os.environ.get(key) for key in keys}
+        landing = land_event(labels=("ready-to-land",))
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            os.environ.pop("CI_LAND_FULL_PER_PR", None)
+            self.assertEqual(head_tier.decide("pull_request", landing)[0], "cheap")
+            os.environ["CI_LAND_FULL_PER_PR"] = "0"
+            self.assertEqual(head_tier.decide("pull_request", landing)[0], "cheap")
+            os.environ["CI_LAND_FULL_PER_PR"] = "1"
+            self.assertEqual(head_tier.decide("pull_request", landing)[0], "full")
+        finally:
+            for key, value in old.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_the_affected_landing_head_starts_cheap_callees_and_posts_land_tier_success(self) -> None:
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        start, why = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml"])
+        self.assertIn("heavy.yml", why)
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+            self.assertEqual(pr_router.land_status(land_event(), head_tier.tier(
+                "pull_request", land_event(), land_switch="1", land_full_switch="0")), "pending")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+
     def test_the_land_label_overrides_the_idle_skip(self) -> None:
         facts = {"base_merge_only": True, "own_last": 0}
         self.assertEqual(head_tier.tier("pull_request", land_event(), facts=facts, now=10 * 86400,
@@ -510,13 +564,15 @@ def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
 
 
 def land_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
-    """The job-level expression equal to head_tier.tier(..., land_switch=CI_LAND_TIER) == "full", the idle rule aside
+    """The job-level expression equal to head_tier.tier(..., land_switch=CI_LAND_TIER,
+    land_full_switch=CI_LAND_FULL_PER_PR) == "full", the idle rule aside
     (an idle base merge into a gated workflow runs it as a ready head does)."""
     parts = [
         f"github.event_name != '{event_name}'",
         "contains(github.event.pull_request.labels.*.name, 'full-ci')",
         "(github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0')",
-        "(github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
+        "(github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
+        " && vars.CI_LAND_FULL_PER_PR == '1')"
         " || github.event.pull_request.base.ref != 'feat-cmux-next'"
         " || github.event.pull_request.head.repo.full_name != github.repository"
         " || (vars.CI_LAND_TIER || '1') == '0'))",
@@ -619,17 +675,19 @@ class GatedWorkflowTests(unittest.TestCase):
                         for head_repo in ("manaflow-ai/cmux", "someone/cmux"):
                             for switch in ("1", "0"):
                                 for land in ("1", "0"):
+                                  for land_full in ("1", "0", ""):
                                     ev = land_event(draft, labels, base=base, head_repo=head_repo)
                                     full = head_tier.tier(event_name, ev, switch, idle_switch="0",
-                                                          land_switch=land)[0] == "full"
+                                                          land_switch=land, land_full_switch=land_full)[0] == "full"
                                     runs = (
                                         "full-ci" in labels
                                         or (draft and switch == "0")
-                                        or (not draft and ("ready-to-land" in labels or base != "feat-cmux-next"
+                                        or (not draft and (("ready-to-land" in labels and land_full == "1")
+                                                           or base != "feat-cmux-next"
                                                            or head_repo != "manaflow-ai/cmux" or land == "0"))
                                     )
                                     self.assertEqual(full, runs, (event_name, draft, labels, base, head_repo,
-                                                                  switch, land))
+                                                                  switch, land, land_full))
 
 
 # ci-web.yml is a workflow_call callee of ci.yml (job `web`), so it sees the caller's pull request event. Its heavy

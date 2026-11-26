@@ -282,6 +282,9 @@ jobs:
         continue-on-error: true
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
+          # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # A head that only merges the base onto a green previous head starts nothing (head_tier.py); 0 turns that off.
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}

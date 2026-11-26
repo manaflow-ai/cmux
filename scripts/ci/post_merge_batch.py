@@ -19,6 +19,9 @@ Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick
           commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
           commits ahead of the newest batch run's commit (one compare call) or that run started at
           least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+          Each tick also starts the hourly full tier (cmux-next-hourly-full-tier.yml, scripts/ci/hourly_full_tier.py)
+          when it is due (hourly_kick): no run in flight, the newest one at least HOURLY_MINUTES old and not at the
+          tip. Its failure never stops the batch tick.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -394,6 +397,43 @@ def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
     return count if isinstance(count, int) else None
 
 
+HOURLY_WORKFLOW = "cmux-next-hourly-full-tier.yml"
+HOURLY_MINUTES = 55  # the 30-minute schedule's ticks land at most an hour apart: :11 and :41
+
+
+def hourly_decision(tip: str, runs: list[dict], now: datetime, minutes: int = HOURLY_MINUTES) -> tuple[str, str]:
+    """Whether to start the hourly full tier at TIP. RUNS: its runs, newest first."""
+    if any(r.get("status") != "completed" for r in runs):
+        return "skip", "an hourly full tier run is in flight"
+    if not runs:
+        return "dispatch", "no hourly full tier run yet"
+    newest = runs[0]
+    if newest.get("head_sha") == tip:
+        return "skip", "the tip has not moved since the last hourly full tier run"
+    age = (now - parse_time(newest.get("created_at") or "")).total_seconds() / 60
+    if age < minutes:
+        return "skip", f"the last hourly full tier run is {age:.0f} min old"
+    return "dispatch", f"the tip moved since {str(newest.get('head_sha') or '')[:10]}, {age:.0f} min ago"
+
+
+def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> str:
+    """Start cmux-next-hourly-full-tier.yml on the branch when hourly_decision says so; any API error is a warning."""
+    api = api or gh_api
+    try:
+        data = api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/runs?branch={args.branch}&per_page=5")
+        runs = sorted((data or {}).get("workflow_runs") or [],
+                      key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
+        action, reason = hourly_decision(tip, runs, now)
+        print(f"hourly full tier: {action}: {reason}")
+        if action == "dispatch" and not args.dry_run:
+            api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/dispatches", method="POST",
+                fields={"ref": args.branch})
+        return action
+    except (RuntimeError, ValueError, KeyError, TypeError) as err:
+        print(f"::warning::hourly full tier kick skipped: {err}")
+        return "error"
+
+
 def cmd_tick(args: argparse.Namespace) -> int:
     # A tick that cannot read GitHub (a spent rate limit, a 5xx) skips: the next tick, 30 min on, asks again, and a
     # red scheduled run would only pile up while the quota is drained.
@@ -408,6 +448,7 @@ def tick(args: argparse.Namespace) -> int:
     # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
+    hourly_kick(args, tip, datetime.now(timezone.utc))
     runs = list_runs(args.repo, args.branch)
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
