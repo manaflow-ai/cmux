@@ -33,6 +33,17 @@ fn live_cli(name: &str, profile: &HarnessProfile) -> Option<Cli> {
     }
 }
 
+/// The program a live list is read from, without resolving a profile launch's credentials
+/// (`target` may consult the credential store): Claude Code's own argv, else the real `codex`.
+fn live_program(name: &str, profile: &HarnessProfile) -> Option<String> {
+    match live_cli(name, profile)? {
+        Cli::Claude => profile.argv.first().cloned(),
+        Cli::Codex => {
+            profile.env.get("CODEX_PATH").cloned().or_else(crate::managed_codex::codex_binary)
+        }
+    }
+}
+
 fn target(cfg: &Config, name: &str, cli: Cli) -> anyhow::Result<Target> {
     let profile =
         cfg.harnesses.get(name).ok_or_else(|| anyhow::anyhow!("no harness named {name}"))?;
@@ -221,13 +232,13 @@ impl Hub {
     pub(super) async fn changed_live_binaries(&self) -> std::collections::BTreeSet<String> {
         let recorded: Vec<(String, crate::live_models::CacheKey, std::path::PathBuf)> = {
             let cfg = self.config.read().await;
-            targets(&cfg.harnesses)
-                .into_iter()
-                .filter(|target| self.probes(&target.harness))
-                .filter_map(|target| {
-                    let program = std::path::PathBuf::from(target.argv.first()?);
-                    let read_from = self.model_lists.live_binary(&target.harness)??;
-                    Some((target.harness, read_from, program))
+            cfg.harnesses
+                .iter()
+                .filter(|(name, _)| self.probes(name))
+                .filter_map(|(name, profile)| {
+                    let program = std::path::PathBuf::from(live_program(name, profile)?);
+                    let read_from = self.model_lists.live_binary(name)??;
+                    Some((name.clone(), read_from, program))
                 })
                 .collect()
         };
