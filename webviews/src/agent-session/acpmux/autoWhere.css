@@ -30,7 +30,7 @@
 .acpmux-location-picker[data-auto-look="aurora"] .acpmux-location-button::after {
   content: "";
   position: absolute;
-  inset-inline: var(--ds-space-2, 8px);
+  inset-inline: 8px;
   bottom: var(--cmux-hairline-ring);
   height: var(--cmux-hairline);
   background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f));
@@ -44,9 +44,9 @@
 .acpmux-auto-arrival {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-height: 24px;
-  padding: var(--grid-half-step) var(--ds-space-1, 4px) var(--grid-half-step) var(--ds-space-2, 8px);
+  padding: var(--grid-half-step) var(--ds-space-fixed-1, 4px) var(--grid-half-step) var(--ds-space-fixed-2, 8px);
   border-radius: 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);

@@ -5,10 +5,10 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--ds-space-5, 24px);
+  padding: var(--ds-space-fixed-5, 24px);
   color: var(--agent-text);
   background: var(--agent-page-bg);
 }
 .dot-focus-fixture .nt-style {
-  bottom: var(--ds-space-48, 48px);
+  bottom: 48px;
 }

@@ -10,7 +10,7 @@
   position: absolute;
   z-index: var(--layer-overlay);
   /* Under the 28 px header, with a 12 px gap (as the Steer queue). */
-  top: var(--ds-space-40, 40px);
+  top: 40px;
   left: 50%;
   translate: -50% 0;
   overflow: hidden;

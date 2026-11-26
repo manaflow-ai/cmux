@@ -83,7 +83,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 100%;
 }
 .acpmux-mp-rail-tab {
@@ -151,7 +151,7 @@
     flex-direction: row !important;
     align-items: center;
     padding: 6px;
-    gap: var(--ds-space-1, 4px);
+    gap: var(--ds-space-fixed-1, 4px);
   }
   .acpmux-mp-rail-list > .acpmux-mp-rail-tab {
     scroll-snap-align: start;
@@ -218,7 +218,7 @@
 .acpmux-quick-menu.acpmux-quick-submenu { --ui-row-height: calc(24px * var(--cmux-interface-scale, 1)); }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
-  padding: var(--ds-space-1, 4px) var(--ui-row-padding-inline) 2px;
+  padding: var(--ds-space-fixed-1, 4px) var(--ui-row-padding-inline) 2px;
   color: var(--menu-label-color, var(--agent-muted));
   font-size: var(--menu-label-size, var(--text-caption));
   line-height: var(--text-caption--line-height);
@@ -226,7 +226,7 @@
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
-  margin: var(--ds-space-1, 4px) var(--ui-row-padding-inline);
+  margin: var(--ds-space-fixed-1, 4px) var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--menu-separator, var(--agent-border));
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
@@ -255,7 +255,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -272,7 +272,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 /* The check moves to the trailing edge, where the other rows show their number key: a 16px column
    centred on the label's line. */
@@ -327,7 +327,7 @@
   padding: var(--ui-popup-padding);
 }
 .acpmux-quick-effort-slider .acpmux-effort-track {
-  margin-top: var(--ds-space-2, 8px);
+  margin-top: var(--ds-space-fixed-2, 8px);
   animation: none;
 }
 /* A single menu checkbox owns both the label and the switch: no nested focus target. */
@@ -393,7 +393,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   height: var(--ui-row-height);
   box-sizing: border-box;
   margin: 0;
@@ -456,7 +456,7 @@
   margin: 0;
   border: 0;
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  padding: var(--ds-space-1, 4px);
+  padding: var(--ds-space-fixed-1, 4px);
   overflow: auto;
 }
 .acpmux-quick-rail-tab {
@@ -621,7 +621,7 @@
 .ui-menu-item.acpmux-quick-item.acpmux-quick-found {
   height: auto;
   min-height: var(--ui-row-height);
-  padding-block: var(--ds-space-1, 4px);
+  padding-block: var(--ds-space-fixed-1, 4px);
 }
 .acpmux-quick-found .acpmux-menu-label {
   white-space: normal;
@@ -652,8 +652,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -662,7 +662,7 @@
 .acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-menu-item.acpmux-quick-update-action {
   flex: none;
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ui-row-radius, 5px);
   background: transparent;
@@ -893,7 +893,7 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  margin-inline-start: var(--ds-space-1, 4px);
+  margin-inline-start: var(--ds-space-fixed-1, 4px);
   color: var(--agent-muted);
 }
 .acpmux-used-dot {
@@ -904,7 +904,7 @@
 }
 .acpmux-used-caption {
   flex: none;
-  margin-inline-start: var(--ds-space-2, 8px);
+  margin-inline-start: var(--ds-space-fixed-2, 8px);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);

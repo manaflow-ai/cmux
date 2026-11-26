@@ -95,15 +95,15 @@
 /* Continue on: the first place the chat can go carries the heading over it, under the hairline
    (EnvironmentPicker `data-divider`), as the plain Computer menu heads its sections. */
 .acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-card-section]) {
-  margin-top: var(--ds-space-6, 32px);
+  margin-top: var(--ds-space-fixed-6, 32px);
 }
 .acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-card-section])::before {
-  top: calc(-1 * var(--ds-space-5, 24px));
+  top: -24px;
 }
 .acpmux-env-popover .acpmux-env-row[data-card-section]::before {
   content: attr(data-card-section);
   position: absolute;
-  top: calc(-1 * var(--ds-space-4, 16px));
+  top: -16px;
   left: calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));
   color: var(--agent-muted);
   font-size: var(--text-caption);

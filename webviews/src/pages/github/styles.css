@@ -292,7 +292,7 @@ html[data-cmux-page="github"],
 .gh-file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; }
 .gh-file-folder { color: var(--page-text-3); }
 .gh-num { text-align: end; font-variant-numeric: tabular-nums; font-size: var(--text-caption); }
-.gh-cells { display: inline-flex; gap: var(--ds-space-1, 4px); }
+.gh-cells { display: inline-flex; gap: var(--ds-space-fixed-1, 4px); }
 .gh-cells > span { width: 8px; aspect-ratio: 1; border-radius: 0; background: var(--page-separator); }
 .gh-cells > [data-cell=add] { background: var(--agent-status-success); }
 .gh-cells > [data-cell=del] { background: var(--agent-status-failure); }
@@ -473,7 +473,7 @@ html[data-cmux-page="github"],
 .gh-ci-line:hover:not(:has(.gh-ci-pip:hover)) { background: var(--page-hover); }
 .gh-ci-workflow { flex: none; font-size: var(--text-caption); }
 .gh-ci-time { flex: none; margin-inline-start: auto; color: var(--page-text-3); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
-.gh-ci-pips { display: inline-flex; flex-wrap: wrap; gap: var(--ds-space-1, 4px); }
+.gh-ci-pips { display: inline-flex; flex-wrap: wrap; gap: var(--ds-space-fixed-1, 4px); }
 .gh-ci-pip {
   width: 8px;
   aspect-ratio: 1;

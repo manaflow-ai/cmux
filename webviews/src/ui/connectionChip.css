@@ -2,8 +2,8 @@
    hiding it moves nothing. The sentence is for screen readers and the tooltip; the mark is a dot. */
 .ui-connection-chip {
   position: fixed;
-  top: var(--ds-space-2, 8px);
-  right: var(--ds-space-3, 12px);
+  top: 8px;
+  right: 12px;
   /* Above sticky page headers, so a header never covers the dot; below dialogs and menus. */
   z-index: var(--layer-overlay);
   display: block;

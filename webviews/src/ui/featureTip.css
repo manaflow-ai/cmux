@@ -106,10 +106,10 @@
   pointer-events: none;
 }
 .ui-feature-tip-arrow[data-side="bottom"] {
-  top: calc(-1 * var(--ds-space-2, 8px));
+  top: -8px;
 }
 .ui-feature-tip-arrow[data-side="top"] {
-  bottom: calc(-1 * var(--ds-space-2, 8px));
+  bottom: -8px;
   transform: rotate(180deg);
 }
 .ui-feature-tip-arrow::before {

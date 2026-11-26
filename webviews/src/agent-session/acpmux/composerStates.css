@@ -1006,8 +1006,8 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    .acpmux-queued-action). The ⋯ menu wears the composer menus' look (modelPicker.css). */
 .acpmux-queued-action.acpmux-queued-steer {
   width: auto;
-  gap: var(--ds-space-1, 4px);
-  padding: 0 6px 0 var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: 0 6px 0 var(--ds-space-fixed-1, 4px);
   font: inherit;
   font-size: var(--text-detail);
   line-height: 18px;
@@ -1106,7 +1106,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-queue-foldbar {
   display: flex;
   min-width: 0;
-  padding: 0 6px 2px var(--ds-space-3, 12px);
+  padding: 0 6px 2px var(--ds-space-fixed-3, 12px);
   box-sizing: border-box;
   --acpmux-queue-fill: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
   background: var(--acpmux-queue-fill);
@@ -1177,7 +1177,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  padding: var(--ds-space-1, 4px) 0 2px;
+  padding: var(--ds-space-fixed-1, 4px) 0 2px;
 }
 .acpmux-queued-image-slot {
   position: relative;
@@ -1235,19 +1235,19 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   min-width: 0;
   overflow: hidden;
   /* Room for a focused tile's ring (1.5px and 1px out) inside the clip. */
-  margin: calc(-1 * var(--ds-space-1, 4px));
-  padding: var(--ds-space-1, 4px);
+  margin: calc(-1 * var(--ds-space-fixed-1, 4px));
+  padding: var(--ds-space-fixed-1, 4px);
 }
 .acpmux-queued-image-slot[data-video] .acpmux-queued-image {
   position: relative;
 }
 .acpmux-queued-video.acpmux-attachment-video-length {
-  right: var(--ds-space-1, 4px);
-  bottom: var(--ds-space-1, 4px);
+  right: 4px;
+  bottom: 4px;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
-  padding: 0 var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   /* As tall as its glyph, so on a 36 px tile the chip sits under the poster's middle, which the
@@ -1301,7 +1301,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    as the mode that is not typing. */
 .acpmux-vim-mode {
   position: absolute;
-  top: var(--ds-space-1, 4px);
+  top: 4px;
   right: var(--ds-space-3);
   z-index: var(--layer-raised, 1);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

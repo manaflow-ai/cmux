@@ -1,6 +1,6 @@
 /* Gallery-only choices; the app uses the minimal shared renderer. */
 .inline-chip-preview {
-  padding: var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-4, 16px);
   color: var(--cv-text);
   font-size: var(--text-body);
   line-height: 1.4;

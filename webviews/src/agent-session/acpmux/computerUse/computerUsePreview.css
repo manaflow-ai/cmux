@@ -34,7 +34,7 @@
   --cu-preview-close-hover: color-mix(in srgb, color-mix(in srgb, black 76%, white) 66%, transparent);
   --cu-preview-close-press: color-mix(in srgb, black 64%, transparent);
   position: absolute;
-  top: calc(var(--acpmux-header-height, 44px) + var(--ds-space-2, 8px));
+  top: calc(var(--acpmux-header-height, 44px) + 8px);
   right: var(--ds-space-3, 12px);
   z-index: var(--layer-sticky);
   /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card. */
@@ -258,7 +258,7 @@
   paint-order: stroke;
 }
 .acpmux-cu-preview__person-label {
-  margin-top: var(--ds-space-2, 8px);
+  margin-top: var(--ds-space-fixed-2, 8px);
   padding: 0 var(--ds-space-2, 8px);
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
@@ -304,8 +304,8 @@
 }
 .acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
   position: absolute;
-  right: calc(-1 * var(--ds-space-1, 4px));
-  bottom: calc(-1 * var(--ds-space-1, 4px));
+  right: -4px;
+  bottom: -4px;
   width: 16px;
 }
 

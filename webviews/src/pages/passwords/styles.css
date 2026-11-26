@@ -20,7 +20,7 @@
 .pw-search-row {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-width: 0;
 }
 
@@ -76,7 +76,7 @@
   border: 1px solid var(--page-separator);
   background: transparent;
   color: var(--page-text-2);
-  padding: 3px var(--ds-space-2, 8px);
+  padding: 3px var(--ds-space-fixed-2, 8px);
   border-radius: var(--ds-radius-control);
   cursor: default;
 }
@@ -93,7 +93,7 @@
 .pw-notice {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   margin: 10px var(--page-edge) 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -113,7 +113,7 @@
   position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: var(--ds-space-1, 4px) calc(var(--page-edge) - var(--ds-space-2, 8px)) 18px;
+  padding: var(--ds-space-fixed-1, 4px) calc(var(--page-edge) - var(--ds-space-fixed-2, 8px)) 18px;
 }
 
 /* Windowed: only the items near the viewport are mounted, each placed at its offset. */
@@ -140,7 +140,7 @@
 
 .pw-section-title {
   margin: 0 0 6px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   font-size: 13px;
   font-weight: 600;
   color: var(--page-text-2);
@@ -149,19 +149,19 @@
 .pw-help,
 .pw-empty,
 .pw-unavailable {
-  margin: var(--ds-space-1, 4px) 0 var(--ds-space-2, 8px);
-  padding: 0 var(--ds-space-2, 8px);
+  margin: var(--ds-space-fixed-1, 4px) 0 var(--ds-space-fixed-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   color: var(--page-text-3);
 }
 
 /* A site's group is its header and its logins, each a windowed item: the group's space above is on
    its header, the space below on its last login. */
 .pw-site-head {
-  padding-top: var(--ds-space-1, 4px);
+  padding-top: var(--ds-space-fixed-1, 4px);
 }
 
 .pw-site-end {
-  padding-bottom: var(--ds-space-1, 4px);
+  padding-bottom: var(--ds-space-fixed-1, 4px);
 }
 
 .pw-site-header,
@@ -170,7 +170,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border-radius: 6px;
 }
 
@@ -239,7 +239,7 @@
 
 .pw-badges {
   display: flex;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 
 .pw-badge {

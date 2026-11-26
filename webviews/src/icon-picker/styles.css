@@ -24,9 +24,9 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: var(--icon-top-height);
-  padding: 0 10px 0 var(--ds-space-2, 8px);
+  padding: 0 10px 0 var(--ds-space-fixed-2, 8px);
 }
 
 .icon-picker-back {
@@ -61,7 +61,7 @@
 .icon-picker-heading {
   flex: 1;
   min-width: 0;
-  margin: 0 var(--ds-space-1, 4px);
+  margin: 0 var(--ds-space-fixed-1, 4px);
   font-size: 19px;
   font-weight: 400;
   color: var(--page-text);
@@ -94,7 +94,7 @@
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border-radius: var(--ds-radius-control);
   color: var(--page-text-2);
 }
@@ -133,14 +133,14 @@
   position: absolute;
   /* Over the grid's rows (no z-index of their own); the docked header and the bottom bar stay over it. */
   z-index: var(--layer-raised, 1);
-  left: var(--ds-space-2, 8px);
-  right: var(--ds-space-2, 8px);
-  bottom: calc(var(--icon-bar-height) + var(--ds-space-4, 16px));
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--icon-bar-height) + 16px);
   box-sizing: border-box;
   height: var(--icon-error-height);
   max-height: calc(100% - var(--icon-top-height) - var(--icon-bar-height) - 16px);
   margin: 0;
-  padding: 0 var(--ds-space-3, 12px);
+  padding: 0 var(--ds-space-fixed-3, 12px);
   overflow: hidden;
   border-radius: calc(var(--icon-error-height) / 2);
   /* Clear, at its width: the glass rim draws the band's one edge. */
@@ -209,8 +209,8 @@
 .icon-grid-docked {
   position: absolute;
   z-index: 2;
-  left: var(--ds-space-3, 12px);
-  right: var(--ds-space-3, 12px);
+  left: 12px;
+  right: 12px;
   top: 0;
   pointer-events: none;
 }
@@ -233,7 +233,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 var(--ds-space-3, 12px) calc(var(--icon-bar-height) + var(--ds-space-4, 16px));
+  padding: 0 var(--ds-space-fixed-3, 12px) calc(var(--icon-bar-height) + var(--ds-space-fixed-4, 16px));
   contain: strict;
   overscroll-behavior: contain;
 }
@@ -311,7 +311,7 @@
 }
 
 .icon-grid-empty {
-  padding: var(--ds-space-6, 32px) var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-6, 32px) var(--ds-space-fixed-2, 8px);
   text-align: center;
   color: var(--page-text-3);
 }
@@ -320,19 +320,19 @@
 .icon-picker-bar {
   position: absolute;
   z-index: 3;
-  left: var(--ds-space-2, 8px);
-  right: var(--ds-space-2, 8px);
-  bottom: var(--ds-space-2, 8px);
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
   display: flex;
   justify-content: space-between;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   pointer-events: none;
 }
 
 .icon-bar-pill {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   height: var(--icon-bar-height);
   padding: 0 14px;
   border-radius: calc(var(--icon-bar-height) / 2);
@@ -400,7 +400,7 @@
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -421,7 +421,7 @@
 .icon-bar-divider {
   width: 1px;
   height: 18px;
-  margin: 0 var(--ds-space-1, 4px);
+  margin: 0 var(--ds-space-fixed-1, 4px);
   background: var(--page-separator);
 }
 
@@ -431,7 +431,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: var(--ds-space-1, 4px) var(--ds-space-4, 16px) calc(var(--icon-bar-height) + 20px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-4, 16px) calc(var(--icon-bar-height) + 20px);
 }
 
 .icon-asset-drop {
@@ -452,7 +452,7 @@
 }
 
 .icon-asset-choose {
-  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-3, 12px);
   border-radius: 6px;
   background: var(--page-selection);
   color: var(--page-text);
@@ -467,7 +467,7 @@
   flex: 1;
   min-width: 0;
   height: 28px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border-radius: 6px;
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
@@ -477,7 +477,7 @@
 .icon-asset-url button {
   border: 0;
   border-radius: var(--ds-radius-control);
-  padding: 0 var(--ds-space-3, 12px);
+  padding: 0 var(--ds-space-fixed-3, 12px);
   background: var(--page-selection);
 }
 

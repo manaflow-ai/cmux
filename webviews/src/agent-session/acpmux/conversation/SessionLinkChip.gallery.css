@@ -1,6 +1,6 @@
 .session-link-chip-gallery {
   min-height: 100%;
-  padding: var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-4, 16px);
   color: var(--cv-text);
   background: var(--cv-page);
 }

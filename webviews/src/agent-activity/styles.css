@@ -49,7 +49,7 @@ nav {
   align-items: center;
   gap: 10px;
   min-height: 40px;
-  padding: 0 var(--ds-space-3, 12px);
+  padding: 0 var(--ds-space-fixed-3, 12px);
   border-bottom: 1px solid var(--activity-line);
 }
 
@@ -68,7 +68,7 @@ nav input {
   height: 24px;
   border: 1px solid var(--activity-line);
   border-radius: 6px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   background: var(--activity-well);
   font-size: var(--text-control);
   outline: none;
@@ -150,7 +150,7 @@ aside > .groups {
 }
 
 section h3 {
-  margin: 10px var(--ds-space-3, 12px) 2px;
+  margin: 10px var(--ds-space-fixed-3, 12px) 2px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: 600;
@@ -159,7 +159,7 @@ section h3 {
 }
 
 .connection {
-  margin: 0 var(--ds-space-3, 12px) 6px;
+  margin: 0 var(--ds-space-fixed-3, 12px) 6px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
@@ -172,9 +172,9 @@ section h3 {
   background: transparent;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   text-align: left;
-  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-3, 12px);
   cursor: default;
 }
 
@@ -236,7 +236,7 @@ section h3 {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-3, 12px) var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--activity-line);
 }
 
@@ -260,7 +260,7 @@ section h3 {
   height: 22px;
   border: 1px solid var(--activity-control-line);
   border-radius: var(--ds-radius-control);
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   background: transparent;
   font-size: var(--text-control);
   cursor: default;
@@ -281,7 +281,7 @@ section h3 {
   place-items: center;
   flex: 1;
   min-height: var(--activity-stage-min-height);
-  padding: var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-4, 16px);
   overflow: hidden;
   background: var(--activity-well);
   /* The frame box (.viewer-frame) fits itself to the stage's size. */
@@ -351,9 +351,9 @@ section h3 {
 .viewer-bar {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-height: 32px;
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border-top: 1px solid var(--activity-line);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -398,10 +398,10 @@ section h3 {
 .viewer-step {
   display: flex;
   align-items: baseline;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-width: 0;
   flex: 1;
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -429,15 +429,15 @@ section h3 {
 
 .viewer-position {
   flex: none;
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
 }
 
 /* Every frame of the session; the shown one carries the accent ring. */
 .filmstrip {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-2, 8px) var(--ds-space-fixed-3, 12px);
   overflow-x: auto;
   overflow-y: hidden;
   border-top: 1px solid var(--activity-line);
@@ -500,9 +500,9 @@ section h3 {
 .event {
   display: flex;
   justify-content: space-between;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   width: 100%;
-  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-3, 12px);
   border: 0;
   background: transparent;
   text-align: left;
@@ -518,7 +518,7 @@ section h3 {
 
 .event-text {
   display: flex;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -545,7 +545,7 @@ section h3 {
 .lane {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-3, 12px);
   border-bottom: 1px solid var(--activity-line);
   min-height: 60px;
 }
@@ -563,14 +563,14 @@ section h3 {
 }
 
 .ticks .film {
-  margin: var(--ds-space-2, 8px) 0;
+  margin: var(--ds-space-fixed-2, 8px) 0;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--ds-space-3, 12px);
-  padding: var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-3, 12px);
+  padding: var(--ds-space-fixed-4, 16px);
   overflow: auto;
 }
 
@@ -581,7 +581,7 @@ section h3 {
   border: 1px solid var(--activity-line);
   border-radius: 8px;
   background: transparent;
-  padding: var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-2, 8px);
   cursor: default;
 }
 
@@ -613,9 +613,9 @@ section h3 {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   flex: 1;
-  padding: var(--ds-space-5, 24px);
+  padding: var(--ds-space-fixed-5, 24px);
   text-align: center;
   color: var(--activity-text-2);
 }
@@ -640,7 +640,7 @@ section h3 {
 /* The viewer over the timeline or grid: the shared dialog on the liquid glass, nearly the page's
    size, with the session it belongs to on top. */
 .activity-viewer-dialog {
-  inset: var(--ds-space-5, 24px);
+  inset: 24px;
   width: auto;
   margin: 0;
   display: flex;
@@ -657,9 +657,9 @@ section h3 {
 .activity-viewer-title {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-height: 32px;
-  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-3, 12px);
   border-bottom: 1px solid var(--activity-line);
   white-space: nowrap;
 }

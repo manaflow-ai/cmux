@@ -33,7 +33,7 @@
 
 .feed-page[data-view="needs-you"] {
   height: auto;
-  padding: var(--ds-space-1, 4px);
+  padding: var(--ds-space-fixed-1, 4px);
 }
 
 .feed-num {
@@ -48,8 +48,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-5, 24px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-5, 24px);
   min-height: 0;
   color: var(--ds-color-faint);
   font-size: var(--text-detail);
@@ -98,7 +98,7 @@
 .feed-poster {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -135,10 +135,10 @@
     ". . meta meta";
   grid-template-rows: var(--text-body--line-height) auto auto;
   align-content: center;
-  column-gap: var(--ds-space-2, 8px);
+  column-gap: var(--ds-space-fixed-2, 8px);
   height: var(--feed-row-short);
-  margin: 0 var(--ds-space-1, 4px);
-  padding: 0 var(--ds-space-3, 12px) 0 var(--ds-space-2, 8px);
+  margin: 0 var(--ds-space-fixed-1, 4px);
+  padding: 0 var(--ds-space-fixed-3, 12px) 0 var(--ds-space-fixed-2, 8px);
   border-radius: var(--ds-radius-md);
   cursor: default;
   outline: none;
@@ -226,7 +226,7 @@
   grid-area: meta;
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -242,9 +242,9 @@
 .feed-group-header {
   display: flex;
   align-items: flex-end;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: var(--feed-group);
-  padding: 0 var(--ds-space-4, 16px) var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-4, 16px) var(--ds-space-fixed-1, 4px);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
@@ -264,7 +264,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-reply-row {
@@ -275,7 +275,7 @@
   flex: 1;
   min-width: 0;
   height: 28px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control, 6px);
   background: var(--ds-color-hover);
@@ -302,12 +302,12 @@
 .feed-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 
 .feed-chip {
   height: 24px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border: 1px solid var(--ds-color-separator);
   border-radius: var(--ds-radius-control, 6px);
   background: transparent;
@@ -333,9 +333,9 @@
 .feed-scope {
   display: inline-flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: 24px;
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
   border: 0;
   border-radius: var(--ds-radius-control, 6px);
   background: transparent;
@@ -351,7 +351,7 @@
 .feed-closed {
   display: inline-flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--ds-color-faint);
@@ -361,13 +361,13 @@
 .feed-question {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-choice-question {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 
 .feed-choice-text {
@@ -381,7 +381,7 @@
 .feed-summary {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-width: 0;
 }
 
@@ -411,8 +411,8 @@
 .feed-code {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
-  padding: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: var(--ds-space-fixed-2, 8px);
   border-radius: var(--ds-radius-md);
   background: var(--ds-color-hover);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -441,8 +441,8 @@
 .feed-diff-name {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border-bottom: 1px solid var(--ds-color-separator);
   font-size: var(--text-caption);
   color: var(--ds-color-muted);
@@ -451,7 +451,7 @@
 .feed-diff-lines {
   display: flex;
   flex-direction: column;
-  padding: var(--ds-space-1, 4px) 0;
+  padding: var(--ds-space-fixed-1, 4px) 0;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -459,7 +459,7 @@
 }
 
 .feed-diff-line {
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   overflow: hidden;
   white-space: pre;
   text-overflow: ellipsis;
@@ -483,13 +483,13 @@
 .feed-origin {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 
 .feed-origin-host {
   display: inline-flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-detail);
   font-weight: var(--weight-emphasis, 600);
@@ -503,7 +503,7 @@
 .feed-checklist {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -514,7 +514,7 @@
 .feed-checklist li {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
 }
 
 /* MARK: - Request cards (list, Needs you cards) */
@@ -522,8 +522,8 @@
 .feed-card {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-3, 12px) var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
@@ -538,7 +538,7 @@
 .feed-card-head {
   display: flex;
   align-items: flex-start;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-card-head .feed-glyph {
@@ -547,7 +547,7 @@
 .feed-card-titles {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
 }
 
@@ -564,7 +564,7 @@
 .feed-card-body {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   padding-inline-start: 24px;
 }
 
@@ -581,9 +581,9 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   height: var(--feed-bar);
-  padding: 0 var(--ds-space-3, 12px) 0 var(--ds-space-4, 16px);
+  padding: 0 var(--ds-space-fixed-3, 12px) 0 var(--ds-space-fixed-4, 16px);
 }
 
 .feed-list-title {
@@ -600,7 +600,7 @@
 .feed-badge {
   min-width: var(--feed-badge);
   height: var(--feed-badge);
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
   border-radius: 999px;
   background: var(--ds-color-hover);
   color: var(--ds-color-muted);
@@ -622,7 +622,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: var(--ds-space-2, 8px);
+  padding-bottom: var(--ds-space-fixed-2, 8px);
 }
 
 /* MARK: - Inbox */
@@ -650,7 +650,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--ds-space-1, 4px) 0 var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) 0 var(--ds-space-fixed-2, 8px);
 }
 
 .feed-inbox-list > .feed-lines {
@@ -728,16 +728,16 @@
 .feed-tabs {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: var(--feed-tabs);
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
 .feed-tab-list {
   display: flex;
   flex: 1;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
   overflow: hidden;
 }
@@ -747,7 +747,7 @@
    labels); a name that still does not fit ends in an ellipsis. */
 .feed-tab-list > * {
   display: flex;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
 }
 
@@ -782,9 +782,9 @@
 .feed-add {
   display: inline-flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: 28px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control, 6px);
   background: transparent;
@@ -808,9 +808,9 @@
 .feed-triage {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   height: var(--feed-triage);
-  padding: 0 var(--ds-space-3, 12px) 0 var(--ds-space-4, 16px);
+  padding: 0 var(--ds-space-fixed-3, 12px) 0 var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--ds-color-separator);
   color: var(--ds-color-muted);
 }
@@ -848,9 +848,9 @@
   flex: none;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   height: var(--feed-bar);
-  padding: 0 var(--ds-space-3, 12px);
+  padding: 0 var(--ds-space-fixed-3, 12px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
@@ -858,30 +858,30 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-3, 12px);
   min-height: 0;
   overflow-y: auto;
-  padding: var(--ds-space-5, 24px);
+  padding: var(--ds-space-fixed-5, 24px);
 }
 
 .feed-inbox[data-density="compact"] .feed-detail-scroll {
-  padding: var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-4, 16px);
 }
 
 .feed-detail-head {
   display: flex;
   align-items: flex-start;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-detail-head .feed-glyph {
-  margin-top: var(--ds-space-1, 4px);
+  margin-top: var(--ds-space-fixed-1, 4px);
 }
 
 .feed-detail-titles {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
 }
 
@@ -897,7 +897,7 @@
 .feed-thread {
   display: flex;
   flex-direction: column;
-  padding-top: var(--ds-space-2, 8px);
+  padding-top: var(--ds-space-fixed-2, 8px);
   border-top: 1px solid var(--ds-color-separator);
 }
 
@@ -908,7 +908,7 @@
 .feed-github {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-github-title {
@@ -932,7 +932,7 @@
 .feed-github-checks {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -941,7 +941,7 @@
 .feed-github-line {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   font-size: var(--text-caption);
   color: var(--ds-color-muted);
 }
@@ -953,8 +953,8 @@
 .feed-github-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-3, 12px);
   border-radius: var(--ds-radius-lg, 8px);
   background: var(--ds-color-elevated);
 }
@@ -968,7 +968,7 @@
 .feed-github-error {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   font-size: var(--text-caption);
   color: var(--ds-color-danger);
 }
@@ -994,8 +994,8 @@
 .feed-reports-header {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: var(--ds-space-fixed-3, 12px) var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
@@ -1014,10 +1014,10 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-height: 0;
   overflow-y: auto;
-  padding: var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-reports-empty {
@@ -1026,8 +1026,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-5, 24px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-5, 24px);
   text-align: center;
   color: var(--ds-color-muted);
 }
@@ -1040,9 +1040,9 @@
 .feed-report-row {
   display: flex;
   align-items: flex-start;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   width: 100%;
-  padding: var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -1066,14 +1066,14 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
 }
 
 .feed-report-top {
   display: flex;
   align-items: baseline;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
 }
 
 .feed-report-sender {
@@ -1126,8 +1126,8 @@
 .feed-report-detail-header {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1, 4px);
-  padding: var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-1, 4px);
+  padding: var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
@@ -1149,7 +1149,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--ds-color-separator);
 }
 
@@ -1162,7 +1162,7 @@
 
 .feed-report-not-sent {
   margin: 0;
-  padding: var(--ds-space-2, 8px) var(--ds-space-4, 16px) 0;
+  padding: var(--ds-space-fixed-2, 8px) var(--ds-space-fixed-4, 16px) 0;
   font-size: var(--text-caption);
   color: var(--ds-color-danger);
 }
@@ -1170,8 +1170,8 @@
 .feed-report-reply {
   display: flex;
   align-items: flex-end;
-  gap: var(--ds-space-2, 8px);
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-2, 8px);
+  padding: var(--ds-space-fixed-3, 12px) var(--ds-space-fixed-4, 16px);
 }
 
 /* The reply grows with its text, one line to four. */
@@ -1179,7 +1179,7 @@
   height: auto;
   min-height: 28px;
   max-height: calc(4 * var(--text-detail--line-height) + 8px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   resize: none;
   field-sizing: content;
   font-family: inherit;
@@ -1191,7 +1191,7 @@
 .feed-needs {
   display: flex;
   flex-direction: column;
-  padding: var(--ds-space-1, 4px);
+  padding: var(--ds-space-fixed-1, 4px);
   border-radius: var(--ds-radius-xl, 12px);
   background: var(--ds-color-elevated);
   box-shadow: var(--elevation-1);
@@ -1205,9 +1205,9 @@
 .feed-needs-header {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   height: 24px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   font-size: var(--text-caption);
 }
 
@@ -1222,7 +1222,7 @@
 
 .feed-needs-more {
   margin-inline-start: auto;
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
   border: 0;
   border-radius: var(--ds-radius-sm, 4px);
   background: transparent;
@@ -1234,7 +1234,7 @@
 .feed-needs-row {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-3, 12px);
   min-height: var(--feed-needs-row);
 }
 
@@ -1246,10 +1246,10 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   min-width: 0;
   min-height: 32px;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;

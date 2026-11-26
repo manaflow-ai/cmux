@@ -17,7 +17,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  gap: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-3, 12px);
 }
 .acpmux-harness-status__head > button {
   margin-block-start: calc((var(--acpmux-harness-status-first-line) - var(--grid-cards-control)) / 2);
@@ -110,7 +110,7 @@
   display: grid;
   grid-template-columns: minmax(84px, .35fr) minmax(0, 1fr);
   gap: var(--cv-meta-gap) var(--cv-edge);
-  margin: var(--ds-space-3, 12px) 0 0;
+  margin: var(--ds-space-fixed-3, 12px) 0 0;
 }
 
 .acpmux-harness-status__field {
@@ -141,7 +141,7 @@
   text-align: left;
   display: flex;
   align-items: baseline;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   cursor: copy;
   user-select: text;
 }

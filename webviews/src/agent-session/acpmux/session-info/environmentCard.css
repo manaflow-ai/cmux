@@ -10,7 +10,7 @@
   --acpmux-env-card-edge-default: color-mix(in srgb, var(--agent-text) 22%, transparent);
   position: absolute;
   top: calc(var(--acpmux-header-height, var(--ds-space-48)) + var(--ds-space-3));
-  right: var(--ds-space-3, 12px);
+  right: 12px;
   z-index: var(--layer-sticky);
   box-sizing: border-box;
   width: 220px;
@@ -45,7 +45,7 @@
 .acpmux-env-card__row {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   box-sizing: border-box;
   width: 100%;
   min-height: 28px;
@@ -101,7 +101,7 @@ button.acpmux-env-card__row:disabled {
 .acpmux-changes-pill-row {
   display: flex;
   justify-content: center;
-  padding: 0 var(--cv-inset, 16px) var(--ds-space-2, 8px);
+  padding: 0 var(--cv-inset, 16px) var(--ds-space-fixed-2, 8px);
   pointer-events: none;
 }
 .acpmux-changes-pill {

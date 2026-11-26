@@ -353,8 +353,15 @@ function rolesBlock(roles) {
 
 function cssBlock(data, roles) {
   const out = [BEGIN, ":root {"];
-  for (const step of data.spacing.steps) out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
-  for (const size of data.spacing.layout) out.push(`  --ds-space-${size}: ${px(size)}; /* layout gap */`);
+  // Fixed nominal spacing remains stable when page density scales --ds-space-* for settings and diff pages.
+  for (const step of data.spacing.steps) {
+    out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
+    out.push(`  --ds-space-fixed-${step.name}: ${px(step.px)};`);
+  }
+  for (const size of data.spacing.layout) {
+    out.push(`  --ds-space-${size}: ${px(size)}; /* layout gap */`);
+    out.push(`  --ds-space-fixed-${size}: ${px(size)};`);
+  }
   for (const control of data.controls)
     out.push(`  --ds-control-${control.name}: ${px(control.px)}; /* ${control.for} */`);
   for (const icon of data.icons) out.push(`  --ds-icon-${icon.name}: ${px(icon.px)}; /* ${icon.for} */`);

@@ -31,9 +31,9 @@
 
 .path-picker-gallery-receipt {
   position: fixed;
-  inset-block-end: var(--ds-space-3, 12px);
-  inset-inline-end: var(--ds-space-4, 16px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  inset-block-end: 12px;
+  inset-inline-end: 16px;
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-2, 8px);
   border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
   border-radius: 5px;
   background: color-mix(in srgb, Canvas 90%, transparent);

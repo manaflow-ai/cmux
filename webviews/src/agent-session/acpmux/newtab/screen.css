@@ -1,11 +1,11 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:max(var(--cv-edge,16px),calc((100% - var(--cmux-composer-column,calc(var(--cv-column,720px) * var(--cmux-composer-zoom,1))))/2));padding:var(--nt-screen-top) var(--nt-screen-inset) var(--ds-space-5, 24px);box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:max(var(--cv-edge,16px),calc((100% - var(--cmux-composer-column,calc(var(--cv-column,720px) * var(--cmux-composer-zoom,1))))/2));padding:var(--nt-screen-top) var(--nt-screen-inset) var(--ds-space-fixed-5, 24px);box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
    across that height moves the composer with it, never in a 55px jump (Leo 2026-10-20: "the new tab area
    resizing calculation is slow and wack"; new-tab-live-resize). */
-.nt-screen{padding-top:clamp(var(--ds-space-3, 12px),calc(46vh - 154px),clamp(var(--ds-space-40, 40px),14vh,140px))}
+.nt-screen{padding-top:clamp(var(--ds-space-fixed-3, 12px),calc(46vh - 154px),clamp(var(--ds-space-fixed-40, 40px),14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
    shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
@@ -82,7 +82,7 @@
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
-.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px var(--ds-space-2, 8px);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
+.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px var(--ds-space-fixed-2, 8px);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
 .nt-chats-retry:not(:disabled):hover{background-image:var(--ds-surface-hover-layer)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
@@ -265,7 +265,7 @@
    it where centering put the resting page (the composer and the create row, 212px between 32px
    and 24px insets). */
 .nt-screen[data-template="composer"] {
-  padding-top: max(var(--ds-space-6, 32px), calc(50vh - 102px));
+  padding-top: max(var(--ds-space-fixed-6, 32px), calc(50vh - 102px));
 }
 .nt-screen[data-template="composer"] .nt-box {
   border-radius: 24px;
@@ -422,7 +422,7 @@
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
-  margin: 0 calc(-1 * var(--ds-space-2, 8px)) 9px 0;
+  margin: 0 calc(-1 * var(--ds-space-fixed-2, 8px)) 9px 0;
   flex-wrap: nowrap;
   padding: 0;
 }
@@ -1133,7 +1133,7 @@
 }
 .nt-stage-divider {
   height: 0;
-  margin: var(--ds-space-1, 4px) calc(-1 * var(--nt-card-inset));
+  margin: var(--ds-space-fixed-1, 4px) calc(-1 * var(--nt-card-inset));
   border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }
@@ -1199,7 +1199,7 @@
    chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
   gap: var(--ds-space-3);
-  padding-top: clamp(var(--ds-space-5, 24px), 8vh, 96px);
+  padding-top: clamp(var(--ds-space-fixed-5, 24px), 8vh, 96px);
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
@@ -1213,7 +1213,7 @@
 .nt-screen[data-template="cards"][data-pill] .nt-input {
   align-items: center;
   min-height: 56px;
-  padding: 0 var(--ds-space-2, 8px) 0 22px;
+  padding: 0 var(--ds-space-fixed-2, 8px) 0 22px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
   --nt-input-pad-block: 18px;
@@ -1291,7 +1291,7 @@
    The composer sits about the window's middle at a fixed place (a
    pasted image or a long draft grows it downward, never moves it). */
 .nt-screen[data-minimal] {
-  padding-top: max(var(--ds-space-6, 32px), calc(50vh - 150px));
+  padding-top: max(var(--ds-space-fixed-6, 32px), calc(50vh - 150px));
 }
 .nt-screen[data-minimal] .nt-create {
   justify-content: center;
@@ -1573,7 +1573,7 @@ html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surfa
 }
 :root .nt-screen .nt-input[data-split] .nt-field {
   padding-top: calc(var(--uc-field-top) * var(--nt-density));
-  padding-bottom: calc(var(--ds-space-2, 8px) * var(--nt-density));
+  padding-bottom: calc(var(--ds-space-fixed-2, 8px) * var(--nt-density));
   min-height: 0;
   font-size: var(--uc-field-text);
   line-height: var(--uc-field-line);
@@ -1733,7 +1733,7 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
 :root .nt-screen .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
   height: var(--uc-chip-h);
   min-height: var(--uc-chip-h);
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   gap: var(--uc-model-gap);
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -1811,7 +1811,7 @@ html:root .ui-popup.acpmux-menu.nt-split-plus .acpmux-menu-item {
   height: 28px;
   min-height: 28px;
   padding: 0 var(--uc-menu-row-pad);
-  gap: var(--ds-space-2, 8px); /* menu-gutter-allow: the lab's 8 px from icon to label (Lucas 2026-11-25) */
+  gap: var(--ds-space-fixed-2, 8px); /* menu-gutter-allow: the lab's 8 px from icon to label (Lucas 2026-11-25) */
   border-radius: var(--uc-menu-row-radius);
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--uc-ink) 58%, transparent));
   font-size: var(--text-body);
@@ -1857,7 +1857,7 @@ html:root:has(.nt-screen) .ui-popup.acpmux-folder-popover .ui-combobox-pinned[da
   padding-top: 0;
 }
 html:root:has(.nt-screen) .ui-popup.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before {
-  margin-bottom: var(--ds-space-1, 4px);
+  margin-bottom: var(--ds-space-fixed-1, 4px);
 }
 
 /* Dictation: no pill. While a session runs, the waveform draws inside the mic in its glyph's place: the 5 newest bars

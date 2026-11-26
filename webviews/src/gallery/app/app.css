@@ -27,15 +27,15 @@ body {
 .app-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ds-space-2, 8px) var(--ds-space-4, 16px);
+  gap: var(--ds-space-fixed-2, 8px) var(--ds-space-fixed-4, 16px);
   align-items: center;
-  padding: var(--ds-space-2, 8px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-2, 8px) var(--ds-space-fixed-4, 16px);
   border-bottom: 1px solid var(--cmux-separator, #333);
 }
 
 .app-control {
   display: flex;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   align-items: center;
   color: var(--cmux-text-secondary, #aaa);
 }
@@ -46,7 +46,7 @@ body {
   background: var(--cmux-elevated-background, #2a2a2a);
   border: 1px solid var(--cmux-separator, #444);
   border-radius: 6px;
-  padding: 0 var(--ds-space-1, 4px);
+  padding: 0 var(--ds-space-fixed-1, 4px);
 }
 
 .app-note {
@@ -106,9 +106,9 @@ body {
 .app-titlebar {
   display: flex;
   flex: none;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   align-items: center;
-  padding-left: var(--ds-space-3, 12px);
+  padding-left: var(--ds-space-fixed-3, 12px);
 }
 
 .app-window {
@@ -139,7 +139,7 @@ body {
 }
 
 .app-sidebar-header {
-  padding: var(--ds-space-1, 4px) var(--ds-space-4, 16px);
+  padding: var(--ds-space-fixed-1, 4px) var(--ds-space-fixed-4, 16px);
   color: var(--cmux-text-tertiary, #888);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -147,17 +147,17 @@ body {
 
 .app-rows {
   margin: 0;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   list-style: none;
   overflow: hidden;
 }
 
 .app-row {
   display: flex;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   align-items: center;
   height: var(--app-row-height);
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border-radius: 6px;
 }
 
@@ -220,10 +220,10 @@ body {
 .app-tabstrip {
   display: flex;
   flex: none;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   align-items: center;
   box-sizing: border-box;
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   border-bottom: 1px solid var(--cmux-separator, #333);
 }
 
@@ -232,7 +232,7 @@ body {
   align-items: center;
   max-width: 220px;
   height: var(--app-tab-height);
-  padding: 0 var(--ds-space-3, 12px);
+  padding: 0 var(--ds-space-fixed-3, 12px);
   overflow: hidden;
   border-radius: 6px;
   color: var(--cmux-text-secondary, #aaa);
@@ -247,7 +247,7 @@ body {
 }
 
 .app-tab-new {
-  padding: 0 var(--ds-space-2, 8px);
+  padding: 0 var(--ds-space-fixed-2, 8px);
   color: var(--cmux-text-tertiary, #888);
   font-size: var(--text-title);
 }
@@ -261,9 +261,9 @@ body {
 .app-terminal {
   box-sizing: border-box;
   display: flex;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-fixed-2, 8px);
   align-items: flex-start;
-  padding: var(--ds-space-3, 12px);
+  padding: var(--ds-space-fixed-3, 12px);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-detail);
 }

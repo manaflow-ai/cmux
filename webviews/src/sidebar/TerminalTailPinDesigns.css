@@ -4,9 +4,9 @@
 .ttp-stage {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-3, 12px);
+  gap: var(--ds-space-fixed-3, 12px);
   width: 240px;
-  padding: var(--ds-space-2, 8px) 0;
+  padding: var(--ds-space-fixed-2, 8px) 0;
   font-family: var(--font-ui);
   color: var(--cmux-text, CanvasText);
 }
@@ -21,13 +21,13 @@
   display: flex;
   align-items: center;
   min-height: var(--grid-row-comfortable);
-  margin: 0 var(--ds-space-2, 8px);
-  padding: 0 0 0 var(--ds-space-2, 8px);
+  margin: 0 var(--ds-space-fixed-2, 8px);
+  padding: 0 0 0 var(--ds-space-fixed-2, 8px);
   border-radius: 8px;
   box-sizing: border-box;
 }
 .ttp-row[data-has-tail] {
-  padding-block: var(--ds-space-1, 4px);
+  padding-block: var(--ds-space-fixed-1, 4px);
 }
 .ttp-row[data-selected] {
   background: var(--cmux-selection, var(--cmux-hover));
@@ -51,7 +51,7 @@
 .ttp-tail {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--ds-space-fixed-1, 4px);
   min-width: 0;
   height: var(--text-detail--line-height);
   font-size: var(--text-detail);
@@ -97,7 +97,7 @@
   justify-content: center;
   width: var(--grid-icon-box);
   height: var(--text-body--line-height);
-  margin-right: var(--ds-space-2, 8px);
+  margin-right: var(--ds-space-fixed-2, 8px);
 }
 /* With a tail line the mark stays on the title's line, not the row's centre. */
 .ttp-row[data-has-tail] .ttp-trail {
@@ -105,7 +105,7 @@
 }
 .ttp-next {
   align-self: flex-start;
-  margin-left: var(--ds-space-4, 16px);
+  margin-left: var(--ds-space-fixed-4, 16px);
   font: inherit;
   font-size: var(--text-detail);
 }
