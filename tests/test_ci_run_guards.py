@@ -259,7 +259,7 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         planned = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
         by_group = {u.group or u.job: u for u in planned}
         self.assertEqual(run_ci_guards.ordered_split(by_group["release-notary"]), 1)
-        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 2)
+        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 3)
 
     def test_a_stateful_groups_tail_waits_for_its_head_then_runs_together(self) -> None:
         import contextlib  # noqa: PLC0415
