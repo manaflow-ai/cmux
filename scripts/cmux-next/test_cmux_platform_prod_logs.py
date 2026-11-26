@@ -23,6 +23,7 @@ VM = "vm_0000aaaa1111bbbb2222"
 TEAM = "team_0000aaaa1111bbbb2222"
 PROD = "cmux-platform-production"
 STAGING = "cmux-platform-staging"
+DEV = "cmux-platform-development"
 VM_PROD = "cmux-vm-production"
 VM_STAGING = "cmux-vm-staging"
 LISTED = "cloud platform edge"
@@ -92,8 +93,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertRegex(on, r"(?m)^      service:\n(?:        .*\n)*?        type: choice\n")
         options = re.search(r"(?m)^        options: \[([^\]]*)\]$", on)
         self.assertIsNotNone(options)
-        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, VM_PROD, VM_STAGING})
-        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, VM_PROD, VM_STAGING})
+        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, DEV, VM_PROD, VM_STAGING})
+        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, DEV, VM_PROD, VM_STAGING})
 
     def test_id_and_needles_are_required_and_never_in_step_env(self):
         on = self.block("on")
@@ -385,6 +386,14 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(row["log"], {"msg": "cloud.submit.cut_off", "machine": logs.base.tag("vm_cutoff"),
                                       "op": "start", "ms": 25001})
         self.assertNotIn("vm_cutoff", json.dumps(row))
+
+    def test_a_behind_ledger_wake_keeps_how_long_it_was_paused(self):
+        # cmux-platform CloudDO reconcileWokenPaused: how soon after its pause an inbound wake landed tells a client's
+        # redial (seconds) from a person's return (hours), the census's inbound_soon share.
+        row = logs.line(event({"msg": "cloud.machine.woken_behind_ledger", "team": TEAM, "machine": VM,
+                               "paused_for_ms": 4200}))
+        self.assertEqual(row["log"]["paused_for_ms"], 4200)
+        self.assertNotIn(VM, json.dumps(row))
 
     def test_a_work_machine_line_keeps_its_size_policy_and_why(self):
         # RFD agent-work-placement (cmux-platform#2099 start size, #2108 turn_end pause): worker-log-read.yml gets 403
