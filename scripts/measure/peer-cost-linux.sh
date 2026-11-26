@@ -32,14 +32,18 @@ target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'imp
 cd "$root"
 # $FAST_CHECKS_OUT (cmux-ci test --artifact DIR) brings the report back when the run's log cannot be read.
 out="${FAST_CHECKS_OUT:-}"; [[ -n "$out" ]] && mkdir -p "$out"
+scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/peercost-run.XXXXXX")"
+chmod 700 "$scratch_root"
+trap 'rm -rf "$scratch_root"' EXIT
 set +e
 python3 scripts/measure/peer-cost.py "$mode" --acpmux "$target/release/acpmux" --peers "$peers" --secs "$secs" --reps "$reps" --style "$style" \
+  --scratch-root "$scratch_root" \
   --keep ${out:+--out "$out/peer-cost.json"} 2>&1 | tee "${out:-/dev/null}${out:+/peer-cost.txt}"
 rc=${PIPESTATUS[0]}
 # --keep left the scratch directory: its logs say why a run failed (the far side's stderr, ssh's spawn log).
-for d in /tmp/peercost-*; do
+# This is our private root, so collection cannot read or delete another run's files.  Preserve symlinks.
+for d in "$scratch_root"/*; do
   [[ -d "$d" ]] || continue
-  [[ -n "$out" ]] && mkdir -p "$out/scratch/${d##*/}" && cp "$d"/*.err "$d"/ssh.log "$out/scratch/${d##*/}/" 2>/dev/null
-  rm -rf "$d"
+  [[ -n "$out" ]] && mkdir -p "$out/scratch/${d##*/}" && cp -P "$d"/*.err "$d"/ssh.log "$out/scratch/${d##*/}/" 2>/dev/null
 done
 exit "$rc"

@@ -33,6 +33,7 @@ import argparse
 import json
 import os
 import re
+import selectors
 import shutil
 import signal
 import socket
@@ -118,7 +119,7 @@ class Fleet:
 
     def __init__(self, acpmux, tmp, peers, style="plain"):
         if not SSHD:
-            sys.exit("peer-cost: no sshd on this machine (apt-get install openssh-server; it is not started)")
+            raise RuntimeError("peer-cost: no sshd on this machine (apt-get install openssh-server; it is not started)")
         self.acpmux, self.tmp, self.n, self.style = acpmux, tmp, peers, style
         self.user = os.environ.get("USER") or subprocess.check_output(["id", "-un"], text=True).strip()
         self.sshd_port, self.ws_port = free_port(), free_port()
@@ -215,8 +216,8 @@ class Fleet:
             else:
                 return
             time.sleep(0.1)
-        sys.exit("peer-cost: the fake fleet (sshd, far daemon) did not come up:\n" + open(self.p("sshd.err")).read()
-                 + open(self.p("far.err")).read())
+        raise RuntimeError("peer-cost: the fake fleet (sshd, far daemon) did not come up:\n" + open(self.p("sshd.err")).read()
+                           + open(self.p("far.err")).read())
 
     def start_near(self):
         open(self.p("ssh.log"), "w").close()
@@ -281,8 +282,8 @@ def peers_up(fleet):
     return up, (rows[0] if rows else None)
 
 
-def cold_start(acpmux, peers, secs, style, keep):
-    tmp = tempfile.mkdtemp(prefix="peercost-")
+def cold_start(acpmux, peers, secs, style, keep, scratch_root=None):
+    tmp = tempfile.mkdtemp(prefix="cold-", dir=scratch_root)
     fleet = Fleet(acpmux, tmp, peers, style)
     try:
         fleet.start_far()
@@ -313,7 +314,9 @@ def cold_start(acpmux, peers, secs, style, keep):
             peak_daemon_rss = max(peak_daemon_rss, rss_kb(near.pid) or 0)
             if mark is None and now >= secs * 2 / 3:
                 mark = (now, cpu_of({near.pid} | mine))
-            if now - last_rpc >= 1:
+            # RPC row serialization is itself work.  Only sample connection state until all links are
+            # up (and at the end); the last third is a genuinely quiescent idle-cost window.
+            if now - last_rpc >= 1 and (all_up_at is None or now < secs * 2 / 3):
                 last_rpc = now
                 n_up, row = peers_up(fleet)
                 sample_row = sample_row or row
@@ -354,31 +357,70 @@ def cold_start(acpmux, peers, secs, style, keep):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-def timed_ssh(argv, hold=False, payload=b""):
-    """One ssh run to its end: (wall_s to the first answer byte or to the end, cpu_s of the process and what it reaped,
-    rss_kb of the idle tunnel when `hold`). The payload is sent first; no payload: wait for the end of output."""
+def timed_ssh(argv, hold=False, payload=b"", timeout=30):
+    """One checked ssh run: (wall_s to first byte/end, cpu_s, idle rss, user cpu).
+
+    The child is drained through a selector so a verbose or large response cannot deadlock the
+    probe.  A nonzero exit, missing first byte, or deadline is a failed sample.
+    """
     t = time.monotonic()
     pr = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     rss = None
-    if hold:
-        time.sleep(1.5)  # the login is done and the channel to the far port is open; nothing is sent
-        rss = rss_kb(pr.pid)
-        wall = time.monotonic() - t
-    elif payload:
-        pr.stdin.write(payload)
-        pr.stdin.flush()
-        pr.stdout.read1(1)
-        wall = time.monotonic() - t
-    else:
-        pr.stdout.read()
-        wall = time.monotonic() - t
     try:
+        if payload:
+            pr.stdin.write(payload)
+            pr.stdin.flush()
         pr.stdin.close()
-    except OSError:
-        pass
-    _, _, ru = os.wait4(pr.pid, 0)
-    pr.returncode = 0
-    return wall, ru.ru_utime + ru.ru_stime, rss, ru.ru_utime
+        if hold:
+            # Keep a successful tunnel alive long enough to sample its RSS, then end our own probe.
+            deadline = time.monotonic() + 1.5
+            while pr.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            rss = rss_kb(pr.pid)
+            if pr.poll() is None:
+                pr.terminate()
+            deadline = time.monotonic() + 2
+            while pr.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if pr.poll() is None:
+                pr.kill()
+        else:
+            selector = selectors.DefaultSelector()
+            selector.register(pr.stdout, selectors.EVENT_READ)
+            first_at = None
+            eof = False
+            while not eof:
+                remaining = t + timeout - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"ssh probe exceeded {timeout}s: {' '.join(argv)}")
+                events = selector.select(min(remaining, 0.25))
+                if not events:
+                    if pr.poll() is not None:
+                        break
+                    continue
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 1 << 16)
+                    if chunk:
+                        if first_at is None:
+                            first_at = time.monotonic()
+                    else:
+                        eof = True
+                        selector.unregister(key.fileobj)
+                        break
+            selector.close()
+            if payload and first_at is None:
+                raise RuntimeError(f"ssh probe returned no response: {' '.join(argv)}")
+            wall = (first_at or time.monotonic()) - t if payload else time.monotonic() - t
+    except BaseException:
+        if pr.poll() is None:
+            pr.kill()
+        os.wait4(pr.pid, 0)
+        raise
+    _, status, ru = os.wait4(pr.pid, 0)
+    exit_code = os.waitstatus_to_exitcode(status)
+    if not hold and exit_code != 0:
+        raise RuntimeError(f"ssh probe exited {exit_code}: {' '.join(argv)}")
+    return wall if not hold else time.monotonic() - t, ru.ru_utime + ru.ru_stime, rss, ru.ru_utime
 
 
 def phases(argv):
@@ -416,8 +458,22 @@ def with_opts(argv, extra):
     return argv[:1] + list(extra) + argv[1:]
 
 
-def handshake(acpmux, reps, style, real_host, keep):
-    tmp = tempfile.mkdtemp(prefix="peercost-hs-")
+def handshake_real_host(real_host, reps):
+    """Measure a real configured host without starting the Linux-only fake fleet."""
+    opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no",
+            "-o", "ControlPath=none", "-o", "ControlPersist=no"]
+    probe = b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    rows = [timed_ssh([SSH, *opts, "-W", f"127.0.0.1:{SSH_PEER_PORT_DEFAULT}", "--", real_host], payload=probe)
+            for _ in range(max(3, reps // 4))]
+    return {"real_host": {"client_cpu_ms_median": round(statistics.median(r[1] for r in rows) * 1000, 1),
+                           "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1),
+                           "n": len(rows)}}
+
+
+def handshake(acpmux, reps, style, real_host, keep, scratch_root=None):
+    if real_host and style == "plain":
+        return handshake_real_host(real_host, reps)
+    tmp = tempfile.mkdtemp(prefix="handshake-", dir=scratch_root)
     fleet = Fleet(acpmux, tmp, 1, style)
     try:
         fleet.start_far()
@@ -436,14 +492,16 @@ def handshake(acpmux, reps, style, real_host, keep):
         def batch(label, make, payload, first, extra=()):
             """A fresh alias per rep: each login is a first dial (its own key exchange, its own master)."""
             sshd0 = sshd_cpu()
+            masters_before = {p for p in fleet.ours(children_map()) if (stat_of(p) or NOSTAT)[3] == "ssh"} if style == "fleet" else set()
             rows = [timed_ssh(with_opts(make(f"peer{first + i:03d}"), extra), payload=payload) for i in range(reps)]
             time.sleep(0.5)
             masters = [p for p in fleet.ours(children_map()) if (stat_of(p) or NOSTAT)[3] == "ssh"] if style == "fleet" else []
             cpu = [r[1] for r in rows]
+            new_masters = set(masters) - masters_before
             out[label] = {"client_cpu_ms_median": round(statistics.median(cpu) * 1000, 1),
                           "client_cpu_ms_mean": round(statistics.mean(cpu) * 1000, 1),
                           "client_user_ms_median": round(statistics.median(r[3] for r in rows) * 1000, 1),
-                          "master_cpu_ms_per_login": round(cpu_of(masters) / reps * 1000, 1),
+                          "master_cpu_ms_per_login": round(cpu_of(new_masters) / reps * 1000, 1),
                           "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1),
                           "far_sshd_cpu_ms_per_login": round((sshd_cpu() - sshd0) / reps * 1000, 1)}
 
@@ -462,14 +520,6 @@ def handshake(acpmux, reps, style, real_host, keep):
             again = [timed_ssh(tun("peer001"), payload=probe) for _ in range(reps)]
             out["tunnel_login_via_live_master"] = {"client_cpu_ms_median": round(statistics.median(a[1] for a in again) * 1000, 1),
                                                     "wall_ms_median": round(statistics.median(a[0] for a in again) * 1000, 1)}
-        if real_host and style == "plain":
-            rt = [SSH, *opts, "-W", f"127.0.0.1:{SSH_PEER_PORT_DEFAULT}", "--", real_host]
-            try:
-                rows = [timed_ssh(rt, payload=probe) for _ in range(max(3, reps // 4))]
-                out["real_host"] = {"client_cpu_ms_median": round(statistics.median(r[1] for r in rows) * 1000, 1),
-                                    "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1), "n": len(rows)}
-            except Exception as e:  # noqa: BLE001 (a host that cannot be reached is a result)
-                out["real_host"] = {"error": str(e)}
         return out
     finally:
         fleet.stop()
@@ -487,23 +537,28 @@ def main():
     ap.add_argument("--style", choices=["plain", "fleet", "all"], default="all", help="the ssh config of the aliases")
     ap.add_argument("--real-host", help="handshake: also time ssh -W to this host of the machine's own ssh config")
     ap.add_argument("--keep", action="store_true", help="keep the scratch directories (logs, configs)")
+    ap.add_argument("--scratch-root", help="private directory owned by the caller for all scratch data")
     ap.add_argument("--out", help="write the JSON here as well")
     a = ap.parse_args()
     styles = ["plain", "fleet"] if a.style == "all" else [a.style]
     result = {}
+    scratch_root = a.scratch_root or tempfile.mkdtemp(prefix="peercost-run-")
+    os.makedirs(scratch_root, mode=0o700, exist_ok=True)
+    failures = []
 
     def stage(name, fn, *args):
         """One stage's result, or its failure as a result: one broken style does not lose the others' numbers."""
         try:
             result[name] = fn(*args)
-        except BaseException as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             result[name] = {"error": f"{type(e).__name__}: {e}"}
+            failures.append(name)
         return result[name]
 
     if a.mode in ("cold-start", "both"):
-        base = stage("cold_start_baseline_0_peers", cold_start, a.acpmux, 0, min(a.secs, 15), "plain", a.keep)
+        base = stage("cold_start_baseline_0_peers", cold_start, a.acpmux, 0, a.secs, "plain", a.keep, scratch_root)
         for st in styles:
-            r = stage(f"cold_start_{st}", cold_start, a.acpmux, a.peers, a.secs, st, a.keep)
+            r = stage(f"cold_start_{st}", cold_start, a.acpmux, a.peers, a.secs, st, a.keep, scratch_root)
             if a.peers and "error" not in r and "error" not in base:
                 r["per_peer"] = {
                     "total_cpu_ms": round((r["total_cpu_s_near"] - base["total_cpu_s_near"]) / a.peers * 1000, 1),
@@ -512,7 +567,7 @@ def main():
                 }
     if a.mode in ("handshake", "both"):
         for st in styles:
-            stage(f"handshake_{st}", handshake, a.acpmux, a.reps, st, a.real_host, a.keep)
+            stage(f"handshake_{st}", handshake, a.acpmux, a.reps, st, a.real_host, a.keep, scratch_root)
     rows = []
     for st in styles:
         cs = result.get(f"cold_start_{st}")
@@ -529,7 +584,12 @@ def main():
     if a.out:
         json.dump(result, open(a.out, "w"), indent=1)
     print(json.dumps({"rows": rows}))
+    if failures:
+        print(f"peer-cost: failed stages: {', '.join(failures)}", file=sys.stderr)
+    if not a.keep and not a.scratch_root:
+        shutil.rmtree(scratch_root, ignore_errors=True)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
