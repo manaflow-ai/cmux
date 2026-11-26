@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chiefReply } from "./cloud-chief-start-check";
+import { chiefReply, chiefStartAuth } from "./cloud-chief-start-check";
 
 const row = (id: string, text: string, author = "chief") => ({
   row: { id, author, parts: [{ type: "text", text }] },
@@ -40,4 +40,30 @@ test("only a fresh reply from the Chief proves the turn", async () => {
     row("new", "again"),
   );
   expect(reply?.text).toBe("again");
+});
+
+test("SR2 uses the default CodeRouter route without reading or sending a Claude secret", () => {
+  const auth = chiefStartAuth({
+    CHIEF_START_AUTH: "sr2",
+    ANTHROPIC_API_KEY: "should-not-be-read",
+    CLAUDE_CODE_OAUTH_TOKEN: "should-not-be-read",
+  });
+  expect(auth).toEqual({ mode: "sr2", turnTail: "" });
+});
+
+test("owner mode keeps API-key preference and OAuth fallback", () => {
+  expect(chiefStartAuth({ ANTHROPIC_API_KEY: "api", CLAUDE_CODE_OAUTH_TOKEN: "oauth" })).toEqual({
+    mode: "owner",
+    secret: "api",
+    turnTail: JSON.stringify({ env: { ANTHROPIC_API_KEY: "api" } }),
+  });
+  expect(chiefStartAuth({ CLAUDE_CODE_OAUTH_TOKEN: "oauth" })).toEqual({
+    mode: "owner",
+    secret: "oauth",
+    turnTail: JSON.stringify({ env: { CLAUDE_CODE_OAUTH_TOKEN: "oauth" } }),
+  });
+});
+
+test("owner mode still fails when no Claude credential is available", () => {
+  expect(() => chiefStartAuth({})).toThrow(/ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN/);
 });

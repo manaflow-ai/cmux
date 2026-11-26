@@ -20,8 +20,9 @@
  *   8. finally: archive the Chief, revoke the install, delete the machine.
  *
  * Usage: bun scripts/cmux-next/cloud-chief-start-check.ts --call PATH --binary PATH [--target staging] [--out DIR] [--run ID]
- * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional), and the Claude login the
- * start sends as its stdin tail (ANTHROPIC_API_KEY, else CLAUDE_CODE_OAUTH_TOKEN), as the Mac app sends the owner's.
+ * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional), and either
+ * CHIEF_START_AUTH=sr2 for the default team CodeRouter route or (the default) the Claude login the start sends as
+ * its stdin tail (ANTHROPIC_API_KEY, else CLAUDE_CODE_OAUTH_TOKEN), as the Mac app sends the owner's.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -101,6 +102,25 @@ const REPLY_DEADLINE_MS = 240_000;
 const rowText = (m: any): string =>
   (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
 
+export type ChiefStartAuth =
+  | { mode: "sr2"; turnTail: "" }
+  | { mode: "owner"; turnTail: string; secret: string };
+
+/** Select the model route without ever reading an owner secret in SR2 mode. */
+export function chiefStartAuth(env: Record<string, string | undefined>): ChiefStartAuth {
+  const mode = (env.CHIEF_START_AUTH ?? "owner").trim().toLowerCase();
+  if (mode === "sr2") return { mode: "sr2", turnTail: "" };
+  if (mode !== "owner") throw new Error(`CHIEF_START_AUTH must be "owner" or "sr2", got ${JSON.stringify(mode)}`);
+  const apiKey = (env.ANTHROPIC_API_KEY ?? "").trim();
+  const token = apiKey || (env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
+  if (!token) throw new Error("ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required (never a skip): the Chief answers with it");
+  return {
+    mode: "owner",
+    secret: token,
+    turnTail: JSON.stringify({ env: { [apiKey ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"]: token } }),
+  };
+}
+
 /** Wait for a fresh, exact echo or the Chief's turn failure (which can follow a partial reply). */
 export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number, secrets: string[] = []): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
@@ -154,12 +174,9 @@ async function main(): Promise<number> {
   if (outDir) mkdirSync(outDir, { recursive: true });
   const J = new Journey(backend, outDir, { check: "cloud-chief-start", run });
   J.secrets.push(password);
-  // The owner's Claude login the app sends with the start (CloudSetup's credential): here the journey's own.
-  const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
-  const token = apiKey || (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
-  if (!token) throw new Error("ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required (never a skip): the Chief answers with it");
-  J.secrets.push(token);
-  const turnTail = JSON.stringify({ env: { [apiKey ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"]: token } });
+  const auth = chiefStartAuth(process.env);
+  if (auth.mode === "owner") J.secrets.push(auth.secret);
+  const turnTail = auth.turnTail;
   const team = process.env.PRODUCT_TEAM || undefined;
   const api = new Api(backend.api, team);
   const key = `t${run}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 48);
@@ -213,14 +230,22 @@ async function main(): Promise<number> {
       const row = m?.machine ?? m;
       if (row?.keep !== true) throw new Error(`keep is ${JSON.stringify(row?.keep)}`);
       if (row?.idle_policy?.idle_seconds !== 180) throw new Error(`idle_policy is ${JSON.stringify(row?.idle_policy ?? null)}, not idle_seconds 180`);
-      if (a.turn_credential !== "changed") throw new Error(`turn_credential is ${JSON.stringify(a.turn_credential ?? null)}, not "changed": the first start writes it`);
+      if (auth.mode === "owner") {
+        if (a.turn_credential !== "changed") throw new Error(`turn_credential is ${JSON.stringify(a.turn_credential ?? null)}, not "changed": the first start writes it`);
+      } else if (a.turn_credential !== undefined) {
+        throw new Error(`SR2 start unexpectedly returned turn_credential ${JSON.stringify(a.turn_credential)}`);
+      }
       return { value: a, detail: `chief ${a.chief}, conversation ${a.conversation}, install ${a.install}, unit ${a.host_unit}` };
     });
     const startSeconds = Math.round((Date.now() - t0) / 1000);
     await J.step("chief_start a third time: the same machine and Chief", async () => {
       const a = await start();
       if (a.machine !== machine || a.chief !== done.chief) throw new Error(`a second machine or Chief: ${JSON.stringify(a)}`);
-      if (a.turn_credential !== "same") throw new Error(`turn_credential is ${JSON.stringify(a.turn_credential ?? null)}, not "same": an unchanged credential must not restart the host`);
+      if (auth.mode === "owner") {
+        if (a.turn_credential !== "same") throw new Error(`turn_credential is ${JSON.stringify(a.turn_credential ?? null)}, not "same": an unchanged credential must not restart the host`);
+      } else if (a.turn_credential !== undefined) {
+        throw new Error(`SR2 start unexpectedly returned turn_credential ${JSON.stringify(a.turn_credential)}`);
+      }
       const rows = await listAllMachines((p) => api.read("cloud.machine.list", p));
       const same = rows.filter((r) => r?.name === machineName && r.status !== "deleted" && r.status !== "deleting");
       if (same.length !== 1) throw new Error(`${same.length} machines named ${machineName}`);
@@ -238,7 +263,7 @@ async function main(): Promise<number> {
       if (row?.brain_place?.install !== install) throw new Error(`chief ${chief} is not placed on ${install}: ${JSON.stringify(row?.brain_place ?? null)}`);
       return { value: null, detail: `active, pid ${b.MainPID}, restarts ${b.NRestarts}; ${chief} placed on ${install}` };
     });
-    await J.step("the turn credential is root's alone and the unit reads it", async () => {
+    if (auth.mode === "owner") await J.step("the turn credential is root's alone and the unit reads it", async () => {
       // Facts only, never the file's content: owner and mode of the file and its folder, the stage gone, the line in the unit.
       const out = await must(exec, asRoot(`stat -c '%U %a' /run/cmux-chief /run/cmux-chief/turn.env; test ! -e /dev/shm/cmux-chief-turn.env.stage && echo stage-gone; systemctl cat cmux-chief.service | grep -cxF 'EnvironmentFile=-/run/cmux-chief/turn.env'; grep -c '^OPTCHAT_CHIEF_TURN_CREDENTIALS=1$' /run/cmux-chief/turn.env`));
       const lines = out.split("\n").map((l) => l.trim());
