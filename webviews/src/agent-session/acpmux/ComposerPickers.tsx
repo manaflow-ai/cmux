@@ -1024,7 +1024,12 @@ export function ComposerPickers({
   // level there (cloudStartMode): this Mac's answer for the agent the machine runs tells that level,
   // never the mode itself, which is the machine's harness's (cloud-ergo-start-chat).
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud;
-  const asksStart = awaiting && local && modes.length === 0;
+  // The access chip waits on the chat's modes, not on its session id: a session acpmux attached
+  // reports its id before its modes (`summary.modes` absent), and dropping the start mode in that
+  // gap blanked the chip between "Bypass permissions" and the reported mode (Leo 2026-11-26: "the
+  // bypass permissions appears then disappears after it loaded in").
+  const modesAwaited = modes.length === 0 && (awaiting || (chipHarness !== undefined && !switching && !summary?.modes));
+  const asksStart = modesAwaited && local;
   const chipCatalogEntry = snapshot.catalog.find((entry) => entry.id === chipHarness);
   const chipFamily = summary?.family ?? chipCatalogEntry?.family;
   // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
@@ -1124,8 +1129,7 @@ export function ComposerPickers({
     harnessFamilyMenu(chipFamily, chipHarness) !== undefined ||
     !!startAnswer?.modeId;
   const modeless =
-    awaiting &&
-    modes.length === 0 &&
+    modesAwaited &&
     ((profileModes?.modeless ?? chipCatalogEntry?.modeless) === true || (chipCatalogEntry !== undefined && !someModes));
   // A harness whose modes acpmux knows only from its harness row (`reported`: its startup probe, or
   // a chat of it this daemon ran, such as Antigravity's) and where acpmux sets no start mode (it has
@@ -1148,7 +1152,7 @@ export function ComposerPickers({
       : (startAnswer ??
         (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
         ownStart ??
-        (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined)));
+        (modesAwaited ? MODE_PLACEHOLDER : undefined)));
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.

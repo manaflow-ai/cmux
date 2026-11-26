@@ -179,4 +179,5 @@ enum AgentPaneHandshakeReply {
         guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
-    }}
+    }
+}
