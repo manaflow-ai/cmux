@@ -57,6 +57,14 @@ async function decidedByHost(host: Device, viewer: Device) {
   return { sid, vt, ht };
 }
 
+/** The viewer asks for a share its stored permission allows: approved at once with its own session (a billing read). */
+async function viewedOnce(host: Device, viewer: Device) {
+  const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+  expect(res.json.session?.state, JSON.stringify(res.json)).toBe("approved");
+  const sid = res.json.session.id as string;
+  return viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+}
+
 describe("a session's relay follows its viewer's billing answer", () => {
   it("paid viewer, joined machine host: the relay on both ends, approved by the host or not", async () => {
     const account = await person("pro");
@@ -217,9 +225,8 @@ describe("a session's relay follows its viewer's billing answer", () => {
     await viewer.register();
     await viewer.connect();
     // The person's app read billing once (an earlier share); the push itself has no Stack token.
-    const first = await decidedByHost(host, viewer);
-    expect(first.vt.ice).toEqual(TURN);
-    expect((await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" })).status).toBe(200);
+    const first = await viewedOnce(host, viewer);
+    expect(first.ice).toEqual(TURN);
     const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const sid = res.json.session.id as string;
@@ -235,8 +242,7 @@ describe("a session's relay follows its viewer's billing answer", () => {
     const viewer = await Device.create(account, "Laptop", "macos");
     await viewer.register();
     await viewer.connect();
-    await decidedByHost(host, viewer);
-    expect((await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" })).status).toBe(200);
+    expect((await viewedOnce(host, viewer)).ice).toEqual([]);
     const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const sid = res.json.session.id as string;
