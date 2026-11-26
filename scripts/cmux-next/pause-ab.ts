@@ -200,7 +200,7 @@ export type MachineResult = {
   seed: number;
   gaps_s: number[];
   turns_ok: number;
-  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null; report?: string | null }[];
+  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; wait_note?: string; kept?: string | null; listeners?: string | null; report?: string | null }[];
   /** The host's idle decision after the tail (idleHeldBy), read without touching the guest. */
   tail_kept: string | null;
   /** GUEST_RESOLVER_FACTS on the first exec that answered after a failed one, and at the end. */
@@ -272,6 +272,46 @@ export function markdownTable(rows: ArmRow[]): string {
 }
 
 /** The pair numbers in order, each with its machines (one per arm): the drill brings pairs up one after another. */
+/** The guest's `acp wait; acp last; @@werr` output: wait's exit code, the last reply, wait's stderr tail. */
+export function parseWaitOutput(stdout: string): { code: string | undefined; text: string; werr: string } {
+  const code = /@@wait (\d+)/.exec(stdout)?.[1];
+  const werrAt = stdout.lastIndexOf("@@werr");
+  const werr = werrAt >= 0 ? stdout.slice(werrAt + 6).trim() : "";
+  const body = werrAt >= 0 ? stdout.slice(0, werrAt) : stdout;
+  return { code, text: body.replace(/@@wait \d+\n?/, "").trim(), werr };
+}
+
+/** The status `acp --json history` lists for the turn whose prompt starts with MARKER, or null. */
+export function historyTurnStatus(stdout: string, marker: string): string | null {
+  try {
+    const turns: any[] = JSON.parse(stdout.slice(stdout.indexOf("{"))).turns ?? [];
+    const t = turns.find((x) => typeof x?.prompt === "string" && x.prompt.startsWith(marker));
+    return typeof t?.status === "string" ? t.status : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Turn states that still owe a reply; any other listed status means the turn ended. */
+const TURN_UNFINISHED = new Set(["running", "queued", "pending", "starting", "waiting"]);
+
+/**
+ * What one `acp wait` round means for a turn. Exit 0 with a reply is the reply. Exit 3 is wait's
+ * own 20 s timeout: wait again. Any other exit (run 45869919450: exit 1 after a resume, with the
+ * right reply already written) is a reply only when history lists this turn as ended and the
+ * reply carries the stub nonce; else it is retried up to 3 times, then the turn fails with wait's stderr.
+ */
+export function waitVerdict(a: { code: string | undefined; text: string; werr: string; turnStatus: string | null; nonce: string; waitFails: number }):
+  { kind: "reply"; note?: string } | { kind: "again" } | { kind: "retry" } | { kind: "fail"; error: string } {
+  const hasNonce = a.text.includes(`Stub reply ${a.nonce}.`);
+  if (a.code === "0" && a.text) return hasNonce ? { kind: "reply" } : { kind: "fail", error: `reply lacks the stub nonce: ${a.text.slice(-160)}` };
+  if (!a.code || a.code === "0" || a.code === "3") return { kind: "again" };
+  const why = `acp wait exit ${a.code}${a.werr ? `: ${a.werr.slice(-200)}` : ""}`;
+  if (hasNonce && a.turnStatus && !TURN_UNFINISHED.has(a.turnStatus)) return { kind: "reply", note: `${why}; history lists the turn ${a.turnStatus}` };
+  if (a.waitFails < 3) return { kind: "retry" };
+  return { kind: "fail", error: `${why}; turn ${a.turnStatus ?? "not listed"}; last: ${a.text.slice(-160)}` };
+}
+
 export function pairsOf<T extends { pair: number }>(results: T[]): { pair: number; machines: T[] }[] {
   return [...new Set(results.map((r) => r.pair))].sort((a, b) => a - b).map((pair) => ({ pair, machines: results.filter((r) => r.pair === pair) }));
 }
@@ -604,7 +644,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error("did not resume within 180 s");
     };
-    const awaitReply = async (marker: string) => {
+    const awaitReply = async (marker: string, turn: MachineResult["turns"][number]) => {
       const t0 = Date.now();
       // The reply is read only once acp history lists this turn's prompt (send --no-wait returns before the turn starts).
       while (Date.now() - t0 < 180_000) {
@@ -614,15 +654,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (listed.some((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker))) break;
         await sleep(1_000);
       }
+      let waitFails = 0;
       while (Date.now() - t0 < 240_000) {
-        const w = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
-        const code = /@@wait (\d+)/.exec(w.stdout)?.[1];
-        const text = w.stdout.replace(/@@wait \d+\n?/, "").trim();
-        if (code === "0" && text) {
-          if (!text.includes(`Stub reply ${nonce}.`)) throw new Error(`reply lacks the stub nonce: ${text.slice(-160)}`);
+        // stderr of `acp wait` is kept (after @@werr) so a non-zero exit says why.
+        const w = await exec(`${GUEST}we=$("$c" acp wait ${shq(session)} --timeout 20 2>&1 >/dev/null); echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; printf '\\n@@werr %s\\n' "$(printf %s "$we" | tail -c 300 | tr '\\n' ' ')"`, 45_000);
+        const { code, text, werr } = parseWaitOutput(w.stdout);
+        let turnStatus: string | null = null;
+        if (code && code !== "0" && code !== "3") {
+          const h = await exec(`${GUEST}"$c" acp --json history ${shq(session)} --limit 5 2>&1`, 45_000).catch(() => null);
+          turnStatus = h ? historyTurnStatus(h.stdout, marker) : null;
+        }
+        const v = waitVerdict({ code, text, werr, turnStatus, nonce, waitFails });
+        if (v.kind === "reply") {
+          if (v.note) turn.wait_note = v.note;
           return Date.now() - t0;
         }
-        if (code && code !== "0" && code !== "3") throw new Error(`acp wait exit ${code}: ${text.slice(-200)}`);
+        if (v.kind === "fail") throw new Error(v.error);
+        if (v.kind === "retry") { waitFails++; await sleep(2_000); }
       }
       throw new Error("no reply within 240 s");
     };
@@ -646,7 +694,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           stubPort = 0;
           if (!/@@exit 0/.test(s.stdout)) throw new Error(`send: ${s.stdout.slice(-300)}`);
         }
-        turn.reply_ms = await awaitReply(marker);
+        turn.reply_ms = await awaitReply(marker, turn);
         r.turns_ok++;
       } catch (e) {
         turn.error = String((e as Error)?.message ?? e).slice(0, 300);

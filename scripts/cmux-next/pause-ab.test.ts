@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -280,5 +280,40 @@ describe("missingCapability", () => {
       { arm: "aggressive", name: "a1", capabilities: null, daemon_version: null },
     ]);
     expect(out).toEqual(["t1: arm turn_end needs activity-turn-end, guest daemon 1.0.0+67d01201b152 advertised activity,activity-turns"]);
+  });
+});
+
+describe("waitVerdict (run 45869919450: acp wait exit 1 after a resume, right reply written)", () => {
+  const nonce = "f972a7befbec";
+  const reply = `Stub reply ${nonce}. The tool printed ${nonce}-tool`;
+  test("parseWaitOutput splits exit code, reply and stderr", () => {
+    const p = parseWaitOutput(`@@wait 1\n${reply}\n\n@@werr daemon reconnect: socket closed \n`);
+    expect(p).toEqual({ code: "1", text: reply, werr: "daemon reconnect: socket closed" });
+  });
+  test("historyTurnStatus finds the marker's turn", () => {
+    const h = `noise {"turns":[{"prompt":"[pab t turn 1] Run","status":"done"},{"prompt":"[pab t turn 2] Run","status":"running"}]}`;
+    expect(historyTurnStatus(h, "[pab t turn 1]")).toBe("done");
+    expect(historyTurnStatus(h, "[pab t turn 2]")).toBe("running");
+    expect(historyTurnStatus(h, "[pab t turn 3]")).toBeNull();
+    expect(historyTurnStatus("not json", "[pab t turn 1]")).toBeNull();
+  });
+  test("exit 0 with the nonce is a reply; without it a failure", () => {
+    expect(waitVerdict({ code: "0", text: reply, werr: "", turnStatus: null, nonce, waitFails: 0 })).toEqual({ kind: "reply" });
+    expect(waitVerdict({ code: "0", text: "other", werr: "", turnStatus: null, nonce, waitFails: 0 }).kind).toBe("fail");
+  });
+  test("exit 3 waits again", () => {
+    expect(waitVerdict({ code: "3", text: reply, werr: "", turnStatus: "running", nonce, waitFails: 9 })).toEqual({ kind: "again" });
+  });
+  test("exit 1 with the turn ended and the nonce is a reply with a note", () => {
+    const v = waitVerdict({ code: "1", text: reply, werr: "socket closed", turnStatus: "done", nonce, waitFails: 0 });
+    expect(v).toEqual({ kind: "reply", note: "acp wait exit 1: socket closed; history lists the turn done" });
+  });
+  test("exit 1 with the turn still running retries 3 times, then fails with stderr", () => {
+    const a = { code: "1", text: reply, werr: "socket closed", turnStatus: "running", nonce };
+    expect(waitVerdict({ ...a, waitFails: 0 }).kind).toBe("retry");
+    expect(waitVerdict({ ...a, waitFails: 2 }).kind).toBe("retry");
+    const f = waitVerdict({ ...a, waitFails: 3 });
+    expect(f.kind).toBe("fail");
+    expect(f.kind === "fail" && f.error).toContain("socket closed; turn running");
   });
 });
