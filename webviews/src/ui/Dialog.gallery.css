@@ -1,6 +1,6 @@
 .dialog-gallery-popup {
   box-sizing: border-box;
-  padding: var(--ds-space-fixed-4, 16px) 20px;
+  padding: var(--ds-space-fixed-4) 20px;
   border-radius: var(--ui-popup-radius, 8px);
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
@@ -8,12 +8,12 @@
 }
 
 .dialog-gallery-title {
-  margin: 0 0 var(--ds-space-fixed-1, 4px);
+  margin: 0 0 var(--ds-space-fixed-1);
   font-size: var(--text-title);
   font-weight: 600;
 }
 
 .dialog-gallery-description {
-  margin: 0 0 var(--ds-space-fixed-3, 12px);
+  margin: 0 0 var(--ds-space-fixed-3);
   color: var(--cmux-text-secondary, GrayText);
 }

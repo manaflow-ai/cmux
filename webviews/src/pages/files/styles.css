@@ -10,7 +10,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 
 .files-header {
   flex: none;
-  padding: 10px var(--ds-space-fixed-3, 12px) 6px;
+  padding: 10px var(--ds-space-fixed-3) 6px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -24,7 +24,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 }
 
 .files-tree {
-  padding: 0 6px var(--ds-space-fixed-3, 12px);
+  padding: 0 6px var(--ds-space-fixed-3);
   outline: none;
 }
 
@@ -86,7 +86,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 
 .files-message {
   margin: 0;
-  padding: var(--ds-space-fixed-4, 16px) var(--ds-space-fixed-3, 12px);
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-3);
 }
 
 .files-muted { color: var(--page-text-3); }
@@ -95,6 +95,6 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 .files-notice {
   flex: none;
   margin: 0;
-  padding-inline: var(--ds-space-fixed-3, 12px);
+  padding-inline: var(--ds-space-fixed-3);
   border-top: 1px solid var(--page-separator);
 }
