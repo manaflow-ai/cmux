@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "notifications.sound.refusal.silent" : {
+      "comment" : "Preview Notification Sound refused: the workspace's notifications are muted at some level",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا تصدر الإشعارات هنا صوتًا: مستوى أعلى يكتمها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obavještenja ovdje nemaju zvuk: viši nivo ih utišava."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Notifikationer her har ingen lyd: et niveau over slår dem fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mitteilungen hier spielen keinen Ton: eine höhere Ebene schaltet sie stumm."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notifications here play no sound: a level above mutes them."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las notificaciones aquí no suenan: un nivel superior las silencia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les notifications ici ne jouent aucun son : un niveau supérieur les coupe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le notifiche qui non hanno suono: un livello superiore le silenzia."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ここでの通知はサウンドを鳴らしません。上位のレベルでミュートされています。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជូនដំណឹងនៅទីនេះមិនបន្លឺសំឡេងទេ៖ កម្រិតខាងលើបិទសំឡេងវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "여기의 알림은 사운드가 없습니다. 상위 수준에서 음소거되었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Varsler her spiller ingen lyd: et nivå over demper dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiadomienia tutaj nie odtwarzają dźwięku: wyższy poziom je wycisza."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As notificações aqui não tocam som: um nível acima as silencia."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомления здесь без звука: его отключает уровень выше."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การแจ้งเตือนที่นี่ไม่มีเสียง: ระดับที่สูงกว่าปิดเสียงไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Buradaki bildirimler ses çalmıyor: üst bir düzey onları sessize alıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сповіщення тут без звуку: його вимикає рівень вище."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông báo ở đây không phát âm thanh: một cấp phía trên đã tắt tiếng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此处的通知不播放声音：上层级已将其静音。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此處的通知不播放聲音：上層級已將其靜音。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
