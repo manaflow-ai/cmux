@@ -234,10 +234,6 @@
       "kind": "publish",
       "why": "puts the Stripe test key and reported teams on the cmux-platform Workers; a deploy of secrets, no verdict about a change"
     },
-    "platform-coderouter-edge-secret.yml": {
-      "kind": "publish",
-      "why": "a probe of the live cmux-platform Workers' secrets, started by an edit of its own file or a dispatch; no verdict about a change"
-    },
     "whats-new-gallery.yml": {
       "kind": "publish",
       "why": "publishes the What's New gallery pictures"
