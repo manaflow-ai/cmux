@@ -165,7 +165,12 @@ fn a_move_to_another_group_takes_the_macs_index() {
 }
 
 fn named(id: &str, name: &str, color: Option<&str>, collapsed: bool, index: i64) -> PhoneWorkspaceGroup {
-    PhoneWorkspaceGroup { name: name.into(), color: color.map(Into::into), is_collapsed: collapsed, ..group(id, index, None) }
+    PhoneWorkspaceGroup {
+        name: name.into(),
+        color: color.map(Into::into),
+        is_collapsed: collapsed,
+        ..group(id, index, None)
+    }
 }
 
 #[test]
@@ -187,7 +192,11 @@ fn many_groups_and_rows_keep_the_mixed_order() {
 
 #[test]
 fn own_groups_skip_groups_with_other_sessions_rows() {
-    let rows = vec![row("me", "a", 0, Some("mine")), row("other", "x", 1, Some("shared")), row("me", "b", 2, Some("shared"))];
+    let rows = vec![
+        row("me", "a", 0, Some("mine")),
+        row("other", "x", 1, Some("shared")),
+        row("me", "b", 2, Some("shared")),
+    ];
     let groups = vec![group("shared", 0, None), group("empty", 2, None), group("mine", 1, None)];
     let own = workspace_group_own(rows, groups.clone(), "me".into());
     let own: Vec<&str> = own.iter().map(|&i| groups[i as usize].id.as_str()).collect();
@@ -229,8 +238,17 @@ fn names_trim_and_fall_back() {
 
 #[test]
 fn shown_groups_are_first_occurrences_in_sidebar_order() {
-    let r = |i: Option<i64>, g: Option<&str>| WorkspaceGroupShownRow { sidebar_index: i, group: g.map(Into::into) };
-    let rows = vec![r(Some(3), Some("b")), r(None, Some("c")), r(Some(1), Some("a")), r(Some(0), None), r(Some(2), Some("b"))];
+    let r = |i: Option<i64>, g: Option<&str>| WorkspaceGroupShownRow {
+        sidebar_index: i,
+        group: g.map(Into::into),
+    };
+    let rows = vec![
+        r(Some(3), Some("b")),
+        r(None, Some("c")),
+        r(Some(1), Some("a")),
+        r(Some(0), None),
+        r(Some(2), Some("b")),
+    ];
     assert_eq!(workspace_group_shown(rows), [2, 4, 1]);
 }
 
@@ -238,8 +256,13 @@ fn shown_groups_are_first_occurrences_in_sidebar_order() {
 fn fold_changes_for_collapse_others_and_all() {
     let f = |id: &str, c: bool| WorkspaceGroupFold { id: id.into(), collapsed: c };
     let shown = vec![f("a", true), f("b", false), f("c", true)];
-    assert_eq!(workspace_group_fold_changes(shown.clone(), Some("a".into()), true), [f("a", false), f("b", true)]);
-    assert!(workspace_group_fold_changes(vec![f("a", false), f("b", true)], Some("a".into()), true).is_empty());
+    assert_eq!(
+        workspace_group_fold_changes(shown.clone(), Some("a".into()), true),
+        [f("a", false), f("b", true)]
+    );
+    assert!(
+        workspace_group_fold_changes(vec![f("a", false), f("b", true)], Some("a".into()), true).is_empty()
+    );
     assert_eq!(workspace_group_fold_changes(shown.clone(), None, true), [f("b", true)]);
     assert_eq!(workspace_group_fold_changes(shown, None, false), [f("a", false), f("c", false)]);
 }
