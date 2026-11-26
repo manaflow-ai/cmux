@@ -245,3 +245,11 @@ name = "auto-session-snapshot-manifest"
 about = "an Auto move's snapshot manifest (the chat's chunk lists), uploaded to the store for the receiving machine"
 policy = "rebuild"
 why = "the sender builds it fresh from the live chat on every move; a manifest of another version is refused (chunks.rs validate) and the chat stays on its machine until the next move sends a new one"
+
+[[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "customize-doctor-state"
+about = "which customize doctor findings were announced or dismissed, by id and fingerprint"
+policy = "rebuild"
+why = "notice bookkeeping, not work: another version that cannot read it announces each current finding once more, and the findings themselves are recomputed from the customization files, which stay"
