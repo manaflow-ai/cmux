@@ -44,11 +44,13 @@ extension AgentPaneNavigation {
     /// scheme or a build's `cmux-…` one, a workspace, pane, tab, session, Chief or agent host, and no user
     /// name, password or port. The app parses the ids again (DeepLink.parse) and opens nothing else.
     /// The pane's own scheme (`cmux-agent://pane/…`, its page and media) is never one (media-safety R7).
+    /// A Settings link (`cmux://settings/connections/github`) is one, so the link an agent hands the
+    /// person opens that setting in the window's Settings tab (ask-073fa3e7ff: "just give me the link").
     nonisolated static func isCmuxAppLink(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "cmux" || scheme.hasPrefix("cmux-"),
               scheme != AgentPaneSource.bundledScheme,
               url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }
-        return ["workspace", "pane", "tab", "session", "chief", "agent", "group"].contains(host)
+        return ["workspace", "pane", "tab", "session", "chief", "agent", "group", "settings"].contains(host)
     }
 }

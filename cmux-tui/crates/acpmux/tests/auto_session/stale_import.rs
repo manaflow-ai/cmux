@@ -168,10 +168,13 @@ async fn an_import_the_store_still_stands_behind_activates_once() {
     })
     .await;
     until("the chat runs here", || rig.hub.resolve(&id).unwrap().moving().is_none()).await;
-    // The prompt that waited runs once, now that the chat is this laptop's; nothing else does.
+    // The turn this laptop left open was settled nowhere (the machine handed the chat back as
+    // it got it), so it goes on here once, told that the chat moved (`CutBy::Move`). Then the
+    // prompt that waited runs once, now that the chat is this laptop's. Nothing else does.
     tokio::time::sleep(Duration::from_millis(800)).await;
     let before = rig.prompts_at_agent();
-    assert_eq!(before, agent_before + 1, "the waiting prompt ran once, not twice or never");
+    let ran = "the open turn's continuation and the waiting prompt ran once each";
+    assert_eq!(before, agent_before + 2, "{ran}, not twice or never");
     rig.prompt_once_running(&id, "hello").await;
     assert_eq!(rig.prompts_at_agent(), before + 1, "one prompt, one start");
 }

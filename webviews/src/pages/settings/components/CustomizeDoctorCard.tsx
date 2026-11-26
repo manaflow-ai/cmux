@@ -21,7 +21,7 @@ import {
   asksFirst,
   doctorShown,
   doctorTreatment,
-  openFindings,
+  openProblems,
   orderedFindings,
   removeName,
   runnableFixes,
@@ -37,7 +37,7 @@ export type DoctorAsking = { finding: string; fix: "remove" | "restore" } | { re
 
 /** The card's gestures. */
 export type DoctorActions = {
-  /** A fix button: `open`, `off` and `follow-default` run at once; `remove` and `restore` ask first. */
+  /** A fix button: `open` and `off` run at once; `remove` and `restore` ask first. */
   onFix: (finding: DoctorFinding, fix: DoctorFix) => void;
   onDismiss: (id: string) => void;
   /** Recover…: asks first. */
@@ -90,7 +90,6 @@ export function CustomizeDoctorCard({ focus = null }: { focus?: string | null })
       if (asked && asksFirst(fix)) setAsking({ finding: finding.id, fix: asked });
       else if (fix.kind === "open") void run({ verb: "doctor-open", id: finding.id });
       else if (fix.kind === "off") void run({ verb: "doctor-fix", id: finding.id, fix: "off" });
-      else if (fix.kind === "follow-default") void run({ verb: "doctor-fix", id: finding.id, fix: "follow-default" });
     },
     onDismiss: (id) => void run({ verb: "doctor-dismiss", id }),
     onRecover: () => setAsking({ recover: true }),
@@ -358,7 +357,7 @@ export function DoctorNotice({
   onRecover?: () => void;
 }) {
   const line = report?.line ?? null;
-  const count = openFindings(report).length;
+  const count = openProblems(report).length;
   if (!line || count === 0) return null;
   const recover = report?.recover ? onRecover : undefined;
   if (treatment === "banner") {

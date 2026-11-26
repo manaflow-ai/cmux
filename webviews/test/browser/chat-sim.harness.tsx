@@ -17,7 +17,7 @@ import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { playbackAt, playbackWindow } from "../../src/agent-session/acpmux/sim/playback";
-import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { runSimulationAsync, type SimResult, createSimulation } from "../../src/agent-session/acpmux/sim/run";
 import { runLayoutCase } from "./layoutCaseRunner";
 import { watchChurn, type ChurnReport } from "./chatChurnWatch";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
@@ -89,10 +89,19 @@ async function measure(rows: readonly AcpmuxRow[], working: boolean, sends: numb
   return rows.map((row) => boxes.get(row.id));
 }
 
+const FIXTURES = import.meta.glob<string>("../fixtures/chat-sim/*.ndjson", { query: "?raw", import: "default" });
+
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
+  }
+  // `fixture/NAME` replays test/fixtures/chat-sim/NAME.ndjson (a sanitized chat, `--sanitize`).
+  const fixture = /^fixture\/([\w.-]+)$/.exec(name);
+  if (fixture) {
+    const load = FIXTURES[`../fixtures/chat-sim/${fixture[1]}.ndjson`];
+    if (!load) throw new Error(`no fixture ${fixture[1]}`);
+    return replayScenario(fixture[1]!, parseRecords(await load()));
   }
   // `file:PATH` (the churn lane): a recorded chat the dev server serves from under webviews/.
   if (name.startsWith("file:")) {

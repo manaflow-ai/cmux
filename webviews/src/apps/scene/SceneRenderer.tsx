@@ -11,14 +11,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Spinner } from "../../kit";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
 import { SceneParticles } from "./SceneParticles";
-import { loopStyle, trimRange } from "./motionProps";
+import { loopStyle, sceneTransitionKind, sceneTransitionVars, trimRange } from "./motionProps";
 import {
   SceneAppeared,
   SceneLeavingContext,
@@ -553,6 +553,11 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     Object.assign(style, loop.vars);
     if (loop.effect === "breathe" && style.opacity !== undefined) style["--scene-opacity"] = String(style.opacity);
   }
+  // `{kind, motion}`: the transition's own timing in place of the motion scale's steps (scene.css).
+  if (props.transition !== undefined && typeof props.transition !== "string" && typeof document !== "undefined") {
+    const timed = sceneTransitionVars(props.transition, currentMotionEnv(document), document);
+    if (timed) Object.assign(style, timed);
+  }
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
   if (node.type === "Panel") style.gap = sceneNumber(props.spacing) ?? "var(--cmux-app-scene-panel-spacing)";
   if (node.type === "VStack" || node.type === "LazyVStack" || node.type === "Reorderable") {
@@ -608,7 +613,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "aria-hidden": own === true || node.type === "Particles" ? true : undefined,
     // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
     "data-glass-level": sceneGlass(props.glass),
-    "data-transition": typeof props.transition === "string" ? props.transition : undefined,
+    "data-transition": sceneTransitionKind(props.transition),
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
     "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,

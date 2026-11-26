@@ -300,9 +300,68 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
     Ok(Some(peer))
 }
 
-/// How long a file upload for a peer's chat waits for that peer's link to come back before it is
-/// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
-pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a forwarded read waits with less than `PEER_READ_STEP` arriving on its link before it
+/// fails: a stuck handler on a link carrying only pings and pongs ends here.
+pub(super) const PEER_READ_IDLE: std::time::Duration = std::time::Duration::from_secs(30);
+/// The link bytes that count as the reply coming in: well above a ping, a pong and the odd
+/// notice, well below one reply page (`rpc::REPLY_PAGE_BYTES`, mesh pages of 4 KiB or more).
+pub(super) const PEER_READ_STEP: u64 = 16 * 1024;
+/// The most a read may take however busy its link stays: other chats' traffic can move the link
+/// while this read's handler never answers.
+pub(super) const PEER_READ_CAP: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Why a forwarded read ended without its answer.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ReadStalled {
+    /// Less than `PEER_READ_STEP` arrived in this long.
+    Idle(std::time::Duration),
+    /// The link kept moving but no answer came in this long.
+    Cap(std::time::Duration),
+}
+
+impl std::fmt::Display for ReadStalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle(d) => write!(f, "the link brought no reply for {} seconds", d.as_secs()),
+            Self::Cap(d) => write!(f, "no answer after {} seconds", d.as_secs()),
+        }
+    }
+}
+
+/// `fut`, ended when `read` (the link's transport bytes) moves less than `PEER_READ_STEP` in
+/// `idle`, or at `cap`. A slow link bringing a large page keeps the read alive; a silent one ends
+/// at `idle` as before.
+pub(super) async fn peer_read<F: std::future::Future>(
+    read: &cmux_deadline::Progress,
+    idle: std::time::Duration,
+    cap: std::time::Duration,
+    fut: F,
+) -> Result<F::Output, ReadStalled> {
+    let started = tokio::time::Instant::now();
+    let mut since = started;
+    let mut mark = read.count();
+    let tick = (idle / 8).max(std::time::Duration::from_millis(50));
+    tokio::pin!(fut);
+    loop {
+        let now = tokio::time::Instant::now();
+        let count = read.count();
+        if count.saturating_sub(mark) >= PEER_READ_STEP {
+            mark = count;
+            since = now;
+        }
+        if now.saturating_duration_since(started) >= cap {
+            return Err(ReadStalled::Cap(cap));
+        }
+        if now.saturating_duration_since(since) >= idle {
+            return Err(ReadStalled::Idle(idle));
+        }
+        let wake = (since + idle).min(started + cap).min(now + tick);
+        tokio::select! {
+            out = &mut fut => return Ok(out),
+            () = tokio::time::sleep_until(wake) => {}
+        }
+    }
+}
 
 /// How long a prompt for a peer's chat waits for that peer's link before it is refused as
 /// unreachable, for a sender that keeps such a message itself: a peer daemon's forward (its own
@@ -375,6 +434,30 @@ pub(super) async fn await_link(peer: &crate::peer::Peer, within: std::time::Dura
         }
     }
     peer.ready() && !*stopped.borrow()
+}
+
+/// A file upload for a chat on `peer`, whose link is down, waits for the link as a held prompt
+/// does: asking for the peer again every [`PROMPT_LINK_REINFORCE`] (`await_link` wants it, so the
+/// reconnects keep coming within `Backoff::WANTED_CAP`), up to [`PROMPT_HOLD_FOR`]. The caller
+/// races it with the client's connection, so the client's own call deadline (the app gives each
+/// upload call 120 s, `AcpmuxStatusClient.putFile`) or its cancel ends it. Before, a fixed 30 s
+/// refused the upload while the app was still waiting and the link was still coming back (Leo,
+/// 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"). A peer
+/// removed or replaced ends it at once (`Peer::stopped`): false.
+async fn hold_upload_for_link(peer: &crate::peer::Peer) -> bool {
+    let until = tokio::time::Instant::now() + PROMPT_HOLD_FOR;
+    loop {
+        let left = until.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        if await_link(peer, PROMPT_LINK_REINFORCE.min(left)).await {
+            return true;
+        }
+        if *peer.stopped().borrow() {
+            return false;
+        }
+    }
 }
 
 pub(super) async fn forward(
@@ -803,10 +886,11 @@ async fn forward_inner(
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
             return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
         }
-        // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
+        // An upload waits for a link that is reconnecting for as long as its client waits
+        // (`hold_upload_for_link`); the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
             let ready = tokio::select! {
-                ready = await_link(&peer, UPLOAD_LINK_WAIT) => ready,
+                ready = hold_upload_for_link(&peer) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
             };
             // The old peer instance may have been removed or replaced while
@@ -1235,12 +1319,14 @@ async fn forward_inner(
         ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
-            // generic deadline. Dropping this future releases its pending reply entry. Attach
-            // keeps its existing lifecycle: it installs a live subscription before replying.
-            tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
+            // generic deadline. The read waits while the link brings its reply in, not a
+            // fixed time (`peer_read`). Dropping this future releases its pending reply entry.
+            // Attach keeps its existing lifecycle: it installs a live subscription before
+            // replying.
+            peer_read(&peer.link_read(), PEER_READ_IDLE, PEER_READ_CAP, peer.request_on(m, p, on))
                 .await
-                .unwrap_or_else(|_| Err(RpcError::internal(format!(
-                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                .unwrap_or_else(|stalled| Err(RpcError::internal(format!(
+                    "reading {m} from peer {} stopped: {stalled}; check the peer connection and retry this read",
                     peer.name
                 )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
         } else if crate::peer::waits_on_turn(m) {
@@ -1642,6 +1728,27 @@ mod tests {
         }
     }
 
+    /// An upload for a peer whose link is down keeps waiting past one reinforce interval (the
+    /// old fixed 30 s refused it there while the app still waited), and ends at once, refused,
+    /// when the peer is removed.
+    #[tokio::test(start_paused = true)]
+    async fn an_upload_holds_for_the_link_past_one_reinforce_until_the_peer_goes() {
+        let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+        let peer = crate::peer::Peer::new("down", "ws://127.0.0.1:9", None, None, notices);
+        let held = tokio::spawn({
+            let peer = peer.clone();
+            async move { hold_upload_for_link(&peer).await }
+        });
+        tokio::time::sleep(PROMPT_LINK_REINFORCE * 3).await;
+        assert!(!held.is_finished(), "the upload gave up while its client still waited");
+        peer.stop();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(1), held)
+            .await
+            .expect("a removed peer left its upload waiting")
+            .unwrap();
+        assert!(!ready, "a removed peer was reported ready");
+    }
+
     /// A message for a down peer's session wakes the peer whoever sent it, a peer daemon's
     /// forward of another daemon's send included; any other request from a peer daemon asks
     /// nothing, and a client's wants the link back without asking its route to wake a machine.
@@ -1826,6 +1933,9 @@ fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]
     .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
 }
 
+#[cfg(test)]
+#[path = "peer_read_tests.rs"]
+mod peer_read_tests;
 #[cfg(test)]
 #[path = "prompt_link_wait_tests.rs"]
 mod prompt_link_wait_tests;

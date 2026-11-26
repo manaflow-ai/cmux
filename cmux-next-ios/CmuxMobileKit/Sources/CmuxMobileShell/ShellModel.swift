@@ -516,6 +516,13 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
@@ -524,6 +531,8 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -1108,6 +1117,15 @@ extension ShellModel {
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
+        }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
         }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() {

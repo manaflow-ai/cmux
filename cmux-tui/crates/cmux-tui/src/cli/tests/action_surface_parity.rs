@@ -49,9 +49,8 @@ fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
             continue;
         }
         let words = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        // App scopes (`app`, `settings`, ...) and coderouter route before
-        // the mux grammar.
-        if matches!(app::parse(&words), Ok(Some(_))) || coderouter::split(&words).is_some() {
+        // App scopes (`app`, `settings`, ...) route before the mux grammar.
+        if matches!(app::parse(&words), Ok(Some(_))) {
             continue;
         }
         if parse(&words, Surface::Cmux).is_ok() {

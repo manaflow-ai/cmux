@@ -935,6 +935,19 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
+        # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
+        # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
+        # gate made it a blocker for the whole review.
+        asc = self.root / "asc-validate.json"
+        for state, severity in (("WAITING_FOR_REVIEW", "info"), ("IN_REVIEW", "info"),
+                                ("PENDING_DEVELOPER_RELEASE", "info"), ("DEVELOPER_REJECTED", "blocker")):
+            asc.write_text(json.dumps({"remediation": {"steps": [
+                {"order": 1, "blocking": True, "severity": "error", "checkId": "version.state.editable",
+                 "message": f'version is in non-editable state "{state}"', "field": "appVersionState"}]}}))
+            findings = gate.asc_findings(asc)
+            self.assertEqual([f["severity"] for f in findings], [severity], state)
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',

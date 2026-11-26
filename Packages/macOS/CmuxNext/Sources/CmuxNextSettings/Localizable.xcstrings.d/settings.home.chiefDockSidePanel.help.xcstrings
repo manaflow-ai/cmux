@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.chiefDockSidePanel.help" : {
+      "comment" : "Settings > Chief > Chief Dock: help for Chief in Side Panel.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يبقي Chief مثبتًا بجانب كل مساحة عمل. يخفيه Cmd-I أو يُظهره."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drži Chief usidrenog pored svakog radnog prostora. Cmd-I ga skriva ili prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Holder Chief fastgjort ved siden af hvert arbejdsområde. Cmd-I skjuler eller viser den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hält den Chief neben jedem Workspace angedockt. Cmd-I blendet ihn aus oder ein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantiene a Chief acoplado junto a cada espacio de trabajo. Cmd-I lo oculta o lo muestra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garde Chief ancré à côté de chaque espace de travail. Cmd-I le masque ou l’affiche."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tiene Chief agganciato accanto a ogni workspace. Cmd-I lo nasconde o lo mostra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのワークスペースの横に Chief をドッキングしたままにします。Cmd-I で表示/非表示を切り替えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រក្សា Chief ឱ្យភ្ជាប់នៅក្បែរកន្លែងធ្វើការនីមួយៗ។ Cmd-I លាក់ ឬបង្ហាញវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모든 워크스페이스 옆에 Chief를 도킹해 둡니다. Cmd-I로 숨기거나 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Holder Chief forankret ved siden av hvert arbeidsområde. Cmd-I skjuler eller viser den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utrzymuje Chief zadokowanego obok każdego obszaru roboczego. Cmd-I ukrywa go lub pokazuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantém o Chief encaixado ao lado de cada espaço de trabalho. Cmd-I o oculta ou mostra."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Держит Chief закреплённым рядом с каждым рабочим пространством. Cmd-I скрывает или показывает его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ให้ Chief ปักหมุดอยู่ข้างทุกพื้นที่ทำงาน Cmd-I ซ่อนหรือแสดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief’i her çalışma alanının yanında sabit tutar. Cmd-I onu gizler veya gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тримає Chief закріпленим поруч із кожним робочим простором. Cmd-I приховує або показує його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giữ Chief được neo bên cạnh mọi không gian làm việc. Cmd-I ẩn hoặc hiện nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让 Chief 停靠在每个工作区旁边。按 Cmd-I 隐藏或显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "讓 Chief 停靠在每個工作區旁邊。按 Cmd-I 隱藏或顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

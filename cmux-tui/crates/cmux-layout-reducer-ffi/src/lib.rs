@@ -17,6 +17,8 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
+//! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -34,6 +36,10 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
+//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
+//! cursor shape delivery);
+//! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
@@ -74,12 +80,14 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_handoff;
 mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
@@ -90,6 +98,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -507,7 +516,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 }
                 use cmux_cloud_start_core::spare_shapes;
                 let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a non-negative f64 millisecond clock; `as u64` saturates past u64::MAX, which is the wanted bound"
+                )]
                 let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -590,6 +603,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
             }
+            operation if cloud_handoff::handles(operation) => {
+                cloud_handoff::respond(operation, request)?
+            }
             operation if cloud_hybrid::handles(operation) => {
                 cloud_hybrid::respond(operation, request)?
             }
@@ -605,8 +621,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
