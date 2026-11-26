@@ -6,6 +6,11 @@ path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tui_install_pin.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_tui_install_pin.py"
+
+[[test]]
 path = "tests/test_tui_installers.py"
 lane = "legacy"
 
