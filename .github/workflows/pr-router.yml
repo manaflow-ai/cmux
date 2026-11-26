@@ -86,6 +86,9 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
+          # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
           # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # Docs, plans, skills, copy or tests-only changes run the cheap tier (fast_track.py); 0 turns that off.
@@ -137,7 +140,7 @@ jobs:
           LAND_STATUS_RETRY_S: '20'
         run: |
           if [ "$STATE" = success ]; then
-            desc="The full tier runs on this head, or passed on the head this base merge sits on"
+            desc="The land's tier runs on this head (full; affected, with the full tier hourly on feat-cmux-next; or passed on the head this base merge sits on)"
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
@@ -215,6 +218,21 @@ jobs:
     uses: ./.github/workflows/ios-link-ffi-linux.yml
     permissions:
       contents: read
+
+  fast-gates:
+    # The cmux-next/fast-gates status (merge_hold, next-autoland). A head the router starts nothing for starts none of
+    # its jobs; its jobs' own `if:`s keep their tier rules. The merger dispatches the workflow when a head has no status.
+    name: cmux-next fast gates
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-fast-gates.yml') }}
+    uses: ./.github/workflows/cmux-next-fast-gates.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      # The receipt job reads the receipt run; fast-gates-fail-fast cancels this head's other heavy runs.
+      actions: write
+      # resolve's receipt and post write the cmux-next/fast-gates status.
+      statuses: write
 
   pipeline:
     name: pr pipeline
