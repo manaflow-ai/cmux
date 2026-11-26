@@ -212,3 +212,32 @@ fn mint_key_needs_out_and_a_mint_kind_and_never_overwrites() {
 fn form_fields_are_escaped() {
     assert_eq!(form_escape("a b&c=d+e"), "a%20b%26c%3Dd%2Be");
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the OAuth client secret rides only in the Tailscale token
+/// call's form body, and a Headscale API key only in `Authorization` to the server the person named.
+/// tests/egress_seeded.json names this test for the `cmux_tui::vm_tailnet` gate site.
+#[test]
+fn seeded_credentials_ride_only_to_the_server_that_mints() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let oauth = Secret::new("tskey-client-SEEDid42-SEEDtailscaleOauthSecret8f3a");
+    let api_key = Secret::new("SEEDheadscaleApiKey-5d2c");
+    let _ = send(&mint::tailscale_token_call(&oauth).unwrap());
+    let server = "https://headscale.seeded-person.example.org";
+    cmux_egress::allow_named(server);
+    let spec = MintSpec { ephemeral: true, tags: Vec::new() };
+    let _ = send(&mint::headscale_key_call(server, &api_key, "7", &spec, 1_700_000_000));
+
+    assert_eq!(cmux_egress::capture::requests_to("api.tailscale.com").len(), 1);
+    assert_eq!(cmux_egress::capture::requests_to("headscale.seeded-person.example.org").len(), 1);
+    let places = cmux_egress::capture::leaks("SEEDtailscaleOauthSecret8f3a");
+    assert_eq!(places, vec!["api.tailscale.com POST /api/v2/oauth/token: body".to_owned()]);
+    let places = cmux_egress::capture::leaks("SEEDheadscaleApiKey-5d2c");
+    assert_eq!(
+        places,
+        vec![
+            "headscale.seeded-person.example.org POST /api/v1/preauthkey: header authorization"
+                .to_owned()
+        ]
+    );
+}
