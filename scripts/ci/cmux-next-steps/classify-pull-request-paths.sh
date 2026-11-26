@@ -247,6 +247,15 @@ if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "
   printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
   echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
   echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+  # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-one-hop-verdict.md
+  # Leo, 2026-11-25: "we own the in-between. all of it". The build fleet's Debug app compile (app-compile-fleet,
+  # up to 22 min) was the last check of a head that is not landing, so it was the PR verdict's wall. It moves to the
+  # head handed to land (ready-to-land), the full-ci tier (the Mac compile) and the feat-cmux-next push run.
+  # vars.CI_PR_APP_COMPILE=1 keeps it on every head.
+  if [[ ",$labels," != *,ready-to-land,* && "${PR_APP_COMPILE:-0}" != 1 ]]; then
+    echo "app_compile_pr=false" >> "$GITHUB_OUTPUT"
+    echo "- PR verdict (one hop): the build fleet's app compile runs at the land head (ready-to-land), with full-ci and in the feat-cmux-next push run." >> "$GITHUB_STEP_SUMMARY"
+  fi
 fi
 # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The cheap tier skips the
 # cargo fast tier too; the ready-to-land label runs it at the head handed to land.
