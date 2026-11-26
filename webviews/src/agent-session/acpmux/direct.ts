@@ -11130,9 +11130,13 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
+      // Only a note still running had a live line there: one the next turn's start already settled
+      // (`settleCompactions`, a steer that started a turn of its own) stands drawn in its place, over
+      // the steer, and ends there; moving it under the steer would jump it past the steer.
       else if (
         compaction.state !== "running" &&
-        running?.seq !== undefined &&
+        running?.compaction?.state === "running" &&
+        running.seq !== undefined &&
         this.rows
           .rowsFrom(running.seq + 1)
           .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
