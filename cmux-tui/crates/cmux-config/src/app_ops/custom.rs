@@ -1485,4 +1485,124 @@ mod tests {
             call("feature_tips.is_open", &json!({"lastShownAt": 0, "at": 100})).unwrap().unwrap();
         assert_eq!(tip["open"], false);
     }
+
+    // Ports of SessionKeepAwakeSettingTests, PhoneAccessSettingTests (parse cases),
+    // BrowserToolbarPositionSettingTests and TabBarBottomTitlebarSettingTests.
+    #[test]
+    fn sessions_keep_awake_while_plugged_in_unless_set() {
+        let unset = read("sessions", json!({}));
+        assert_eq!(unset["values"]["keepAwake"], "pluggedIn");
+        assert!(messages(&unset).is_empty());
+        for raw in ["off", "pluggedIn", "always"] {
+            let loaded = read("sessions", json!({"sessions": {"keepAwake": raw}}));
+            assert_eq!(loaded["values"]["keepAwake"], raw);
+        }
+        let bad = read("sessions", json!({"sessions": {"keepAwake": "forever"}}));
+        assert_eq!(bad["values"]["keepAwake"], "pluggedIn");
+        let found = messages(&bad);
+        assert!(found.iter().any(|m| m.0 == "sessions.keepAwake"), "{found:?}");
+        assert_eq!(found[0].1, "expected one of \"off\", \"pluggedIn\", \"always\"");
+    }
+
+    #[test]
+    fn phone_access_defaults_loads_and_ignores_retired_keys() {
+        assert_eq!(read("sessions", json!({}))["values"]["phoneKeepAwake"], "pluggedIn");
+        let loaded = read("sessions", json!({"phone": {"keepAwake": "always"}}));
+        assert_eq!(loaded["values"]["phoneKeepAwake"], "always");
+        let retired =
+            read("sessions", json!({"phone": {"allowConnections": true, "startSessions": false}}));
+        assert!(!messages(&retired).iter().any(|m| m.0.starts_with("phone.")));
+    }
+
+    #[test]
+    fn browser_toolbar_position_is_top_unless_bottom() {
+        let unset = read("chrome_placement", json!({"browser": {}}));
+        assert_eq!(unset["values"]["browserToolbarPosition"], "top");
+        assert!(messages(&unset).is_empty());
+        let bottom = read("chrome_placement", json!({"browser": {"toolbarPosition": "bottom"}}));
+        assert_eq!(bottom["values"]["browserToolbarPosition"], "bottom");
+        for bad in [json!("left"), json!(1)] {
+            let answer = read("chrome_placement", json!({"browser": {"toolbarPosition": bad}}));
+            assert_eq!(answer["values"]["browserToolbarPosition"], "top");
+            assert!(messages(&answer).iter().any(|m| m.0 == "browser.toolbarPosition"));
+        }
+    }
+
+    #[test]
+    fn bottom_tab_bar_and_window_titlebar_are_independent() {
+        let bottom = read("chrome_placement", json!({"tabs": {"barPosition": "bottom"}}));
+        assert_eq!(bottom["values"]["tabBarPosition"], "bottom");
+        assert!(messages(&bottom).is_empty());
+        let titlebar = read("window_titlebar", json!({}));
+        assert_eq!(titlebar["values"]["style"], "minimal");
+        let bad = read("window_titlebar", json!({"window": {"titlebar": "unknown"}}));
+        assert_eq!(bad["values"]["style"], "minimal");
+        assert!(messages(&bad).iter().any(|m| m.0 == "window.titlebar"));
+        let standard = read(
+            "window_titlebar",
+            json!({"tabs": {"barPosition": "bottom"}, "window": {"titlebar": "standard"}}),
+        );
+        assert_eq!(standard["values"]["style"], "standard");
+    }
+
+    #[test]
+    fn chrome_placement_choices_say_the_swift_order() {
+        let bad = read(
+            "chrome_placement",
+            json!({"tabs": {"barOrder": 1}, "sidebar": {"spacesPosition": "x"}}),
+        );
+        let found = messages(&bad);
+        assert!(
+            found.iter().any(|m| m.0 == "tabs.barOrder" && m.1.starts_with("expected one of \""))
+        );
+        assert!(found.iter().any(|m| m.0 == "sidebar.spacesPosition"));
+    }
+
+    #[test]
+    fn quit_behavior_legacy_values_and_message() {
+        assert_eq!(read("quit_behavior", json!({}))["values"]["behavior"], "keep");
+        let end = read("quit_behavior", json!({"app": {"quitBehavior": "end"}}));
+        assert_eq!(end["values"]["behavior"], "end-keep-layout");
+        assert!(messages(&end).is_empty());
+        let ask = read("quit_behavior", json!({"app": {"quitBehavior": "ask"}}));
+        assert_eq!(ask["values"]["behavior"], "keep");
+        assert!(messages(&ask).is_empty());
+        let bad = read("quit_behavior", json!({"app": {"quitBehavior": "nope"}}));
+        assert_eq!(
+            messages(&bad)[0],
+            (
+                "app.quitBehavior".to_owned(),
+                "expected one of \"keep\", \"end-keep-layout\", \"end-everything\"".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn workspace_hibernation_and_list_read_their_keys() {
+        let unset = read("workspace_hibernation", json!({}));
+        assert_eq!(unset["values"]["freeingRunningCommands"], "never");
+        assert!(messages(&unset).is_empty());
+        let bad = read(
+            "workspace_hibernation",
+            json!({"workspaces": {"hibernation": {"enabled": "x"}, "freeing": {"runningCommands": "bad", "agents": 1}}}),
+        );
+        let paths: Vec<_> = messages(&bad).into_iter().map(|m| m.0).collect();
+        for path in [
+            "workspaces.hibernation.enabled",
+            "workspaces.freeing.runningCommands",
+            "workspaces.freeing.agents",
+        ] {
+            assert!(paths.iter().any(|p| p == path), "{path}: {paths:?}");
+        }
+        let list = read(
+            "workspace_list",
+            json!({"workspaces": {"newPlacement": "bottom", "autoName": false}, "sidebar": {"groupByComputer": "x"}}),
+        );
+        assert_eq!(list["values"]["newWorkspacePlacement"], "bottom");
+        assert!(
+            messages(&list)
+                .iter()
+                .any(|m| m.0 == "sidebar.groupByComputer" && m.1 == "expected true or false")
+        );
+    }
 }
