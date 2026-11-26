@@ -48,6 +48,7 @@ mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod video_recompress;
+mod vnc;
 mod window_layout;
 mod workspace_groups;
 
@@ -98,6 +99,7 @@ pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjec
 pub use video_recompress::{
     VideoRecompressPlan, VideoRecompressReason, VideoSource, video_recompress_keep, video_recompress_plan,
 };
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,

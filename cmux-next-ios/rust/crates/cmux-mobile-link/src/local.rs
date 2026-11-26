@@ -281,7 +281,6 @@ pub fn hub_race_policy(addresses: usize) -> RacePolicy {
     RacePolicy {
         stagger: ATTEMPT_DELAY,
         attempt_timeout: HUB_CONNECT_WAIT,
-        // Every address gets the same wait, the last one too (as before #59215 split it out).
         last_attempt_timeout: HUB_CONNECT_WAIT,
         max_in_flight: addresses.max(1),
         max_attempts: addresses.max(1),

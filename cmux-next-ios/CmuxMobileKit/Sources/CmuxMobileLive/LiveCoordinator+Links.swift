@@ -864,11 +864,11 @@ extension LiveCoordinator {
     /// into the tab's folder, next to acpmux's attachments, or the Mac's own
     /// uploads folder when the tab has none; returns the file's path there.
     public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (LinkUpload.Payload, String) async throws -> String {
-        { [weak self] payload, name in
+        let cwd = LinkUpload.folder(session(tabID: tabID, macID: macID)?.tree?.directories[tabID])
+        return { [weak self] payload, name in
             guard let self, let owner = self.session(tabID: tabID, macID: macID), let link = owner.servedLink else {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
-            let cwd = LinkUpload.folder(owner.tree?.directories[tabID])
             // A video shrinks to HEVC 1080p first when the setting asks (``VideoRecompressor``).
             let (payload, name) = try await VideoRecompressor.prepared(payload, name: name)
             do {
@@ -877,6 +877,11 @@ extension LiveCoordinator {
                 return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
             }
         }
+    }
+
+    /// The normalized working directory captured by a terminal upload closure.
+    public func terminalDirectory(tabID: String, macID: String? = nil) -> String? {
+        LinkUpload.folder(session(tabID: tabID, macID: macID)?.tree?.directories[tabID])
     }
 
     // MARK: Chief

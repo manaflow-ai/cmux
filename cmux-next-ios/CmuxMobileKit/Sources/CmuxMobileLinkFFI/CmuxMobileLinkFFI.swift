@@ -19523,6 +19523,93 @@ public func FfiConverterTypeVideoRecompressReason_lower(_ value: VideoRecompress
 }
 
 
+
+/**
+ * Why [`vnc_json`] gave no answer.
+ */
+public enum VncJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case UnknownOperation(operation: String
+    )
+    case Invalid(detail: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension VncJsonError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVncJsonError: FfiConverterRustBuffer {
+    typealias SwiftType = VncJsonError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VncJsonError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .UnknownOperation(
+            operation: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Invalid(
+            detail: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VncJsonError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .UnknownOperation(operation):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(operation, into: &buf)
+            
+        
+        case let .Invalid(detail):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lift(_ buf: RustBuffer) throws -> VncJsonError {
+    return try FfiConverterTypeVncJsonError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lower(_ value: VncJsonError) -> RustBuffer {
+    return FfiConverterTypeVncJsonError.lower(value)
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -22614,6 +22701,17 @@ public func videoRecompressPlan(enabled: Bool, source: VideoSource) -> VideoReco
 })
 }
 /**
+ * Answers one `vnc_*` op: `request` and the answer are JSON.
+ */
+public func vncJson(operation: String, request: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeVncJsonError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_vnc_json(
+        FfiConverterString.lower(operation),
+        FfiConverterString.lower(request),$0
+    )
+})
+}
+/**
  * Columns of the tab overview in a page `width` points wide: as many
  * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
  */
@@ -23037,6 +23135,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_video_recompress_plan() != 37017) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_vnc_json() != 29563) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
