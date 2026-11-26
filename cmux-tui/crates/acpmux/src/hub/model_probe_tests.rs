@@ -202,7 +202,8 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
         "gemini-3.8-flash-low",
         "gpt-oss-120b-medium",
     ]);
-    assert!(hub.remember_models_from("acme", Some(&options), Some(&available), hub.model_lists.stamp()));
+    let now = hub.model_lists.stamp();
+    assert!(hub.remember_models_from("acme", Some(&options), Some(&available), now));
     let catalog = hub.models_catalog().await;
     let row = catalog["harnesses"]
         .as_array()
@@ -218,9 +219,9 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
     assert_eq!(efforts("gemini-3.8-flash"), json!(["low", "medium", "high"]));
     assert_eq!(efforts("gpt-oss-120b-medium"), Value::Null);
     // The same report again changes nothing.
-    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available), hub.model_lists.stamp()));
+    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available), now));
     // A resumed chat's answer with no `availableModels` keeps the levels.
-    hub.remember_models_from("acme", Some(&options), None, hub.model_lists.stamp());
+    hub.remember_models_from("acme", Some(&options), None, now);
     assert_eq!(hub.known_efforts.lock().unwrap()["acme"]["gemini-3.8-flash"].len(), 3);
 }
 
