@@ -717,6 +717,7 @@ fn a_hold_that_cannot_be_written_fails_closed() {
 /// `running` after. Before, its first report took the bake's daemon block and said `running` at
 /// once (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later, and its
 /// chat never connected).
+#[cfg(unix)] // `updater::gate` is unix-only.
 #[test]
 fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies() {
     use super::client::CloudClient;

@@ -56,73 +56,13 @@ impl Hub {
     /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.read();
-        // Only the one row picked is parsed.
-        let row = |r: &RemoteSession| {
-            (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.value())
-        };
-        let (hit, by_short_name) = if let Some(r) = map.get(key) {
-            (Some(row(r)), false)
-        } else {
-            // Whole names and prefixes first; the short-name candidates count only when none
-            // matched. Only the rows the indexes say `key` can name are read (`remote_rows.rs`),
-            // never every peer's, and the predicates still decide which of them it names. Only
-            // the one row picked is cloned.
-            let strict: Vec<&RemoteSession> = map
-                .named(key)
-                .into_iter()
-                .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| &**r)
-                .collect();
-            let shorts: Vec<&RemoteSession> = if strict.is_empty() {
-                map.short_named(key)
-                    .into_iter()
-                    .filter(|(_, r)| remote_segment(r, key))
-                    .map(|(_, r)| &**r)
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let short = strict.is_empty();
-            let mut matches: Vec<&RemoteSession> = if short {
-                // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
-                let live = shorts.iter().any(|r| !remote_closed(r));
-                shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
-            } else {
-                strict
-            };
-            (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
-        };
+        let (row, name) = remote_match(&map, key)?;
+        let row = Arc::clone(row);
         drop(map);
-        // No peer's session has it as its name: one that had it before a rename
-        // (`former_names.rs`), only when no session here has or had it either.
-        let hit = match hit {
-            Some(hit) => Some(hit),
-            None => {
-                let route = self.former_remote_route(key)?.ok()?;
-                if self.local_match_counts(key) != [0, 0, 0]
-                    || self.resolve_former_here(key).is_some()
-                {
-                    return None;
-                }
-                let map = self.remote_sessions.read();
-                map.get(&route).map(|r| row(r))
-            }
-        };
-        let (peer_name, id, summary) = hit?;
-        // A bare short name gives way to any session here `key` names by id, name or prefix, to
-        // a live one here with the short name, and, when this one is closed, to a closed one
-        // here too (`Hub::resolve_here` refuses those ties). Read only now, with the peers' rows
-        // unlocked and a candidate in hand, so no other lookup scans this daemon's sessions a
-        // second time.
-        if by_short_name && !key.contains('/') {
-            let [other, live_here, closed_here] = self.local_match_counts(key);
-            let closed = summary.get("status").and_then(Value::as_str) == Some("closed");
-            if other > 0 || live_here > 0 || (closed && closed_here > 0) {
-                return None;
-            }
+        if !name.available(self, key) {
+            return None;
         }
-        let peer = self.peer(&peer_name)?;
-        Some((peer, id, summary))
+        Some((self.peer(&row.peer)?, row.receipt.mux_session_id.clone(), row.summary.value()))
     }
 
     /// The names of the peer sessions whose name contains `lower` (any case), for a refusal's
@@ -135,6 +75,78 @@ impl Hub {
             .map(str::to_owned)
             .collect()
     }
+}
+
+/// Local names can shadow a peer's bare short name or former name; check them at use time.
+#[derive(Clone, Copy)]
+pub(in crate::hub) enum RemoteName {
+    Direct,
+    Short { closed: bool },
+    Former,
+}
+
+impl RemoteName {
+    pub(in crate::hub) fn available(self, hub: &Hub, key: &str) -> bool {
+        match self {
+            Self::Direct => true,
+            Self::Short { closed } => {
+                let [other, live_here, closed_here] = hub.local_match_counts(key);
+                other == 0 && live_here == 0 && (!closed || closed_here == 0)
+            }
+            Self::Former => {
+                hub.local_match_counts(key) == [0, 0, 0] && hub.resolve_former_here(key).is_none()
+            }
+        }
+    }
+}
+
+/// The candidate in one peer-row snapshot, shared by prompt routing and the idle-link index.
+pub(in crate::hub) fn remote_match<'a>(
+    map: &'a crate::hub::remote_rows::RemoteRows,
+    key: &str,
+) -> Option<(&'a Arc<RemoteSession>, RemoteName)> {
+    let (hit, by_short_name) = if let Some(r) = map.get(key) {
+        (Some(r), false)
+    } else {
+        // Whole names and prefixes first; the short-name candidates count only when none
+        // matched. Only the rows the indexes say `key` can name are read (`remote_rows.rs`),
+        // never every peer's, and the predicates still decide which of them it names. Only
+        // the one row picked is cloned.
+        let strict: Vec<&Arc<RemoteSession>> = map
+            .named(key)
+            .into_iter()
+            .filter(|(id, r)| names_remote(id, r, key))
+            .map(|(_, r)| r)
+            .collect();
+        let shorts: Vec<&Arc<RemoteSession>> = if strict.is_empty() {
+            map.short_named(key)
+                .into_iter()
+                .filter(|(_, r)| remote_segment(r, key))
+                .map(|(_, r)| r)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let short = strict.is_empty();
+        let mut matches: Vec<&Arc<RemoteSession>> = if short {
+            // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
+            let live = shorts.iter().any(|r| !remote_closed(r));
+            shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
+        } else {
+            strict
+        };
+        (if matches.len() == 1 { matches.pop() } else { None }, short)
+    };
+    if let Some(row) = hit {
+        let name = if by_short_name && !key.contains('/') {
+            RemoteName::Short { closed: remote_closed(row) }
+        } else {
+            RemoteName::Direct
+        };
+        return Some((row, name));
+    }
+    let route = map.former_route(key)?.ok()?;
+    Some((map.get(&route)?, RemoteName::Former))
 }
 
 /// Whether peer session `r` is closed (its row's `status`).

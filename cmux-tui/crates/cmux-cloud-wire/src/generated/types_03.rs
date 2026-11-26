@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeReactionKindVariant2 {
+    pub emoji: String,
+}
+
+/// SHA-256 of the bytes, lowercase hex.
+pub type HomeSha256 = String;
+
 /// A styled range of a text part, in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeTextRun {
@@ -889,13 +897,4 @@ wire_enum! {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamIntegrationPolicyGithub {
-    pub scope: TeamIntegrationPolicyGithubScope,
-    pub require_org_admin: bool,
-    pub repo_allowlist: Option<Vec<RepoPattern>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
 }

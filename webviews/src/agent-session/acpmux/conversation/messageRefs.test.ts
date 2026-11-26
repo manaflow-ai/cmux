@@ -11,11 +11,11 @@ test("a pull request written twice in a row shows once", () => {
   );
   expect(dedupeReferences("manaflow-ai/cmux#23825 (#23825) landed", repo)).toBe("manaflow-ai/cmux#23825 landed");
   expect(dedupeReferences("#1 (manaflow-ai/cmux#1, abc1234)", repo)).toBe("#1 (abc1234)");
-  expect(dedupeReferences("hq#2563 / manaflow-ai/cmuxterm-hq#2563", repo)).toBe("hq#2563");
+  expect(dedupeReferences("acme/widgets#2563 / acme/widgets#2563", repo)).toBe("acme/widgets#2563");
   // A later mention in its own words stays; so do different numbers and different repositories.
   expect(dedupeReferences("Merged #5. Next, #5 needs a rebase.", repo)).toBe("Merged #5. Next, #5 needs a rebase.");
   expect(dedupeReferences("#5 #6", repo)).toBe("#5 #6");
-  expect(dedupeReferences("#5 hq#5", repo)).toBe("#5 hq#5");
+  expect(dedupeReferences("#5 acme/widgets#5", repo)).toBe("#5 acme/widgets#5");
   // Without a repository a bare number names nothing, so nothing is a repeat.
   expect(dedupeReferences("#5 manaflow-ai/cmux#5", undefined)).toBe("#5 manaflow-ai/cmux#5");
   // Code and links are not prose.

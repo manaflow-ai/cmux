@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Whether a Linux host codes a new Screen Sharing session for sharp text instead of smooth motion; the toolbar still changes each session."
+}
