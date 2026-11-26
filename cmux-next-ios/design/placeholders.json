@@ -359,14 +359,19 @@
   ],
   "known_layout_shifts": [
     {
-      "flow": "tab-grid-51",
-      "max_shift_frames": 36,
-      "issue": "https://github.com/manaflow-ai/cmux/issues/58845"
+      "flow": "disclosure-chat",
+      "max_shift_frames": 10,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
     },
     {
-      "flow": "workspaces",
-      "max_shift_frames": 18,
-      "issue": "https://github.com/manaflow-ai/cmux/issues/58846"
+      "flow": "slow-history-chat",
+      "max_shift_frames": 11,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
+    },
+    {
+      "flow": "offline-send",
+      "max_shift_frames": 4,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
     }
   ]
 }

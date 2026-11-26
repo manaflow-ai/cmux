@@ -70,6 +70,7 @@ struct LayoutShiftCounterTests {
         counter.frame(["a": row(94.2, .window), "b": row(154.2, .window), "c": row(211, .window)])
         #expect(counter.shiftFrames == 1)
         #expect(counter.lastMoved == "c 216/60->211/60")
+        #expect(counter.moves == ["3:c 216/60->211/60"])
     }
 
     @Test func aRowThatLeavesAndComesBackIsComparedOnlyWhileDrawn() {

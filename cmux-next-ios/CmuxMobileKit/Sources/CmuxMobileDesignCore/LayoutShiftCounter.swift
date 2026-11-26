@@ -43,6 +43,10 @@ public struct LayoutShiftCounter: Sendable {
     public private(set) var shiftedRows = 0
     /// The last row that shifted: `id y/h->y/h`.
     public private(set) var lastMoved = ""
+    /// The first `movesKept` shifts, each `frame:id y/h->y/h` (one per shifted row), so a run's
+    /// record says when and how a row moved, not only its last move.
+    public private(set) var moves: [String] = []
+    public static let movesKept = 24
 
     /// Moves and resizes up to this many points are rounding, not a shift.
     public let tolerance: CGFloat
@@ -94,8 +98,15 @@ public struct LayoutShiftCounter: Sendable {
         guard let first = shifted.min(by: { $0.id < $1.id }) else { return 0 }
         shiftFrames += 1
         shiftedRows += shifted.count
-        lastMoved = "\(first.id.prefix(40)) \(Int(first.before.minY))/\(Int(first.before.height))->\(Int(first.after.minY))/\(Int(first.after.height))"
+        lastMoved = Self.describe(first.id, first.before, first.after)
+        for move in shifted.sorted(by: { $0.id < $1.id }) where moves.count < Self.movesKept {
+            moves.append("\(frames):\(Self.describe(move.id, move.before, move.after))")
+        }
         return shifted.count
+    }
+
+    private static func describe(_ id: String, _ before: CGRect, _ after: CGRect) -> String {
+        "\(id.prefix(40)) \(Int(before.minY))/\(Int(before.height))->\(Int(after.minY))/\(Int(after.height))"
     }
 
     private func differs(_ a: CGRect, _ b: CGRect) -> Bool {

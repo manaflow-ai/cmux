@@ -90,7 +90,7 @@ public final class LayoutShiftProbe {
         guard counter.frames != frames, counter.frames == 1 || counter.shiftFrames != shifts || counter.frames % 30 == 0 else { return }
         let json: [String: Any] = [
             "frames": counter.frames, "shiftFrames": counter.shiftFrames,
-            "shiftedRows": counter.shiftedRows, "lastMoved": counter.lastMoved, "rows": rows.count + listRows().count,
+            "shiftedRows": counter.shiftedRows, "lastMoved": counter.lastMoved, "moves": counter.moves, "rows": rows.count + listRows().count,
         ]
         let data = (try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])) ?? Data()
         text = String(data: data, encoding: .utf8) ?? "{}"
