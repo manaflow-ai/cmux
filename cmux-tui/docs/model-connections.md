@@ -60,15 +60,53 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   "connection": Connection|null, "error": "access_denied|no_plan_scope|...|null" }` (long-poll up to
   25 s; the app re-calls while pending). Completion also fires `_acpmux/connections.changed`.
 - `_acpmux/connections/chatgpt.cancel` `{ "attempt": "..." }`.
+- `_acpmux/connections/claude_token.begin` `{ "label": "optional" }` -> `{ "attempt": "opaque",
+  "url": "https://claude.ai/oauth/authorize?...|null" }`. One-click Claude: the daemon runs
+  `claude setup-token` itself (`crates/acpmux/src/claude_token/`), as its own child in a hidden pty
+  240 columns wide: `CMUX_CLAUDE_BIN`, else `claude` on the login PATH or in `~/.local/bin`; no
+  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in its environment; `BROWSER=/usr/bin/true`, so
+  it opens no browser of its own. It answers once the child prints its sign-in link (read from the
+  OSC 8 hyperlink or the plain text, escapes stripped); the app opens `url` in its own browser on
+  this Mac, and the sign-in returns to the child's loopback listener. One attempt at a time: a new
+  begin cancels the pending one. Errors (`data.reason`): `claude_token.no_claude` (nothing to run),
+  `claude_token.no_url` (no link in 30 s, or the child ended first; the child is ended and the
+  message carries its last line), `claude_token.spawn`, `claude_token.pty`.
+- `_acpmux/connections/claude_token.wait` `{ "attempt": "..." }` -> `{ "status":
+  "pending|done|failed|cancelled", "connection": Connection|null, "error":
+  "no_token|cut_short|store|add|timeout|null" }` (long-poll up to 25 s). The token is taken out of
+  the child's output (`pty::TokenFilter`, the copy `cmux cloud connect claude` uses too), stored in
+  the login Keychain as `cmux-model-key` / `claude-token-<8 hex>`, and added with
+  `claude_token.add`'s path holding only `keychain:cmux-model-key/ACCOUNT`; a refused add deletes
+  the item. The child's process group is ended after the token. The token is in no reply, log line
+  or error, and its buffers are zeroized. Completion also fires `_acpmux/connections.changed`.
+- `_acpmux/connections/claude_token.code` `{ "attempt": "...", "code": "..." }` -> `{ "attempt",
+  "status": "pending" }`: when the sign-in page shows a code to paste back, the app hands it here;
+  every whitespace character is taken out and the code and Return are typed into the child.
+  `claude_token.bad_code`, `claude_token.not_pending`.
+- `_acpmux/connections/claude_token.cancel` `{ "attempt": "..." }` -> `{ "attempt", "status" }`:
+  ends the child.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
+- `_acpmux/connections/chatgpt.import` `{ "secret_file": "/abs/path/auth.json" }` -> `{ "connection": Connection }`.
+  CI only (cmuxterm-hq#15720): refused unless the daemon's environment sets `ACPMUX_CI_CHATGPT_IMPORT=1`,
+  and on every connection but the local unix socket. Reads a Codex CLI `auth.json`, requires its ID
+  token to be issued to Codex's client, and writes the same record and `chatgpt-plan` route a browser
+  sign-in does. Import into a fresh acpmux home per job: the first refresh rotates the refresh token.
 - `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
   (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.
 - `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
   The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
-  only the reference.
+  only the reference. The app first takes every whitespace character out of the paste (a wrapped key
+  is still one key), then calls `key.check`.
+- `_acpmux/connections/key.check` `{ "provider", "secret": "keychain:ITEM" }` -> `{ "provider",
+  "result": "ok|bad_shape|bad_key|unreachable", "save", "http_status", "detail", "message" }`
+  (`key_check.rs`). The vendor prefix first (openai `sk-`, anthropic `sk-ant-`, openrouter `sk-or-`,
+  google `AIza`, xai `xai-`), then one authenticated read (the model list; OpenRouter's
+  `/api/v1/key`), 8 s. 401/403 (and Google's or xAI's 400) is `bad_key`, `save: false`, `message`
+  "Key rejected by OpenAI"; a network failure, timeout or 5xx is `unreachable` and saves anyway.
+  The key is resolved in the daemon and never answered or logged.
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
@@ -189,9 +227,11 @@ and no Mac gateway in the path. This supersedes the "Gateway" section and the
 
 Connections (all held on the Mac: acpmux routes + Keychain references):
 - **Claude**: `claude-token`, the long-lived token from Claude Code's own `claude setup-token`
-  (the person runs it; cmux never implements Claude's OAuth). Settings > Models > Claude Code opens
-  a cmux terminal tab running `claude setup-token` and a paste field; the pasted value is checked
-  (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
+  (cmux never implements Claude's OAuth). One click: the daemon runs `claude setup-token` itself
+  (`claude_token.begin` / `wait` / `code` / `cancel` above) and stores the token; no terminal, no
+  copy and paste. The paste field stays as a fallback: the pasted value is checked (`sk-ant-oat`
+  prefix, every whitespace character taken out first, inner ones too: a terminal wraps and pads the
+  printed line), stored in the Keychain, and only `keychain:ITEM` reaches
   acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.

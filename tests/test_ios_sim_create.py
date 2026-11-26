@@ -124,7 +124,8 @@ elif args[:3] == ["list", "-j", "devices"]:
 
     def test_the_steps_iphone_is_made_before_the_build(self):
         script = SCRIPT.read_text()
-        made = script.index('udid="$(sim_create cmux-next-ios-sim ')
+        self.assertIn("sim_name=cmux-next-ios-sim\n", script)
+        made = script.index('udid="$(sim_create "$sim_name" ')
         self.assertLess(made, script.index("# --- Build ---"))
         self.assertLess(script.index("# --- end sim_create"), made)
 
@@ -133,7 +134,7 @@ elif args[:3] == ["list", "-j", "devices"]:
         outside = script.replace(sim_create_block(), "")
         creates = [line for line in outside.splitlines() if re.search(r"\bsimctl\b.*\bcreate\b", line) and not line.lstrip().startswith("#")]
         self.assertEqual(creates, [])
-        self.assertEqual(len(re.findall(r'\$\(sim_create ', outside)), 4)
+        self.assertEqual(len(re.findall(r'\$\((?:CMUX_CI_SIM_WARM_OK=1 )?sim_create ', outside)), 4)
 
 
 if __name__ == "__main__":

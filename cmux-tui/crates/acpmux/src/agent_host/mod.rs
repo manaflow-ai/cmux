@@ -29,6 +29,8 @@ pub mod host {
 #[cfg(unix)]
 pub mod custody;
 pub mod link;
+#[cfg(all(test, unix))]
+mod persisted_format_tests;
 #[cfg(unix)]
 pub(crate) mod proc_table;
 pub mod program_wait;
@@ -84,7 +86,10 @@ pub const RECORD_VERSION: u32 = 1;
 /// 1: Claude Code suggests a next prompt only after a person's own turn
 /// (`claude_stdio/prompt_suggestions.rs`); a host before it lets Claude Code suggest one after
 /// every turn, about $0.10 each (sr2 audit 2026-11-21: 1,100 an hour from such hosts).
-pub const HOST_LEVEL: u32 = 1;
+/// 2: a process no person started asks Claude Code for no suggestions at all
+/// (`hub/host_level.rs` `start_params`): level 1's per-turn pause is honoured only under a
+/// server-side flag of Claude Code's, off by default.
+pub const HOST_LEVEL: u32 = 2;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
@@ -130,6 +135,24 @@ pub enum ControllerFrame {
     Custody { token: String },
 }
 
+/// The launch credential's variables (`agent_credentials::launched_with`), said only to the
+/// owner that proved its token. Its `Debug` shows names, never a value.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LaunchCredential(pub Vec<(String, String)>);
+
+impl LaunchCredential {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for LaunchCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|(k, _)| k)).finish()
+    }
+}
+
 /// Host to controller.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -148,6 +171,11 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The launch credential its harness was started with (cmux#52399): the new daemon holds
+        /// it again for the agent's next start, without reading the agent's own env, which a
+        /// wrapper may have cleaned. Empty from a host of an older build, or with none.
+        #[serde(default, skip_serializing_if = "LaunchCredential::is_empty")]
+        launch_credential: LaunchCredential,
     },
     Incompatible {
         min: u16,
@@ -337,6 +365,13 @@ pub struct TranslatorSpec {
     pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The process resumes a turn a move cut, by itself (`claude_stdio/resume_cut.rs`): its
+    /// translator owes that turn's prompt from the start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resumes_cut_turn: bool,
+    /// Register the repeated-stop callback for this session’s Claude stop condition.
+    #[serde(default)]
+    pub stop_condition: bool,
 }
 
 fn suggestions_default() -> bool {
@@ -390,6 +425,28 @@ pub struct HostRecord {
     /// says.
     #[serde(default)]
     pub host_level: u32,
+    /// Whether the host keeps an agent holder (`custody.rs`), so a daemon may ask it for custody.
+    /// Only a harness that speaks ACP itself gets one: a translated (Claude) or bridged (Codex)
+    /// harness says `Some(false)`, and its daemon does not ask. None: a host of an older build,
+    /// which may hold one; it is asked as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<bool>,
+}
+
+impl SpawnSpec {
+    /// Whether its host keeps an agent holder (`custody.rs`): asked for one, and a harness that
+    /// speaks ACP itself. A translator's (Claude) or the Codex bridge's state is the host's own,
+    /// and a replacement host could not take it over, so neither gets one.
+    pub fn keeps_holder(&self) -> bool {
+        self.holder.is_some() && self.translator.is_none() && !self.codex_bridge
+    }
+}
+
+impl HostRecord {
+    /// Whether a daemon should ask this host for custody of its harness (`custody.rs`).
+    pub fn may_hold(&self) -> bool {
+        self.holder != Some(false) && !self.claude_translator
+    }
 }
 
 /// A record file that this build cannot read, and what it could parse.

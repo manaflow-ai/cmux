@@ -336,7 +336,7 @@ class ResolverGaps(unittest.TestCase):
                                  "runs-on reads blacksmith")
 
     def test_a_literal_json_matrix_control_on_the_nightly_pool_stays_green(self) -> None:
-        pool = self.routing.runs_on_text(self.routing.DOC["jobs"]["published-in"], "published-in")
+        pool = self.routing.runs_on_text(self.routing.DOC["jobs"]["decide"], "decide")
         doc = self._control_doc(self._literal([pool]))
         self.assertIn("json-control-fixture-nightly", self.routing.credentialed_control_jobs(doc))
         self.assertEqual(self.routing.control_route_failures(doc), {})
@@ -348,7 +348,7 @@ class ResolverGaps(unittest.TestCase):
                "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.matrix) }}"}, "steps": [{"run": "true"}]}
         with self.assertRaisesRegex(AssertionError, "UNRESOLVED_MATRICES"):
             self.overflow.job_picks_one_size(job, "matrix-fixture.yml", "build")
-        self.assertFalse(self.overflow.job_picks_one_size(job, "seed-derived-data.yml", "seed"))
+        self.assertFalse(self.overflow.job_picks_one_size(job, "cmux-next-fast-tier-seed.yml", "seed"))
 
     def test_a_copied_job_keeps_its_workflow_env_secret(self) -> None:
         """Rule 6 reads each job through inline_step_scripts, a copy: the copy keeps the workflow env the job

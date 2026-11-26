@@ -7,7 +7,7 @@
 // infinite length with flat or no growth in cpu/memory/even disk".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -129,7 +129,12 @@ type Pane = {
 
 /// A chat opened empty, then `count` records of `recordAt` streamed into it live while it follows its latest row;
 /// every rebuild of its rows in that time is counted.
-async function streamed(recordAt: (sessionId: string, seq: number) => EventRecord, count: number) {
+async function streamed(
+  recordAt: (sessionId: string, seq: number) => EventRecord,
+  count: number,
+  /// Called every 50 records, with what the client holds and draws; true stops the stream there.
+  onBatch?: (keepFrom: (rowId: string | null, at?: number) => void, pane: Pane, snapshot: Snapshot) => boolean,
+) {
   const { AcpmuxDirectClient, HELD_RECORDS } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   let target = "";
@@ -201,6 +206,7 @@ async function streamed(recordAt: (sessionId: string, seq: number) => EventRecor
       const first = pane.events[0]?.seq ?? 1;
       if (first > oldest) sheds += 1;
       oldest = first;
+      if (onBatch?.((rowId, at) => client.setKeepFrom(rowId, at), pane, snapshot)) break;
     }
   }
   for (let index = 0; index < 20; index += 1) await tick();
@@ -279,6 +285,38 @@ test("the rows a chat of ended turns keeps after its sheds are what a full rebui
     chat.pane.emit();
     chat.flush();
     expect(drawn(shed)).toEqual(drawn(chat.snapshot()));
+  } finally {
+    chat.cleanup();
+  }
+}, 300_000);
+
+test("a shed while the view's oldest drawn row is a fold the client holds under no id keeps that row's records", async () => {
+  const { HELD_KEPT, HELD_RECORDS } = await import("./direct");
+  // The view's top row is a closed turn's fold (turns.ts `WORKED`), named by an id the client never made, over a
+  // real row older than where the count alone cuts. A shed must keep from it, not cut by the count as with none named.
+  let kept: { id: string; at: number } | undefined;
+  let shedWhileKept = false;
+  const chat = await streamed(endedTurns, 12_000, (keepFrom, pane, snapshot) => {
+    if (kept) {
+      shedWhileKept = (pane.events[0]?.seq ?? 1) > 1;
+      return shedWhileKept;
+    }
+    if (pane.events.length < HELD_RECORDS - 100) return false;
+    const below = pane.events[pane.events.length - HELD_KEPT - 400]!.at;
+    const row = snapshot.rows.find((candidate) => Number(candidate.at) >= below && candidate.kind === "user");
+    if (!row) return false;
+    kept = { id: String(row.id), at: Number(row.at) };
+    keepFrom(`worked-${kept.id}`, kept.at);
+    return false;
+  });
+  try {
+    expect(kept, "a row to keep from").toBeDefined();
+    expect(shedWhileKept, "the chat shed while the fold was named").toBe(true);
+    expect(chat.pane.events[0]!.at, "the oldest record held").toBeLessThanOrEqual(kept!.at);
+    expect(
+      chat.snapshot().rows.some((row) => row.id === kept!.id),
+      "the fold's prompt row is still drawn",
+    ).toBe(true);
   } finally {
     chat.cleanup();
   }

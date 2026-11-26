@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxVisibleRows
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -68,6 +69,7 @@ final class NotificationsPanelView: NSView {
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
+    let listWork = ListWorkMeter() // rows configured, measured and walked (the visible-rows contract)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -78,20 +80,12 @@ final class NotificationsPanelView: NSView {
         glass.samplesBehindWindow = true
         addSubview(glass)
         addSubview(background)
-        NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            body.topAnchor.constraint(equalTo: background.topAnchor),
-            body.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-        ])
+        // The glass and the background fill the view, and the body fills the background.
+        let fills: [(NSView, NSView)] = [(glass, self), (background, self), (body, background)]
+        NSLayoutConstraint.activate(fills.flatMap { view, host in
+            [view.leadingAnchor.constraint(equalTo: host.leadingAnchor), view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+             view.topAnchor.constraint(equalTo: host.topAnchor), view.bottomAnchor.constraint(equalTo: host.bottomAnchor)]
+        })
         build()
     }
 
@@ -181,6 +175,7 @@ final class NotificationsPanelView: NSView {
     /// rather than the empty state.
     func show(_ rows: [NotificationRowView], loaded: Bool) -> CGFloat {
         rowViews = rows
+        listWork.rebuilt(rows.count) // every view is new (`NotificationsPanelController.render`); fittingSize measures each
         list.setViews(rows, in: .top)
         for row in rows { row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
         empty.isHidden = !rows.isEmpty || !loaded
@@ -194,6 +189,7 @@ final class NotificationsPanelView: NSView {
     }
 
     func select(_ index: Int?) {
+        listWork.walked(rowViews.count)
         for (offset, row) in rowViews.enumerated() { row.isSelected = offset == index }
         if let index, rowViews.indices.contains(index) { rowViews[index].scrollToVisible(rowViews[index].bounds) }
     }
@@ -220,6 +216,8 @@ final class NotificationsPanelView: NSView {
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }
 }
+
+extension NotificationsPanelView: VisibleRowsList { var rowViewsAlive: Int { rowViews.count } }
 
 private final class FlippedView: NSView {
     nonisolated override var isFlipped: Bool { true }

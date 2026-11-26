@@ -30,6 +30,7 @@
 //   the host's fault-injection tests. It exists only when the host set `__cmuxHealthInjectAllowed`
 //   before page code ran; no other page gets the function.
 import { installScrollingMarks, lastScrolledElement, SHOWN_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { slackTimersFor } from "./slackTimers";
 
 /** Page to host, `{handled, edits?, rest?}` → `{rest}`: the page is alive; `handled` is its input
  * count so far; `rest` (sent) says it stops beating until something happens in it, and (answered)
@@ -160,6 +161,8 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     );
   };
   const tick = () => {
+    // The page is awake for the beat: the deferred jobs whose window opened run now (slackTimers.ts).
+    slackTimersFor(view).ride();
     quiet++;
     if (quiet < REST_AFTER_BEATS || !hostTakesRest || client.holding || holdsEdits()) return beat();
     // Nothing happened for a while: the last beat says so, then no timer runs until something does.

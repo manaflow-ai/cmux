@@ -2,6 +2,8 @@ import { Fragment, memo, useContext, useLayoutEffect, useMemo, type ReactNode } 
 import type { PromptContentPart, PromptImage } from "../model";
 import { FileAttachment } from "../FileAttachment";
 import { attachmentPath } from "../fileAttachmentModel";
+import { useExperimentSwitch } from "../../../experiments/switches";
+import { useT } from "../i18n";
 import { PastedText, PromptText, PromptTyped } from "./PromptText";
 import { FindReveal, foldFind } from "./chatFind";
 import {
@@ -26,12 +28,14 @@ import { sentUIPick } from "./sentUIPickModel";
  * file too) keeps its chip. */
 export const InlinePromptContent = memo(function InlinePromptContent({
   rowId,
+  messageAt,
   parts,
   show,
   renderImage,
   renderFile,
 }: {
   rowId: string;
+  messageAt?: number;
   parts: readonly PromptContentPart[];
   show(text: string): string;
   renderImage(image: PromptImage): ReactNode;
@@ -50,6 +54,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   return (
     <PromptText
       rowId={rowId}
+      messageAt={messageAt}
       // What the fold measures: the words the bubble draws, from the same join.
       text={bodyText(body)}
       // What Find searches (chatFind.ts `drawnPromptText`, the same text): those words and each text
@@ -83,6 +88,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       return (
         <PromptTyped
           key={`text-${index}`}
+          messageAt={messageAt}
           text={part.text}
           show={show}
           plain={"huge" in part && part.huge === true}
@@ -126,6 +132,10 @@ export const InlinePromptContent = memo(function InlinePromptContent({
  * band): the same file chip a legacy prompt's band and the composer draw (FileAttachment.tsx), with
  * its size and its whole path as its tooltip, so two files of one name read apart. */
 export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: "text" | "image" }> }) {
+  const t = useT();
+  // Transcript Work Log: the chip says what the file did for the turn, in place of its size
+  // (model.ts `attachmentBox` measures the same words).
+  const note = useExperimentSwitch("transcriptWorkLog") ? t("worklog.addedToContext") : undefined;
   return (
     <span className="cv-user__inline-file">
       <FileAttachment
@@ -137,6 +147,7 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
           // The app it came from: its icon and tooltip line, as the legacy band's file chip has.
           source: part.source,
         }}
+        note={note}
       />
     </span>
   );

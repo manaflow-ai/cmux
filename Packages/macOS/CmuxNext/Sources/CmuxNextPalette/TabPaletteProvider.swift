@@ -39,7 +39,7 @@ public final class TabPaletteProvider: PaletteProvider {
                 symbol: symbol,
                 section: Self.section,
                 keywords: [PaletteStrings.tabKeyword],
-                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToTab, symbol: "return", effect: .perform {
+                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToTab, symbol: "return", namesRow: true, effect: .perform {
                     source.selectTab(id: id)
                 }),
                 secondary: [
@@ -61,6 +61,8 @@ public final class TabPaletteProvider: PaletteProvider {
             let target = ActionTargetRef(kind: .tab, id: id)
             item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: PaletteStrings.switchToTab),
                                PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
+            // Read only for the row the preview pane shows (`experiments.palettePreview`).
+            item.facts = { PaletteFacts.tab(tab) }
             return item
         }
     }

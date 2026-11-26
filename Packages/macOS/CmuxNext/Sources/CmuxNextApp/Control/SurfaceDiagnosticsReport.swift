@@ -33,11 +33,10 @@ enum SurfaceDiagnosticsReport {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
-                // A web page tab has no terminal lifecycle: report its paint state, not `restoring`.
-                if case .page(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)),
-                   let page = view.content as? PageWebView {
-                    object["phase"] = .string(page.hasPainted ? "painted" : "loading")
-                }
+                // A web page or chat tab has no terminal lifecycle: report its paint state, not `restoring` (a chat's: launch_tti_check).
+                let content = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:))
+                if case .page(let view)? = content, let page = view.content as? PageWebView { object["phase"] = .string(page.hasPainted ? "painted" : "loading") }
+                if case .agent(let view)? = content { object["phase"] = .string(view.model.hasPainted ? "painted" : "loading") }
                 #if DEBUG || CMUX_BENCH_HOOKS
                 // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
                 // which page a pane shows.
@@ -113,7 +112,7 @@ enum SurfaceDiagnosticsReport {
     private static func hibernation(_ services: AppServices) -> JSONValue {
         guard let hibernation = services.cache.hibernation else { return .null }
         let setting = hibernation.setting
-        return [
+        let report: [String: JSONValue] = [
             "mode": setting.configValue.stringValue.map(JSONValue.string) ?? .number(setting.hiddenMinutes ?? 0),
             "pressure": .string(hibernation.pressure.rawValue),
             "hibernated": .array(services.cache.dormantTabs.ids.sorted().map(JSONValue.string)),
@@ -129,9 +128,8 @@ enum SurfaceDiagnosticsReport {
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
-            "snapshots": JSONValue(hibernation.snapshots.count),
-            "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),
             "wakes": hibernation.wakeLog.json,
         ]
+        return .object(report.merging(hibernation.snapshots.json) { kept, _ in kept })
     }
 }

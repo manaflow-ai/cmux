@@ -9,7 +9,7 @@
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
-#     [--arg=panedrag=on|off] [--arg=panecounts=2,8,30]
+#     [--arg=panedrag=on|off] [--arg=panecounts=2,8,30] [--arg=transcriptfling=on|off]
 #     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench] [--arg=app_config=release|bench]
 # app_config= (default release) is the measured app's build. bench keeps Release optimization and compiles in
 # the debug.* control surface (reload.sh --config bench), so the budget scenario's waker lines (debug.wakeups)
@@ -22,11 +22,22 @@
 # panedrag= (default on) runs scripts/ci/frame-pacing/pane_drag.py on the same Debug app (RFD 0022 item 1): tab drags
 # and pane-header drags through the real mouse path at panecounts= panes of mixed kinds; input to move, frames over
 # 8.33 ms, blank frames per drop and layout jumps, as a "Pane and tab drag" section of BENCH.md. Report only.
+# transcriptfling= (default on) runs webviews/bench/transcript-fling.bench.ts at 3,000 rows in headless Chromium on
+# this Mac (RFD 0121 item 2: the native transcript's "before"): fling frame interval p50/p95/max, frames over
+# 8.33 ms and blank frames per arm (the shipped React transcript, plain DOM rows, a text floor), as a "Transcript
+# fling" section of BENCH.md. Report only.
 # cmux=build (default) builds a Release app at this checkout; cmux=nightly
 # measures the latest nightly-next DMG. gate=1 fails the step when a cmux row
 # is worse than scripts/perf-bench/baseline/<chip>-macos<major>.json by more
 # than 15 % (and the unit's floor). Output: BENCH.md in the log,
 # artifacts/perf-bench/{results.json,BENCH.md}.
+#
+# suite=tabs (Leo, 2026-11-20, ask-9176875aef): idle RAM, CPU and GPU at 1, 10 and 50 tabs, cmux NEXT
+# against Microsoft Edge (Microsoft's stable package, fetch_browsers.py), the same local page in every tab
+# (xbench.py --scenario idle-tabs). No Debug build, no launches or other rows:
+#   cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/perf-bench.sh --ref SHA \
+#     --arg=suite=tabs [--arg=cmux=nightly] [--arg=idle_tabs=1,10,50] [--arg=browsers=cmux-chromium,edge,chrome]
+#     [--arg=rounds=3] [--arg=idle=60] [--arg=settle=30] --artifact artifacts/perf-bench/results.json
 #
 # suite=parity (CHROME PARITY BENCH, m91): cmux NEXT (a Release app at this checkout) against the host's own
 # Google Chrome stable (/Applications/Google Chrome.app; the bench installs nothing), real HID input and
@@ -43,7 +54,7 @@ set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug app_config=release
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
-panedrag=on panecounts="2,8,30"
+panedrag=on panecounts="2,8,30" transcriptfling=on idle_tabs="1,10,50" browsers_set=0
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
@@ -62,12 +73,14 @@ for arg in "$@"; do
     cmux=*) cmux="${arg#cmux=}" ;;
     gate=*) gate="${arg#gate=}" ;;
     maxload=*) maxload="${arg#maxload=}" ;;
-    browsers=*) browsers="${arg#browsers=}" ;;
+    browsers=*) browsers="${arg#browsers=}"; browsers_set=1 ;;
+    idle_tabs=*) idle_tabs="${arg#idle_tabs=}" ;;
     tabswitch=*) tabswitch="${arg#tabswitch=}" ;;
     tabcounts=*) tabcounts="${arg#tabcounts=}" ;;
     palette=*) palette="${arg#palette=}" ;;
     panedrag=*) panedrag="${arg#panedrag=}" ;;
     panecounts=*) panecounts="${arg#panecounts=}" ;;
+    transcriptfling=*) transcriptfling="${arg#transcriptfling=}" ;;
     budgets=*) budgets="${arg#budgets=}" ;;
     *) echo "perf-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -82,15 +95,23 @@ done
 sha="$(git rev-parse HEAD)"
 out="artifacts/perf-bench"
 work=".build/perf-bench"
+# A launched nightly installs a read-only copy of itself under the profile home; make the trees
+# writable first so a previous run's leftovers are removable.
+chmod -R u+w "$out" "$work" /private/tmp/xbench 2>/dev/null || true
 rm -rf "$out" "$work" /private/tmp/xbench
 mkdir -p "$out" "$work"
 chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "PERF-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$sha model=$(sysctl -n hw.model) chip=\"$chip\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 
 case "$suite" in
-  xbench | parity) ;;
-  *) echo "perf-bench.sh: suite=xbench or suite=parity" >&2; exit 2 ;;
+  xbench | parity | tabs) ;;
+  *) echo "perf-bench.sh: suite=xbench, suite=tabs or suite=parity" >&2; exit 2 ;;
 esac
+scenario=full
+if [ "$suite" = tabs ]; then
+  scenario=idle-tabs
+  [ "$browsers_set" = 1 ] || browsers="cmux-chromium,edge"
+fi
 case "$app_config" in
   release | bench) ;;
   *) echo "perf-bench.sh: app_config=release or app_config=bench" >&2; exit 2 ;;
@@ -150,7 +171,7 @@ if [ "$suite" = parity ]; then
   exit $?
 fi
 want=()
-for name in chrome helium ardia dia; do
+for name in chrome edge helium ardia dia; do
   [[ ",$browsers," == *",$name,"* ]] && want+=("$name")
 done
 [ "$cmux" = nightly ] && want+=(cmux-nightly)
@@ -166,7 +187,8 @@ fi
 status=0
 python3 scripts/perf-bench/xbench.py run --out "$work/run" ${apps[@]+"${apps[@]}"} --browsers "$browsers" \
   --rounds "$rounds" --launches "$launches" --idle "$idle" --active "$active" --settle "$settle" \
-  --max-load "$maxload" --cmux-ref "$sha" --budgets "$budgets" || status=$?
+  --max-load "$maxload" --cmux-ref "$sha" --budgets "$budgets" --scenario "$scenario" --tab-counts "$idle_tabs" \
+  || status=$?
 switch_json=""
 if [ "$debug" = 1 ]; then
   # The matrix and the palette timing drive debug.key / debug.tab_switch / debug.timings, which only a
@@ -197,6 +219,14 @@ if [ "$debug" = 1 ]; then
   else
     echo "PERF-BENCH-TABSWITCH tagged Debug build failed:"; tail -n 40 "$work/reload-switch.log"; status=1
   fi
+fi
+if [ "$suite" = xbench ] && [ "$transcriptfling" != off ]; then
+  # Report only, under its own bound: a failed run leaves the section saying so, never the step red.
+  (cd webviews && { [ -d node_modules ] || bun install --frozen-lockfile >/dev/null; } &&
+    ROWS=3000 TRANSCRIPT_ROWS=3000 TRANSCRIPT_FLING_OUT="$PWD/../$out/transcript-fling.jsonl" \
+      perl -e 'alarm shift; exec @ARGV' 900 bun bench/transcript-fling.bench.ts) \
+    || echo "PERF-BENCH-TRANSCRIPTFLING run exit $?"
+  [ -f "$out/transcript-fling.jsonl" ] && switch_json="$switch_json --transcriptfling $out/transcript-fling.jsonl"
 fi
 # shellcheck disable=SC2086 # switch_json is empty or flags with their paths
 python3 scripts/perf-bench/xbench.py report --out "$work/run" --md "$out/BENCH.md" --json "$out/results.json" $switch_json || status=$?

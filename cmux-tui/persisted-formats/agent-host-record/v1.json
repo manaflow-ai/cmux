@@ -1,0 +1,13 @@
+{
+  "record_version": 1,
+  "session_id": "@SESSION@",
+  "incarnation": "inc-1",
+  "host_pid": 4242,
+  "start_nonce": "0123456789abcdef0123456789abcdef",
+  "harness_pid": 4243,
+  "owner_token": "owner-token",
+  "protocol_min": 1,
+  "protocol_max": 1,
+  "host_build": "acpmux 0.1.0 (older build)",
+  "socket": "@SOCKET@"
+}

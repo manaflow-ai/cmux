@@ -46,14 +46,25 @@ public final class CmuxDialogPresentation {
         values = Self.initialValues(spec)
     }
 
+    /// The card floats over other apps (``CmuxFloatingDialogPanel``), not over a cmux window: it draws the transient
+    /// glass, whose veil is the theme's glass tint, whatever its spec asks. The sheet glass's gray veil is dropped by
+    /// the shipped Liquid Glass variant, so over another app it drew bare, untinted glass in every theme (Leo,
+    /// 2026-11-22: "im not sure what was up with the glass on it, and the lack of theming on it too").
+    public private(set) var floatsOverApps = false
+
     /// A dialog shown outside ``CmuxDialogCenter``, by a host of its own (``CmuxFloatingDialogPanel``: a
-    /// prompt over every app). `onPress` gets each press with the button's id, by click or key.
-    public static func standalone(_ spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil,
+    /// prompt over every app). `onPress` gets each press with the button's id, by click or key. `floatsOverApps`:
+    /// see ``floatsOverApps``.
+    public static func standalone(_ spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil, floatsOverApps: Bool = false,
                                   onPress: @escaping (String) -> Void) -> CmuxDialogPresentation {
         let dialog = CmuxDialogPresentation(id: 0, spec: spec, activeLook: activeLook)
+        dialog.floatsOverApps = floatsOverApps
         dialog.onPress = onPress
         return dialog
     }
+
+    /// Whether the card draws the transient (theme-tinted) glass: its spec asks for it, or it floats over other apps.
+    public var usesTransientMaterial: Bool { spec.usesTransientMaterial || floatsOverApps }
 
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }

@@ -1,0 +1,13 @@
+{
+  "title": "Sidebar lineage nesting in a group (#28103), with Show Sessions Started by Agents on (sidebar.showAgentSessions; off by default, agent-started sessions draw no row): Release week with two agent-started children, Settings pass folded behind its count (a parent below the top level starts folded) and Release notes open. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-lineage-group.json",
+  "steps": [
+    {"title": "Show the lineage group fixture", "rpc": {"method": "debug.sidebar_nested_fixture", "params": {"scenario": "lineageGroup"}}, "wait": 1.5, "shot": false,
+     "optional": "a build from before the lineageGroup fixture scenario"},
+    {"title": "Settings pass and Release notes under Release week, Settings pass folded behind its count", "wait": 0.5}
+  ],
+  "settings": {
+    "sidebar": {
+      "showAgentSessions": true
+    }
+  }
+}

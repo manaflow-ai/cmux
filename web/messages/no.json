@@ -3363,7 +3363,8 @@
       "darkArt": "Mørk kunst",
       "museumIcons": "Museumsikoner",
       "calm": "Rolig",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Østasiatisk maleri"
     }
   },
   "testimonials": {
@@ -5530,5 +5531,15 @@
     "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
     "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
     "retry": "Prøv igjen"
+  },
+  "connected": {
+    "title": "Du er logget på {app}",
+    "titleGeneric": "Du er logget på",
+    "errorTitle": "Kunne ikke logge på {app}",
+    "errorTitleGeneric": "Påloggingen ble ikke fullført",
+    "body": "Gå tilbake til cmux for å fortsette.",
+    "errorBody": "Gå tilbake til cmux og prøv igjen.",
+    "button": "Tilbake til cmux",
+    "closeHint": "Du kan lukke denne fanen."
   }
 }

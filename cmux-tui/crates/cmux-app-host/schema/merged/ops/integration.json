@@ -1,0 +1,54 @@
+{
+  "family": "integration",
+  "ops": {
+    "integration.approval.get": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "34cef941f0b5f4a2"
+    },
+    "integration.complete": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "62b79e37d7eac00a"
+    },
+    "integration.connect": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "50b1b0162afa649f"
+    },
+    "integration.list": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a7a82c43a89737c0"
+    },
+    "integration.policy.get": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "e9ab8d4f2c910d28"
+    },
+    "integration.policy.set": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "75c9bc5042d24b80"
+    },
+    "integration.revoke": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "dffd4ec1b6fa2bd5"
+    }
+  }
+}

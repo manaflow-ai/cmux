@@ -41,6 +41,7 @@
 //! under it (`policy_mode.rs` `require_enforced`).
 
 use super::*;
+use cmux_cloud_start_core::hybrid_tools;
 use cmux_json::JsonSet as _;
 
 /// What the PreToolUse gate tells Claude Code to do with one tool call (module docs).
@@ -183,14 +184,27 @@ impl Hub {
                 "reason": reason,
             });
             self.append(session, "mux", "permission_auto", record);
+            // Read before the cancel: the reason names the switch that lifts it.
+            let text = self.floor_refusal_text(session, reason);
             self.remote_floor_cancel(session, reason);
-            return json!({"decision": GateDecision::Deny.as_str(), "reason": reason});
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": text});
         }
+        let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
+        // A hybrid start's call waits here while its machine boots, then may run there
+        // (`hybrid_hold.rs`); any other chat's call goes straight on.
+        let on_machine = match self.hybrid_route(session, kind).await {
+            hybrid_tools::Route::OnMachine { machine } => {
+                super::hybrid_hold::on_machine_answer(&request, &machine)
+            }
+            hybrid_tools::Route::Hold | hybrid_tools::Route::Here { .. } => None,
+        };
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {
-            return json!({"decision": GateDecision::None.as_str()});
+            return super::hybrid_hold::with_machine(
+                json!({"decision": GateDecision::None.as_str()}),
+                on_machine,
+            );
         };
-        let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
         let rule = session
             .meta()
             .permission_rules
@@ -225,8 +239,9 @@ impl Hub {
         if decision == GateDecision::Deny {
             answer.set("reason", json!(deny_reason(policy, by_rule)));
             tracing::info!(session = %session.id, %policy, "the policy gate denied a tool call");
+            return answer;
         }
-        answer
+        super::hybrid_hold::with_machine(answer, on_machine)
     }
 }
 

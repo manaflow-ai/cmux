@@ -33,11 +33,14 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
-import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { chiefJobWake, type ChiefJob, type JobDelivery, chiefPlanWake } from "../chief-brain-cc/jobs.ts";
+import type { PlanNotice } from "../plan-checkout.ts"
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ownerComputerEntitled } from "../chief-brain-cc/sandbox-plan.ts"
+import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerProvisionStart, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { releaseLocalComputer, reserveLocalComputer } from "../chief-brain-cc/local-computer.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 import { authorizeDefaultMachineFollowing } from "../chief-default-hand.ts"
@@ -623,9 +626,54 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return ccSandboxPurge(this)
   }
 
+  /** The Chief's computer for its owner (chief-brain-cc/sandbox-computer.ts), on its `<agent>/sandboxes` object only. */
+  async ccComputerStatus(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerStatus>>> {
+    return ccComputerStatus(this, agent, owner)
+  }
+
+  /** Whether `owner`'s plan gives a Chief's own computer (Plus, Pro or Max; sandbox-plan.ts COMPUTER_PLANS). */
+  async ccComputerEntitled(owner: string): Promise<boolean> {
+    return ownerComputerEntitled(this, owner)
+  }
+
+  /** The owner takes the Chief's computer over or hands it back (the control lease, sandbox-computer.ts). */
+  async ccComputerControl(agent: string, action: "take_over" | "hand_back"): Promise<Awaited<ReturnType<typeof ccComputerControl>>> {
+    return ccComputerControl(this, agent, action)
+  }
+
+  /** The owner gives the Chief a computer (a sandbox of COMPUTER_SIZE with the desktop, made in the background), or the one it has. */
+  async ccComputerProvision(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerProvisionStart>>> {
+    return ccComputerProvisionStart(this, agent, owner)
+  }
+
+  /** One input from the owner while they hold the Chief's computer. */
+  async ccComputerInput(agent: string, req: Record<string, unknown>): Promise<Awaited<ReturnType<typeof ccComputerInput>>> {
+    return ccComputerInput(this, agent, req)
+  }
+
+  /** The Chief's computer screen for its owner: a JPEG (base64) while it runs; never wakes it. */
+  async ccComputerScreen(agent: string): Promise<Awaited<ReturnType<typeof ccComputerScreen>>> {
+    return ccComputerScreen(this, agent)
+  }
+
+  /** A slot for owner `user`'s local Chief `chief`'s computer, on the owner's `local:<user>/computers` object only (local-computer.ts). */
+  async ccLocalComputerReserve(user: string, chief: string): Promise<Awaited<ReturnType<typeof reserveLocalComputer>>> {
+    return reserveLocalComputer(this, user, chief)
+  }
+
+  /** Gives back local Chief `chief`'s slot on the owner's `local:<user>/computers` object (local-computer.ts). */
+  async ccLocalComputerRelease(chief: string): Promise<void> {
+    return releaseLocalComputer(this, chief)
+  }
+
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
   async chiefJob(j: ChiefJob): Promise<JobDelivery> {
     return chiefJobWake(this, j)
+  }
+
+  /** A plan bought through this Chief's checkout link is on (plan-checkout.ts): its note starts a turn here. */
+  async chiefPlan(n: PlanNotice): Promise<JobDelivery> {
+    return chiefPlanWake(this, n)
   }
 
   /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */
@@ -645,6 +693,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   async slackOutbound(reply: slack.SlackOutbound): Promise<void> {
     return slack.slackOutbound(this, reply)
+  }
+
+  /** RFD 0123: the owner's non-owner allowance (set it with `set`; null is the default again) and who spent the hours. */
+  async slackAwake(o: { set?: number | null; days: number }) {
+    return slack.slackAwake(this, o)
   }
 
   /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */

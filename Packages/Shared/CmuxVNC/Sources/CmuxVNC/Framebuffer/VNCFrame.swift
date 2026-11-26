@@ -1,6 +1,8 @@
+import Foundation
+
+#if canImport(CoreVideo) && canImport(CoreGraphics)
 import CoreGraphics
 import CoreVideo
-import Foundation
 
 /// One presented state of the remote screen: an IOSurface-backed 32BGRA
 /// pixel buffer the session never writes again, so presenters may show it
@@ -85,3 +87,25 @@ final class FramePublisher {
         return buffer
     }
 }
+#else
+/// One presented state of the remote screen, represented as packed BGRA words on Linux.
+public struct VNCFrame: Sendable, Equatable {
+    public let pixels: [UInt32]
+    public let width: Int
+    public let height: Int
+    public let sequence: UInt64
+    public let dirtyRect: CGRect
+    public var publishedAt: UInt64 = DispatchTime.now().uptimeNanoseconds
+}
+
+final class FramePublisher {
+    private var sequence: UInt64 = 0
+
+    func publish(_ framebuffer: Framebuffer, dirty: CGRect) -> VNCFrame? {
+        guard framebuffer.width > 0, framebuffer.height > 0 else { return nil }
+        sequence += 1
+        return VNCFrame(pixels: framebuffer.pixels, width: framebuffer.width, height: framebuffer.height,
+                        sequence: sequence, dirtyRect: dirty)
+    }
+}
+#endif

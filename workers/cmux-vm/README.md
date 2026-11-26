@@ -40,7 +40,17 @@ two `sha256`, VM `scopes`, `labels`, `maxVms` up to 500, `maxUsdPerHour` up to
 team (`X-Cmux-Team-Id` optional, another team 403), reaches only VMs carrying its
 labels, gets those labels on every create, and every create is held to its
 caps: over `maxVms` live VMs, or over `maxUsdPerHour` estimated (the agent-key
-estimate, every live VM counted), is 429 naming the cap. It cannot resize, fork
+estimate, every live VM counted), is 429 naming the cap. Three optional caps
+(RFD 0016; unset, no limit) also hold on every create, start and resume:
+`maxRunningVms` (running or booting VMs; paused and stopped ones do not count),
+and `maxUsdPerDay` / `maxUsdPerMonth` (estimated list-price spend this UTC day
+or month: each live VM from its create, ending at its pause when paused; a VM
+gone at the provider and each VM deleted in the window at the default size,
+summed in SQL; it errs high). A start or resume counts every live VM of the key,
+up to 5000 (past that it refuses). A refusal is 429
+with `budget` `agent_running_vms`, `agent_usd_per_day` or `agent_usd_per_month`,
+naming the cap and its current value. These checks read then act, so two
+concurrent starts can pass together at the cap. It cannot resize, fork
 or mint keys. It never expires and nothing deletes its VMs; rotating keeps them
 (second hash, move holders, drop the first). Mint with `bun scripts/team-key.ts
 mint --out FILE ...` (the key only to FILE, the row to stdout); revoke by
@@ -209,9 +219,9 @@ and live-provider validation remain separate work.
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429). A production product tenant has no machine-count
 cap: its machines are metered and cmux-platform's team spending cap is the stop.
-Dev/test tenants (every tenant off production) keep 300 live VMs (NEXT Max's
-machines kept, so a plan is the stop there), paused ones
-too; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
+Dev/test tenants (every tenant off production) have no count cap either: idle
+pause, the agent reaper, cmux-platform's test reaper and the team's Cloud plan
+and spending cap reclaim or stop a leak; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
@@ -390,6 +400,68 @@ An image create returns `bootImage: { id, revision, displayName }`. Callers must
 check that receipt because an older API may ignore `image`. With the same retry
 key, a changed revision or backing snapshot produces 409 within the existing
 24-hour idempotency window. Omitted image keeps ordinary creation unchanged.
+
+### One provider call per create
+
+An image create that asks for a size boots the image's own snapshot (baked
+small) and is then resized, after two provider reads: four provider calls. Two
+switches, each a Worker var listing service key ids (`CMUX_VM_SERVICE_KEYS`
+ids), remove all but the create for those services. Unset, nothing changes.
+
+- `CMUX_VM_SIZED_IMAGE_SERVICE_IDS`: an entry of `VM_BOOT_IMAGES` may carry
+  `"large": { "snapshotId": "...", "vcpus": 4, "memoryMib": 16384, "diskMib": 65536 }`,
+  a second snapshot of the same bake taken after its builder was grown to that
+  size (`web/scripts/cmux-vm-image/large-image.ts`). A listed service's create
+  that names the image and asks for exactly that size on all three axes boots
+  it, so the VM is at its size from the create and no resize is sent. The
+  resize is decided by the provider's answer, not by the entry: a VM that
+  boots smaller is still grown. Any other size, a create that names no size
+  and an image without `large` boot the image's own snapshot as before. The
+  receipt is the same either way (`bootImage` id and revision, exact
+  `resources`); the large snapshot's id is never returned. A malformed `large`
+  is dropped and the image stays listed. A large boot is held to the size
+  asked: a VM that answers bigger than asked on any axis (an entry that
+  declares the wrong size) is deleted and the create fails with 503, like a
+  VM from another snapshot, because machines are billed by size; the
+  `vm_create` line says `oversized`.
+  Operator rule: a revision's `large` is published with it and never removed
+  or replaced. To change or drop it, publish a new revision (a new entry) and
+  remove the old entry as a whole. Add `large` only to a list a Worker with
+  this change reads: an older Worker treats the unknown field as an invalid
+  list and disables every image. A create in flight when the switch changes,
+  or when an entry gains `large`, still recovers: a retry keeps the snapshot
+  its first attempt was journaled from. If the rule is broken while a create
+  is in flight, its retry reads the exact slug first and returns the VM the
+  first attempt made, checked against the journal (`imageVariant`
+  `unlisted`); when that attempt made nothing the key fails (503) and sends
+  nothing, and a new Idempotency-Key creates from the entry as it is.
+- `CMUX_VM_CREATE_NO_READS_SERVICE_IDS`: a listed service's create sends no
+  provider read first. The exact-slug read is skipped only when the VM id was
+  minted in that request (no earlier attempt can have created its slug); a
+  retry under the same key, and a fork resumed from its capture, read first as
+  before, and the read after a failed create stays. The boot image read is
+  skipped on every attempt: the create's answer must name the approved
+  snapshot, and a VM that names another is deleted and the create fails, so a
+  snapshot the provider no longer has is still 503 with nothing recorded. It
+  is found by the create instead of a read before it, and that differs in
+  what a retry may do. With the read, nothing was sent, so a retry under the
+  same key could send at once. Without it: a clean refusal (a 4xx other than
+  408 or 409, then 404 at the exact slug) marks the send rejected and frees
+  the slot, and a retry sends at once; a 5xx, a timeout or a VM booted from
+  another snapshot leaves the send uncertain, and retries under that key
+  answer 503 without sending until the 10 minute send grace has passed
+  (`CREATE_SEND_GRACE_MS`), each later round that boots another snapshot
+  making and deleting one VM. What the provider answers for a snapshot it no
+  longer has is not confirmed; confirm it before listing production. A mismatched VM whose delete fails runs
+  unrecorded until the orphan sweep; it is logged as
+  `vm_create_discard_failed` (public VM id, `reason` `receipt` or
+  `oversized`, the delete's `status`).
+
+The staging Worker lists `cloud-platform-dev` and `cloud-platform-staging` in
+both; production lists none. Staging takes the unconfirmed missing-snapshot
+case above: at worst a staging create answers 503 for the send grace. The
+`vm_create` line (Operations) says what each create did: `imageVariant`, and
+null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
 
 The operator CLI supports `cmux-vm image list --json` and
 `cmux-vm create --image cloud-standard --image-revision r1 --json`.
@@ -599,6 +671,16 @@ Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
 
+## Dated API versions
+
+A client pins the API it was written against with `Cmux-Api-Version: YYYY-MM-DD` (the base is 2026-11-24). The
+Worker serves the newest version dated on or before the pin, translates the request up and the JSON reply down, and
+names the version served in the reply's `Cmux-Api-Version`. A malformed pin or one older than the base gets 400
+`UnsupportedApiVersion`. No header: the current API, untouched. A breaking change to a route appends a dated
+version to `API_VERSIONS` in `src/api-version.ts` describing the change old to new (`rename`, `add`, `remove`);
+each dated version stays served for at least 12 months after the next one ships
+(`cmux-tui/spec/api-versioning.md`). Cost: `bun scripts/bench-api-version.ts`.
+
 ## Layout
 
 | path | what |
@@ -629,13 +711,23 @@ public VM id (and mesh id) and no tenant, provider id or request body.
 - `vm_create`: one per `POST /v1/vms` (or fork) that reached the provider,
   success or failure (`ok`). `recoverMs` (the exact-slug read), `verifyImageMs`
   (the boot image read, in flight with it; null without an approved image),
+  both null when the read was not made ("One provider call per create"),
+  `imageVariant` (`large` or `base`: which snapshot of an approved image
+  booted, or `unlisted` for a retry that recovered a VM from a snapshot its
+  entry no longer lists; null without one), `oversized` (a large boot that
+  answered bigger than asked and was refused),
   `createMs` (the provider create; null when the VM was recovered),
   `recoverAfterMs` (the read after a failed create; null otherwise),
-  `resizeMs` (null without a grow), `recordMs` (the ownership write),
+  `resizeMs` (null without a grow: the VM booted at the size asked),
+  `recordMs` (the ownership write),
   `preMs` (handler entry to the first provider call: validation, idempotency,
   quota), `totalMs`, `recovered`, `meshAtCreate` (with `meshId`, `meshJoined`
   and `memberMs` when a mesh was named), and the provider's own
   `providerTotalMs` and `providerTimingsMs` when its create answer has them.
+- `vm_create_discard_failed`: a create's answer described a VM that is not
+  what was asked (another snapshot, or a large boot bigger than asked) and
+  deleting it failed. `vmId` (public), `reason` (`receipt` or `oversized`),
+  `status` (the delete's). The VM runs unrecorded until the orphan sweep.
 - `vm_start`: one per start or resume whose provider start was called.
   `route` (`start` or `resume`), `stateBefore` (resume reads it; start does
   not, so null), `stateAfter`, `readMs` (resume only), `startMs`, `totalMs`.

@@ -68,6 +68,9 @@ async fn round_trip(transport: Transport) {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -86,6 +89,9 @@ async fn round_trip(transport: Transport) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(handle.path(), LinkPath::Direct);
+    // A direct path names where its peer is (the host's loopback, LAN or tailnet address the
+    // dial picked); only a relayed path names none.
+    assert!(["lan", "tailnet", "wan"].contains(&handle.peer_scope().as_str()), "{}", handle.peer_scope());
     let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
     channel.send(b"hello".to_vec()).await.unwrap();
     assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"hello".to_vec() });
@@ -152,6 +158,9 @@ async fn wireguard_relay_only_rides_turn() {
                 include_loopback: true,
                 relay_only: true,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
+                force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
@@ -174,6 +183,8 @@ async fn wireguard_relay_only_rides_turn() {
         // The direct UDP path would have been confirmed well within this.
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(handle.path(), LinkPath::Turn);
+        // Through TURN there is no peer address of its own: not the LAN, not a tailnet.
+        assert_eq!(handle.peer_scope(), "");
         let events = recorder.0.lock().unwrap().clone();
         assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
         handle.close();
@@ -181,10 +192,12 @@ async fn wireguard_relay_only_rides_turn() {
     .await;
 }
 
-/// Relay only over WireGuard without a TURN server has no path at all (the
-/// backend relay is retired): the dial fails at once.
+/// UDP blocked over WireGuard without a TURN server, toward a Mac whose build
+/// has no cmux relay: no path at all. The dial fails at once with
+/// `network_blocked` and what each path did, which the app turns into the
+/// person's sentence (PROTOCOL.md "When no path works").
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn wireguard_relay_only_without_turn_fails_fast() {
+async fn wireguard_with_no_path_says_the_network_blocks_it() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
@@ -200,6 +213,9 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
             include_loopback: true,
             relay_only: false,
             block_udp: true,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -208,13 +224,96 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
     )
     .await;
     match result {
-        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
-            assert!(message.contains("TURN"), "{message}");
+        Err(cmux_mobile_link_ffi::CmuxMobileError::Refused { code, message }) => {
+            assert_eq!(code, cmux_mobile_link_ffi::NETWORK_BLOCKED);
+            let failures: serde_json::Value = serde_json::from_str(&message).unwrap();
+            assert_eq!(failures["udp"], "off", "{message}");
+            assert_eq!(failures["turn"], "none_offered", "{message}");
+            assert_eq!(failures["relay"], "peer_cannot", "{message}");
         }
         Err(other) => panic!("unexpected error {other:?}"),
-        Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
+        Ok(_) => panic!("UDP-blocked WireGuard connected with no path"),
     }
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// Debug "Relay via cmux (HTTPS) only" through the FFI: the phone's dial
+/// joins the service's relay (the fake's, at the request's base URL) and
+/// the link rides it, path `HttpsRelay`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wireguard_forced_relay_rides_the_services_relay() {
+    within(Duration::from_secs(60), "wireguard_forced_relay_rides_the_services_relay", async {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let relay = cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+            server.base_url.clone(),
+            None,
+            mac_id.clone(),
+            "user:alice",
+        );
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let first = session.first;
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, relay) = (mac.clone(), relay.clone());
+                tokio::spawn(async move {
+                    let options =
+                        DialOptions { include_loopback: true, relay: Some(relay), ..DialOptions::default() };
+                    let connected =
+                        dial::answer(&mac, first, events, &options, LinkConfig::default()).await.unwrap();
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+        let handle = connect_inner(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                token: "user:alice".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: mac_id,
+                transport: Transport::WireGuard,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
+                force_relay: true,
+                video_lane: false,
+                webrtc_media: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
+            },
+            None,
+        )
+        .await
+        .expect("connect through the relay");
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        let payload = vec![9u8; 100_000];
+        channel.send(payload.clone()).await.unwrap();
+        let mut received = Vec::new();
+        while received.len() < payload.len() {
+            match channel.recv().await {
+                ChannelMessage::Data { bytes } => received.extend(bytes),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(received, payload);
+        assert_eq!(handle.path(), LinkPath::HttpsRelay);
+        assert_eq!(server.relay_joins(), 2);
+        handle.close();
+    })
+    .await;
 }
 
 /// The service refusing the access token (401 on the signaling upgrade) comes
@@ -238,6 +337,9 @@ async fn a_refused_token_is_typed_unauthorized() {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
+                force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
@@ -274,6 +376,9 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             include_loopback: true,
             relay_only: true,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -302,6 +407,9 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         include_loopback: true,
         relay_only: false,
         block_udp: false,
+        proxy_only: false,
+        drop_wireguard: false,
+        force_relay: false,
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,
@@ -431,6 +539,8 @@ async fn a_new_socket_carries_every_live_link() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let second = pool.connect(wireguard(&second_mac), None).await.expect("second Mac");
     assert!(names(&second.timings()).contains(&"signaling_open"), "{:?}", second.timings());
+    // The new socket took the first Mac's live session at once, at this dial.
+    assert!(names(&second.timings()).contains(&"rehomed"), "{:?}", second.timings());
 
     // Both links are up at once.
     for handle in [&first, &second] {
@@ -438,10 +548,16 @@ async fn a_new_socket_carries_every_live_link() {
         channel.send(b"both".to_vec()).await.unwrap();
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
     }
-    // Nothing is left on the dead socket: a network change has no session to move.
+    // A network change opens another socket and both live links move onto it
+    // (`open` rehomes every live session); both still carry traffic after.
     let marks =
         pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
-    assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
+    assert!(names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
+    for handle in [&first, &second] {
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        channel.send(b"moved".to_vec()).await.unwrap();
+        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"moved".to_vec() });
+    }
     first.close();
     second.close();
     pool.reset().await;
@@ -534,4 +650,279 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
         "these tests assert warm-pool marks on the process's shared pool, which parallel tests reset and \
          trim; give each a `WarmPool::new()`: {offenders:?}"
     );
+}
+
+/// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then
+/// says nothing, or the WireGuard dial over host candidates stalls) costs the service dial
+/// nothing: the hub races it instead of going first, and the service link wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_local_ad_does_not_delay_the_service_dial() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let pool = WarmPool::new();
+
+    // The baseline: the same dial with no ad.
+    let started = std::time::Instant::now();
+    let plain = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let baseline = started.elapsed();
+    plain.close();
+    drop(plain);
+
+    // A hub that accepts and never answers: its connect alone would wait HUB_CONNECT_WAIT.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = silent.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = silent.accept().await {
+            held.push(stream);
+        }
+    });
+    let instance = format!("stale-{mac_id}");
+    // A paired Mac's ad with its key's tag: the one kind of ad a dial trusts.
+    let key = b"stale-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()), "the dial below must race the stale hub");
+
+    let started = std::time::Instant::now();
+    let raced = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let elapsed = started.elapsed();
+    let marks = raced.timings();
+    assert!(!names(&marks).contains(&"local_link"), "{marks:?}");
+    assert!(
+        elapsed < baseline + Duration::from_millis(500),
+        "the stale ad delayed the service dial: {elapsed:?} against {baseline:?} with no ad"
+    );
+    println!(
+        "MATRIX {{\"cell\": \"nearby_stale_ad\", \"variant\": \"WebRtc\", \"no_ad_ms\": {:.1}, \"stale_ad_ms\": {:.1}}}",
+        baseline.as_secs_f64() * 1000.0,
+        elapsed.as_secs_f64() * 1000.0
+    );
+    raced.close();
+    local_link_remove(instance);
+    local_link_pair(mac_id, None);
+    pool.reset().await;
+}
+
+/// A network change drops the ads: they were seen on the old network, and a dial now would spend
+/// the hub bound on a dead one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_network_change_forgets_the_local_ads() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    let instance = format!("roam-{mac_id}");
+    let key = b"roam-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port: 9 }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()));
+    let pool = WarmPool::new();
+    pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    let mac_id_unpin = mac_id.clone();
+    assert!(!local_link_nearby(mac_id), "the old network's ad outlived the roam");
+    local_link_remove(instance);
+    local_link_pair(mac_id_unpin, None);
+    pool.reset().await;
+}
+
+/// A paired Mac's hub on loopback with an echo Mac on it, and the phone's pinned ad for it: what
+/// the phone sees on a LAN with no internet. Returns the hub (dropping it stops accepting) and the
+/// ad's instance name.
+async fn nearby_hub(mac_id: &str, phone: &str, tag: &str) -> (cmux_mobile_link::local_hub::LocalHub, String) {
+    use cmux_mobile_link_ffi::local_link::{LocalEndpoint, LocalTxt, local_link_observe, local_link_pair};
+    let phone = phone.to_owned();
+    let hub = cmux_mobile_link::local_hub::LocalHub::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        mac_id,
+        Arc::new(move |device: &str| device == phone),
+    )
+    .await
+    .unwrap();
+    spawn_echo_mac(SignalingClient::connect_local(&hub.loopback_url(), hub.secret(), mac_id).await.unwrap());
+    let key = format!("{tag}-mac-key").into_bytes();
+    local_link_pair(mac_id.to_owned(), Some(key.clone()));
+    let instance = format!("{tag}-{mac_id}");
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.to_owned() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port: hub.port() }],
+    ));
+    (hub, instance)
+}
+
+fn forget_hub(instance: String, mac_id: String) {
+    cmux_mobile_link_ffi::local_link::local_link_remove(instance);
+    cmux_mobile_link_ffi::local_link::local_link_pair(mac_id, None);
+}
+
+async fn echo_once(handle: &std::sync::Arc<cmux_mobile_link_ffi::LinkHandle>) {
+    let channel = handle.open_channel("echo".into(), String::new()).await.expect("open channel");
+    channel.send(b"nearby".to_vec()).await.expect("send");
+    let echoed = tokio::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("echo in time");
+    assert_eq!(echoed, ChannelMessage::Data { bytes: b"nearby".to_vec() });
+}
+
+/// No internet: the Worker cannot be reached at all (its port refuses), and the only path to the
+/// Mac is its hub on the LAN. The service dial fails first; the dial then waits on the hub
+/// instead of returning that error, and the link carries data. Both transports.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_no_internet_the_hub_is_the_whole_dial() {
+    for transport in [Transport::WebRtc, Transport::WireGuard] {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let device = uuid::Uuid::new_v4().to_string();
+        let (_hub, instance) = nearby_hub(&mac_id, &device, "noinet").await;
+        let refused = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let pool = WarmPool::new();
+        let request = ConnectRequest {
+            base_url: format!("http://{refused}"),
+            transport,
+            ..request_to(&device, &mac_id)
+        };
+        let started = std::time::Instant::now();
+        let handle = pool.connect(request, None).await.expect("the hub alone carries the dial");
+        let elapsed = started.elapsed();
+        let marks = handle.timings();
+        let names = names(&marks);
+        assert!(
+            names.contains(&"local_hub_open") && names.contains(&"local_link"),
+            "{transport:?}: {marks:?}"
+        );
+        assert!(!names.contains(&"signaling_open"), "{transport:?}: {marks:?}");
+        echo_once(&handle).await;
+        println!(
+            "MATRIX {{\"cell\": \"nearby_no_internet\", \"variant\": \"{transport:?}\", \"dial_ms\": {:.1}}}",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        handle.close();
+        forget_hub(instance, mac_id);
+        pool.reset().await;
+    }
+}
+
+/// The Worker is reachable but hangs (its socket accepts and never upgrades: a captive portal, a
+/// dying uplink): the hub wins the race and the dial does not wait on the Worker at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_hub_wins_against_a_hung_worker() {
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    let (_hub, instance) = nearby_hub(&mac_id, &device, "hung").await;
+    let hung = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let hung_addr = hung.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = hung.accept().await {
+            held.push(stream);
+        }
+    });
+    let pool = WarmPool::new();
+    let request = ConnectRequest { base_url: format!("http://{hung_addr}"), ..request_to(&device, &mac_id) };
+    let started = std::time::Instant::now();
+    let handle = tokio::time::timeout(Duration::from_secs(10), pool.connect(request, None))
+        .await
+        .expect("the hung Worker held the dial")
+        .expect("connect");
+    let elapsed = started.elapsed();
+    let marks = handle.timings();
+    assert!(names(&marks).contains(&"local_link"), "{marks:?}");
+    assert!(elapsed < Duration::from_secs(2), "the hub's win waited on the Worker: {elapsed:?}");
+    echo_once(&handle).await;
+    println!(
+        "MATRIX {{\"cell\": \"nearby_hung_worker\", \"variant\": \"WebRtc\", \"dial_ms\": {:.1}}}",
+        elapsed.as_secs_f64() * 1000.0
+    );
+    handle.close();
+    forget_hub(instance, mac_id);
+    pool.reset().await;
+}
+
+/// The service dial the hub beat is dropped mid-flight: here after its socket opened and while
+/// `GET /v1/ice` was still out (a slow Worker). What it left behind is sound: the next dial (the
+/// Mac no longer nearby) reuses the socket it opened, fetches ICE afresh, and comes up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_losing_service_dial_leaves_the_pool_sound() {
+    let server = FakeSignaling::start(FakeOptions {
+        ice_delay: Duration::from_millis(1500),
+        ..FakeOptions::default()
+    })
+    .await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let (hub, instance) = nearby_hub(&mac_id, &device, "loser").await;
+    let pool = WarmPool::new();
+
+    let raced = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let marks = raced.timings();
+    assert!(names(&marks).contains(&"local_link"), "the hub was to win this race: {marks:?}");
+    assert!(!names(&marks).contains(&"ice_servers_fetched"), "{marks:?}");
+    raced.close();
+    drop(raced);
+    forget_hub(instance, mac_id.clone());
+    drop(hub);
+    // Let the dropped dial's socket finish opening if it had not.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let next =
+        tokio::time::timeout(Duration::from_secs(10), pool.connect(request(&server, &device, &mac_id), None))
+            .await
+            .expect("the dropped dial left the pool stuck")
+            .expect("connect after the race");
+    let marks = next.timings();
+    let names = names(&marks);
+    assert!(!names.contains(&"local_link"), "{marks:?}");
+    assert!(names.contains(&"signaling_reused"), "the loser's socket was to be kept: {marks:?}");
+    assert!(names.contains(&"ice_servers_fetched"), "{marks:?}");
+    echo_once(&next).await;
+    next.close();
+    pool.reset().await;
+}
+
+fn request_to(device_id: &str, mac_id: &str) -> ConnectRequest {
+    ConnectRequest {
+        base_url: String::new(),
+        token: "user:alice".into(),
+        team_id: "team".into(),
+        device_id: device_id.to_owned(),
+        mac_device_id: mac_id.to_owned(),
+        transport: Transport::WebRtc,
+        include_loopback: true,
+        relay_only: false,
+        block_udp: false,
+        force_relay: false,
+        proxy_only: false,
+        drop_wireguard: false,
+        video_lane: false,
+        webrtc_media: false,
+        ultra: cmux_mobile_link::UltraSetting::Off,
+    }
 }

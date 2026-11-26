@@ -150,6 +150,41 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     );
     return page;
   }
+  test("browsing the rail paints fades at the top, middle and bottom", async () => {
+    const page = await open(turns(0, COUNT), 1_000_000);
+    try {
+      const list = page.locator(".acpmux-minimap__list[data-rail-scrolls]");
+      const end = await list.evaluate((node) => node.scrollHeight - node.clientHeight);
+      expect(end).toBeGreaterThan(0);
+      await list.hover();
+      const out = process.env.FAST_CHECKS_OUT;
+      for (const [position, wheel, top, bottom] of [
+        ["top", -end * 2, false, true],
+        ["middle", Math.floor(end / 2), true, true],
+        ["bottom", end * 2, true, false],
+      ] as const) {
+        await page.mouse.wheel(0, wheel);
+        await page.waitForFunction((position) => {
+          const node = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+          const end = node.scrollHeight - node.clientHeight;
+          if (position === "top") return node.scrollTop === 0;
+          if (position === "bottom") return node.scrollTop >= end - 0.5;
+          return node.scrollTop > 0 && node.scrollTop < end - 0.5;
+        }, position);
+        // Read the actual CSS mask. A one-ended gradient starts transparent at that end;
+        // the two-ended gradient has transparent stops at both ends.
+        const mask = await list.evaluate((node) => getComputedStyle(node).maskImage);
+        const transparentStops = mask.match(/rgba\(0, 0, 0, 0\)/g) ?? [];
+        expect(transparentStops.length).toBe(Number(top) + Number(bottom));
+        if (!top) expect(mask).toContain("to top");
+        if (!bottom) expect(mask).not.toContain("to top");
+        if (out) await page.screenshot({ path: path.join(out, `rail-${position}.png`) });
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   const tickPoint = (page: Page, index: number) =>
     page.evaluate((at) => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();

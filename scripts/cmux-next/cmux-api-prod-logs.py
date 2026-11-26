@@ -485,9 +485,22 @@ def hq_request(token, method, suffix="", data=None):
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        sys.exit(f"private log store refused: HTTP {error.code}")
+        sys.exit(f"private log store refused: HTTP {error.code}{refusal_why(error.headers)}")
     except (OSError, ValueError):
         sys.exit("private log store unavailable or returned invalid JSON")
+
+
+def refusal_why(headers):
+    """Name a rate-limit refusal from GitHub's own quota headers (counts and times, never the body or token)."""
+    get = (lambda k: (headers.get(k) or "").strip()) if headers is not None else (lambda k: "")
+    remaining, resource, reset, retry = (get(k) for k in (
+        "x-ratelimit-remaining", "x-ratelimit-resource", "x-ratelimit-reset", "retry-after"))
+    parts = [f"{k}={v}" for k, v in (("remaining", remaining), ("resource", resource), ("reset", reset),
+                                      ("retry_after", retry)) if v and len(v) <= 32 and v.replace("_", "").isalnum()]
+    if not parts:
+        return ""
+    kind = "rate limited" if remaining == "0" or retry else "not rate limited"
+    return f" ({kind}: {' '.join(parts)})"
 
 
 def private_destination():

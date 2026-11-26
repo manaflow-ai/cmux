@@ -4,7 +4,9 @@
 // "those intermediate messages should be counted differently than other tool calls like it's a
 // special never-fold type"). Each variant is one finished turn with replies before, between and after
 // its work; the arms of turnFoldReplies.experiment.ts differ only in how the work between the replies
-// folds: one line per stretch (shipped), one line per run, or none (all of it under Worked for).
+// folds: one line per stretch, one line per run, or none (all of it under Worked for). The default
+// `answer` arm keeps only the final answer beside the closed fold and folds every earlier reply
+// (Lawrence, 2026-11-19), so under it the notes below read for the opened fold only.
 // Another agent's message that came in mid-turn stays in sight with the work beside it, and a step
 // that also wrote a file keeps its commands on the line (Leo, 2026-11-07: "some of the tool calls,
 // like, literally just get swallowed").

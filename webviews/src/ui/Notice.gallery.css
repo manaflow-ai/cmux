@@ -50,7 +50,7 @@
 .ui-notice-gallery[data-look="header"] .ui-notice-main {
   margin-inline: calc(-1 * var(--ds-space-3)) calc(-1 * var(--ds-space-2));
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--surface-toast-radius) var(--surface-toast-radius) 0 0;
+  border-radius: var(--role-toast-radius) var(--role-toast-radius) 0 0;
   background: color-mix(in srgb, var(--cmux-text, CanvasText) 5%, transparent);
 }
 
@@ -61,4 +61,18 @@
 }
 .ui-notice-gallery[data-tint="popover"] .ui-notice {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+}
+
+/* glass-host-busy: transcript-like text filling the stage under the stack. */
+.ui-notice-gallery-stage[data-busy] {
+  position: relative;
+}
+.ui-notice-gallery-busy {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--ds-space-4);
+  overflow: hidden;
+  color: var(--cmux-text-secondary, GrayText);
+  font: var(--weight-regular) var(--text-body) / var(--text-body--line-height) var(--font-ui);
 }

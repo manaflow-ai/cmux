@@ -5,12 +5,24 @@
 //! calls/parsing of them seem kinda good? we should bea bel to do that AND have condensed tools
 //! that are callable in acpmux/cmux-next..."
 //!
-//! - The end is learned from the runner's own lock (`bg_run.rs`): a thread per watched task
-//!   blocks on it (`flock`), which the runner holds until it wrote its exit, or the kernel frees
-//!   when the runner dies. Nothing polls.
+//! - The end is learned from the runner's own lock (`bg_run.rs`), which the runner holds until
+//!   it wrote its exit, or the kernel frees when the runner dies. One thread of the process
+//!   (`acpmux-bg-watch`, [`watcher`]) holds every watched task's lock file open and tries each
+//!   lock without blocking once a [`TICK`]: the threads stay constant at any task count (a host
+//!   at load 170 had 42 threads parked in `flock`, one per task, 2026-11-23). A purged chat's
+//!   tasks leave it ([`Hub::bg_unwatch_session`]).
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
-//!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
+//!   output. A chat whose turn runs reads it at that turn's next tool step, as a lane's report
+//!   steers in (`lane_reports.rs`): queued behind the turn, it was a turn of its own once the turn
+//!   ended, and 92 of 382 such turns in a day did nothing (no tool, or only a wait or a status
+//!   read; median 125k tokens each, 13.4M tokens a day on one lane VM, cmuxterm-hq
+//!   `tools/transcript-analytics/tx_noop_turns.py`, 2026-11-24). An idle chat gets it as a turn
+//!   of its own; a turn it may not steer into (the person's own, one past its cap, a review's, an
+//!   agent that does not steer) or that ends before the agent read it gets it after, as before
+//!   (`turns.rs` `run_prompt_joined`, `steer_end.rs`). Leo, 2026-11-24: "anyways, for these
+//!   transcript analyses, we can likely do more tooling on things. and expand on our current
+//!   repertoir."
 //! - Once per task: its prompt id is `bg-done-<task>`, sent with `resend`, so a second send (a
 //!   restart between the send and the mark) is answered from the chat's log instead of running
 //!   again; and once the chat took it, `<task>.notified` beside the record says so, so a
@@ -37,7 +49,7 @@ const NOTICE_TAIL: u64 = 4 << 10;
 /// The notice's sender.
 const SENDER: &str = "acpmux";
 /// A notice's prompt id starts with this, then the task's id.
-const PROMPT_PREFIX: &str = "bg-done-";
+pub(super) const PROMPT_PREFIX: &str = "bg-done-";
 
 impl Hub {
     /// Watches task `record` of folder `dir` and sends its end to its chat ([`Hub::bg_notify`])
@@ -49,17 +61,30 @@ impl Hub {
         let session = record.session_id.clone();
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new().name("acpmux-bg-watch".into()).spawn(move || {
-            wait_unlocked(&lock);
+        let owner = Arc::as_ptr(self) as usize;
+        // A stopping hub sends nothing (`bg_notify`), so it no longer holds the watch.
+        let alive = hub.clone();
+        let alive = move || alive.upgrade().is_some_and(|h| !h.stopping.load(Ordering::SeqCst));
+        watcher().watch(lock, owner, record.session_id.clone(), alive, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });
         });
-        if let Err(e) = spawned {
-            tracing::warn!(task = %record.id, "a background task's end cannot be watched: {e}");
-        }
+    }
+
+    /// Stops watching the tasks of chat `session_id` (it is purged): their ends go nowhere, and
+    /// a runner that outlives the purge holds no watch.
+    pub(super) fn bg_unwatch_session(&self, session_id: &str) {
+        watcher().unwatch(std::ptr::from_ref(self) as usize, session_id);
+    }
+
+    /// Stops every watch of this hub (it shut down): a hub shut down in this process may live
+    /// on (its loops hold it until the daemon stops), and its watch kept would take the end a
+    /// restarted hub's pass watches for (`Watcher::watch` keeps the first live watch of a lock).
+    pub(super) fn bg_unwatch_all(&self) {
+        watcher().unwatch_owner(std::ptr::from_ref(self) as usize);
     }
 
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
@@ -69,9 +94,18 @@ impl Hub {
     /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
+        // Only this hub's chats: an end goes nowhere but a chat it holds (`bg_notify`), and the
+        // first live watch of a lock keeps it (`Watcher::watch`), so a watch taken for another
+        // hub's chat (hubs of one home in one process) would swallow the end that hub owes.
+        let held: std::collections::HashSet<String> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
             // `.purged` and the like are no chat's.
             if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            // A chat's folder is named by its id (`bg_run`): another hub's is not read at all.
+            if !held.contains(entry.file_name().to_string_lossy().as_ref()) {
                 continue;
             }
             let dir = entry.path();
@@ -88,6 +122,7 @@ impl Hub {
                     continue;
                 }
                 if let Some(record) = bg_run::read_record(&dir, id)
+                    && held.contains(&record.session_id)
                     && record.generation == generation
                     && record.notify
                     && !bg_run::notified_path(&dir, &record.id).exists()
@@ -131,9 +166,11 @@ impl Hub {
         if bg_generation(dir, false).ok().as_deref() != Some(record.generation.as_str()) {
             return;
         }
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
+        // The task no longer holds its chat's idle period up (`idle_governor.rs`): the reaper
+        // takes the new deadline.
+        self.idle_wake.notify_one();
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
@@ -195,8 +232,23 @@ comes to you."
         if let Some(display) = display {
             provenance.set(DISPLAY, json!(display));
         }
+        // A coordinator's task end that went well starts no turn of its own: it waits in the
+        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`). One that
+        // failed wakes it, as does any end in a chat not on the list. Left in the inbox it
+        // counts as sent: the log restores it, and a send again finds it there.
+        let prompt_id = format!("{PROMPT_PREFIX}{id}");
+        let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
+        if ok
+            && super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name)
+            && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
+        {
+            if let Err(e) = crate::home_fs::write(&mark, b"") {
+                tracing::warn!(mark = %mark.display(), "a held task end was not marked: {e}");
+            }
+            return;
+        }
         let opts = PromptOptions {
-            prompt_id: Some(format!("{PROMPT_PREFIX}{id}")),
+            prompt_id: Some(prompt_id),
             // A send the chat took before a restart is answered from its log, never run again.
             resend: true,
             provenance: Some(provenance),
@@ -211,8 +263,8 @@ comes to you."
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
-        // Never steered: it waits for a running turn to end.
-        if let Err(e) = self.prompt_with(session, blocks, SENDER, false, opts).await {
+        // Into a running turn at its next tool step, else a turn of its own (module docs).
+        if let Err(e) = self.prompt_with(session, blocks, SENDER, true, opts).await {
             // Held for a person who resumes the pair: it goes in then.
             if e.data.as_ref().is_none_or(|d| d["held"] != true) {
                 tracing::warn!(session = %session.id, task = %id, "a task's end: {}", e.message);
@@ -266,8 +318,7 @@ impl Hub {
         else {
             return;
         };
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
         let dir = self.bg_dir(&session);
         let Some(record) = bg_run::read_record(&dir, id)
@@ -336,31 +387,135 @@ fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     (body, !tail.is_empty())
 }
 
-/// Blocks until nothing holds the lock at `path` (a missing file holds nothing), then lets go.
-#[cfg(unix)]
-fn wait_unlocked(path: &Path) {
-    use std::os::fd::AsRawFd;
-    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
-        return;
-    };
-    loop {
-        // SAFETY: flock on a descriptor this function owns; it blocks until the runner let go.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            // SAFETY: same descriptor; released at once, so a liveness probe sees it free.
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            return;
+/// How often the watcher tries the watched locks.
+const TICK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The process's one watcher of background tasks' locks (module docs).
+fn watcher() -> &'static Watcher {
+    // test-hook-allow: holds no hook; the daemon's one watcher, each watch keyed by its own lock file, so no test replaces another's
+    static WATCHER: std::sync::OnceLock<Watcher> = std::sync::OnceLock::new();
+    WATCHER.get_or_init(Watcher::default)
+}
+
+/// Lock files watched until nothing holds them; each fires its end once, from one thread.
+#[derive(Default)]
+struct Watcher {
+    state: StdMutex<WatchState>,
+    /// Wakes the thread from an idle wait when a watch is added.
+    added: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct WatchState {
+    /// By lock path: a task watched twice (a start and a restart's pass) ends once; a watch whose
+    /// hub is gone or stopping gives way to the next.
+    watches: HashMap<std::path::PathBuf, Watch>,
+    /// The watcher thread runs.
+    running: bool,
+}
+
+struct Watch {
+    /// Held open for the probe; never locked but for a probe.
+    file: std::fs::File,
+    /// The hub (its address) and the chat the task is of.
+    owner: usize,
+    session: String,
+    /// Whether the hub that watched still runs (not dropped, not stopping).
+    alive: Box<dyn Fn() -> bool + Send>,
+    end: Box<dyn FnOnce() + Send>,
+}
+
+impl Watcher {
+    /// Calls `end` once nothing holds the lock at `path` (a missing file holds nothing: at once).
+    fn watch(
+        &self,
+        path: std::path::PathBuf,
+        owner: usize,
+        session: String,
+        alive: impl Fn() -> bool + Send + 'static,
+        end: impl FnOnce() + Send + 'static,
+    ) {
+        let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            return end();
+        };
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // The first watch of a lock keeps it, unless its hub is gone or stopping: a hub shut down in
+        // this process (a restart) leaves its watches behind, and keeping one sends that end nowhere.
+        let watch = Watch { file, owner, session, alive: Box::new(alive), end: Box::new(end) };
+        match state.watches.entry(path) {
+            std::collections::hash_map::Entry::Occupied(mut old) if !(old.get().alive)() => {
+                old.insert(watch);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {}
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(watch);
+            }
         }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
+        if !state.running {
+            let spawned = std::thread::Builder::new()
+                .name("acpmux-bg-watch".into())
+                .spawn(|| watcher().run());
+            match spawned {
+                Ok(_) => state.running = true,
+                Err(e) => tracing::warn!("background tasks' ends cannot be watched: {e}"),
+            }
+        }
+        self.added.notify_one();
+    }
+
+    /// Drops the watches of chat `session` of hub `owner`, firing none.
+    fn unwatch(&self, owner: usize, session: &str) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.watches.retain(|_, w| w.owner != owner || w.session != session);
+    }
+
+    /// Drops every watch of hub `owner`, firing none.
+    fn unwatch_owner(&self, owner: usize) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.watches.retain(|_, w| w.owner != owner);
+    }
+
+    /// The watcher thread: idle while nothing is watched, else a probe of every lock a tick.
+    fn run(&self) {
+        loop {
+            let ended: Vec<Watch> = {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                while state.watches.is_empty() {
+                    state = self.added.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                let free: Vec<_> = state
+                    .watches
+                    .iter()
+                    .filter(|(_, w)| unlocked(&w.file))
+                    .map(|(p, _)| p.clone())
+                    .collect();
+                free.iter().filter_map(|p| state.watches.remove(p)).collect()
+            };
+            // Outside the lock: an end may watch again.
+            for watch in ended {
+                (watch.end)();
+            }
+            std::thread::sleep(TICK);
         }
     }
 }
-#[cfg(not(unix))]
-fn wait_unlocked(_path: &Path) {}
+
+/// Whether nothing holds the lock of `file`, without blocking; a probe that takes it lets go
+/// at once, so a liveness probe elsewhere sees it free. An interrupted probe counts as held (the
+/// next tick tries again); another error as free, as the runner's lock is then no news.
+fn unlocked(file: &std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    match FileLock::held_elsewhere(file, Kind::Exclusive) {
+        Ok(held) => !held,
+        Err(e) => e.kind() != std::io::ErrorKind::Interrupted,
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hub::inbox::Item;
+    use crate::prompt_class::PromptClass;
 
     /// The body names the task and carries only its last lines; a cut first line goes.
     #[test]
@@ -391,5 +546,191 @@ mod tests {
         assert_eq!(orphan_display(true, true, &ok), Some("line"));
         assert_eq!(orphan_display(true, false, &failed), Some("line"));
         assert_eq!(orphan_display(false, false, &ok), None);
+    }
+
+    /// Number of this process's threads named `acpmux-bg-watch`.
+    #[cfg(target_os = "linux")]
+    fn watch_threads() -> usize {
+        std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .flatten()
+            .filter(|t| {
+                std::fs::read_to_string(t.path().join("comm"))
+                    .is_ok_and(|c| c.trim() == "acpmux-bg-watch")
+            })
+            .count()
+    }
+
+    /// A lock file held as a runner holds it, by its own open file.
+    fn held_lock(dir: &Path, name: &str) -> (std::path::PathBuf, cmux_file_lock::FileLock) {
+        let path = dir.join(format!("{name}.lock"));
+        let file = crate::home_fs::create_file(&path).unwrap();
+        let held =
+            cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).unwrap();
+        (path, held)
+    }
+
+    /// 200 watched tasks take one thread, not 200; a lock let go fires its end once, within a
+    /// tick or two; a purged chat's watches go without firing while their locks are still held.
+    #[test]
+    fn bg_watch_one_thread_fires_once_and_unwatches() {
+        let dir = cmux_unix_socket::short_test_dir("bg-watch");
+        let owner = 0xb9_0001;
+        let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut held = Vec::new();
+        for i in 0..200 {
+            let (path, file) = held_lock(dir.path(), &format!("t{i}"));
+            let session = if i == 0 { "live" } else { "purged" };
+            let (fired, tx) = (fired.clone(), tx.clone());
+            watcher().watch(
+                path,
+                owner,
+                session.into(),
+                || true,
+                move || {
+                    fired.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(i);
+                },
+            );
+            held.push(file);
+        }
+        #[cfg(target_os = "linux")]
+        assert_eq!(watch_threads(), 1, "200 watched tasks take one thread");
+        // The purged chat's 199 watches go; their locks stay held.
+        watcher().unwatch(owner, "purged");
+        let left =
+            watcher().state.lock().unwrap().watches.values().filter(|w| w.owner == owner).count();
+        assert_eq!(left, 1);
+        assert_eq!(fired.load(Ordering::SeqCst), 0, "nothing fired while every lock is held");
+        // Every lock let go: only the one still watched fires, once, within the tick.
+        let started = std::time::Instant::now();
+        drop(held);
+        assert_eq!(rx.recv_timeout(TICK * 3).unwrap(), 0);
+        assert!(started.elapsed() < TICK * 3);
+        std::thread::sleep(TICK * 2);
+        assert_eq!(fired.load(Ordering::SeqCst), 1, "one end, once");
+        #[cfg(target_os = "linux")]
+        assert_eq!(watch_threads(), 1);
+    }
+
+    /// A task whose lock file is gone ends at once, on the caller's thread.
+    #[test]
+    fn bg_watch_of_a_missing_lock_ends_at_once() {
+        let dir = cmux_unix_socket::short_test_dir("bg-watch-missing");
+        let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let f = fired.clone();
+        watcher().watch(
+            dir.path().join("gone.lock"),
+            0xb9_0002,
+            "s".into(),
+            || true,
+            move || {
+                f.store(true, Ordering::SeqCst);
+            },
+        );
+        assert!(fired.load(Ordering::SeqCst));
+    }
+
+    /// A hub with idle chat `name` (it ran turns before; no agent), on the coordinator list
+    /// when `listed`.
+    async fn hub_with_chat(name: &str, listed: bool) -> (Arc<Hub>, Arc<Session>) {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        if listed {
+            cfg.page_rule =
+                Some(crate::config::PageRuleConfig { sessions: vec![format!("host/{name}")] });
+        }
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": name, "name": name,
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "turnCount": 3,
+            "createdAt": 1, "updatedAt": 2});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.begin_startup(false);
+        let session = hub.resolve(name).unwrap();
+        (hub, session)
+    }
+
+    /// An ended task of chat `session`, that exited with `code`.
+    fn ended(id: &str, session: &Session, code: i32) -> Record {
+        Record {
+            id: id.into(),
+            session_id: session.id.clone(),
+            command: "make test".into(),
+            ended_at: Some(2),
+            exit_code: Some(code),
+            notify: true,
+            ..Record::default()
+        }
+    }
+
+    /// In a chat on the coordinator list, an end with exit 0 starts no turn: it waits in the
+    /// inbox, counts as sent, goes with the next notice, and a second send adds no second one.
+    #[tokio::test]
+    async fn a_listed_chats_exit_zero_end_waits_in_the_inbox() {
+        let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
+        let record = ended("ok1", &session, 0);
+        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
+        {
+            let inbox = session.inbox();
+            assert_eq!(inbox.items.len(), 1, "once, however often it is sent");
+            let item = &inbox.items[0];
+            assert_eq!(item.prompt_id, "bg-done-ok1");
+            assert!(!item.noticed, "no notice told the agent of it");
+            assert!(
+                item.text.contains("make test") && item.text.contains("exit 0"),
+                "{}",
+                item.text
+            );
+            assert!(inbox.in_flight.is_none() && inbox.refused_at == 0, "no turn was tried");
+            assert!(inbox.timer.is_some(), "its flush is timed");
+        }
+        // It rides with the next turn the chat takes: a lane's block wakes it, the end is in
+        // that notice.
+        let block = Item::carried("b1", "lane-a", "blocked on #12");
+        let mut block = block;
+        block.noticed = false;
+        block.class = PromptClass::Block;
+        session.inbox().items.push(block);
+        let inbox = session.inbox();
+        let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+        assert!(super::super::inbox::render(&new).0.contains("exit 0"));
+    }
+
+    /// A failed end (nonzero exit, a signal) wakes the chat as before, listed or not: it is
+    /// never left in the inbox.
+    #[tokio::test]
+    async fn a_listed_chats_failed_end_still_wakes() {
+        let (hub, session) = hub_with_chat("coord-bg-failed", true).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-failed");
+        let mut killed = ended("k1", &session, 0);
+        killed.exit_code = None;
+        killed.signal = Some(9);
+        for record in [ended("f1", &session, 2), killed] {
+            hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        }
+        assert!(session.inbox().items.is_empty(), "a failure is no inbox item: it is a prompt");
+        for id in ["f1", "k1"] {
+            // Held, it would be marked sent at once; a prompt is marked only when a turn takes
+            // it, and this chat has no agent to take it.
+            assert!(!bg_run::notified_path(dir.path(), id).exists(), "{id} took the prompt path");
+        }
+    }
+
+    /// A chat not on the list gets its exit-0 end as before: a prompt, not an inbox item.
+    #[tokio::test]
+    async fn an_unlisted_chats_exit_zero_end_is_unchanged() {
+        let (hub, session) = hub_with_chat("plain-bg-ok", false).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted");
+        hub.bg_end_to_chat(&session, dir.path(), &ended("u1", &session, 0), None).await;
+        assert!(session.inbox().items.is_empty());
+        assert!(
+            !bg_run::notified_path(dir.path(), "u1").exists(),
+            "it took the prompt path, not held"
+        );
     }
 }

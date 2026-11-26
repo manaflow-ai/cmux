@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""App Store and CodeRouter page bench: open, reopen and typing stalls, Swift page vs React page.
+"""App Store page bench: open, reopen and typing stalls, Swift page vs React page.
 
 The same method as bench-settings.py (it reuses bench-stalls.py's Run): each run launches the tagged
 build with no activation, windows on the last screen and a scratch cmux.json, sets the page's Debug
@@ -37,8 +37,6 @@ sys.argv = argv
 
 PAGES = {
     "apps": {"page": "cmux.apps", "tunable": "apps.store.surface", "action": "appStore.show", "args": {}, "typed": "awake"},
-    "coderouter": {"page": "cmux.coderouter", "tunable": "coderouter.surface", "action": "app.open",
-                   "args": {"app": "cmux/coderouter"}, "typed": None},
 }
 
 
@@ -87,15 +85,24 @@ def timed_open(run, spec, variant, label):
     response = run.call("action.run", params)
     shown = poll(lambda: react_view(run, spec["page"])) if variant == "web" else ("swift", "")
     ms = round((time.monotonic() - started) * 1000, 1) if shown else None
-    time.sleep(1.0)  # let the first frames settle before reading the gap
+    # The first frames drew before the gap is read: the main thread records no new slow frame for 0.5 s.
+    run.wait_quiet(0.5, timeout=10)
     hangs = run.result("debug.hangs")
     return {f"{label}_ms": ms, f"{label}_max_gap_ms": round(hangs.get("max_gap_ms", 0), 1),
             "ui": shown[0] if shown else None, "ok": bool(response.get("ok", True))}
 
 
 def typing(run, spec):
+    def active():
+        state = run.call("debug.page", {"page": spec["page"]}).get("result") or {}
+        return state.get("active") if isinstance(state, dict) else None
+
+    before = active()
     run.call("debug.key", {"key": "f", "modifiers": ["cmd"]})
-    time.sleep(0.3)
+    # Cmd-F moved the page's focus to the search field: its active control changed.
+    if not poll(lambda: active() not in (None, before), seconds=5):
+        print(f"bench-pages: the page's active control did not change after Cmd-F in 5 s (was {before!r})",
+              file=sys.stderr, flush=True)
     latencies, gaps, typed = [], [], ""
     for character in spec["typed"]:
         typed += character
@@ -124,7 +131,10 @@ def one_run(tag, spec, variant, threshold_ms):
             metrics.update(typing(run, spec))
             run.call("debug.key", {"key": "escape"})
         run.call("debug.key", {"key": "w", "modifiers": ["cmd"]})
-        time.sleep(1.0)
+        # The page's tab closed (a React page stops answering) and the main thread went quiet before the reopen.
+        if variant == "web" and not poll(lambda: not react_view(run, spec["page"]), seconds=10):
+            print("bench-pages: the page still answers 10 s after Cmd-W", file=sys.stderr, flush=True)
+        run.wait_quiet(0.5, timeout=10)
         metrics.update({k: v for k, v in timed_open(run, spec, variant, "open2").items() if k.startswith("open2")})
         return metrics
     finally:

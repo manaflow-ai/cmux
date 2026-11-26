@@ -13,7 +13,7 @@ use std::net::{Ipv6Addr, SocketAddr, TcpStream};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use regex::Regex;
+use regex_automata::meta;
 
 /// Distinct ports [`candidates`] returns, most recently printed first.
 pub const MAX_CANDIDATES: usize = 32;
@@ -31,8 +31,13 @@ pub struct Candidate {
 
 /// The address pattern: a constant that compiles (`terminal_ports_tests.rs` match with it), so a
 /// failure only means no candidates, never a panic.
-static ADDRESS: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(
+///
+/// A `meta::Regex` searched with a cache [`candidates`] makes and drops, not a `regex::Regex`:
+/// that one keeps a search cache (about 0.7 MB) in a pool slot per thread that ever searched,
+/// and the daemon's terminal-ports worker is a new thread after every idle linger, so the
+/// slots filled one by one and stayed (6.8 MB held after nine worker threads, nothing after).
+static ADDRESS: LazyLock<Option<meta::Regex>> = LazyLock::new(|| {
+    meta::Regex::new(
         r"(?i)(?P<scheme>https?://)?(?P<host>localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:127(?:\.\d{1,3}){3}\]|\*):(?P<port>\d{1,5})\b(?P<path>/[^\s'\x22<>()\[\],]*)?",
     )
     .ok()
@@ -46,16 +51,27 @@ pub fn candidates(text: &str) -> Vec<Candidate> {
         return Vec::new();
     };
     let mut found: Vec<Candidate> = Vec::new();
-    for capture in address.captures_iter(text) {
-        let Ok(port) = capture["port"].parse::<u16>() else {
+    // Dropped with this call: no search state outlives it (see [`ADDRESS`]).
+    let mut cache = address.create_cache();
+    let mut capture = address.create_captures();
+    let mut input = regex_automata::Input::new(text);
+    let group = |capture: &regex_automata::util::captures::Captures, name: &str| {
+        capture.get_group_by_name(name).and_then(|span| text.get(span.range()))
+    };
+    loop {
+        address.search_captures_with(&mut cache, &input, &mut capture);
+        let Some(whole) = capture.get_match() else { break };
+        // A match is never empty (`:` and a digit), so the search always moves on.
+        input.set_start(whole.end().max(whole.start() + 1));
+        let Some(Ok(port)) = group(&capture, "port").map(str::parse::<u16>) else {
             continue;
         };
         if port == 0 {
             continue;
         }
-        let host = capture["host"].to_ascii_lowercase();
-        let scheme = capture.name("scheme").map_or("http://", |m| m.as_str());
-        let path = capture.name("path").map_or("/", |m| m.as_str());
+        let Some(host) = group(&capture, "host").map(str::to_ascii_lowercase) else { continue };
+        let scheme = group(&capture, "scheme").unwrap_or("http://");
+        let path = group(&capture, "path").unwrap_or("/");
         let url_host = if host == "*" { "localhost" } else { host.as_str() };
         let url = format!("{}{url_host}:{port}{path}", scheme.to_ascii_lowercase());
         found.retain(|candidate| candidate.port != port);
@@ -137,18 +153,5 @@ pub fn probe(port: u16) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strip_ansi_removes_color_and_title_escapes() {
-        let vite = "  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m";
-        assert_eq!(strip_ansi(vite), "  ➜  Local:   http://localhost:5173/");
-        assert_eq!(strip_ansi("\x1b]0;title\x07a\x1b]8;;x\x1b\\b\x1b=c"), "abc");
-        assert_eq!(strip_ansi("cut \x1b[1"), "cut ");
-        // DCS queries and APC graphics drop their payloads too.
-        assert_eq!(strip_ansi("ready\x1bP$qm\x1b\\"), "ready");
-        assert_eq!(strip_ansi("a\x1b_Gf=100;AAAA\x1b\\b\x1b^pm\x1b\\c"), "abc");
-        assert!(matches!(strip_ansi("plain"), Cow::Borrowed("plain")));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

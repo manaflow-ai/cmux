@@ -86,9 +86,10 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
 
-    /// The file-fallback token store directory.
+    /// The file-fallback token store directory, under the launch's state root when it has one (as Rust's
+    /// `Resolver` puts the selection there).
     public var credentialsDirectory: URL {
-        credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        credentialsDirectory(homeDirectory: NextSupport.currentStateRoot ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
     func credentialsDirectory(homeDirectory: URL) -> URL {

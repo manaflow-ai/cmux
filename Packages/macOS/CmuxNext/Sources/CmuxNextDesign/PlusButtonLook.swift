@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 public import QuartzCore
 
 /// The window's one + button: the tab bar's New Tab + is the standard every add control draws (Lawrence 2026-11-15:
@@ -140,7 +141,11 @@ public final class PlusButtonLook {
             fillLayer.backgroundColor = Self.fill(state, hoverStyle: hoverStyle, segment: segment)?.cgColor
             // A held + keeps its hover ink; only the fill changes (design/pressed-state.md, Lawrence 2026-11-15). An open
             // menu is an "on" state and lights the ink.
-            glyphLayer.strokeColor = (inkOverride ?? Self.ink(state)).cgColor
+            // On a popover's glass the secondary and primary inks are fit to the glass over any page.
+            let onGlass = state.menuOpen ? nil
+                : host?.glassInk(state.hovering || state.pressed ? \.textPrimary : \.textSecondary,
+                                 minimum: CmuxDialogButtonLook.minimumContrast)
+            glyphLayer.strokeColor = (inkOverride ?? onGlass ?? Self.ink(state)).cgColor
             glyphLayer.lineWidth = Metrics.addGlyphLineWidth
         }
         motion.transaction(token) {
@@ -173,7 +178,7 @@ public final class PlusButtonLook {
         // by its own short side at the tabs' ratio (Lucas 2026-11-15: one shape at every density).
         let corner = hoverStyle == .circle && !showsChevron && !split ? side / 2 // radius-allow: the opt-in circle hover look
             : roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: fill.size)
-            : split ? Metrics.buttonCornerRadius(proportionalTo: min(TitlebarBandButton.side, Metrics.tabHeight))
+            : split ? Metrics.buttonCornerRadius(proportionalTo: Metrics.tabBarControlSide)
             : Metrics.buttonCornerRadius(proportionalTo: min(fill.width, fill.height))
         let corners: CACornerMask = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : allCorners
         // In the split look the + leans half a step toward its ⌄, which leans back, so the pair reads as one control.

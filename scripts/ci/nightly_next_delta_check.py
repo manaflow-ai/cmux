@@ -29,7 +29,15 @@ merge LIVE GENERATED --build N --out PATH
     build N, skipping a sparkle:deltaFrom LIVE already lists, so the nearest deltas the publication shipped
     stay byte for byte. Exit 1 when LIVE has no item for build N.
 
-usage: nightly_next_delta_check.py prune FEED --base URL
+published --feed-url URL --build N
+    published-build's read-back of its own claim. Exit 0 when the live feed's newest item is build N, or when
+    build N is on the feed under a newer build (a later publication already went out; a notice). Exit 1 with an
+    error when build N is not on the feed: the run says it published, and the feed Leo's app reads did not move
+    (run 45607031207, 2026-11-25: its final gate refused, and its published-build and tail went green).
+
+usage: nightly_next_delta_check.py newest --feed-url URL --build N   (exit 0 only while N is the feed's newest)
+       nightly_next_delta_check.py published --feed-url URL --build N
+       nightly_next_delta_check.py prune FEED --base URL
        nightly_next_delta_check.py check --feed-url URL --build N [--min-deltas 1]
        nightly_next_delta_check.py keep-item FEED --build N
        nightly_next_delta_check.py merge LIVE GENERATED --build N --out PATH
@@ -152,6 +160,18 @@ def fetch(url: str) -> bytes:
     return body
 
 
+def published(xml: bytes, build: int) -> tuple[int, str]:
+    """Whether build N went out on this feed: its newest item, or an item under a newer build."""
+    versions = [(item.findtext(f"{S}version") or "").strip() for item in ET.fromstring(xml).iter("item")]
+    newest = max((int(v) for v in versions if v.isdigit()), default=None)
+    if newest == build:
+        return 0, f"the live feed's newest build is {build}, the build this run published"
+    if str(build) in versions and newest is not None and newest > build:
+        return 0, f"notice: build {build} is on the live feed under the newer build {newest}, which already published"
+    return 1, (f"error: this run says it published build {build}, but the live feed's newest build is "
+               f"{newest if newest is not None else 'none'} and build {build} is not on it: the feed did not move")
+
+
 def check(xml: bytes, build: int, min_deltas: int, served: Callable[[str], int | None]) -> tuple[int, list[str]]:
     lines: list[str] = []
     item = newest_item(xml)
@@ -199,6 +219,14 @@ def main(argv: list[str]) -> int:
     ki = sub.add_parser("keep-item")
     ki.add_argument("feed", type=Path)
     ki.add_argument("--build", type=int, required=True)
+    nw = sub.add_parser("newest")
+    nw_src = nw.add_mutually_exclusive_group(required=True)
+    nw_src.add_argument("--feed-url")
+    nw_src.add_argument("--feed-file", type=Path)
+    nw.add_argument("--build", type=int, required=True)
+    pb = sub.add_parser("published")
+    pb.add_argument("--feed-url", required=True)
+    pb.add_argument("--build", type=int, required=True)
     mg = sub.add_parser("merge")
     mg.add_argument("live", type=Path)
     mg.add_argument("generated", type=Path)
@@ -209,6 +237,18 @@ def main(argv: list[str]) -> int:
         dropped = keep_item(args.feed, args.build)
         print(f"{args.feed.name}: kept build {args.build}'s item, dropped {dropped} earlier item(s)")
         return 0
+    if args.command == "newest":
+        # Exit 0 only while the live feed's newest item is this build: the post-feed delta part stops at once
+        # otherwise (a newer build's own publication owns its deltas).
+        # --feed-file: the merged feed about to be written, so the write's newest is checked, not only the live one.
+        item = newest_item(args.feed_file.read_bytes() if args.feed_file else fetch(args.feed_url))
+        version = (item.findtext(f"{S}version") or "").strip() if item is not None else ""
+        print(f"live feed's newest build is {version or 'unknown'}; this build is {args.build}")
+        return 0 if version == str(args.build) else 1
+    if args.command == "published":
+        status, line = published(fetch(args.feed_url), args.build)
+        print(f"::error::{line[len('error: '):]}" if line.startswith("error: ") else line)
+        return status
     if args.command == "merge":
         text, added = merge(args.live.read_text(encoding="utf-8"), args.generated.read_text(encoding="utf-8"),
                             args.build)
