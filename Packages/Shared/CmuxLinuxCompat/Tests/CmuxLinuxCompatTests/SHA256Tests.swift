@@ -39,3 +39,24 @@ final class SHA256Tests: XCTestCase {
     }
 }
 #endif
+
+#if !canImport(os)
+import CmuxLinuxCompat
+import XCTest
+
+final class LoggerShimTests: XCTestCase {
+    func testPrivacyInterpolationRendersAndRedacts() {
+        let secret = "token"
+        let count = 3
+        let message: OSLogMessage = "n=\(count, privacy: .public) s=\(secret, privacy: .private) h=\(secret, privacy: .private(mask: .hash)) f=\(1.5, format: .fixed(precision: 1))"
+        Logger(subsystem: "test", category: "shim").error(message)
+        XCTAssertEqual(Mirror(reflecting: message).children.first?.value as? String, "n=3 s=<private> h=<private> f=1.5")
+    }
+
+    func testUnfairLockMutatesState() {
+        let lock = OSAllocatedUnfairLock(initialState: 0)
+        lock.withLock { $0 += 2 }
+        XCTAssertEqual(lock.withLock { $0 }, 2)
+    }
+}
+#endif
