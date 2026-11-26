@@ -1272,6 +1272,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
     // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
+    #[cfg(unix)]
     let _auto_session = crate::auto_session::laptop::start(hub.clone());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
