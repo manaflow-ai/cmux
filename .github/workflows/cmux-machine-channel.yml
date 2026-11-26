@@ -110,8 +110,13 @@ jobs:
             build=false
             tk=scripts/ci/cmux_tui_tree_key.py
             if [[ "$HEAD_REPO" == "$GITHUB_REPOSITORY" && "$GITHUB_BASE_REF" == feat-cmux-next ]]; then
-              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 HEAD 2>/dev/null)" || mine=""
-              base="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 HEAD^1 2>/dev/null)" || base=""
+              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD 2>/dev/null)" || mine=""
+              base="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD^1 2>/dev/null)" || base=""
+              # An unread key builds (fail open) but says so: a CLI misuse read as "keys differ" built
+              # every land-tier head for a day (cmux_tui_tree_key.py takes no `key` subcommand).
+              if [[ -z "$mine" || -z "$base" ]]; then
+                echo "::warning title=machine channel PR head build::no v2 tree key (merge ${mine:-none}, base ${base:-none}): building"
+              fi
               if [[ -z "$mine" || -z "$base" || "$mine" != "$base" ]]; then build=true; fi
             fi
             echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none})"
@@ -131,8 +136,8 @@ jobs:
               build=false
             else
               tk=scripts/ci/cmux_tui_tree_key.py
-              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 "$GITHUB_SHA" 2>/dev/null)" || mine=""
-              theirs="$(scripts/ci/timeout.sh 90 python3 "$tk" key --version v2 "$chan" 2>/dev/null)" || theirs=""
+              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 "$GITHUB_SHA" 2>/dev/null)" || mine=""
+              theirs="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 "$chan" 2>/dev/null)" || theirs=""
               if [[ "$mine" =~ ^[0-9a-f]{40}$ && "$mine" == "$theirs" ]]; then
                 echo "::notice title=machine channel has this tree::$chan has tree key $mine, this commit's"
                 build=false

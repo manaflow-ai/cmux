@@ -23,6 +23,19 @@ export function loginAgent(value: string | undefined): LoginAgent | undefined {
   return LOGIN_AGENTS.find((agent) => agent === value);
 }
 
+/// Harnesses that sign in with another agent's login on a Cloud machine. Antigravity (`agy acp`)
+/// runs on Gemini's API key and Cloud's Gemini gateway (Leo 2026-11-25: "we'll want to set up
+/// antigravity/antigravity cli and opencode capable if we didn't already and stuff"), so its card
+/// saves Gemini's key; its Google sign-in (`agy acp --login`) stays the terminal's.
+const SIGNS_IN_AS: Readonly<Record<string, LoginAgent>> = { antigravity: "gemini" };
+
+/// The ``LoginAgent`` whose login a harness id's chat uses: its own, or the one it rides
+/// (``SIGNS_IN_AS``); else undefined.
+export function harnessLoginAgent(id: string | undefined): LoginAgent | undefined {
+  const key = agentKey(id);
+  return loginAgent(key) ?? (key !== undefined && Object.hasOwn(SIGNS_IN_AS, key) ? SIGNS_IN_AS[key] : undefined);
+}
+
 /// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
 /// agent but Gemini and OpenCode, which take a key only.
 export function signsInByPage(agent: LoginAgent): boolean {
@@ -362,7 +375,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
   const leaf = harness?.split("/").pop();
-  const agent = loginAgent(agentKey(leaf));
+  const agent = harnessLoginAgent(leaf);
   // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
   const machine = !sessionId && options.machineLogin === true;
   if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;
