@@ -667,7 +667,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
       ctx.log(`move: ${run} ${r.outcome}: lost ${r.lost.join("; ") || "nothing"}; pump ${r.pump_first}${r.pump_retry !== "not run" ? ` then ${r.pump_retry}` : ""}; ${r.detail}`);
       if (r.outcome !== "pass") ctx.log(`move: ${run} seed ${plan.seed} trace:\n  ${r.trace.join("\n  ")}`);
       // Every side healthy before the next run, whatever this one did.
-      await bringBack(ctx, carriers, [localSide, cloudSide(0), cloudSide(1)], () => undefined).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
+      await bringBack(ctx, carriers, [localSide, cloudSide(0), cloudSide(1)], (s) => ctx.log(`move: after ${run}: ${s}`)).catch((e: Error) => ctx.log(`move: sides not all back after ${run}: ${e.message}`));
     }
   } finally {
     for (const c of carriers) c.stop();
@@ -686,6 +686,29 @@ async function waitIdentify(socket: string, ms: number): Promise<boolean> {
   return false;
 }
 
+const CARRIER_STALE_MS = 60_000;
+
+/**
+ * ctx.start, waiting out an operation already in flight: a pause the fault began can still read `pausing` when the run
+ * ends, and a start then answers cloud.machine.not_paused / operation_in_flight (run 45820934296's pause-src drill left
+ * 4 runs unmeasured to it, each breaking on a machine its own fault had paused).
+ */
+export async function startSettled(ctx: Pick<MoveContext, "status" | "start">, machine: string, note: (s: string) => void, deadlineMs = BACK_DEADLINE_MS, wait: (ms: number) => Promise<unknown> = sleep): Promise<void> {
+  const end = Date.now() + deadlineMs;
+  for (;;) {
+    try {
+      await ctx.start(machine);
+      return;
+    } catch (e) {
+      if (!/not_paused|operation_in_flight/.test(String((e as Error)?.message ?? e)) || Date.now() >= end) throw e;
+      const st = await ctx.status(machine).catch(() => "unread");
+      if (st === "running") return;
+      note(`${machine}: start refused while it reads ${st}; waiting for it to settle`);
+      await wait(2_000);
+    }
+  }
+}
+
 /** Brings every side back: the local machine and the carriers running, each Cloud machine running and answering. */
 export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ensureStub">, carriers: CarrierServe[], sides: MoveSide[], note: (s: string) => void): Promise<void> {
   for (const s of sides) {
@@ -701,9 +724,19 @@ export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ens
     const st = await ctx.status(s.machine!).catch((e: Error) => `unknown (${e.message})`);
     if (st !== "running") {
       note(`${s.name} is ${st}: starting it`);
-      await ctx.start(s.machine!);
+      await startSettled(ctx, s.machine!, note);
     }
-    const back = await waitIdentify(s.socket, BACK_DEADLINE_MS);
+    let back = await waitIdentify(s.socket, CARRIER_STALE_MS);
+    // A carrier that outlived its machine's daemon (a pause, or the guest updater's restart) can stop answering while a
+    // fresh dial answers in seconds (run 45820934296's pause-src drill: 8 runs unmeasured to it, then "carrier dial
+    // after resume" answered in 4 s). It is served again, as the app dials again.
+    const c = back ? undefined : carriers.find((x) => x.socket === s.socket);
+    if (c) {
+      note(`carrier ${c.machine}: no identify ${CARRIER_STALE_MS / 1000} s with the machine running; serving again`);
+      c.stop();
+      await c.start();
+      back = await waitIdentify(s.socket, BACK_DEADLINE_MS - CARRIER_STALE_MS);
+    }
     if (!back) throw new Error(`${s.name} (${s.machine}) does not answer identify ${BACK_DEADLINE_MS / 1000} s after it was brought back`);
     // A power-off ends the stub's process; a stub that does not answer is started again.
     await ctx.ensureStub(s.machine!);
