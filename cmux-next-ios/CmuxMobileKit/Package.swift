@@ -76,7 +76,7 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        .target(name: "CmuxMobileModel", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",
@@ -87,7 +87,7 @@ let package = Package(
             // CFNetwork: the system's proxy settings and PAC (cmux-mobile-link egress/apple.rs).
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"), .linkedFramework("CFNetwork")]
         ),
-        .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
+        .target(name: "CmuxMobileTransport", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
         .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
@@ -140,6 +140,8 @@ let package = Package(
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
+            // Close Tab as one traced user action (PhoneTrace, CMUX_TRACE_FILE).
+            "CmuxMobileTransport",
             // The + menu's Screen Sharing: the account's Macs and the viewer.
             "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
@@ -362,6 +364,30 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     ]
     for target in package.targets where target.name == "CmuxMobileNotifications" || target.name == "CmuxMobileNotificationsTests" {
         target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
+    // RFD 0051 route 2: the Swift binding over the Linux build of the Rust FFI, opt-in so the ios-kit
+    // job above is unchanged. rust/scripts/build-linux-ffi.sh builds libcmux_mobile_link_ffi.a,
+    // generates the uniffi header into the system-library directory, and sets this. No Apple
+    // framework linker settings; the binary target stays the Apple platforms' module.
+    // The opt-in graph is only the binding and its test: once CmuxMobileLinkFFI is a Linux module,
+    // `#if canImport(CmuxMobileLinkFFI)` turns on in CmuxMobileTransport (FFIMacLink.swift), which
+    // does not depend on it there, so building the portable modules alongside would fail.
+    if ProcessInfo.processInfo.environment["CMUX_MOBILE_LINK_FFI_LINUX"] == "1" {
+        package.products.removeAll()
+        package.targets = [
+            .systemLibrary(name: "CmuxMobileLinkFFIFFI", path: "Sources/CmuxMobileLinkFFIFFILinux"),
+            .target(
+                name: "CmuxMobileLinkFFI",
+                dependencies: ["CmuxMobileLinkFFIFFI"],
+                path: "Sources/CmuxMobileLinkFFI",
+                swiftSettings: [.swiftLanguageMode(.v5)]
+            ),
+            .testTarget(
+                name: "CmuxMobileLinkFFILinuxTests",
+                dependencies: ["CmuxMobileLinkFFI", .product(name: "Crypto", package: "swift-crypto")],
+                path: "Tests/CmuxMobileLinkFFILinuxTests"
+            ),
+        ]
     }
 }
 #endif

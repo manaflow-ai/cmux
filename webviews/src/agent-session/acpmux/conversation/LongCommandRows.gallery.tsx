@@ -39,6 +39,7 @@ function CommandRow({ kind }: { kind: RowKind }) {
         <span className="long-command-gallery__description">{row.description}</span>
         {row.background && <span className="long-command-gallery__badge">Background · running</span>}
         <span className="long-command-gallery__chevron" aria-hidden="true">
+          {/* key-hint-allow: an up chevron glyph (⌃ beside ⌄), not the Control key */}
           {open ? "⌃" : "⌄"}
         </span>
       </summary>

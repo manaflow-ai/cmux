@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { KeyHint } from "../../ui/KeyHint";
 import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
@@ -27,7 +28,7 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
+import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
 import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
@@ -38,7 +39,7 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
-import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
+import { toolOfHref, TOOL_MENTIONS } from "./toolMentions";
 import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
@@ -1000,7 +1001,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (
+      next?.query === told?.query &&
+      next?.length === told?.length &&
+      next?.leading === told?.leading &&
+      next?.mark === told?.mark
+    )
+      return;
     slashTold.current = next;
     tell(next);
   };
@@ -1153,6 +1160,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether a Return key is down: a paragraph input with no key behind it (Dictation's "new
+      // paragraph", a voice tool typing a message) is a line in the draft, never a send that splits it.
+      let returnKeyDown = false;
       // Whether the selection held the whole draft at the last update (`onWholeSelection`).
       let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
@@ -1198,6 +1208,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   endPasteStep(_view, pasteStep.current);
                   joinsStep.current = false;
                   returnTaken = false;
+                  returnKeyDown = isReturnKey(event);
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
                   // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
@@ -1275,11 +1286,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
-                  else returnInput();
+                  else if (returnKeyDown || !lines.current) returnInput();
+                  else {
+                    // No Return key behind it: the input adds the line Shift-Return would, so a
+                    // dictated message with paragraphs stays one draft (Leo: "wait that message got
+                    // split up and queued").
+                    const item = _view.state.schema.nodes.list_item;
+                    const enter = baseKeymap.Enter!;
+                    chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(
+                      _view.state,
+                      _view.dispatch,
+                      _view,
+                    );
+                  }
                   return true;
                 },
                 keyup: () => {
                   returnTaken = false;
+                  returnKeyDown = false;
                   return false;
                 },
                 compositionstart: () => {
@@ -2041,7 +2065,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         aria-hidden="true"
       >
         {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
-        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
+        {placeholderKey && <KeyHint keys={placeholderKey} />}
       </span>
       <div ref={standIn} className="acpmux-md-standin" aria-hidden="true" />
       <div ref={mount} className="acpmux-md-root" />

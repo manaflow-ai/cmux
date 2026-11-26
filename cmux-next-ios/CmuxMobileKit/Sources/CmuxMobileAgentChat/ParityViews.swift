@@ -275,7 +275,7 @@ struct SubagentTranscriptScreen: View {
             }
             .defaultScrollAnchor(.top)
             .background { CmuxMobileChatBackdrop() }
-            .cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+            .cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -318,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):
