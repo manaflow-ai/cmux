@@ -2353,6 +2353,9 @@ python3 scripts/tests/test_pr_scoped_lint_gates.py
 job = "linux"
 timeout = 360
 alone = true
+# A pull request runs it on its whole route (--pr-scope keeps it): the one rule that fails it, a namespace type the
+# pull request adds, is read from the pull request's own diff (--pr), which the post-merge batch does not have.
+pr_scope = false
 title = "Package conventions lint"
 about = "the iOS package conventions gate on the files the pull request changes (package-conventions-gate.sh --pr), warn-only into feat-cmux-next but for an added namespace type"
 inputs = [
