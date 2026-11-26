@@ -43,7 +43,25 @@ on:
     paths-ignore:
       - "cmux-tui/docs/**"
   # pr-router.yml's caller job (scripts/ci/pr_router.json): a full-tier pull request head, built and never pointed.
+  # The router's route job answers the plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and passes it here, so
+  # the plan job takes no runner on a pull request; with no answer (build empty) the plan job runs it instead.
   workflow_call:
+    inputs:
+      build:
+        type: string
+        default: ""
+      x86_64_target_set:
+        type: string
+        default: ""
+      aarch64_target_set:
+        type: string
+        default: ""
+      lto:
+        type: string
+        default: ""
+      artifact_prefix:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -56,7 +74,8 @@ concurrency:
 jobs:
   plan:
     name: does the machine channel need this commit
-    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    # A pull request's router already answered (inputs.build): no runner here.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && (inputs.build || '') == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A merge waits here for its head's build still running (PR_HEAD_FAST_LANE, at most 25 min).
     timeout-minutes: 30
@@ -90,39 +109,40 @@ jobs:
             fi
           fi
 
+      # PR_HEAD_FAST_LANE's lookup polls the API for up to 25 min: on the cmux-bot App's own budget, never
+      # the repository's shared GITHUB_TOKEN quota (run 45761272633, 5a2862fb 05:29Z 2026-11-26: "pr-head:
+      # lookup failed: HTTP Error 403: Forbidden", so the merge rebuilt; tests/test_ci_no_github_token_polling.py).
+      - name: Mint the PR head lookup's App token
+        id: app
+        if: ${{ github.event_name == 'push' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Compare with the channel
         id: plan
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # PR_HEAD_FAST_LANE, when the router passed no answer: the same script its route job runs.
+            scripts/ci/cmux-machine-channel-pr-plan.sh
+            exit 0
+          fi
           # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel, as tree-preflight reads it.
           python3 -c '
           import json
           p = json.load(open("scripts/cmux-next/cmux-tui-build-profiles.json"))["machine_channel"]
           for k in ("x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix"):
               print(f"{k}={p[k]}")' >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            # PR_HEAD_FAST_LANE: build the head when it is this repository's, into feat-cmux-next, and its
-            # merge with the base (this checkout) changes the v2 tree key; never point (the point jobs are push-only).
-            build=false
-            tk=scripts/ci/cmux_tui_tree_key.py
-            if [[ "$HEAD_REPO" == "$GITHUB_REPOSITORY" && "$GITHUB_BASE_REF" == feat-cmux-next ]]; then
-              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD 2>/dev/null)" || mine=""
-              base="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD^1 2>/dev/null)" || base=""
-              # An unread key builds (fail open) but says so: a CLI misuse read as "keys differ" built
-              # every land-tier head for a day (cmux_tui_tree_key.py takes no `key` subcommand).
-              if [[ -z "$mine" || -z "$base" ]]; then
-                echo "::warning title=machine channel PR head build::no v2 tree key (merge ${mine:-none}, base ${base:-none}): building"
-              fi
-              if [[ -z "$mine" || -z "$base" || "$mine" != "$base" ]]; then build=true; fi
-            fi
-            echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none})"
-            echo "build=$build" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           # The channel's commit (an unverified read: it only decides whether to build; a wrong
           # answer at worst leaves the move to point-machine-channel after publish).
           chan="$(curl -fsS --max-time 20 https://files.cmux.com/cmux-tui/channels/cloud-machine.json | python3 -c '
@@ -161,7 +181,8 @@ jobs:
     # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
     name: build-machine-channel
     needs: plan
-    if: ${{ needs.plan.outputs.build == 'true' }}
+    # The router's answer on a pull request (plan skipped), else plan's.
+    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
     permissions:
       contents: read
       # The reusable package workflow's permission ceiling.
@@ -180,16 +201,17 @@ jobs:
       package_npm: false
       package_pypi: false
       include_windows: false
-      target_set: ${{ needs.plan.outputs.x86_64_target_set }}
-      lto: ${{ needs.plan.outputs.lto }}
-      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      target_set: ${{ inputs.x86_64_target_set || needs.plan.outputs.x86_64_target_set }}
+      lto: ${{ inputs.lto || needs.plan.outputs.lto }}
+      artifact_prefix: ${{ inputs.artifact_prefix || needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
   build-aarch64:
     # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
     name: build-machine-channel
     needs: plan
-    if: ${{ needs.plan.outputs.build == 'true' }}
+    # The router's answer on a pull request (plan skipped), else plan's.
+    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
     permissions:
       contents: read
       # The reusable package workflow's permission ceiling.
@@ -208,9 +230,9 @@ jobs:
       package_npm: false
       package_pypi: false
       include_windows: false
-      target_set: ${{ needs.plan.outputs.aarch64_target_set }}
-      lto: ${{ needs.plan.outputs.lto }}
-      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      target_set: ${{ inputs.aarch64_target_set || needs.plan.outputs.aarch64_target_set }}
+      lto: ${{ inputs.lto || needs.plan.outputs.lto }}
+      artifact_prefix: ${{ inputs.artifact_prefix || needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
   point-x86_64:
@@ -244,6 +266,16 @@ jobs:
             fi
           fi
 
+      # Another run's artifacts list through the REST API: on the cmux-bot App's own budget (see plan).
+      - name: Mint the PR head download's App token
+        id: app
+        if: ${{ needs.plan.outputs.from_run != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+
       - name: Download the machine channel's Linux cmux-tui binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -254,10 +286,10 @@ jobs:
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
           run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
-          # REST API on the repository's shared GITHUB_TOKEN quota, and run 45730730942 (c0374e0b, 01:29Z
-          # 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
+          # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
+          # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
           # this run's own artifacts through the runtime artifact service, as before cmux#56753.
-          github-token: ${{ needs.plan.outputs.from_run != '' && github.token || '' }}
+          github-token: ${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}
 
       # The x86_64 machines' half: a set of two claims under its own name (cmux-machine-linux-bytes.sh).
       - name: Upload the Linux binaries and point the channel
@@ -313,6 +345,16 @@ jobs:
             fi
           fi
 
+      # Another run's artifacts list through the REST API: on the cmux-bot App's own budget (see plan).
+      - name: Mint the PR head download's App token
+        id: app
+        if: ${{ needs.plan.outputs.from_run != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+
       - name: Download the machine channel's Linux cmux-tui binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -323,10 +365,10 @@ jobs:
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
           run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
-          # REST API on the repository's shared GITHUB_TOKEN quota, and run 45730730942 (c0374e0b, 01:29Z
-          # 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
+          # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
+          # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
           # this run's own artifacts through the runtime artifact service, as before cmux#56753.
-          github-token: ${{ needs.plan.outputs.from_run != '' && github.token || '' }}
+          github-token: ${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}
 
       - name: Upload the Linux binaries and point the channel
         env:
