@@ -16,6 +16,10 @@ fn cloud_repo_destination_key_normalizes_raw_urls_once() {
         Some("chat/tool".into())
     );
     assert_eq!(
+        destination_key(&json!({"session":"chat","repo":"git@github.com:owner/tool.git"})),
+        Some("chat/tool".into())
+    );
+    assert_eq!(
         destination_key(&json!({"session":"chat","repo":"owner/tool.git"})),
         Some("chat/tool.git".into())
     );
