@@ -60,7 +60,15 @@ struct AgentPaneSubagentTranscriptRelayTests {
 
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"other","runId":"wf_run","agentId":"agent"}"#)]) == .sessionNotInPane,
                 "a transcript read cannot escape the selected chat")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"sessionId":"s","runId":"wf_run","agentId":"agent","_meta":{"acpmux":{}}}"#)]) == .intentInvalid)
         #expect(reads().count == 1, "a refused read reached acpmux: \(reads())")
+        // cmux#49717: a `_meta` the read never takes is dropped, not refused; the read goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"sessionId":"s","runId":"wf_run","agentId":"agent","_meta":{"acpmux":{}}}"#)]) == nil,
+                "the relay refused a read with a _meta it never takes")
+        _ = await inbox.frame(containing: #""id":3"#)
+        #expect(reads().count == 2, "\(reads())")
+        let stripped = try #require(reads().last)
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["sessionId": "s", "runId": "wf_run", "agentId": "agent"] as NSDictionary,
+                "_meta reached acpmux: \(stripped)")
     }
 }

@@ -51,13 +51,26 @@ struct AgentPaneAgentReplyRelayTests {
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.reply(id: 2, session: "other")]) != nil,
                 "a chat the pane does not show")
-        for extra in [#","recipients":["acp:other"]"#, #","senderName":"Chief""#, #","credential":"c""#] {
-            transport.gestures.record()
-            #expect(await transport.send(connection: id, frames: [Self.reply(id: 3, session: "s", extra: extra)]) != nil,
-                    "a param the page never sends: \(extra)")
-        }
         #expect(relayed().isEmpty, "a refused reply reached acpmux: \(relayed())")
         #expect(sent.replies.isEmpty, "a refused reply was sent: \(sent.replies)")
+
+        // cmux#49717: a param the page never sends is dropped, not refused; the reply goes without it,
+        // and the host still sends only what acpmux signed for the pane's chat.
+        let extras = [(5, "recipients", #","recipients":["acp:other"]"#), (6, "senderName", #","senderName":"Chief""#),
+                      (7, "credential", #","credential":"c""#)]
+        for (page, key, extra) in extras {
+            transport.gestures.record()
+            #expect(await transport.send(connection: id, frames: [Self.reply(id: page, session: "s", extra: extra)]) == nil,
+                    "the relay refused a reply with a param the page never sends: \(extra)")
+            _ = await inbox.frame(containing: #""id":\#(page)"#)
+            let forwarded = try #require(relayed().last, "the stripped reply never reached acpmux: \(extra)")
+            let object = try JSONSerialization.jsonObject(with: Data(forwarded.utf8)) as? [String: Any]
+            let params = try #require(object?["params"] as? [String: Any])
+            #expect(params[key] == nil, "\(key) reached acpmux: \(forwarded)")
+            #expect(params["sessionId"] as? String == "s" && params["replyId"] as? String == "m-1", "\(forwarded)")
+        }
+        #expect(relayed().count == extras.count)
+        let stripped = sent.replies.count
 
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.reply(id: 4, session: "s")]) == nil)
@@ -67,9 +80,11 @@ struct AgentPaneAgentReplyRelayTests {
         #expect(message?["id"] as? String == "msg_9", "\(answer)")
         #expect(message?["threadId"] as? String == "msg_1", "\(answer)")
         #expect(!answer.contains("idempotencyKey") && !answer.contains("acp:s"), "acpmux's signed reply reached the page: \(answer)")
-        #expect(relayed().count == 1)
-        #expect(sent.replies == [AgentPaneAgentReply(session: "s", senderName: "Grid fix", replyTo: "msg_1", threadId: "msg_1",
-                                                     text: "Merged; thanks.", idempotencyKey: "acpmux-reply-k1")])
+        #expect(relayed().count == extras.count + 1)
+        #expect(stripped == extras.count, "\(sent.replies)")
+        #expect(sent.replies.last == AgentPaneAgentReply(session: "s", senderName: "Grid fix", replyTo: "msg_1", threadId: "msg_1",
+                                                         text: "Merged; thanks.", idempotencyKey: "acpmux-reply-k1"))
+        #expect(sent.replies.count == extras.count + 1)
     }
 
     /// The host takes the text and name acpmux and the daemon take: their rule bars only Unicode

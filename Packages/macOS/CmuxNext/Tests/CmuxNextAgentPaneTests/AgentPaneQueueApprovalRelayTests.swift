@@ -29,20 +29,30 @@ struct AgentPaneQueueApprovalRelayTests {
 
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, method: approve, params: #"{"sessionId":"other","promptId":"p","revision":0}"#)]) == .sessionNotInPane)
-        transport.gestures.record()
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: approve, params: #"{"sessionId":"s","promptId":"p","text":"x"}"#)]) != nil,
-                "a param the pane never sends")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: decline, params: #"{"sessionId":"s","promptId":"p","revision":1}"#)]) != nil,
-                "Decline names no revision")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+
+        // cmux#49717: a param the pane never sends is dropped, not refused; each goes without it.
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: approve, params: #"{"sessionId":"s","promptId":"p","text":"x"}"#)]) == nil,
+                "the relay refused an Approve with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: decline, params: #"{"sessionId":"s","promptId":"p","revision":1}"#)]) == nil,
+                "the relay refused a Decline with a revision it never names")
+        _ = await inbox.frame(containing: #""id":3"#)
+        let strippedParams = try sent().map { frame in
+            let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
+            return try #require(object?["params"] as? [String: Any]) as NSDictionary
+        }
+        #expect(strippedParams == [["sessionId": "s", "promptId": "p"] as NSDictionary, ["sessionId": "s", "promptId": "p"] as NSDictionary],
+                "a dropped param reached acpmux: \(sent())")
 
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: approve, params: #"{"sessionId":"s","promptId":"p","turnId":"t-1","revision":2}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, method: decline, params: #"{"sessionId":"s","promptId":"q"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":5"#)
-        let frames = sent()
-        #expect(frames.count == 2, "\(frames)")
+        let frames = Array(sent().dropFirst(2))
+        #expect(frames.count == 2, "\(sent())")
         let params = try frames.map { frame in
             let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
             return try #require(object?["params"] as? [String: Any])
@@ -65,13 +75,19 @@ struct AgentPaneQueueApprovalRelayTests {
         let get = "_acpmux/queue_get"
         let sent = { server.peers.first?.frames.filter { $0.contains(get) } ?? [] }
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, method: get, params: #"{"sessionId":"other","promptId":"p"}"#)]) == .sessionNotInPane)
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: get, params: #"{"sessionId":"s","promptId":"p","revision":1}"#)]) != nil,
-                "a param the pane never sends")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+        // cmux#49717: a param the pane never sends is dropped, not refused; the read goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: get, params: #"{"sessionId":"s","promptId":"p","revision":1}"#)]) == nil,
+                "the relay refused a read with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        let stripped = try #require(sent().first, "the stripped read never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["sessionId": "s", "promptId": "p"] as NSDictionary,
+                "revision reached acpmux: \(stripped)")
         // A read: no gesture.
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: get, params: #"{"sessionId":"s","promptId":"p"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":3"#)
-        #expect(sent().count == 1)
+        #expect(sent().count == 2)
         #expect(!AcpmuxPaneMethods.needsGesture(Self.frame(id: 4, method: get, params: #"{"sessionId":"s","promptId":"p"}"#), options: AcpmuxPermissionOptions()))
     }
 
