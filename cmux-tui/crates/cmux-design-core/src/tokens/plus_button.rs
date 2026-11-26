@@ -15,6 +15,8 @@
 
 use crate::ops::{OpError, OpResult, parse, reply};
 use crate::tokens::color::{Color, Rgb};
+use crate::tokens::corner_flush::{ConcentricCorners, Size};
+use crate::tokens::metrics;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -183,26 +185,22 @@ pub struct PlusMetrics {
     pub corner_radius_is_set: bool,
 }
 
-/// `ConcentricCorners.radius(fitting:radius:)`: `radius`, at most half the shorter side, never negative.
+/// `ConcentricCorners.radius(fitting:radius:)`: `radius`, at most half the shorter side, never
+/// negative. Delegates to [`ConcentricCorners::radius_fitting`].
 pub fn radius_fitting(width: f64, height: f64, radius: f64) -> f64 {
-    0f64.max(radius.min(width.min(height) / 2.0))
+    ConcentricCorners::default().radius_fitting(Size { width, height }, radius)
 }
 
 /// `Metrics.tabBarControlCornerRadius(fitting:)`: the tab pill's corner on a control of the size
 /// (`None`: the `tabBarControlSide` square).
 pub fn tab_bar_control_corner_radius(m: &PlusMetrics, size: Option<(f64, f64)>) -> f64 {
-    let side = m.tab_bar_control_side;
-    let (w, h) = size.unwrap_or((side, side));
-    radius_fitting(w, h, m.tab_corner_radius)
+    metrics::tab_bar_control_corner_radius(m.tab_bar_control_side, m.tab_corner_radius, size)
 }
 
 /// `Metrics.buttonCornerRadius(proportionalTo:)`: 8 on 28 on the half-point grid, at most half the
 /// side; a set corner radius keeps the button corner instead.
 pub fn button_corner_radius_proportional(m: &PlusMetrics, side: f64) -> f64 {
-    if m.corner_radius_is_set {
-        return m.tab_corner_radius.min(side / 2.0);
-    }
-    (((side * 8.0 / 28.0) * 2.0).round() / 2.0).min(side / 2.0)
+    metrics::button_corner_radius_proportional(m.tab_corner_radius, side, m.corner_radius_is_set)
 }
 
 /// Where the fill and the glyph go in a host's bounds (`PlusButtonLook.Geometry`).

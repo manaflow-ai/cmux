@@ -5,6 +5,10 @@
 use cmux_design_core::ops::{OpError, call};
 use cmux_design_core::tokens::density::tokens::{DensityPreset, DensityTokens, half};
 use cmux_design_core::tokens::metrics::*;
+
+fn sz(width: f64, height: f64) -> Size {
+    Size { width, height }
+}
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -27,7 +31,7 @@ fn concentric_container() {
     assert_eq!((c.outer_radius(), c.text_inset()), (16.0, 16.0));
     let control = ConcentricContainer::corner_control(14.0, 16.0, 2.0);
     assert_eq!((control.padding, control.child_radius), (6.0, 8.0));
-    assert_eq!(control.child_radius_fitting(16.0, 16.0), 8.0);
+    assert_eq!(control.child_radius_fitting(sz(16.0, 16.0)), 8.0);
     // The minimum padding wins when the corner is small for the side.
     let small = ConcentricContainer::corner_control(6.0, 16.0, 2.0);
     assert_eq!((small.padding, small.child_radius), (2.0, 4.0));
@@ -43,12 +47,18 @@ fn concentric_container() {
     );
     assert_eq!(ConcentricContainer::new(0.0, 4.0).text_inset(), 4.0);
     let c = ConcentricContainer::new(10.0, 4.0);
-    assert_eq!(c.child_radius_fitting(12.0, 30.0), 6.0);
-    assert_eq!(c.outer_radius_fitting(12.0, 30.0), 6.0);
-    assert_eq!(c.outer_radius_fitting(100.0, 100.0), 14.0);
-    assert_eq!(radius_fitting(10.0, 40.0, 9.0), 5.0);
-    assert_eq!(radius_fitting(-2.0, 40.0, 9.0), 0.0);
-    assert_eq!((nested(12.0, 4.0), nested(3.0, 5.0)), (8.0, 0.0));
+    assert_eq!(c.child_radius_fitting(sz(12.0, 30.0)), 6.0);
+    assert_eq!(c.outer_radius_fitting(sz(12.0, 30.0)), 6.0);
+    assert_eq!(c.outer_radius_fitting(sz(100.0, 100.0)), 14.0);
+    assert_eq!(ConcentricCorners::default().radius_fitting(sz(10.0, 40.0), 9.0), 5.0);
+    assert_eq!(ConcentricCorners::default().radius_fitting(sz(-2.0, 40.0), 9.0), 0.0);
+    assert_eq!(
+        (
+            ConcentricCorners::default().nested(12.0, 4.0),
+            ConcentricCorners::default().nested(3.0, 5.0)
+        ),
+        (8.0, 0.0)
+    );
 }
 
 #[test]

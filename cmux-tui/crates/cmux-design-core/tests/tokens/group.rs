@@ -1098,3 +1098,29 @@ fn unknown_and_bad_requests() {
         Err(OpError::Invalid(_))
     ));
 }
+
+// NSColor(hue:saturation:brightness:) is the hexcone formula with components clamped to 0...1
+// and hue 1 the same red as hue 0.
+#[test]
+fn hsb_matches_nscolor() {
+    assert_eq!(hsb_rgb(1.0, 1.0, 1.0), Rgb::new(1.0, 0.0, 0.0, 1.0));
+    assert_eq!(hsb_rgb(1.0, 0.5, 0.8), hsb_rgb(0.0, 0.5, 0.8));
+    assert_eq!(hsb_rgb(1.0 - f64::EPSILON / 2.0, 1.0, 1.0).r, 1.0);
+    assert_eq!(hsb_rgb(-0.2, 1.0, 1.0), hsb_rgb(0.0, 1.0, 1.0));
+    assert_eq!(hsb_rgb(0.3, 2.0, 1.5), hsb_rgb(0.3, 1.0, 1.0));
+    assert_eq!(hsb_rgb(0.7, 0.0, 0.4), Rgb::new(0.4, 0.4, 0.4, 1.0));
+    // One pin per sector, at each sector's start: red, yellow, green, cyan, blue, magenta.
+    let starts = [
+        (1.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 1.0, 1.0),
+        (0.0, 0.0, 1.0),
+        (1.0, 0.0, 1.0),
+    ];
+    for (i, (r, g, b)) in starts.into_iter().enumerate() {
+        assert!(close(hsb_rgb(i as f64 / 6.0, 1.0, 1.0), Rgb::new(r, g, b, 1.0)), "sector {i}");
+    }
+    // Mid-sector 1 (hue 0.25): f = 0.5, q = v (1 - s f).
+    assert!(close(hsb_rgb(0.25, 0.6, 0.9), Rgb::new(0.9 * (1.0 - 0.6 * 0.5), 0.9, 0.9 * 0.4, 1.0)));
+}

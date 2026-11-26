@@ -6,60 +6,30 @@
 //! `isDark`, `Metrics.mainPaneCurved`, `CornerFlush.current.isOn`, `titleAreaTone` and
 //! `titleAreaContrast`.
 //!
+//! The rungs, `washed`, `share` and `wash` are `cmux_config::theme_file::frame_tone`'s (the same
+//! port); the FrameTone+Metrics rules are here.
+//!
 //! Ops: `tokens.frame_tone_*`.
 
 use crate::ops::{OpError, OpResult, parse, reply};
 use crate::tokens::color::{Color, Rgb};
 use crate::tokens::density::tokens::{smax, smin};
 use crate::tokens::metrics::FOLDER_TAB_MINIMUM_SHADE;
-use cmux_theme_tokens::oklch;
+use cmux_config::theme_file::frame_tone::wash_over;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// `FrameTone.frameRung`: the frame's least share of ink.
-pub const FRAME_RUNG: f64 = 0.04;
-/// `FrameTone.hoverRung`.
+pub use cmux_config::theme_file::frame_tone::{FRAME_RUNG, SELECTED_RUNG, STEP, share, washed};
+
+/// `FrameTone.hoverRung`: the hover rung.
 pub const HOVER_RUNG: f64 = 0.08;
-/// `FrameTone.selectedRung`: the frame's most share of ink.
-pub const SELECTED_RUNG: f64 = 0.12;
-/// `FrameTone.step`: the OKLCH lightness step the share aims for.
-pub const STEP: f64 = 0.03;
-/// `FrameTone.rounds`: bisection rounds.
+/// `FrameTone`'s bisection rounds (`cmux_config`'s private `ROUNDS`).
 pub const ROUNDS: usize = 24;
 
-/// `FrameTone.washed(_:ink:share:)`: the opaque base mixed `share` toward the opaque ink.
-pub fn washed(base: Rgb, ink: Rgb, share: f64) -> Rgb {
-    base.with_alpha(1.0).mixed(ink.with_alpha(1.0), share)
-}
-
-fn lightness_step(base: Rgb, ink: Rgb, share: f64) -> f64 {
-    (oklch(washed(base, ink, share)).l - oklch(base.with_alpha(1.0)).l).abs()
-}
-
-/// `FrameTone.share(base:ink:)`: the least share between the rungs whose wash moves lightness by
-/// [`STEP`].
-pub fn share(base: Rgb, ink: Rgb) -> f64 {
-    if lightness_step(base, ink, FRAME_RUNG) >= STEP {
-        return FRAME_RUNG;
-    }
-    if lightness_step(base, ink, SELECTED_RUNG) <= STEP {
-        return SELECTED_RUNG;
-    }
-    let (mut low, mut high) = (FRAME_RUNG, SELECTED_RUNG);
-    for _ in 0..ROUNDS {
-        let mid = (low + high) / 2.0;
-        if lightness_step(base, ink, mid) >= STEP {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-    high
-}
-
-/// `FrameTone.wash(rung:over:)`: the alpha that brings a wash of `under` up to `rung`.
+/// `FrameTone.wash(rung:over:)`: the alpha that brings a wash of `under` up to `rung`
+/// (`cmux_config`'s `wash_over`).
 pub fn wash(rung: f64, under: f64) -> f64 {
-    if rung <= under || under >= 1.0 { 0.0 } else { (rung - under) / (1.0 - under) }
+    wash_over(rung, under)
 }
 
 /// `FrameTone.share(_:)`: a theme's share (its surface and primary text, opaque).

@@ -2,8 +2,8 @@
 //! (with the `CGPath.addGlyph` geometry as segments), Metrics+ButtonContainer.swift,
 //! Metrics+ButtonCorner.swift, Metrics+ChromeRowCorner.swift, Metrics+RowMatch.swift,
 //! Metrics+TabBarControl.swift and the `chromeShapeKey` extension in CornerFlush.swift, plus the
-//! parts of `ConcentricContainer` / `ConcentricCorners` (CmuxNextDesignTokens) and Metrics.swift
-//! (`space1...space6`) they read.
+//! parts of Metrics.swift (`space1...space6`) they read. `ConcentricContainer` and
+//! `ConcentricCorners` come from [`crate::tokens::corner_flush`].
 //!
 //! Live app values (`Metrics.tabCornerRadius`, `Metrics.smallIconSize`, `Metrics.tabHeight`,
 //! tunable overrides, settings) are inputs.
@@ -26,8 +26,8 @@ pub const SIDEBAR_ROW_COMPACT: f64 = 24.0;
 pub const SIDEBAR_ROW_COMFORTABLE: f64 = 32.0;
 /// `MetricTunables.sidebarRowHeight`'s token.
 pub const SIDEBAR_ROW_TOKEN: &str = "sidebarRowHeight";
-/// `Metrics.folderTabMinimumShade` (MainPane.swift).
-pub const FOLDER_TAB_MINIMUM_SHADE: f64 = 0.011;
+/// `Metrics.folderTabMinimumShade` (MainPane.swift), owned by `corner_flush`.
+pub use crate::tokens::corner_flush::FOLDER_TAB_MINIMUM_SHADE;
 
 /// `Metrics.scale(_:)`: `value` times the interface scale (1 while Interface Size is off).
 pub fn scale(value: f64, interface_scale: f64) -> f64 {
@@ -39,63 +39,13 @@ pub fn space(tokens: &DensityTokens, interface_scale: f64, base: f64) -> f64 {
     scale(tokens.space(base), interface_scale)
 }
 
-// MARK: - Concentric corners
+// MARK: - Concentric corners (owned by `corner_flush`)
 
-/// `ConcentricContainer`: a container's padding and its child's corner radius.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConcentricContainer {
-    /// The padding around the child.
-    pub padding: f64,
-    /// The child's corner radius.
-    pub child_radius: f64,
-}
+pub use crate::tokens::corner_flush::{ConcentricContainer, ConcentricCorners, Point, Size};
 
-impl ConcentricContainer {
-    /// `init(childRadius:padding:)`: both at least 0.
-    pub fn new(child_radius: f64, padding: f64) -> Self {
-        ConcentricContainer { child_radius: smax(0.0, child_radius), padding: smax(0.0, padding) }
-    }
-
-    /// `init(outerRadius:padding:)`.
-    pub fn with_outer(outer_radius: f64, padding: f64) -> Self {
-        Self::new(smax(0.0, outer_radius) - smax(0.0, padding), padding)
-    }
-
-    /// `cornerControl(outerRadius:side:minimumPadding:)`.
-    pub fn corner_control(outer_radius: f64, side: f64, minimum_padding: f64) -> Self {
-        Self::with_outer(outer_radius, smax(minimum_padding, outer_radius - side / 2.0))
-    }
-
-    /// `outerRadius`.
-    pub fn outer_radius(&self) -> f64 {
-        self.child_radius + self.padding
-    }
-
-    /// `textInset`.
-    pub fn text_inset(&self) -> f64 {
-        smax(self.padding, self.outer_radius())
-    }
-
-    /// `childRadius(fitting:)`.
-    pub fn child_radius_fitting(&self, width: f64, height: f64) -> f64 {
-        smax(0.0, smin(self.child_radius, smin(width, height) / 2.0))
-    }
-
-    /// `outerRadius(fitting:)`.
-    pub fn outer_radius_fitting(&self, width: f64, height: f64) -> f64 {
-        smax(0.0, smin(self.outer_radius(), smin(width, height) / 2.0))
-    }
-}
-
-/// `ConcentricCorners.radius(fitting:radius:)`.
+/// `ConcentricCorners.radius(fitting:radius:)` on a width and height (`plus_button` reads it).
 pub fn radius_fitting(width: f64, height: f64, radius: f64) -> f64 {
-    smax(0.0, smin(radius, smin(width, height) / 2.0))
-}
-
-/// `ConcentricCorners.nested(in:inset:)`.
-pub fn nested(radius: f64, inset: f64) -> f64 {
-    smax(0.0, radius - inset)
+    ConcentricCorners::default().radius_fitting(Size { width, height }, radius)
 }
 
 // MARK: - Add glyph (Metrics+AddGlyph.swift)
@@ -113,15 +63,6 @@ pub fn add_glyph_line_width(space1: f64) -> f64 {
 /// `addMenuChevronPointSize`.
 pub fn add_menu_chevron_point_size(small_icon_size: f64, space1: f64) -> f64 {
     (add_glyph_extent(small_icon_size) + space1 / 2.0).round()
-}
-
-/// A point.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Point {
-    /// x.
-    pub x: f64,
-    /// y.
-    pub y: f64,
 }
 
 /// `CGPath.addGlyph(center:scale:)`: the + as its horizontal then vertical segment, the center
@@ -172,7 +113,7 @@ pub fn button_corner_radius_nested(
     outer: Option<f64>,
     inset: f64,
 ) -> f64 {
-    nested(outer.unwrap_or(button_corner_radius), inset)
+    ConcentricCorners::default().nested(outer.unwrap_or(button_corner_radius), inset)
 }
 
 // MARK: - Chrome row corner (Metrics+ChromeRowCorner.swift)
@@ -334,15 +275,6 @@ struct CornerControlRequest {
     fitting: Option<Size>,
 }
 
-/// A size.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Size {
-    /// The width.
-    pub width: f64,
-    /// The height.
-    pub height: f64,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ContainerReply {
@@ -362,8 +294,8 @@ fn container_reply(c: ConcentricContainer, fitting: Option<Size>) -> OpResult {
         child_radius: c.child_radius,
         outer_radius: c.outer_radius(),
         text_inset: c.text_inset(),
-        child_radius_fitting: fitting.map(|s| c.child_radius_fitting(s.width, s.height)),
-        outer_radius_fitting: fitting.map(|s| c.outer_radius_fitting(s.width, s.height)),
+        child_radius_fitting: fitting.map(|s| c.child_radius_fitting(s)),
+        outer_radius_fitting: fitting.map(|s| c.outer_radius_fitting(s)),
     })
 }
 

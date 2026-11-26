@@ -183,12 +183,16 @@ pub fn hue_saturation(r: f64, g: f64, b: f64) -> (f64, f64) {
 
 /// sRGB from HSB, hue 0...1 (`NSColor(hue:saturation:brightness:alpha:)` read in sRGB).
 pub fn hsb_rgb(hue: f64, saturation: f64, brightness: f64) -> Rgb {
+    // NSColor clamps each component to 0...1 and treats hue 1 as hue 0 (red).
+    let (hue, saturation, brightness) =
+        (hue.clamp(0.0, 1.0), saturation.clamp(0.0, 1.0), brightness.clamp(0.0, 1.0));
     if saturation <= 0.0 {
         return Rgb::new(brightness, brightness, brightness, 1.0);
     }
-    let h = (hue - hue.floor()) * 6.0;
-    let sector = h.floor();
-    let f = h - sector;
+    let h = if hue >= 1.0 { 0.0 } else { hue * 6.0 };
+    // A hue a hair under 1 can round to 6: that is sector 0 again.
+    let sector = if h.floor() >= 6.0 { 0.0 } else { h.floor() };
+    let f = h - h.floor();
     let p = brightness * (1.0 - saturation);
     let q = brightness * (1.0 - saturation * f);
     let t = brightness * (1.0 - saturation * (1.0 - f));

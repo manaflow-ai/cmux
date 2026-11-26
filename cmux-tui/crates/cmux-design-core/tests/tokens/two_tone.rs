@@ -7,10 +7,13 @@ use cmux_design_core::tokens::color::Rgb;
 use cmux_design_core::tokens::two_tone::*;
 use serde_json::json;
 
-/// cmux-config's `FIXTURE_THEMES` x every value: theme, value, background, foreground, accent,
-/// dark, then the expected chrome, content and accent.
+/// One fixture case: theme, value, background, foreground, accent, dark, then the expected
+/// chrome, content and accent.
+type Case = (&'static str, TwoTone, u32, u32, u32, bool, u32, Option<u32>, u32);
+
+/// cmux-config's `FIXTURE_THEMES` x every value.
 #[rustfmt::skip]
-const CASES: &[(&str, TwoTone, u32, u32, u32, bool, u32, Option<u32>, u32)] = &[
+const CASES: &[Case] = &[
     ("ghostty-dark", TwoTone::Auto, 0x282C34, 0xFFFFFF, 0xC678DD, true, 0x343741, None, 0xC678DD),
     ("ghostty-dark", TwoTone::InkSakura, 0x282C34, 0xFFFFFF, 0xC678DD, true, 0x1E1A24, Some(0x131118), 0xF4A6C0),
     ("ghostty-dark", TwoTone::CharcoalRose, 0x282C34, 0xFFFFFF, 0xC678DD, true, 0x161616, Some(0x202020), 0xEE5396),
