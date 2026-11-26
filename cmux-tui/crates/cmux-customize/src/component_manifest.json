@@ -6557,7 +6557,7 @@
       "tier": "kit",
       "kitExport": true,
       "status": "ready",
-      "summary": "One list row, inside a `List`: an optional leading mark (icon, status, avatar), a title, an optional second line and a trailing column (a pill, a count, a hover action).",
+      "summary": "One list row, inside a `List`: an optional leading mark (icon, status, avatar), a title, an optional second line and a trailing column (a pill or a count).",
       "extends": [],
       "props": [
         {
@@ -6571,6 +6571,12 @@
           "type": "RowDensity",
           "optional": true,
           "doc": "compact 28, comfortable 32 (design/system.md rows)."
+        },
+        {
+          "name": "hoverActions",
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Secondary controls over the end of the text on hover or focus. Always visible on touch."
         },
         {
           "name": "label",
@@ -6618,7 +6624,7 @@
           "name": "trailing",
           "type": "ReactNode",
           "optional": true,
-          "doc": "The trailing column: a `Pill`, a count or a small `Button`."
+          "doc": "Always visible. Use a Pill or count here, and put interactive controls in hoverActions."
         }
       ],
       "dataAttributes": [
