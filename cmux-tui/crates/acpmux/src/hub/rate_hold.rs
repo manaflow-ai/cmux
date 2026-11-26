@@ -52,7 +52,12 @@
 //!   and a restart or a takeover reads the last one back before the queue goes on
 //!   ([`Hub::restore_rate_hold`]): a hold before its `until` holds until then, a parked chat
 //!   stays parked, and the strikes carry over. Its continuation is restored as before
-//!   (`auto_resume/restore.rs`), also behind what queued meanwhile.
+//!   (`auto_resume/restore.rs`), also behind what queued meanwhile. A hold or park another
+//!   machine wrote is not read back (each record names its `host`): the limit is that machine's
+//!   login's. A chat moved from a Mac whose login was used up to a Cloud machine, which answers
+//!   on the team's inference gateway, kept the Mac's hold to the weekly reset, and the far
+//!   prompt queued behind it with no answer (synthetic probe cloud-session-move-to-cloud,
+//!   2026-11-26 15:50Z and 21:07Z: "the turn is still running after 300s").
 //! - After `acpmux session stop`, another agent's message started a turn at once. Stop (and
 //!   `session stop`) of a chat that is held, parked or has a strike parks it now
 //!   ([`Hub::park_at_stop`], `rate_limit_parked` with `why: "stopped"`): it starts no turn by
@@ -135,6 +140,18 @@ pub(super) const PARK_AFTER: u32 = 6;
 
 /// A parked chat tells the session it reports to at most this often.
 pub(super) const NOTICE_EVERY_MS: u64 = 30 * 60_000;
+
+/// The machine a `rate_limit_held` or `rate_limit_parked` record was written on: the limit is
+/// the login's on that machine (`restore_rate_hold`).
+fn hold_host() -> String {
+    crate::hand::pair::hostname()
+}
+
+/// Whether a hold record names a machine other than this one. A record from before hosts were
+/// written names none and holds as before.
+fn held_elsewhere(msg: &Value) -> bool {
+    msg.get("host").and_then(Value::as_str).is_some_and(|host| host != hold_host())
+}
 
 /// The least a chat with `strikes` turns in a row failed on the limit waits: `base` (the
 /// continuation's minute, [`backoff_base`]), doubling with each strike, at most [`MAX_HOLD_MS`].
@@ -263,7 +280,7 @@ impl Hub {
                     session,
                     "mux",
                     "rate_limit_held",
-                    json!({"turnId": turn, "until": until, "strikes": s.strikes}),
+                    json!({"turnId": turn, "until": until, "strikes": s.strikes, "host": hold_host()}),
                 );
             }
             !std::mem::replace(&mut s.timer, true)
@@ -538,7 +555,7 @@ impl Hub {
             session,
             "mux",
             "rate_limit_parked",
-            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice, "why": "strikes"}),
+            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice, "why": "strikes", "host": hold_host()}),
         );
         if notice {
             self.tell_rate_park(session, strikes, context, now);
@@ -568,7 +585,7 @@ impl Hub {
             session,
             "mux",
             "rate_limit_parked",
-            json!({"turnId": turn, "strikes": strikes, "noticed": false, "why": "stopped"}),
+            json!({"turnId": turn, "strikes": strikes, "noticed": false, "why": "stopped", "host": hold_host()}),
         );
     }
 
@@ -711,6 +728,12 @@ impl Hub {
             },
         );
         let (Ok(()), Some(last)) = (scanned, last) else { return };
+        // A hold another machine wrote is its login's limit, not this machine's: a chat moved
+        // to a Cloud machine answers on the team's gateway there, so it starts unheld.
+        if held_elsewhere(&last.msg) {
+            tracing::info!(session = %session.id, kind = %last.kind, "rate hold of another machine not restored");
+            return;
+        }
         let strikes = |default: u32| {
             last.msg
                 .get("strikes")
@@ -950,6 +973,10 @@ pub(crate) fn until_line(until: u64) -> String {
 #[cfg(test)]
 #[path = "rate_hold_sleep_tests.rs"]
 mod sleep_tests;
+
+#[cfg(test)]
+#[path = "rate_hold_moved_tests.rs"]
+mod moved_tests;
 
 #[cfg(test)]
 mod tests {
