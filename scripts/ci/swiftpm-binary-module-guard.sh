@@ -195,6 +195,8 @@ github_git_auth_env() {
 
 # shellcheck source=scripts/ci/github-egress-direct.sh
 source "$(dirname "${BASH_SOURCE[0]}")/github-egress-direct.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/swiftpm-stale-artifact.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/swiftpm-stale-artifact.sh"
 
 swiftpm_resolve_package() {
   local pkgdir="$1" log delays tries try=1 delay code
@@ -284,7 +286,7 @@ swiftpm_binary_module_guard() {
 
 xcode_binary_module_guard() {
   local root="$1" derived="$2" scratch="$2/SourcePackages" stamp digest previous="" resolve_log entry had_outputs=0
-  local resolved=0 delays tries try=1
+  local resolved=0 delays tries try=1 cleared=0
   shift 2
   stamp="$derived/$swiftpm_binary_module_inputs_file"
   resolve_log="$(mktemp)"
@@ -319,6 +321,12 @@ xcode_binary_module_guard() {
         -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1) || resolved=1
       [ "$resolved" -ne 0 ] || break
       if github_egress_retry_direct "$resolve_log"; then
+        continue
+      fi
+      # A half-written entry in the shared SwiftPM artifact cache ("already exists in file system")
+      # fails every resolve on this host until it is removed: remove the ones named, once.
+      if [ "$cleared" -eq 0 ] && swiftpm_clear_stale_artifacts "$resolve_log"; then
+        cleared=1
         continue
       fi
       if ! swiftpm__network_fetch_failure "$resolve_log" && ! swiftpm__github_refused "$resolve_log"; then
