@@ -88,6 +88,32 @@ class SavedSamplesTests(unittest.TestCase):
         self.assertIn("LR-PROFILE head cmux image D61F3064-FA02-36DF-8B91-B1D69F7DC881 at 0x102300000", lines)
         self.assertIn("LR-PROFILE head incl     3.0 ms $s4cmux11AppDelegateC6launchyyF", lines)
 
+    def test_names_the_framework_frames_from_a_folder_of_dsyms(self):
+        # Since the stub executable (cmux#44204) the app's code is CmuxNextApp.framework, a dylib linked at 0:
+        # a frame at load + 0x163a420 is a return address inside the symbol at 0x163a400.
+        folder = Path(self.tmp.name, "Release")
+        dwarf = folder / "CmuxNextApp.framework.dSYM" / "Contents" / "Resources" / "DWARF" / "CmuxNextApp"
+        dwarf.parent.mkdir(parents=True)
+        dwarf.write_bytes(b"")
+        nm = os.path.join(self.tmp.name, "llvm-nm")
+        Path(nm).write_text("#!/bin/sh\nprintf '%s\\n' '0000000000001000 T _first' "
+                            "'000000000163a400 T _$s11CmuxNextApp14LaunchWarmupV5startyyFZ' '000000000163b000 T _end'\n")
+        os.chmod(nm, 0o755)
+        images = {"cmux": {"load": "0x100390000", "uuid": "A"}, "CmuxNextApp": {"load": "0x106f80000", "uuid": "B"}}
+        samples = [(1, 1, [("0x1085ba420", "?", "0x1085ba420"), ("0x1085ba424", "?", "0x1085ba424"),
+                           ("0x100390de0", "?", "0x100390de0")])]
+        which = module.shutil.which
+        module.shutil.which = lambda name: None
+        os.environ["LLVM_NM"] = nm
+        try:
+            named = module.symbolicate(samples, images, str(folder))
+        finally:
+            module.shutil.which = which
+            del os.environ["LLVM_NM"]
+        frames = named[0][2]
+        self.assertEqual(frames[0][:2], ("$s11CmuxNextApp14LaunchWarmupV5startyyFZ", "CmuxNextApp"))  # the leaf, as is
+        self.assertEqual(frames[1][:2], ("$s11CmuxNextApp14LaunchWarmupV5startyyFZ", "CmuxNextApp"))  # a caller, one back
+        self.assertEqual(frames[2], ("0x100390de0", "?", "0x100390de0"))  # the stub: no dSYM for it in the folder
 
 if __name__ == "__main__":
     unittest.main()

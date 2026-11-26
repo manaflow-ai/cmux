@@ -66,6 +66,14 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that build-nightly-deltas waits for a quiet nightly-next loop before the keyed job asks for the signer Mac, and skips deltas the live feed has passed; run python3 tests/test_nightly_deltas_yield.py yourself after changing the yield script or the three delta jobs (about 1 s, no Mac)."
 
 [[test]]
+path = "tests/test_nightly_early_webviews.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_fallback_covers.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
@@ -203,11 +211,6 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks the one-job nightly-next path (vars.NIGHTLY_NEXT_ONE_JOB, the nightly-next-one job on cmux15's signer label) of nightly.yml: its gate, label, concurrency, signing admission, no app artifact hop, the stray-process checks before its secrets, and that the split jobs skip only when it is on; run python3 tests/test_nightly_next_one_job.py yourself after changing either path (about 2 s, no Mac)."
 
 [[test]]
-path = "tests/test_nightly_next_pipeline.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks the nightly-next build and sign stages: a push run builds and dispatches a sign run (nightly_next_sign_stage) in its own group, the push run skips the sign stage, retry and run_tail cover the sign run, a superseded sign run leaves before the signer, and the resume reads a live push run only as a sign stage; run python3 tests/test_nightly_next_pipeline.py yourself after changing those (about 1 s, no Mac)."
-
-[[test]]
 path = "tests/test_nightly_next_post_publish.py"
 lane = "linux-guard"
 
@@ -225,13 +228,13 @@ path = "tests/test_nightly_next_recovery.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_signer_pick.py"
-lane = "manual"
-reason = "Run python3 -m unittest tests.test_nightly_next_signer_pick after changing the signer pick, its fallback, or its workflow wiring; uses local runner and job fixtures."
-
-[[test]]
 path = "tests/test_nightly_next_release_notes_fetch.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_retry_exhausted.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that retry-nightly-next's third failure in a row comments on (or opens) the nightly-next-feed-stale issue with the head, failing step and error line, and that the job may write issues; run python3 tests/test_nightly_next_retry_exhausted.py yourself after changing retry-ask-push-group.sh, nightly_next_retry_exhausted.py or the job's permissions (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
@@ -244,6 +247,10 @@ reason = "Run by hand after changing nightly-next-rollback-drill.yml, nightly-ne
 
 [[test]]
 path = "tests/test_nightly_next_rolling_dmg_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_signer_pick.py"
 lane = "linux-guard"
 
 [[test]]
@@ -294,6 +301,10 @@ path = "tests/test_nightly_owned_minis_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_pr_list_publish.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -339,10 +350,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_shadow_workflow.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_nightly_sign_yield.py"
 lane = "linux-guard"
 
 [[test]]

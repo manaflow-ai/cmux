@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -726,6 +727,12 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+      // RAWDIR=dir keeps each burst's raw profile, to read past the summary's top functions.
+      if (profiled && process.env.RAWDIR)
+        fs.writeFileSync(
+          `${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`,
+          JSON.stringify({ records, profile: profiled }),
+        );
       const allocated =
         PROFILE && ALLOC
           ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
@@ -1065,21 +1072,31 @@ if (import.meta.main) {
       releases.push(() => server.stop(true));
       return daemon;
     });
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    // PROFILE_BUILD keeps the build it made, so it makes its own.
+    const variant = Boolean(PROFILE || process.env.PROFILE_BUILD);
+    const shared = sharedPaneDir({ variant });
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
     // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
-    releases.push(() =>
-      process.env.PROFILE_BUILD
-        ? fs.renameSync(out, process.env.PROFILE_BUILD)
-        : fs.rmSync(out, { recursive: true, force: true }),
-    );
+    if (!shared)
+      releases.push(() =>
+        process.env.PROFILE_BUILD
+          ? fs.renameSync(out, process.env.PROFILE_BUILD)
+          : fs.rmSync(out, { recursive: true, force: true }),
+      );
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
-    console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `transcript-replay: the suite's pane build (${shared})`
+        : `transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -1098,7 +1115,7 @@ if (import.meta.main) {
       browser,
       daemons,
       url: (log, daemon) =>
-        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${encodeURIComponent(log.sessionId)}`,
+        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(log.sessionId)}`,
     };
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");
@@ -1192,6 +1209,10 @@ if (import.meta.main) {
             for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
               console.log(`    ${ms.toFixed(3)}  ${fn}`);
           }
+          // A cost that does not grow still counts against the frame: which callers hold it at the largest checkpoint.
+          console.log(`  ${kind}: most total ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.totalMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
           console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);

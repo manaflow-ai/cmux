@@ -26,7 +26,16 @@ pub(super) fn own_options_scope(scope: &str) -> Option<UsageError> {
     // no fix (docs/cli-conventions.md in cmuxterm-hq).
     matches!(
         scope,
-        "acp" | "link" | "harness" | "chats" | "github" | "gitlab" | "host" | "repo" | "carrier"
+        "acp"
+            | "link"
+            | "harness"
+            | "chats"
+            | "github"
+            | "gitlab"
+            | "host"
+            | "repo"
+            | "carrier"
+            | "autocloud"
     )
     .then(|| {
         UsageError::new(format!(

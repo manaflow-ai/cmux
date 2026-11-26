@@ -92,6 +92,14 @@ answer).
 **Guards:** in webviews, the dev-server `dom-breadth`, `live-intervals` and `long-frame` budgets (pages the dev server serves; built bundles
 carry none) and the `layout-thrash-in-loop` lint ([modding-kit.md](modding-kit.md)); in cmux-tui, clippy's `await_holding_lock`.
 
+**Segmented histories:** paging the records is insufficient if each page enumerates or clones the
+whole segment table. Share immutable metadata and seek the requested range; preserve conservative
+discovery after directory changes. The detectors are
+`repeated_pages_share_the_segment_table_at_every_log_size` (1, 64, and 512 segments) and
+`an_old_reverse_page_does_not_open_every_newer_segment`, with separate rotation and replacement
+tests. Report cold discovery and warm-page costs separately; a warm cache does not prove bounded
+daemon startup or bounded recovery snapshots.
+
 ## 6. A visible change is one state transition
 
 **Class:** flicker, a jump, pop-in, a blink, or a layout that moved after the animation finished.

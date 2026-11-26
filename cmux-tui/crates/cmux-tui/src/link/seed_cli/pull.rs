@@ -12,7 +12,8 @@
 //! `cmux link seed push --since-last` build on it.
 //!
 //! `--or-copy` is Bring Back Local's pull ([`bring_back`], which `cmux link
-//! agent move --sync pull` runs too): a folder with no seed to merge against
+//! agent move --sync pull` runs too): a projected folder comes back from its
+//! upper layer (`sync_cli::project_back`, `"mode":"projection"`); a folder with no seed to merge against
 //! (no record, a record of a copy or of another machine) is pulled as `cmux
 //! link sync pull` pulls a copy, a three-way merge against that copy's own
 //! record. Nothing else falls back: a seed pull that fails or conflicts is
@@ -22,7 +23,9 @@
 //!
 //! Output: one JSON line on stdout, the engine's `{"ok":true,"unchanged",
 //! "written","deleted","bytes","bundle_bytes","fast_forwarded","staged",
-//! "head","base":{"head","index","work"},"left_out"}` with `"mode":"seed"`
+//! "head","base":{"head","index","work"},"left_out","merged","conflict_files",
+//! "kept_edits"}` (the working-tree paths both sides changed, as the three-tree module settled
+//! them) with `"mode":"seed"`
 //! (or the copy's own summary with `"mode":"copy"`), exit 0. A conflict is
 //! `{"ok":false,"error","error_code":"sync_conflict","conflicts":[paths]}`
 //! with nothing changed here; any other failure `{"ok":false,"error",
@@ -80,6 +83,13 @@ pub(in crate::link) fn bring_back(socket: &Path, local: &Path, remote: &str) -> 
 }
 
 fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
+    // A projected folder (RFD 0007) comes back from its upper layer: the edits only, applied
+    // against the manifest the chat started from (`sync_cli::project_back`).
+    if matches!(base, Base::RecordOrCopy)
+        && let Some(found) = sync_cli::project_back::recorded(local, remote)
+    {
+        return sync_cli::project_back::bring_back(socket, &found, false);
+    }
     let failed = |error: SeedError| Back::Failed { code: error.code, error: error.message };
     let identity = match machine_gate::reach(socket) {
         Ok(identity) => identity,

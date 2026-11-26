@@ -1,10 +1,10 @@
 // The local file handoff of a CEF tab: a main-frame navigation to a local
-// Markdown file, or to video or audio this build cannot decode, is cancelled
-// and reported as LOCAL_FILE_HANDOFF, and cmux opens the file where it shows
-// (the markdown page, or a WebKit tab, which plays H.264/HEVC and AAC through
-// AVFoundation). The fork builds without proprietary codecs
-// (plans/cmux-next/browser.md). The Swift copy is LocalFileHandoff
-// (CmuxNextBrowser/Core/LocalFileHandoff.swift); both pass
+// Markdown file is cancelled and reported as LOCAL_FILE_HANDOFF, and cmux
+// opens the file in its markdown page. Video and audio stay in the CEF tab:
+// the fork builds with proprietary_codecs=true ffmpeg_branding=Chrome
+// (H.264/HEVC, AAC; plans/cmux-next/browser.md), so nothing goes to WebKit
+// to play. The Swift copy is LocalFileHandoff
+// (CmuxNextBrowserCore/Core/LocalFileHandoff.swift); both pass
 // schemas/local-file-handoff/vectors.json
 // (scripts/cmux-next/test-local-file-handoff-cpp.sh). No CEF dependency, so the
 // test compiles it alone.
@@ -57,9 +57,9 @@ inline std::string LocalFileExtension(const std::string& url) {
 }
 
 // Whether a CEF tab hands the main-frame navigation to `url` off: Markdown
-// (md, markdown) and H.264/HEVC or AAC media (mp4, mov, m4v, m4a, aac).
+// (md, markdown).
 inline bool CEFHandsOffLocalFile(const std::string& url) {
-  static const char* const kExtensions[] = {"md", "markdown", "mp4", "mov", "m4v", "m4a", "aac"};
+  static const char* const kExtensions[] = {"md", "markdown"};
   std::string extension = LocalFileExtension(url);
   if (extension.empty()) return false;
   for (const char* candidate : kExtensions) {

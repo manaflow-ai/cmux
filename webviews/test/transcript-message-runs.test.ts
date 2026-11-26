@@ -17,7 +17,8 @@ import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups"
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
 beforeAll(() => {
-  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  // `open`: these pin a running turn's runs in sight; the shipped `folded` hides them (#50987).
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs", "live-turn-work": "open" };
 });
 afterAll(() => {
   globalThis.cmuxExperiments = undefined;
@@ -136,11 +137,11 @@ test("the line opens on click to the rows exactly as they drew before", () => {
   expect(open[at]!.version).not.toBe(line.version);
 });
 
-test("the line counts what the run did, messages first", async () => {
+test("the line counts what the run did, each kind in the order it first came", async () => {
   const { messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
   const line = turnView(turn(), new Set(), claude).find((row) => row.kind === MESSAGE_RUN)!;
   expect(messageRunSummary(translate, line.messageRun!)).toBe(
-    "Sent 6 messages, read 3 files, ran a command, received a message",
+    "Sent 6 messages, read 3 files, received a message, ran a command",
   );
 });
 

@@ -27,7 +27,7 @@
 //!     instead of a fresh read of the whole conversation;
 //!   - any other chat (Codex, OpenCode, pi, ..., or a Claude chat whose
 //!     process is gone) is recapped by one headless call of its own harness's
-//!     small model (`Hub::complete_own`, `crate::complete`): from its
+//!     small model (`Hub::complete_chat_own`, `crate::complete`): from its
 //!     last few prompts and the final reply to each ([`recent_said`]), newest
 //!     kept, the whole prompt under `complete::MAX_PROMPT_BYTES`
 //!     ([`recap_prompt`]), never the whole history. A harness with no headless
@@ -345,6 +345,12 @@ impl Hub {
             .is_ok_and(|s| s.away.lock().unwrap_or_else(|e| e.into_inner()).ready.is_some())
     }
 
+    /// Whether a person has shown `session` since the daemon started (`recap_person_shows`), not
+    /// only an agent's subscription.
+    pub(super) fn person_has_shown(&self, session: &Session) -> bool {
+        session.away.lock().unwrap_or_else(|e| e.into_inner()).seen
+    }
+
     /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
     #[doc(hidden)]
     pub fn recap_person_seen(&self, id: &str) -> bool {
@@ -606,7 +612,16 @@ impl Hub {
             Some(write) => write(prompt),
             None => {
                 let chat = super::complete::ChatRoute::of(session);
-                match self.complete_own(&chat, prompt, MAX_TOKENS, TIMEOUT).await {
+                match self
+                    .complete_chat_own(
+                        &chat,
+                        prompt,
+                        MAX_TOKENS,
+                        TIMEOUT,
+                        super::complete::ModelFallback::HarnessDefault,
+                    )
+                    .await
+                {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::debug!(session = %session.id, reason = e.reason(), "recap: no small-model answer");

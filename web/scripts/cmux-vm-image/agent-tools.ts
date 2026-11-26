@@ -68,10 +68,12 @@ export const CUA_SOCKET = `${DEVBOX_WORK_HOME}/.cache/cmux-cua/cmux-cua.sock`;
 export const WORK_USER_CMUX_JSON = `${DEVBOX_WORK_HOME}/.config/cmux/cmux.json`;
 export const AGENT_TOOLS_PROFILE = "/etc/profile.d/cmux-agent-tools.sh";
 /**
- * First on the computer-use driver's PATH: `sudo`, `apt` and `apt-get` that refuse. cmux-cua's
- * install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver; role cua-video
- * (ffmpeg, which pulls libx264) stays off on every machine until Lawrence decides (coordinator
- * legal rule, 2026-10-07). The unit also sets NoNewPrivileges, so no setuid program works there.
+ * First on the computer-use driver's PATH: `sudo`, `apt`, `apt-get`, `ffmpeg` and `ffprobe` that
+ * refuse. cmux-cua's install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver;
+ * role cua-video (screen recording by the driver) stays off on every machine until Lawrence decides
+ * (coordinator legal rule, 2026-10-07). The image itself carries ffmpeg for people's own media
+ * (images/cmux-vm/graduated.json, Leo 2026-11-25), so the driver finds refusing ffmpeg and ffprobe
+ * first instead. The unit also sets NoNewPrivileges, so no setuid program works there.
  */
 export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
 /**
@@ -82,7 +84,7 @@ export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
 export const DESKTOP_STARTER = "/etc/cmux/computer-use-desktop";
 /** The worker's switch that takes away its right to gain privileges (cmux-tui-core NO_NEW_PRIVS_ENV). */
 export const NO_NEW_PRIVS_ENV = "CMUX_CU_NO_NEW_PRIVS";
-const CUA_REFUSED = ["sudo", "apt", "apt-get"] as const;
+const CUA_REFUSED = ["sudo", "apt", "apt-get", "ffmpeg", "ffprobe"] as const;
 
 const BROWSER_ROLE = "browser";
 
@@ -92,6 +94,11 @@ function browserHostPaths(manifest: RolesManifest): { host: string; chromium: st
   const chromium = entry?.env.CMUX_BROWSER_HOST_CHROMIUM;
   if (!entry || !host || !chromium) throw new Error("agent tools need the browser role with cmux-browser-host and Chrome in the lock");
   return { host: `${host.storeEntry}/${host.bin["cmux-browser-host"]}`, chromium };
+}
+
+/** The baked Chrome's binary (the browser role's store entry). */
+export function browserChromiumPath(lock: InputsLock): string {
+  return browserHostPaths(rolesManifest(lock)).chromium;
 }
 
 /**
@@ -486,7 +493,7 @@ export function desktopStarterScript(x11Dir = "/tmp/.X11-unix"): string {
     `echo XAUTHORITY=${AGENT_XAUTHORITY}`,
     // Nobody shares this display: the worker never waits for a person's input on it.
     "echo CMUX_CU_HEADLESS=1",
-    // Role cua-video (ffmpeg, libx264) stays off: sudo, apt and apt-get refuse first, and no setuid program works.
+    // Role cua-video stays off for the driver: sudo, apt, apt-get, ffmpeg and ffprobe refuse first, and no setuid program works.
     `echo "PATH=${CUA_REFUSE_DIR}:$PATH"`,
     `echo ${NO_NEW_PRIVS_ENV}=1`,
     `if sudo -n systemctl start ${A11Y_UNIT} >&2; then echo DBUS_SESSION_BUS_ADDRESS=unix:path=${bus}; else echo "cmux: the AT-SPI bus did not start (systemctl status ${A11Y_UNIT}); accessibility trees stay empty" >&2; fi`,
@@ -499,7 +506,7 @@ export function cuaRefuseScript(name: string): string {
   return [
     "#!/bin/sh",
     "# cmux VM agent tools (images/cmux-vm, managed, do not edit).",
-    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video (ffmpeg, libx264) is off on cmux machines, so install_ffmpeg and video recording are not available; screenshots still work." >&2`,
+    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video is off for computer use on cmux machines, so install_ffmpeg and video recording are not available to it; screenshots still work." >&2`,
     "exit 1",
     "",
   ].join("\n");
@@ -855,8 +862,34 @@ export function rdSetupCommand(): string {
 }
 
 /** Login shells (ssh) get the same lookup dir as daemon terminals. */
-export function agentToolsProfileScript(): string {
-  return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n`;
+export function agentToolsProfileScript(chromium?: string): string {
+  const lines = ["# cmux VM agent tools (images/cmux-vm). Managed, do not edit.", `export CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}`];
+  // The baked browser is a store path only the daemon env named; agents and Playwright look on PATH or in these variables.
+  if (chromium) lines.push(`export CHROME_BIN=${chromium}`, `export CHROME_PATH=${chromium}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** Names agents, Playwright (channel "chrome") and scripts look for the browser under; each links to the baked Chrome. */
+export const BROWSER_LINKS = ["/usr/local/bin/chromium", "/usr/local/bin/chromium-browser", "/usr/local/bin/chrome", "/usr/local/bin/google-chrome", "/opt/google/chrome/chrome"] as const;
+
+/** Links the browser under BROWSER_LINKS and runs it headless once (as the work user): the image build's browser smoke. */
+export function browserLinkCommand(chromium: string): string {
+  return [
+    `test -x ${sq(chromium)}`,
+    "install -d -m 0755 /opt/google/chrome",
+    ...BROWSER_LINKS.map((l) => `ln -sfn ${sq(chromium)} ${l}`),
+    `sudo -n -u ${DEVBOX_WORK_USER} -H sh -c 'chromium --version && chromium --headless=new --disable-gpu --user-data-dir=$(mktemp -d) --dump-dom "data:text/html,<title>cmux</title><h1>ok</h1>" 2>/dev/null | grep -q "<h1>ok</h1>"'`,
+    "echo browser-linked",
+  ].join(" && ");
+}
+
+/** Build-time smoke of the tools Cloud machines promise: each runs once, so a missing or broken one fails the bake. */
+export function imageToolsSmokeCommand(): string {
+  return [
+    `test "$(echo '2^10 + 1' | bc)" = 1025`,
+    "command -v chromium >/dev/null && chromium --version >/dev/null",
+    "echo image-tools-ok",
+  ].join(" && ");
 }
 
 /**
@@ -866,9 +899,10 @@ export function agentToolsProfileScript(): string {
 export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true }, agents: { cmuxMcp: "on" } }, null, 2)}\n`;
 
 /** Links the tool dir and writes cmux.json; the wrapper and units are written as files first (installFiles). */
-export function agentToolsLinkCommand(): string {
+export function agentToolsLinkCommand(chromium?: string): string {
   const configDir = WORK_USER_CMUX_JSON.slice(0, WORK_USER_CMUX_JSON.lastIndexOf("/"));
   return [
+    ...(chromium ? [browserLinkCommand(chromium)] : []),
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
     `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
@@ -894,7 +928,7 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: `/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`, text: a11yTemplateUnit(), mode: 0o644 },
     { path: A11Y_SCRIPT, text: a11yScript(), mode: 0o755 },
     { path: ROOT_PROPERTY_SCRIPT, text: rootPropertyScript(), mode: 0o755 },
-    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
+    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(browserHostPaths(rolesManifest(lock)).chromium), mode: 0o644 },
     { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 },
@@ -905,6 +939,22 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: DESKTOP_CHECK_SCRIPT, text: desktopCheckScript(), mode: 0o755 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
+}
+
+/** The names an agent types for a headless browser (`chromium --headless`), on every PATH. */
+export const BROWSER_PATH_NAMES = ["chromium", "chromium-browser", "google-chrome"] as const;
+
+/**
+ * Links the baked Chrome for Testing into /usr/local/bin under the names agents look for. Without
+ * them the image carried Chrome only at its store path (the browser host's env), and an agent's
+ * `command -v chromium` found nothing (the AutoCloud proof's missing browser).
+ */
+export function browserPathCommand(chrome: string): string {
+  return [
+    `test -x ${sq(chrome)}`,
+    ...BROWSER_PATH_NAMES.map((name) => `ln -sfn ${sq(chrome)} /usr/local/bin/${name}`),
+    "chromium --version",
+  ].join(" && ");
 }
 
 /** The role whose closure the desktop session runs (openbox, xterm), baked with the agent tools. */
@@ -921,6 +971,7 @@ export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; c
   return [
     ...firstUseInstallPhases(manifest, BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
     ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE).map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
+    { name: "agent-tools-browser-path", command: browserPathCommand(browserHostPaths(manifest).chromium) },
     { name: "agent-tools-browser-lists", command: "rm -rf /var/lib/cmux/apt-snapshot && echo browser-role-baked" },
   ];
 }

@@ -39,7 +39,6 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
-use std::process::Stdio;
 
 #[path = "acpmux_mcp_guest_handoff.rs"]
 mod handoff;
@@ -126,7 +125,7 @@ pub(super) const POLICY: &str = "ask";
 const HARNESSES: &[&str] = &["claude", "codex"];
 
 /// A session name as acpmux keeps it: lowercase, spaces and `/` as `-`.
-fn session_name(name: &str) -> String {
+pub(super) fn session_name(name: &str) -> String {
     name.trim()
         .to_lowercase()
         .split(|c: char| c.is_whitespace() || c == '/')
@@ -329,34 +328,53 @@ async fn run_cli(
 ) -> Result<String, CliError> {
     let me = crate::self_command::SelfCommand::current()
         .map_err(|e| CliError::Failed(format!("{e}")))?;
-    let mut command = me.tokio_command(argv);
+    let mut command = me.process_command(argv);
     for (key, value) in child_env(app) {
         match value {
             Some(value) => command.env(key, value),
             None => command.env_remove(key),
         };
     }
+    run_bounded(command, "acpmux", argv, stdin, wait).await
+}
+
+/// Run `command` (its argv `argv`, for the refusal's verb) with `stdin` on its stdin, its stdout
+/// on success, else its last stderr line; [`CliError::Late`] past `wait`, the command going on
+/// (its owned child is waited to its end on a blocking thread, then dropped).
+pub(super) async fn run_bounded(
+    mut command: cmux_process::Command,
+    program: &str,
+    argv: &[String],
+    stdin: Option<&str>,
+    wait: Duration,
+) -> Result<String, CliError> {
+    use cmux_process::Stdio;
     command
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|e| CliError::Failed(format!("{e}")))?;
-    if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        use tokio::io::AsyncWriteExt as _;
-        // Dropping the pipe after the write is the end of the prompt.
-        pipe.write_all(text.as_bytes()).await.map_err(|e| CliError::Failed(format!("{e}")))?;
-    }
-    match tokio::time::timeout(wait, child.wait_with_output()).await {
+    let text = stdin.map(str::to_owned);
+    let run = tokio::task::spawn_blocking(move || {
+        if let (Some(text), Some(mut pipe)) = (text, child.stdin.take()) {
+            use std::io::Write as _;
+            // Dropping the pipe after the write is the end of the prompt.
+            pipe.write_all(text.as_bytes())?;
+        }
+        child.wait_with_output()
+    });
+    match tokio::time::timeout(wait, run).await {
         Err(_) => Err(CliError::Late),
         Ok(Err(e)) => Err(CliError::Failed(format!("{e}"))),
-        Ok(Ok(out)) if out.status.success() => {
+        Ok(Ok(Err(e))) => Err(CliError::Failed(format!("{e}"))),
+        Ok(Ok(Ok(out))) if out.status.success() => {
             Ok(String::from_utf8_lossy(&out.stdout).into_owned())
         }
-        Ok(Ok(out)) => {
+        Ok(Ok(Ok(out))) => {
             let err = String::from_utf8_lossy(&out.stderr);
             let why = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
-            let verb = argv.get(1).map_or("", String::as_str);
-            Err(CliError::Failed(format!("acpmux {verb} failed ({}): {why}", out.status)))
+            let verb = argv.iter().find(|w| !w.starts_with('-')).map_or("", String::as_str);
+            Err(CliError::Failed(format!("{program} {verb} failed ({}): {why}", out.status)))
         }
     }
 }

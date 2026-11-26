@@ -33,8 +33,15 @@ export const SUBSESSION_KIND = "subsession";
 /// missed rather than the newest 400 records again (cmuxterm-hq#14027).
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number; afterSeq?: number },
-): AttachParams {
+  options: {
+    settled: boolean;
+    visible: boolean;
+    attending?: boolean;
+    local: boolean;
+    maxBytes: number;
+    afterSeq?: number;
+  },
+): AttachParams & { attending: boolean } {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
@@ -66,7 +73,13 @@ export function plainAttach(
       ...(options.local ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
     ],
     eventStream: true,
+    // On screen (`visible`) apart from the reader's hand on it (`attending`, attention.ts): acpmux keeps
+    // unread by both, and leaves the agent's stream out while the page is not on screen at all
+    // (`quietHidden`, CMUX-571); the view that shows it again sends one `_acpmux/lagged`, and the page
+    // reads what it missed from its cursor (direct.ts `resyncAfterLag`).
     visible: options.visible,
+    attending: options.attending ?? true,
+    quietHidden: true,
   };
 }
 
@@ -84,6 +97,17 @@ export function settledAttachFailed(error: unknown): boolean {
   if (failure?.code === "transport.intent_invalid") return true;
   return [failure?.message, failure?.code, failure?.reason].some(
     (said) => typeof said === "string" && /settled/i.test(said),
+  );
+}
+
+/// Whether a reconnect's forward attach (`afterSeq`) failed because the host or acpmux did not take the
+/// key: a params rule that refuses it as malformed (`transport.intent_invalid`, the app's relay before Leo's
+/// 2026-11-22 report), or an error that names it. The pane then asks the newest page, as before #47119.
+export function forwardAttachRefused(error: unknown): boolean {
+  const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
+  if (failure?.code === "transport.intent_invalid") return true;
+  return [failure?.message, failure?.code, failure?.reason].some(
+    (said) => typeof said === "string" && /afterSeq/.test(said),
   );
 }
 

@@ -52,7 +52,12 @@ export function AgentOptionsMenu({
           <span className="acpmux-options-text">{face}</span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-access-menu acpmux-options-menu">
+        <MenuPopup
+          side={newTab ? "bottom" : "top"}
+          align="start"
+          className="acpmux-access-menu acpmux-options-menu"
+          resize={{ id: "composer.agentOptions" }}
+        >
           {options.map((option) => (
             <MenuGroup key={option.id} label={option.name ?? option.id}>
               <MenuRadioGroup

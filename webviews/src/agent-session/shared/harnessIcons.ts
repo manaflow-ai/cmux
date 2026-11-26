@@ -4,7 +4,12 @@
 // its command runs, else a monogram in a hue stable for its id. The page keeps the last list it
 // read here, so every AgentMark given a harness id draws that icon with no prop threading.
 
-export type HarnessIconSource = "profile" | "id" | "command" | "family" | "default";
+/** `session`: a chat's own icon (acpmux `SessionSummary.icon`, session_icon.rs), which has the same shape. */
+export type HarnessIconSource = "profile" | "id" | "command" | "family" | "default" | "session";
+
+/** The image types an icon arrives as: a harness's SVG or PNG, and a session's ICO or JPEG too. */
+export type HarnessIconImageMime = "image/png" | "image/svg+xml" | "image/x-icon" | "image/jpeg";
+const IMAGE_MIMES = new Set(["image/png", "image/svg+xml", "image/x-icon", "image/jpeg"]);
 
 export type HarnessIconSpec =
   | { kind: "brand"; brand: string; source: HarnessIconSource }
@@ -12,10 +17,10 @@ export type HarnessIconSpec =
   | { kind: "emoji"; text: string; source: HarnessIconSource }
   /** `text` and `hue`: the monogram a page that cannot draw SF Symbols shows instead. */
   | { kind: "symbol"; name: string; text: string; hue: number; source: HarnessIconSource }
-  | { kind: "image"; mime: "image/png" | "image/svg+xml"; data: string; source: HarnessIconSource }
+  | { kind: "image"; mime: HarnessIconImageMime; data: string; source: HarnessIconSource }
   | { kind: "monogram"; text: string; hue: number; source: HarnessIconSource };
 
-const SOURCES = new Set(["profile", "id", "command", "family", "default"]);
+const SOURCES = new Set(["profile", "id", "command", "family", "default", "session"]);
 const str = (value: unknown, max = 256): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= max;
 const hueOf = (value: unknown) =>
@@ -40,8 +45,8 @@ export function parseHarnessIconSpec(value: unknown): HarnessIconSpec | undefine
         : undefined;
     }
     case "image":
-      return (v.mime === "image/png" || v.mime === "image/svg+xml") && str(v.data, 400_000)
-        ? { kind: "image", mime: v.mime, data: v.data, source }
+      return IMAGE_MIMES.has(v.mime as string) && str(v.data, 400_000)
+        ? { kind: "image", mime: v.mime as HarnessIconImageMime, data: v.data, source }
         : undefined;
     case "monogram": {
       const hue = hueOf(v.hue);
@@ -50,6 +55,17 @@ export function parseHarnessIconSpec(value: unknown): HarnessIconSpec | undefine
     default:
       return undefined;
   }
+}
+
+/**
+ * A chat's own icon (acpmux `SessionSummary.icon`: an emoji, an SF Symbol, an agent mark or an
+ * image, `acpmux icon`), read with the harness icon reader: it has the same shape, so every mark
+ * draws it with the same renderer. Undefined when absent or malformed (the harness mark draws).
+ */
+export function parseSessionIcon(value: unknown): HarnessIconSpec | undefined {
+  const spec = parseHarnessIconSpec(value);
+  // A chat's icon is never a bare glyph or a monogram: the daemon sends neither.
+  return spec && spec.kind !== "glyph" && spec.kind !== "monogram" ? spec : undefined;
 }
 
 /** A `data:` URL of an image icon (the pages' CSP allows `data:` images only). */

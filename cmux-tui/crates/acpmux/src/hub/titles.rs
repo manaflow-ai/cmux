@@ -353,8 +353,8 @@ impl Hub {
             if source.as_deref() != Some(ASKED) {
                 return;
             }
-            let title = hub.generate_title(&session, &harness, &request).await;
-            hub.apply_generated_title(&session, title);
+            let (title, attempt) = hub.generate_title(&session, &harness, &request).await;
+            hub.apply_generated_title_with(&session, title, attempt);
         });
     }
 
@@ -436,7 +436,7 @@ impl Hub {
         session: &Session,
         harness: &str,
         request: &str,
-    ) -> Option<String> {
+    ) -> (Option<String>, Attempt) {
         let (custom, model, enabled) = {
             let cfg = self.config.read().await;
             let custom = std::env::var(COMMAND_ENV)
@@ -447,17 +447,21 @@ impl Hub {
             (custom, cfg.titles.model.clone(), cfg.titles.generate != Some(false))
         };
         if !enabled {
-            return None;
+            return (None, Attempt::default());
         }
         if custom.is_some() {
-            let command = self.title_command(harness).await?;
+            let Some(command) = self.title_command(harness).await else {
+                super::title_log::record(session, harness, None, "no_command", None, 0, 0);
+                return (None, Attempt::default());
+            };
             if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
                 != Some(ASKED)
             {
-                return None;
+                return (None, Attempt::default());
             }
             let started = std::time::Instant::now();
             let title = run(command, request).await;
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             tracing::info!(
                 event = "chat_title",
                 harness,
@@ -469,7 +473,7 @@ impl Hub {
                 estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
                 "chat title completion"
             );
-            return title;
+            return (title, Attempt { model: "custom".to_owned(), ms });
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
@@ -478,13 +482,22 @@ impl Hub {
         if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
             != Some(ASKED)
         {
-            return None;
+            return (None, Attempt::default());
         }
         let started = std::time::Instant::now();
         // The chat's own text: on the chat's own route (`complete::ChatRoute`).
-        let req = crate::complete::Request::parse(&params).ok()?;
-        let chat = super::complete::ChatRoute::of(session);
-        let result = self.complete_request_for(&req, Some(&chat)).await.ok()?;
+        let reply = match crate::complete::Request::parse(&params) {
+            Ok(req) => {
+                let chat = super::complete::ChatRoute::of(session);
+                self.complete_request_for(&req, Some(&chat)).await.ok()
+            }
+            Err(_) => None,
+        };
+        let Some(result) = reply else {
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            super::title_log::record(session, harness, None, "error", None, 0, ms);
+            return (None, Attempt::default());
+        };
         let title = result.get("text").and_then(Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",
@@ -497,14 +510,30 @@ impl Hub {
             estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
             "chat title completion"
         );
-        title
+        let model =
+            result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default").to_owned();
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (title, Attempt { model, ms })
     }
 
+    #[cfg(test)]
     pub(super) fn apply_generated_title(
         self: &Arc<Self>,
         session: &Arc<Session>,
         title: Option<String>,
     ) {
+        self.apply_generated_title_with(session, title, Attempt::default());
+    }
+
+    fn apply_generated_title_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+        attempt: Attempt,
+    ) {
+        let harness = session.read_meta(|m| m.harness.clone());
+        let words = title.as_deref().map_or(0, |t| t.split_whitespace().count());
+        let outcome = if title.is_some() { "generated" } else { "empty" };
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -531,6 +560,8 @@ impl Hub {
                 }
             }
         };
+        let model = Some(attempt.model.as_str()).filter(|m| !m.is_empty());
+        super::title_log::record(session, &harness, model, outcome, None, words, attempt.ms);
         if retry {
             self.title_after_turn(session);
             return;
@@ -539,6 +570,13 @@ impl Hub {
         self.append(session, "mux", "titled", json!({"title": title}));
         self.save_meta(session);
     }
+}
+
+/// What a title request ran on and how long it took, for `title_log`.
+#[derive(Default)]
+struct Attempt {
+    model: String,
+    ms: u64,
 }
 
 fn request(prompt: &str, reply: &str, first: bool) -> String {
@@ -551,20 +589,9 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-pub(super) async fn run(cmd: tokio::process::Command, request: &str) -> Option<String> {
-    clean(&run_command(cmd, request, TIMEOUT).await?)
-}
-
-/// Run a one-shot command (in its own process group) with `request` on stdin; its whole
-/// stdout when it exits 0 within `timeout`, else None (the group is killed at the timeout).
-/// Shared with `rolling_summary.rs`.
-pub(super) async fn run_command(
-    mut cmd: tokio::process::Command,
-    request: &str,
-    timeout: Duration,
-) -> Option<String> {
+pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| tracing::debug!("one-shot command: {e}")).ok()?;
+    let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
     let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
@@ -577,7 +604,7 @@ pub(super) async fn run_command(
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let Ok(out) = tokio::time::timeout(timeout, answer).await else {
+    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
         // The command runs in its own group (a wrapper's children too): end it
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
@@ -589,7 +616,7 @@ pub(super) async fn run_command(
         drop(child);
         return None;
     };
-    out
+    clean(&out?)
 }
 
 /// The title in a model's answer: its first line without quotes, a

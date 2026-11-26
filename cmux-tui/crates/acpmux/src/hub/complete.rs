@@ -17,8 +17,58 @@ use std::collections::BTreeMap;
 /// Completions running at once; more wait for a slot within their deadline.
 const SLOTS: usize = 4;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModelFallback {
+    HarnessDefault,
+    SmallOnly,
+}
+
+impl ModelFallback {
+    /// `small_fast`: Claude's `ANTHROPIC_SMALL_FAST_MODEL`, the small model the user names.
+    fn permits(self, recipe: Recipe, model: Option<&String>, small_fast: Option<&str>) -> bool {
+        self == Self::HarnessDefault
+            || model.is_some_and(|id| match recipe {
+                // The Haiku alias (the provider's configured Haiku resolves it), a Haiku id, or
+                // the small model the user named: never a large model.
+                Recipe::Claude => {
+                    id.eq_ignore_ascii_case(model_pick::CLAUDE_FALLBACK)
+                        || id.to_ascii_lowercase().contains("haiku")
+                        || small_fast.is_some_and(|m| m.trim() == id)
+                }
+                _ => model_pick::pick(recipe, std::slice::from_ref(id)).is_some(),
+            })
+    }
+}
+
 static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
     std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOTS));
+
+#[test]
+fn surge_triage_never_uses_the_default_large_codex_model() {
+    let configured = "gpt-6.2-astra".to_owned();
+    let small = "gpt-5.4-mini".to_owned();
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, None, None));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&configured), None));
+    assert!(ModelFallback::SmallOnly.permits(Recipe::Codex, Some(&small), None));
+    assert!(ModelFallback::HarnessDefault.permits(Recipe::Codex, Some(&configured), None));
+}
+
+#[test]
+fn surge_triage_on_claude_takes_only_a_small_model() {
+    let only = |id: &str, small_fast| {
+        ModelFallback::SmallOnly.permits(Recipe::Claude, Some(&id.to_owned()), small_fast)
+    };
+    assert!(only("haiku", None), "the alias");
+    assert!(only("claude-haiku-5-5", None));
+    assert!(only("us.anthropic.claude-haiku-5-5-v1:0", None), "a provider's Haiku id");
+    assert!(!only("claude-opus-5-5", None));
+    assert!(!only("claude-sonnet-5-5", None));
+    assert!(!only("opus", None));
+    assert!(!ModelFallback::SmallOnly.permits(Recipe::Claude, None, None));
+    assert!(only("my-gateway-small", Some("my-gateway-small")), "the small model the user names");
+    assert!(!only("claude-opus-5-5", Some("my-gateway-small")));
+    assert!(ModelFallback::HarnessDefault.permits(Recipe::Claude, Some(&"opus".to_owned()), None));
+}
 
 /// The model ids `_acpmux/models` offers harness `name` (with aliases);
 /// `refused`: only those its backend refused, else only those it did not.
@@ -159,7 +209,9 @@ impl Hub {
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
-        let reply = self.complete_with(&name, &profile, recipe, req, deadline, chat).await;
+        let reply = self
+            .complete_with(&name, &profile, recipe, req, deadline, chat, ModelFallback::HarnessDefault)
+            .await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
@@ -173,21 +225,44 @@ impl Hub {
         reply
     }
 
-    /// One headless call for the daemon's own use on chat `chat`'s text (`away_recap.rs`,
-    /// `prompt_coach.rs`): the chat's own harness alone, never another, on its small model, in
-    /// the env the chat's own spawn takes ([`ChatRoute`]), the answer cut to about `max_tokens`
-    /// tokens. An error when the harness has no headless recipe or that env cannot be built:
-    /// never the default route or another account instead. The prompt is the daemon's, so
+    /// One headless call for the daemon's own use (`inbox_reader.rs`, `person_hold.rs`,
+    /// `surge_triage.rs`): harness `name` (else the default harness) on its small model, the
+    /// answer cut to about `max_tokens` tokens. The prompt is the daemon's, so
     /// `_acpmux/complete`'s prompt size limit does not apply.
     pub(super) async fn complete_own(
+        self: &Arc<Self>,
+        name: Option<&str>,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+        fallback: ModelFallback,
+    ) -> Result<String, CompleteError> {
+        let (name, profile) = {
+            let cfg = self.config.read().await;
+            let found = |n: &str| cfg.harnesses.get(n).cloned().map(|p| (n.to_owned(), p));
+            name.and_then(found)
+                .filter(|(n, p)| recipes::recipe_for(n, p).is_ok())
+                .or_else(|| cfg.default_harness.as_deref().and_then(found))
+                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
+        };
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, None, fallback).await
+    }
+
+    /// [`Self::complete_own`] on chat `chat`'s text (`away_recap.rs`, `prompt_coach.rs`): the
+    /// chat's own harness alone, never another, on its small model, in the env the chat's own
+    /// spawn takes ([`ChatRoute`]). An error when the harness has no headless recipe or that env
+    /// cannot be built: never the default route or another account instead.
+    pub(super) async fn complete_chat_own(
         self: &Arc<Self>,
         chat: &ChatRoute,
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
+        fallback: ModelFallback,
     ) -> Result<String, CompleteError> {
         let (name, profile) = self.completion_harness(Some(&chat.meta.harness)).await?;
-        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat)).await
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat), fallback)
+            .await
     }
 
     async fn complete_own_on(
@@ -198,11 +273,13 @@ impl Hub {
         max_tokens: u32,
         timeout: std::time::Duration,
         chat: Option<&ChatRoute>,
+        fallback: ModelFallback,
     ) -> Result<String, CompleteError> {
         let recipe = recipes::recipe_for(&name, &profile)?;
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline, chat).await?;
+        let reply =
+            self.complete_with(&name, &profile, recipe, &req, deadline, chat, fallback).await?;
         Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
@@ -288,6 +365,7 @@ impl Hub {
         req: &Request,
         deadline: tokio::time::Instant,
         chat: Option<&ChatRoute>,
+        fallback: ModelFallback,
     ) -> Result<Value, CompleteError> {
         let failed = |detail: String| CompleteError::Failed { harness: name.to_owned(), detail };
         let timed_out = || CompleteError::Timeout {
@@ -315,6 +393,13 @@ impl Hub {
             Some(model) => Some(model.clone()),
             None => self.small_model(name, recipe, &env, &codex).await,
         };
+        let small_fast = env_value(&env, model_pick::SMALL_FAST_ENV);
+        if !fallback.permits(recipe, model.as_ref(), small_fast.as_deref()) {
+            return Err(CompleteError::Unsupported {
+                harness: name.to_owned(),
+                why: "no small model is available for inbox triage".into(),
+            });
+        }
         // The CLIs need the login environment (PATH, API keys).
         tokio::time::timeout_at(deadline, self.wait_startup()).await.map_err(|_| timed_out())?;
         let (program, prefix) = recipes::program(recipe, profile, &env, &crate::config::which)

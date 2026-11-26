@@ -5,7 +5,7 @@ touches. A feat-cmux-next push runs every shard (ci-web.yml calls this only on a
     webviews_pr_shards.py --base REF [--head REF] --count N [--repo DIR]
     webviews_pr_shards.py --all --count N        # every shard: a push, the full-ci label, a failed pick
     webviews_pr_shards.py --base REF [--head REF] --count N --files-of 1,3   # those shards' test files
-    webviews_pr_shards.py --base REF [--head REF] --count N --direct-out F   # also each picked shard's touched tests
+    webviews_pr_shards.py --base REF [--head REF] --count N --direct-out F   # also shard 1's and the job's touched tests
 
 Prints the shard matrix as JSON (`[{"shard": 1, "shard_count": N}, ...]`) on stdout, and why on stderr.
 
@@ -20,10 +20,23 @@ a pull request runs:
     measured skipping; the closure put a test of every shard behind any shared module);
     the picked shards from 2 to N become one job that runs only those touched tests (--direct-out), not each shard's
     whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
-    above measured. Shard 1 keeps its whole share;
+    above measured. Shard 1 runs all its checks and, of the tests, only the touched ones in its own share (none when
+    it holds none), not its whole share of the closure: for a source edit the closure was nearly every file (2,776 of
+    3,170 test files for 56 changed paths, job 137236617956), about 37 of shard 1's 48 minutes. Its 9 own catches
+    over 11-13..19 were its checks: on a pull request Test webviews is continue-on-error and the job fails only on
+    its gate steps (a test red is react-apps-base-check's), and it keeps every gate step;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
-    runner scripts, ci-web.yml, this file, the preload and what it imports) or a deleted source. A test helper
-    (test/support/) or webviews script (webviews/scripts/) counts as a source here: the tests that import it.
+    runner scripts, ci-web.yml, this file, the preload and what it imports). A test helper (test/support/) or
+    webviews script (webviews/scripts/) counts as a source here: the tests that import it, or that are or import a
+    module reading it as data. A deleted source counts by the files that still name it in an import;
+  - shard 1 and two sampled shards when the change's only every-shard input is ci-web.yml or a selection script
+    (SAMPLED: webviews_affected.py, focused_tests.py, this file), plus the one job of touched tests from the rest of
+    the change. The two come from the head commit, so each push of a CI iteration runs a different pair. On 98
+    replayed every-shard heads from 2026-11-21 13Z to 11-22 07Z, ci-web.yml edits were 37 heads and 39% of their
+    minutes; every one changed the react-apps-check jobs, so they still run shard 1's checks and two shards' whole
+    file lists rather than none. The full-ci label runs every shard (into feat-cmux-next only with
+    CI_WEBVIEWS_FULL_TO_BATCH=0: its post-merge batch runs them); CI_WEBVIEWS_CI_EDIT_SAMPLE=0 (a repository
+    variable) runs every shard for them again, as before.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
 Every feat-cmux-next post-merge batch still runs all N shards over every file: a red a skipped shard would have
@@ -41,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -54,6 +68,39 @@ RUNNER = Path(__file__).resolve().parent / "run-webviews-tests.sh"
 # webviews scripts. On 11-20's merges they made 14 of 17 every-shard picks; the import graph reaches their tests.
 HOP = re.compile(r"^webviews/(test/support/|scripts/)")
 # A JS block or line comment (a line comment starts a line or follows a space, so `https://` in a string stays).
+# Inputs whose edit changes how the shards run or pick, not what a test imports: every shard before; now shard 1 and
+# SAMPLE_COUNT sampled shards (pick below), unless CI_WEBVIEWS_CI_EDIT_SAMPLE is 0.
+SAMPLED = re.compile(r"^(\.github/workflows/ci-web\.yml|scripts/ci/(webviews_affected|focused_tests|webviews_pr_shards)\.py)$")
+SAMPLE_COUNT = 2
+SAMPLE_WHY = "sampled shards"
+# Push classes (Leo, 2026-11-22: "there must surely be some changes which can get the fast track route. like a nexus
+# card."). Every pull request push gets one, named in the step summary with the rule that fired:
+#   fast:    every changed file is a doc no webviews file names, or a comment-only edit with no tool directive: shard 1
+#            runs its shard-independent checks (Oxlint, Oxfmt, type check, budgets, PR-scoped rules) and no test file;
+#   sampled: shard 1 and the touched tests; when the change has an every-shard input outside FULL, also two shards
+#            sampled from the head commit (the base batch runs every shard and bisects a red to its PR);
+#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard. A FULL
+#            path on a pull request into feat-cmux-next is sampled instead (full_to_batch): its batch runs every shard.
+# The repository variable CI_WEBVIEWS_PUSH_CLASSES=0 runs the pick as it was before the classes.
+# FULL stays short: each is an input whose miss only a full run can show, because it decides what every shard runs.
+FULL = (
+    (re.compile(r"^scripts/ci/run-webviews-tests\.sh$"),
+     "the test runner: a slip can run no file, or skip its retries, in every shard and still pass"),
+    (re.compile(r"^scripts/ci/webviews_test_shards\.py$"),
+     "the shard splitter: a bad split drops or repeats files between shards, which sampled shards cannot see"),
+    (re.compile(r"^scripts/ci/webviews_test_results\.py$"),
+     "the result parser: a misread turns reds green in every shard"),
+    (re.compile(r"^webviews/(package\.json|bun\.lock|bunfig\.toml)$"),
+     "a dependency or toolchain pin: a new bun, React or test library version changes every test file"),
+    (re.compile(r"^webviews/test/preload"), "the test preload: every test file loads it first"),
+)
+DOCS = re.compile(r"\.(md|markdown|rst|txt)$", re.I)
+SLASH_COMMENT = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".css")
+HASH_COMMENT = (".py", ".sh", ".bash", ".yml", ".yaml", ".toml")
+# A comment some tool reads: an edit to one is a code change (types, lint, bundling, test environment, tree shaking).
+DIRECTIVE = re.compile(r"@ts-|eslint|oxlint|oxfmt|biome|prettier|@vite|@vitest|@jest|@jsx|@refresh|webpack|"
+                       r"__PURE__|__NO_SIDE_EFFECTS__|istanbul|c8 |<reference|sourceMappingURL|noqa|type:|"
+                       r"shellcheck|yaml-language-server|#!|-\*-", re.I)
 COMMENT = re.compile(r"/\*[\s\S]*?\*/|(?:^|(?<=\s))//[^\n]*", re.M)
 
 
@@ -61,14 +108,16 @@ def matrix(shards: list[int], count: int) -> str:
     return json.dumps([{"shard": shard, "shard_count": count} for shard in shards], separators=(",", ":"))
 
 
-def read_beyond_imports(selector: "wa.Selector", f: str) -> str:
-    """Why a helper or script change must run every shard, or "" when only its importers can see it.
+def read_beyond_imports(selector: "wa.Selector", f: str) -> tuple[str, set[str]]:
+    """Why a helper or script change must run every shard ("" when it need not), and the modules that read it.
 
     A vite or compiler config (a code file at the top of webviews/) that imports it, directly or not, or names its
-    path (`new URL("./scripts/lint/x.mjs")`) feeds every bundle a test may load. A module some test reaches that names
-    its path without importing it reads it as data, and one that reads files and quotes its basename (10 or more
-    characters, outside comments) may read it by a joined path: none of those is an import edge. A script only shard
-    1's checks run (package.json scripts, a check's own baseline) needs no other shard: shard 1 always runs.
+    path (`new URL("./scripts/lint/x.mjs")`) feeds every bundle a test may load: every shard. A module some test
+    reaches that names its path without importing it reads it as data, and one that reads files and quotes its
+    basename (10 or more characters, outside comments) may read it by a joined path: none of those is an import edge,
+    so those readers stand for it as a changed source would (their tests, and the tests importing them). On
+    2026-11-21 13Z to 11-22 07Z such reads sent baselines and capture files to all 12 shards. A script only shard 1's
+    checks run (package.json scripts, a check's own baseline) needs no other shard: shard 1 always runs.
     """
     rel = f.removeprefix(wa.WEB)
     name = Path(f).name
@@ -76,17 +125,18 @@ def read_beyond_imports(selector: "wa.Selector", f: str) -> str:
     for source in selector.text:
         if "/" not in source.removeprefix(wa.WEB) and source.endswith(wa.ft.EXTENSIONS) and wa.EVERYTHING.search(source) \
                 and (f in selector.closure(source) or rel in selector.text[source]):
-            return f"{f} is loaded by the build input {source}"
+            return f"{f} is loaded by the build input {source}", set()
     reached = set().union(*(selector.closure(t) for t in selector.graph.tests))
     reads = set().union(*(selector.closure(t) for t in selector.always)) if selector.always else set()
     quoted = re.compile(r"[\"'`]" + re.escape(name) + r"[\"'`]")
+    readers: set[str] = set()
     for source in sorted(reached - importers - {f}):
         text = COMMENT.sub("", selector.text.get(source, ""))
-        if rel in text or f in text:
-            return f"{f} is read as data by {source}"
-        if source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
-            return f"{f} may be read by {source}, which reads files"
-    return ""
+        if rel in text or f in text or source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
+            if not wa.NARROW:
+                return f"{f} is read as data by {source}", set()
+            readers.add(source)
+    return "", readers
 
 
 def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None, str]:
@@ -97,12 +147,13 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
             return None, f"{f} is a build or runner input"
         if wa.EVERYTHING.search(f):
             # A test helper or webviews script (not the preload's): the tests that import it, as for a source, unless a
-            # build input loads it or a file reads it as data (below). A file nothing imports or names touches none;
-            # shard 1 still runs its whole share.
-            why = read_beyond_imports(selector, f)
+            # build input loads it or a file reads it as data (below). A file nothing imports or names touches none.
+            why, readers = read_beyond_imports(selector, f)
             if why:
                 return None, why
-            out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
+            for source in readers | {f}:
+                out |= {source} & selector.graph.tests
+                out |= {t for t in selector.graph.importers.get(source, ()) if t in selector.graph.tests}
             continue
         if not f.startswith(wa.WEB):
             continue
@@ -110,7 +161,14 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
             out.add(f)
             continue
         if not (selector.root / f).exists() and f.endswith(wa.ft.EXTENSIONS) and not wa.ft.WEB_TEST.search(f):
-            return None, f"{f} was deleted"
+            # A deleted source: the files that still name it in an import stand for it (a broken one fails the type
+            # check, an edited one is in the diff): those that are tests, and the tests importing them.
+            namers = selector.deleted_namers(f)
+            if namers is None:
+                return None, f"{f} was deleted, and a non-code file or a short name may load it"
+            out |= {t for t in namers if t in selector.graph.tests}
+            out |= {t for n in namers for t in selector.graph.importers.get(n, ()) if t in selector.graph.tests}
+            continue
         # One hop: the tests that import the changed file themselves. The whole import closure reached 278 to 1,856
         # tests for one source edit on 2026-11-20's feat-cmux-next commits, every shard every time.
         out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
@@ -128,6 +186,38 @@ def shard_files(repo: Path, shard: int, count: int, selected: set[str] | None) -
     return {wa.WEB + line for line in out.splitlines() if line}
 
 
+def with_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """OWN plus shard 1's touched tests (webviews-relative, maybe none), as it splits SELECTED (None: every file).
+
+    An entry for shard 1, even an empty one, runs those tests in place of its share of the closure; an every-shard
+    pick writes none, and shard 1 runs its whole share.
+    """
+    mine = shard_files(repo, 1, count, selected) & direct if direct else set()
+    return {**own, 1: sorted(f.removeprefix(wa.WEB) for f in mine)}
+
+
+# A pull request's touched tests outside shard 1 run in shard 1's own job when they are this many or fewer: a second
+# job paid its own runner start, checkout, install, bundle build and engines (about 10 of the 17 minutes a median
+# one-file second job took, 891 of them a day) to run a handful of files. More than this keep their own job, so shard 1
+# does not become the long pole. Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period."
+FOLD_MAX = 40
+
+
+def fold_into_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                     own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """Shard 1's touched tests plus every test OWN names, as one list for shard 1 alone."""
+    mine = with_shard1(repo, count, selected, direct, {})[1]
+    extra = [f for files in own.values() for f in files]
+    return {1: sorted({*mine, *extra})}
+
+
+def sampled_shards(head_sha: str, count: int) -> list[int]:
+    """SAMPLE_COUNT shards from 2 to COUNT, the same for one head commit and different across commits."""
+    rest = list(range(2, count + 1))
+    return sorted(random.Random(head_sha).sample(rest, min(SAMPLE_COUNT, len(rest))))
+
+
 def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, dict[int, list[str]]]:
     """The shards to run, why, and for each shard from 2 to N its touched tests (webviews-relative)."""
     everything = list(range(1, count + 1))
@@ -136,21 +226,247 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
     except subprocess.CalledProcessError as err:
         return everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
     selector = wa.Selector(repo)
+    sampled_inputs = sorted(f for f in files if SAMPLED.search(f))
+    if sampled_inputs and os.environ.get("CI_WEBVIEWS_CI_EDIT_SAMPLE", "1") != "0":
+        # The rest of the change decides as it would alone: a build input there still runs every shard.
+        direct, why = touched(selector, [f for f in files if not SAMPLED.search(f)])
+        if direct is None:
+            return everything, why, {}
+        head_sha = subprocess.run(["git", "-C", str(repo), "rev-parse", head], capture_output=True, text=True,
+                                  check=True).stdout.strip()
+        sample = sampled_shards(head_sha, count)
+        # The sampled shards run their whole split (the selection is every file for these inputs); touched tests
+        # in the other shards past 1 become one job, as below.
+        hits = {shard: shard_files(repo, shard, count, None) & direct for shard in everything[1:]
+                if direct and shard not in sample}
+        hits = {shard: hit for shard, hit in hits.items() if hit}
+        own = {}
+        if hits:
+            own = {min(hits): sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+        why = (f"{', '.join(sampled_inputs)} changed: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of "
+               f"{count} (from head {head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job"
+                                                          if own else ""))
+        return sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
     direct, why = touched(selector, files)
     if direct is None:
         return everything, why, {}
     if not direct:
-        return [1], "the change touches no webviews test", {}
+        return [1], "the change touches no webviews test", {1: []}
     selected, _ = selector.select(files)  # what each shard runs (None: every file), as the shards pick it
     hits = {shard: shard_files(repo, shard, count, selected) & direct for shard in everything[1:]}
     hits = {shard: hit for shard, hit in hits.items() if hit}
     if not hits:
-        return [1], f"{len(direct)} touched tests, all in shard 1", {}
+        return [1], f"{len(direct)} touched tests, all in shard 1", with_shard1(repo, count, selected, direct, {})
     # One job carries every touched test outside shard 1: a dozen files do not need a runner each, and each shard
     # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
-    return [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job", own
+    if len(own[first]) <= FOLD_MAX:
+        return ([1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
+    return ([1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
+            with_shard1(repo, count, selected, direct, own))
+
+
+def classes_on() -> bool:
+    return os.environ.get("CI_WEBVIEWS_PUSH_CLASSES", "1") != "0"
+
+
+# The base whose post-merge batch runs every shard (cmux-next-post-merge.yml, suite `web`): a pull request into it
+# with a FULL path runs the sampled pick, and the full matrix runs once per batch, which bisects a red to its pull
+# request and opens the revert. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+# Over 11-24T01..11-25T01, 44 pull request runs ran all 8 shards: 21.2k runner-minutes, about 480 a run, against
+# 38k for the 1,639 runs of one or two shards. CI_WEBVIEWS_FULL_TO_BATCH=0 (a repository variable) runs every shard
+# for them again; another base still runs every shard, and so does the full-ci label on another base. Into
+# feat-cmux-next a full-ci (land-tier) head picks too (ci-web.yml, 2026-11-26): the batch runs the matrix after merge.
+BATCHED_BASE = "feat-cmux-next"
+BATCHED_WHY = "every shard runs in the feat-cmux-next post-merge batch"
+
+
+def full_to_batch() -> bool:
+    """A FULL path on this pull request runs the sampled pick: its base batches every shard after the merge."""
+    return (os.environ.get("CI_WEBVIEWS_PR_BASE", "") == BATCHED_BASE
+            and os.environ.get("CI_WEBVIEWS_FULL_TO_BATCH", "1") != "0")
+
+
+# webviews/package.json is on FULL for its pins: a new bun, React or test library version changes every test file. An
+# edit to its "scripts" alone moves no pin (bun.lock, a FULL path of its own, holds the versions). package.json alone
+# made 20 of the 38 every-shard pull request picks of 11-23 18Z..11-24 18Z, and this rule passes 4 of its 7 merged
+# edits of 11-18..24 (each a new check:NAME and its check:pieces line). Such an edit is an every-shard input outside
+# FULL, so sampled, unless the test run names a script it changes (`run NAME` in the runner or under webviews/test/,
+# a comment or a fixture string too): then that script may be a runner input, and the edit stays FULL.
+PACKAGE = "webviews/package.json"
+SCRIPT_CALLERS = ("scripts/ci/run-webviews-tests.sh", "webviews/test/")
+
+
+def json_or_none(text: str | None) -> dict | None:
+    try:
+        value = json.loads(text) if text is not None else None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def scripts_only(repo: Path, base: str, head: str) -> bool:
+    """Whether webviews/package.json's edit changes only "scripts", and none the test run calls."""
+    before, after = json_or_none(git_show(repo, base, PACKAGE)), json_or_none(git_show(repo, head, PACKAGE))
+    if before is None or after is None:
+        return False
+    rest = lambda value: {k: v for k, v in value.items() if k != "scripts"}  # noqa: E731
+    if rest(before) != rest(after):
+        return False
+    old, new = before.get("scripts") or {}, after.get("scripts") or {}
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    names = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+    if not names:
+        return True
+    callers = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-E", "-e", r"\brun\b", head, "--",
+                              *SCRIPT_CALLERS], capture_output=True, text=True)
+    if callers.returncode not in (0, 1):
+        return False
+    called = re.compile(r"\brun[\s\"',]+(" + "|".join(re.escape(n) for n in names) + r")(?![\w:-])")
+    return not called.search(callers.stdout)
+
+
+def full_rule(files: list[str], repo: Path | None = None, base: str = "", head: str = "") -> str:
+    """Why the change needs every shard as a FULL path ("" when none is)."""
+    for f in files:
+        if f == PACKAGE and repo is not None and scripts_only(repo, base, head):
+            continue
+        for pattern, why in FULL:
+            if pattern.search(f):
+                return f"{f} is {why}"
+    return ""
+
+
+def git_show(repo: Path, ref: str, path: str) -> str | None:
+    """PATH's text at REF, or None when it is absent or not text (a font or an image is never a comment-only edit)."""
+    out = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True)
+    if out.returncode != 0:
+        return None
+    try:
+        return out.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def strip_comments(text: str, path: str) -> str:
+    """TEXT without its comments and blank space, for telling a comment-only edit."""
+    if path.endswith(SLASH_COMMENT):
+        text = COMMENT.sub("", text)
+    else:
+        text = re.sub(r"(?m)^\s*#.*$", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def changed_lines(before: str, after: str) -> list[str]:
+    import difflib
+    return [line[1:] for line in difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=0)
+            if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+
+
+def comment_only(path: str, before: str | None, after: str | None) -> bool:
+    """Whether BEFORE to AFTER changes only comments (and blank lines), none of them a tool directive.
+
+    Both checks must hold: every changed line is blank or a comment line, and the text without comments is the same
+    (so a `* factor` continuation line, or a `//` inside a string, is never taken for a comment)."""
+    if before is None or after is None or before == after:
+        return False
+    if path.endswith(SLASH_COMMENT):
+        markers = ("//", "/*", "*")
+    elif path.endswith(HASH_COMMENT):
+        markers = ("#",)
+    else:
+        return False
+    for line in changed_lines(before, after):
+        stripped = line.strip()
+        if stripped and (not stripped.startswith(markers) or DIRECTIVE.search(stripped)):
+            return False
+    return strip_comments(before, path) == strip_comments(after, path)
+
+
+def doc_unread(selector: "wa.Selector", f: str) -> bool:
+    """Whether F is a doc that no webviews file imports or names (its basename anywhere counts: `./x.md?raw`)."""
+    if not DOCS.search(f) or selector.graph.importers.get(f):
+        return False
+    name = Path(f).name
+    return not any(name in text for text in selector.text.values())
+
+
+def fast_why(repo: Path, selector: "wa.Selector", base: str, head: str, f: str) -> str:
+    """Why F alone is a fast-track change ("" when it is not)."""
+    if doc_unread(selector, f):
+        return f"{f} is a doc no webviews file reads"
+    if comment_only(f, git_show(repo, base, f), git_show(repo, head, f)):
+        return f"{f} changes only comments"
+    return ""
+
+
+def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[int], str, dict[int, list[str]]]:
+    """(class, the shards to run, the rule that fired, the touched tests of the one shard past 1)."""
+    everything = list(range(1, count + 1))
+    try:
+        files = wa.changed(repo, base, head)
+    except subprocess.CalledProcessError as err:
+        return "full", everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
+    why = full_rule(files, repo, base, head)
+    if why and not full_to_batch():
+        return "full", everything, why, {}
+    selector = wa.Selector(repo)
+    fast = {f: fast_why(repo, selector, base, head, f) for f in files}
+    rest = [f for f in files if not fast[f]]
+    if not rest and not why:
+        shown = "; ".join(fast[f] for f in files[:3]) + (f"; and {len(files) - 3} more" if len(files) > 3 else "")
+        return "fast", [1], f"{shown or 'no file changed'}: shard 1's checks, no test file", {}
+    direct: set[str] = set()
+    # A FULL path into the batched base: sampled, as a wide input is, and the batch runs every shard.
+    wide: list[str] = [f"{why} ({BATCHED_WHY})"] if why else []
+    for f in rest:
+        found, reason = touched(selector, [f])
+        if found is None:
+            wide.append(reason)
+        else:
+            direct |= found
+    if wide:
+        head_sha = subprocess.run(["git", "-C", str(repo), "rev-parse", head], capture_output=True, text=True,
+                                  check=True).stdout.strip()
+        sample = sampled_shards(head_sha, count)
+        hits = {shard: shard_files(repo, shard, count, None) & direct for shard in everything[1:]
+                if direct and shard not in sample}
+        hits = {shard: hit for shard, hit in hits.items() if hit}
+        own = {min(hits): sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)} if hits else {}
+        more = f" (and {len(wide) - 1} more)" if len(wide) > 1 else ""
+        why = (f"{wide[0]}{more}: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of {count} (from head "
+               f"{head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job" if own else ""))
+        return "sampled", sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
+    if not direct:
+        return "sampled", [1], "the change touches no webviews test: shard 1's checks, no test file", {1: []}
+    selected, _ = selector.select(rest)
+    hits = {shard: shard_files(repo, shard, count, selected) & direct for shard in everything[1:]}
+    hits = {shard: hit for shard, hit in hits.items() if hit}
+    if not hits:
+        return ("sampled", [1], f"{len(direct)} touched tests, all in shard 1",
+                with_shard1(repo, count, selected, direct, {}))
+    first = min(hits)
+    own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ("sampled", [1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
+    return ("sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
+            with_shard1(repo, count, selected, direct, own))
+
+
+HOW_FULL = ("To run every shard, add the `full-ci` label and re-run (into feat-cmux-next the post-merge batch runs "
+            "every shard, and the label runs them here only with the repository variable `CI_WEBVIEWS_FULL_TO_BATCH` at "
+            "`0`). To turn the classes off for every pull request, set the repository variable `CI_WEBVIEWS_PUSH_CLASSES` "
+            "to `0`.")
+
+
+def summary(cls: str, shards: list[int], count: int, why: str) -> str:
+    """The step summary's section: the class, the rule that fired, and how to get a full run."""
+    head = f"### react-apps-check: {cls or 'pick'}, {len(shards)} of {count} shards ({','.join(map(str, shards))})\n\n"
+    return head + f"Rule: {why}.\n" + ("" if cls == "full" else f"\n{HOW_FULL}\n")
 
 
 def files_of(repo: Path, base: str, head: str, count: int, shards: list[int]) -> list[str]:
@@ -171,7 +487,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="every shard (a push, full-ci): print the whole matrix")
     ap.add_argument("--files-of", help="comma-separated shards: print the test files they run, one a line")
     ap.add_argument("--direct-out", type=Path,
-                    help="write {shard: [touched test files]} for the one picked shard past 1 (JSON)")
+                    help="write {shard: [touched test files]} for shard 1 and the one picked shard past 1 (JSON)")
+    ap.add_argument("--summary", type=Path, help="append the pick to this Markdown file (the job's step summary)")
+    ap.add_argument("--class-out", type=Path, help="write the push class (fast, sampled, full) to this file")
+    ap.add_argument("--full-why", help="with --all: the rule that ran every shard, for --summary (a push, full-ci)")
     args = ap.parse_args(argv)
     if args.files_of:
         if not args.base:
@@ -184,19 +503,43 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("".join(f + "\n" for f in files))
         return 0
     if args.all:
-        print(matrix(list(range(1, args.count + 1)), args.count))
+        everything = list(range(1, args.count + 1))
+        if args.class_out:
+            args.class_out.write_text("full\n")
+        if args.summary and args.full_why:
+            with args.summary.open("a") as out:
+                out.write(summary("full", everything, args.count, args.full_why))
+        print(matrix(everything, args.count))
         return 0
     if not args.base:
         ap.error("--base is required without --all")
     own: dict[int, list[str]] = {}
+    cls = ""
     try:
-        shards, why, own = pick(args.repo, args.base, args.head, args.count)
+        if classes_on():
+            cls, shards, why, own = classify(args.repo, args.base, args.head, args.count)
+        else:
+            shards, why, own = pick(args.repo, args.base, args.head, args.count)
     except Exception as err:  # noqa: BLE001 - any failure runs every shard
-        shards, why = list(range(1, args.count + 1)), f"the pick failed ({type(err).__name__}: {err})"
+        cls, shards, why, own = ("full" if classes_on() else ""), list(range(1, args.count + 1)), \
+            f"the pick failed ({type(err).__name__}: {err})", {}
+    if args.class_out:
+        args.class_out.write_text(cls + "\n")
     if args.direct_out:
-        # No entry for a shard (an empty map on every-shard picks) runs that shard's whole affected split.
+        # No entry for a shard (an empty map on every-shard picks) runs that shard's whole affected split; shard 1's
+        # entry, even an empty list, runs just those tests.
         args.direct_out.write_text(json.dumps({str(k): v for k, v in own.items()}, separators=(",", ":")) + "\n")
     print(f"webviews pr shards: {len(shards)} of {args.count} ({','.join(map(str, shards))}): {why}", file=sys.stderr)
+    if args.summary and cls:
+        with args.summary.open("a") as out:
+            out.write(summary(cls, shards, args.count, why))
+    elif args.summary:
+        with args.summary.open("a") as out:
+            out.write(f"### react-apps-check shards: {len(shards)} of {args.count} ({','.join(map(str, shards))})\n\n{why}.\n")
+            if SAMPLE_WHY in why:
+                out.write("\nThis run samples shards instead of running all of them. To run every shard, add the "
+                          "`full-ci` label and re-run; to turn sampling off for every pull request, set the repository "
+                          "variable `CI_WEBVIEWS_CI_EDIT_SAMPLE` to `0`.\n")
     print(matrix(shards, args.count))
     return 0
 

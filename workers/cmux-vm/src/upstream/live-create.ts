@@ -1,7 +1,7 @@
 /** Recovery is confined to an intent's exact unique slug, authorized by its retained create proof. */
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
-import { timedPhase } from "../lib/timing.ts";
+import { logTimedEvent, timedPhase } from "../lib/timing.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -76,7 +76,15 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     let answer: unknown = null;
     const keep = (body: unknown) => Effect.sync(() => { answer = body; });
     const sourceId = source === undefined ? null : upstreamIdOf(source.owns);
-    const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;
+    const sourceDigest = (id: string) => digest(JSON.stringify(["source", id]));
+    // An approved image revision may have two snapshots of one bake (its own and a large one, proofs/vm-image.ts).
+    // A first attempt boots the one the proof chose. A resumed creation keeps the one it was journaled from, named
+    // by its retained source digest: the switch may have changed or the entry gained a large snapshot since, and the
+    // VM that attempt may have made is found and checked as what it is, never created a second time from the other.
+    const approved = image === undefined ? null : vmImageEvidenceOf(image);
+    const booted = approved?.other !== undefined && journal.source !== null && (yield* sourceDigest(approved.other.snapshotId)) === journal.source ? approved.other : approved;
+    const imageId = booted?.snapshotId ?? null;
+    if (phases !== undefined && booted !== null) phases["imageVariant"] = booted.variant;
     if (sourceId !== null && imageId !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
     const slug = `cmux-vm-${config.environment}-${spec.cmuxId.replace("_", "-")}`;
     const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
@@ -106,13 +114,28 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // idempotency fingerprint carries the mesh (a key cannot be replayed with another), and whether the VM is on the
     // network is read from the provider's answer (`joined` below), never assumed from what was sent.
     const sent = networkId === null ? tagged : { ...tagged, networks: [{ vpc: networkId }] };
-    if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
-    yield* journal.beforeSend(context, {
-      provider: yield* providerContext(config),
-      environment: config.environment,
-      request,
-      ...((sourceId ?? imageId) === null ? {} : { source: yield* digest(JSON.stringify(["source", sourceId ?? imageId])) }),
-    });
+    // A resumed image creation whose journaled source is neither snapshot the entry lists now: the entry lost or
+    // replaced its large snapshot after the first attempt booted it (an operator must not, README; this is the net
+    // under that rule). The journal holds only that snapshot's digest, so what is sent today can never match the
+    // retained context. The VM the first attempt may have made is still this creation's, so the exact slug is read
+    // before anything fails, and a VM found there is held to the journal (its request digest and its source digest)
+    // instead of to today's entry: same image id and revision, the snapshot that revision had when it booted.
+    // Nothing found fails as it did before (createVmContext), and nothing is sent: the retained intent binds this key's
+    // VM id to the journaled request, so a create from today's entry would carry another request digest under the
+    // same slug, which neither this path nor creation recovery (inspectCreation) would ever accept as this creation's.
+    // A new Idempotency-Key creates from the entry as it is now.
+    const unlisted = approved !== null && imageId !== null && journal.source !== null && journal.request !== null
+      && journal.context !== null && journal.context !== context && (yield* sourceDigest(imageId)) !== journal.source;
+    if (unlisted && phases !== undefined) phases["imageVariant"] = "unlisted";
+    if (!unlisted) {
+      if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
+      yield* journal.beforeSend(context, {
+        provider: yield* providerContext(config),
+        environment: config.environment,
+        request,
+        ...((sourceId ?? imageId) === null ? {} : { source: yield* sourceDigest(String(sourceId ?? imageId)) }),
+      });
+    }
     // A receipt that differs from the request can never be committed: recovery checks the same fields. When the answer
     // to this request's own POST describes a VM that is provably this creation's (exact slug and every metadata value
     // this request sent, so only its source image or idle timeout differs), the VM is deleted before the create fails:
@@ -120,14 +143,42 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // never an exact-slug lookup, which may find a VM an earlier attempt already recorded (an uncommitted row whose
     // owner can see it); a VM at the slug with anyone else's metadata is never touched. A failed delete, and a VM an
     // earlier attempt left unrecorded, is left to the Worker's orphan sweep (src/upstream/orphan-sweep.ts).
+    //
+    // A VM booted from an image's large snapshot is also held to the size asked: the pick trusted the size the entry
+    // declares, sizes only grow, and people are billed by size. One that answers larger than asked on any axis (a wrong
+    // entry, a provider that rounds up) is a mismatch like another snapshot: the POST's answer is deleted and the create
+    // fails, and a later exact-slug read never adopts it. The line says `oversized`. A failed delete is logged
+    // (vm_create_discard_failed, the public VM id only), since the VM then runs unrecorded until the orphan sweep.
+    const asked = spec.size;
+    const oversized = (vm: typeof Receipt.Type) => booted?.variant === "large" && asked !== undefined && (
+      (asked.vcpus !== undefined && vm.resources.cpu > asked.vcpus) || (asked.memoryMib !== undefined && vm.resources.memory > asked.memoryMib)
+      || (asked.diskMib !== undefined && vm.resources.storage > asked.diskMib));
     const discardMismatched = (vm: typeof Receipt.Type) => vm.id && vm.slug === slug && Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v)
-      ? http.json("discardMismatchedVm", "DELETE", `/v5/vms/${encodeURIComponent(vm.id)}`).pipe(Effect.ignore)
+      ? http.json("discardMismatchedVm", "DELETE", `/v5/vms/${encodeURIComponent(vm.id)}`).pipe(
+          Effect.asVoid,
+          Effect.catchAll((error) => logTimedEvent("vm_create_discard_failed", { vmId: spec.cmuxId, reason: oversized(vm) ? "oversized" : "receipt", status: error.status })),
+        )
       : Effect.void;
     const matches = (vm: typeof Receipt.Type) => !(!vm.id || vm.slug !== slug || !Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v) ||
       ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || !sameIdleTimeout(vm.idleTimeoutSeconds, spec.idleTimeoutSeconds));
     const receiptError = () => new UpstreamError({ operation: "createVmReceipt", status: null });
-    const checked = (vm: typeof Receipt.Type) => matches(vm) ? Effect.succeed(vm) : Effect.fail(receiptError());
-    const checkedSent = (vm: typeof Receipt.Type) => matches(vm) ? Effect.succeed(vm) : discardMismatched(vm).pipe(Effect.zipRight(Effect.fail(receiptError())));
+    /** The VM is this creation's and no larger than asked; otherwise why not, noted on the line. */
+    const accepted = (vm: typeof Receipt.Type) => {
+      if (!matches(vm)) return false;
+      if (!oversized(vm)) return true;
+      if (phases !== undefined) phases["oversized"] = true;
+      return false;
+    };
+    const checked = (vm: typeof Receipt.Type) => accepted(vm) ? Effect.succeed(vm) : Effect.fail(receiptError());
+    const checkedSent = (vm: typeof Receipt.Type) => accepted(vm) ? Effect.succeed(vm) : discardMismatched(vm).pipe(Effect.zipRight(Effect.fail(receiptError())));
+    const journaled = http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
+      Effect.tap(keep), Effect.flatMap(decode),
+      Effect.catchAll((error) => Effect.fail(error.status === 404 ? new UpstreamError({ operation: "createVmContext", status: null }) : error)),
+      Effect.flatMap((vm) => sourceDigest(vm.snapshotId ?? "").pipe(Effect.flatMap((from) =>
+        vm.id && vm.slug === slug && Object.entries({ ...metadata, cmux_create: journal.request }).every(([k, v]) => vm.metadata[k] === v)
+          && typeof vm.snapshotId === "string" && from === journal.source && sameIdleTimeout(vm.idleTimeoutSeconds, spec.idleTimeoutSeconds)
+          ? Effect.succeed(vm) : Effect.fail(receiptError())))),
+    );
     const recover = http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
       Effect.tap(keep), Effect.flatMap(decode), Effect.flatMap(checked), Effect.map(Option.some),
       Effect.catchAll((error) => error.status === 404 ? Effect.succeed(Option.none<typeof Receipt.Type>()) : Effect.fail(error)),
@@ -142,9 +193,22 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // read fails the create with its own error, a recovered VM is the answer whatever the image read said, and only
     // when nothing was recovered does a failed image read fail the create, before anything is sent. The image read's
     // verdict is held as a value so that it cannot fail the pair.
-    const [existing, imageVerdict] = yield* Effect.all([
-      timedPhase(phases, "recoverMs", recover),
-      imageId === null ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
+    //
+    // With `withoutReads` (the caller's switch) neither read is made on a first attempt:
+    // - The exact-slug read finds a VM an earlier attempt under this key made and lost the answer of. The slug carries
+    //   the VM id, and an id minted in this request has been sent to the provider by no one, so there is nothing to
+    //   find. A resumed creation (journal.minted false) reads first as before, and the read after a failed create
+    //   below is kept for every attempt.
+    // - The boot image read finds a listed snapshot the provider no longer has before anything is sent. The create's
+    //   answer is already held to the approved snapshot (`matches`: any other snapshot id deletes the VM and fails the
+    //   create, cmux#35013), which is what covered a snapshot deleted between the read and the create. So without the
+    //   read a missing snapshot is the provider's refusal of the create (marked rejected once the exact slug answers
+    //   404), or a VM booted from anything else, deleted: nothing is recorded either way, and the caller sees the
+    //   same 503.
+    const readFirst = spec.withoutReads !== true;
+    const [existing, imageVerdict] = unlisted ? [Option.some(yield* timedPhase(phases, "recoverMs", journaled)), Either.void] as const : yield* Effect.all([
+      readFirst || !journal.minted ? timedPhase(phases, "recoverMs", recover) : Effect.succeed(Option.none<typeof Receipt.Type>()),
+      imageId === null || !readFirst ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
     ], { concurrency: "unbounded" });
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {

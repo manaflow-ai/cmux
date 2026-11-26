@@ -13,6 +13,7 @@ import {
   NATIVE_WIDTHS,
   PSEUDO_LOCALES,
   SCALES,
+  SHELL_DEFAULT_BACKGROUND,
   TITLE_AREA_TONES,
   WIDTHS,
   widthPx,
@@ -385,8 +386,9 @@ export function Stage({
   );
 }
 
-/** The background axis (env.ts BACKGROUNDS): an opaque window, or a picture behind the glass. */
+/** The background axis (env.ts BACKGROUNDS): a picture behind the glass, or an opaque window. */
 const BACKGROUND_LABELS: Record<(typeof BACKGROUNDS)[number], string> = {
+  painting: "Background: painting (Monet)",
   none: "Background: none (opaque)",
   light: "Background: light picture",
   dark: "Background: dark picture",
@@ -462,7 +464,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
       />
       <Select
         className={selectClass}
-        value={env.background ?? "none"}
+        value={env.background ?? SHELL_DEFAULT_BACKGROUND}
         options={backgroundOptions}
         onChange={(value) => set("background", value as GalleryEnv["background"])}
         label="Background"
@@ -685,7 +687,11 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
             />
             Increase contrast
           </label>
-          <button type="button" className="gallery-more-reset" onClick={() => onChange(DEFAULT_ENV)}>
+          <button
+            type="button"
+            className="gallery-more-reset"
+            onClick={() => onChange({ ...DEFAULT_ENV, background: SHELL_DEFAULT_BACKGROUND })}
+          >
             Reset
           </button>
         </div>

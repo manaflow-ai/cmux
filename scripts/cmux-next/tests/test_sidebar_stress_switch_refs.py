@@ -144,7 +144,10 @@ class FakeApp:
             return {"windows": [window]}
         if method == "snapshot.get":
             self.snapshots += 1
-            return {"topology": {"workspaces": [{"id": r["id"], "name": r["name"]} for r in self.rows[: None if self.lists else 1]]}}
+            # As the app: each opened page is a browser tab in the workspace's screen (the bench waits for it).
+            return {"topology": {"workspaces": [{"id": r["id"], "name": r["name"],
+                                                 "screens": [{"panes": [{"tabs": [{"kind": "browser"}] * r["pages"]}]}]}
+                                                for r in self.rows[: None if self.lists else 1]]}}
         if method == "debug.mouse":
             if p.get("action") == "click":
                 self.inputs += 1
