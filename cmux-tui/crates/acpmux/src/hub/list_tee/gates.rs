@@ -154,9 +154,9 @@ async fn tee_change_samples(count: usize) -> Vec<Vec<u128>> {
             v1.set_status(
                 &session,
                 if (round * 200 + n).is_multiple_of(2) {
-                    crate::store::SessionStatus::Ready
+                    crate::hub::NotWaiting::Ready
                 } else {
-                    crate::store::SessionStatus::Idle
+                    crate::hub::NotWaiting::Idle
                 },
             );
             eventually(|| v2.hub.snapshot().seq() > before).await;

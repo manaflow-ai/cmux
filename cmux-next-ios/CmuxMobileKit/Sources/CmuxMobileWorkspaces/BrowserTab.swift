@@ -1,10 +1,12 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import Observation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import CmuxTabsKit
 
 /// One browser tab's `WKWebView` and the state the tab toolbar shows. The
@@ -376,7 +378,7 @@ struct BrowserPage: UIViewRepresentable {
     }
 }
 
-/// A browser tab's grid card: its last snapshot, else a blank page.
+/// A browser tab's grid card: its last snapshot, else its last-known picture, else the page's background.
 struct BrowserCard: View {
     let model: BrowserTabModel?
     var insets: EdgeInsets
@@ -384,6 +386,9 @@ struct BrowserCard: View {
     var lastKnown: UIImage?
     /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
     var tabID: String?
+    /// The page's host, for the site monogram (`SiteMonogram`, off by default).
+    var host: String?
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -393,16 +398,15 @@ struct BrowserCard: View {
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                 }
-            } else {
-                Image(systemName: "globe")
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if monograms, SiteMonogram.letter(host) != nil {
+                SiteMonogramFace(host: host)
             }
+            // No picture yet: the page's background, never a stand-in glyph (Leo, 2026-11-24, on
+            // a grid of globes: "wer need to chase all these placeholders doen and prevent them").
         }
         .modifier(TabCardFaceRecord(tabID: tabID,
-                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown"
+                                        : monograms && SiteMonogram.letter(host) != nil ? "monogram" : "nothing"))
     }
 }
 #endif

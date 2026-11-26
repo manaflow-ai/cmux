@@ -8,7 +8,7 @@
 // are its alternatives.
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
-import { mergeToolItem, textFromContent } from "../direct";
+import { mergeToolItem, textFromContent } from "../toolActivity";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { McpCallRows as McpCallRowsComponent } from "./McpCallRows";
 import type { VideoFramesLayout, VideoFramesLayoutContext as LayoutContext } from "./videoFramesCardModel";

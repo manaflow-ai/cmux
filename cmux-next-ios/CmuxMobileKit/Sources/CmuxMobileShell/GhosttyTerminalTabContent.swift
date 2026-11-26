@@ -19,8 +19,9 @@ private let warmLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 /// surface). One host (model + controller) per tab. The `warmLimit` most
 /// recently shown tabs keep their surface and attached session, so switching
 /// between them needs no reattach and no new surface; an older one is cooled
-/// (session detached, surface released) and keeps its last frame, which its
-/// page shows at once, dimmed, while it reattaches.
+/// (session detached, surface released) and keeps its last rows, which its
+/// new surface is fed at once: live at full opacity, scrolling and taking keys
+/// (queued for the attach) while it reattaches.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
@@ -58,7 +59,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var upgrade = TerminalTabUpgrade()
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
-    var frameStore: TerminalFrameStore? = .standard
+    var frameStore: TerminalFrameStore? = .standard {
+        didSet { rowsStore = frameStore?.rows }
+    }
+    /// Each tab's page as last seen, as rows of text beside its frame: a host built for it
+    /// feeds them to its fresh surface before the attach (`TerminalModel.takeSeed`), so the
+    /// page is live at once, not a still picture (Leo, 2026-11-24: "the entire thing is
+    /// somehow grayed out and I can't interact with anything at all").
+    private(set) var rowsStore: TerminalFrameStore? = TerminalFrameStore.standard.rows
+    /// Cooled tabs' rows while they are not on disk, or being written (``writeRows``).
+    private var lastRows: [TerminalFrameKey: String] = [:]
     /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
     var drafts: ComposerDraftStore? = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
@@ -93,7 +103,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             MainActor.assumeIsolated { self?.setAppActive(true) }
         }
         // A cooled tab's frame in memory is only a still for its next page: it can go.
-        MemoryPressure.shared.register(self) { [weak self] in self?.lastFrames = [:] }
+        MemoryPressure.shared.register(self) { [weak self] in
+            self?.lastFrames = [:]
+            self?.lastRows = [:]
+        }
     }
 
     private func setAppActive(_ active: Bool) {
@@ -121,7 +134,25 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             guard let key = hostFrameKeys[id] else { continue }
             host.model.captureSnapshot()
             if let frame = host.model.frameForSaving() { writeFrame(frame, to: frameStore, key: key) }
+            if let rowsStore, let rows = host.model.rowsForSaving() { writeRows(rows, to: rowsStore, key: key) }
         }
+    }
+
+    /// Writes `rows` as the tab's text file off the main thread, under a ticket taken now
+    /// (a later write or a removal wins). Until it lands, the next host takes them from
+    /// ``lastRows``.
+    private func writeRows(_ rows: String, to store: TerminalFrameStore, key: TerminalFrameKey) {
+        let ticket = store.ticket(for: key)
+        lastRows[key] = rows
+        Task.detached(priority: .utility) { [weak self] in
+            store.save(Data(rows.utf8), for: key, ticket: ticket)
+            await self?.rowsWritten(rows, key: key)
+        }
+    }
+
+    private func rowsWritten(_ rows: String, key: TerminalFrameKey) {
+        guard lastRows[key] == rows else { return }
+        lastRows[key] = nil
     }
 
     /// Frames being encoded and written (`writeFrame`), by key: a tab shown
@@ -211,7 +242,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
     var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
 
-    private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
+    private func host(for tab: WorkspaceTab, in workspace: Workspace, attachLive: Bool = true) -> TerminalTabHost {
         let key = frameKey(for: tab, in: workspace)
         // Another Mac's tab with the same id: its host (and its attach) goes, and
         // this tab builds its own on its own Mac.
@@ -239,8 +270,22 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             slots[id] = nil
             cardViews[id] = nil
         }
-        let live = sessionProvider?(tab, workspace.macID)
-        if let host = hosts[tab.id], live == nil { return host }
+        // Cards only need the saved frame or the Mac's short `read-screen` reply.
+        // Starting a daemon attach for every card makes opening the grid churn
+        // sessions, then immediately stop most of them as they leave the warm set.
+        // A page still asks for its live session, and `liveDataChanged()` upgrades
+        // this placeholder in place when the page becomes live.
+        let live = attachLive ? sessionProvider?(tab, workspace.macID) : nil
+        if let host = hosts[tab.id], live == nil {
+            // A card-only placeholder becomes a page placeholder when the page
+            // opens while the Mac is still unavailable. Re-register it so the
+            // next live-data publish can attach the page in place.
+            if attachLive {
+                upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: false, upgradable: true)
+                placeholderTabs[tab.id] = (tab, workspace)
+            }
+            return host
+        }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
         // and it stops.
@@ -279,7 +324,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
+        #if DEBUG
+        if frame == nil, live == nil, TerminalColdFrameDemo.servesFrame { frame = TerminalColdFrameDemo.frame() }
+        #endif
         model.restoreLastFrame(frame)
+        // Its rows, fed to the new surface before the attach: the page is live at once.
+        var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
+        if rows == nil, let key, let data = rowsStore?.load(key) { rows = String(data: data, encoding: .utf8) }
+        model.restoreLastRows(rows)
         if live != nil, let frameStore, let key {
             // The next cold launch shows what was on screen last (R2-5), not
             // the frame from the last time the app went to the background.
@@ -298,7 +350,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
         frameLifecycle.hostBuilt(tabID: tab.id)
-        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
+        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil, upgradable: attachLive)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
         watchReattach(tab.id, model: model)
@@ -323,6 +375,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             lastFrames[frameKey] = nil
             framesBeingWritten[frameKey] = nil
             frameStore?.remove(frameKey)
+            lastRows[frameKey] = nil
+            rowsStore?.remove(frameKey)
         }
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
@@ -351,6 +405,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
+        lastRows = [:]
         scrollPlaces = [:]
         framesBeingWritten = [:]
     }
@@ -371,7 +426,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
-        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
+                                           isInteractive: context.isInteractive, isOnPage: context.isOnPage))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -389,6 +445,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // usually its file already (`host(for:in:)`). Memory holds it only when it is not on
         // disk: no frame store, or a frame handed over from a placeholder whose save has not
         // landed (written to disk only after live output, so a blank page never goes there).
+        if let key, let rows = host.model.rowsToKeep() {
+            if let rowsStore { writeRows(rows, to: rowsStore, key: key) } else { lastRows[key] = rows }
+        }
         var frameState = "none"
         if let key, let frame = host.model.frameToKeep() {
             if let frameStore, host.model.drewLiveOutput {
@@ -440,10 +499,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         feeds[id] = Task { [weak indicator, model] in
             for await state in Observations({ model.connectionState }) {
                 guard let indicator else { return }
-                if case .offline = state { indicator.update(offline: true); continue }
-                indicator.update(offline: false)
-                // Any outage (a reattach, a first connect, a failure) says so in
-                // the pill past the quiet bound: the page has no status row.
+                if case .offline = state { indicator.update(offline: true) } else { indicator.update(offline: false) }
+                // Any outage (a reattach, a first connect, a failure, an offline
+                // Mac) says so in the pill past the quiet bound: the page has no
+                // status row, and a blip draws nothing.
                 indicator.update(reattaching: !state.isAttached)
             }
         }
@@ -456,16 +515,18 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect") while its outage has lasted
-    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
-    /// place a terminal tab shows its connection: no row by the composer
-    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
+    /// A read (no host is created): the tab's pill says "Can't connect" or
+    /// "Mac offline" only once its outage has
+    /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
+    /// frame and says nothing. The only place a terminal tab shows its
+    /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
+    /// takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
         guard indicator.isShown else { return nil }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
+        if indicator.isOffline { return "Mac offline" }
+        // Still reattaching (or no host yet): nothing, the pill keeps its usual words (Leo, 2026-11-24).
+        return hosts[tab.id]?.model.connectionState.pillSubtitle
     }
 
     /// A read (no host is created): the open page's own background, else its Mac's theme.
@@ -491,7 +552,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
            hostMacs[tab.id] == workspace.macID { return cached.view }
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
         // Mac's screen after this update, as `prepareCard` does.
@@ -502,15 +564,29 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return cardView(tab.id, slot: slot)
     }
 
+    /// The screen the Mac pushed of a tab not opened in this launch (its `tabs` service, kept
+    /// on disk across launches): the card draws it at once, with no round trip, or as soon as the
+    /// disk read brings it (a cold launch builds the cards before that read is done). The read
+    /// below replaces it with the Mac's screen now.
+    private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
+        guard model.cardScreenText == nil, !model.pageStarted,
+              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id) else { return }
+        MacTabCards.shared.whenScreen(key) { [weak model] screen in
+            guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
+            model.cardScreenText = screen
+        }
+    }
+
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
     }
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -722,11 +798,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
+            // The projection's exception undone by hand: typing into a TUI fitted it to the
+            // phone on its own (`TerminalProjectingSession`); this gives the Mac its size back
+            // and forgets the program.
+            if model.session.fitsToPhone == true {
+                actions.append(TerminalTabAction(title: "Keep the Mac's Size", systemImage: "macbook") {
+                    model.session.toggleFitToPhone()
+                })
+            }
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // Wide output on its own page (Leo, 2026-11-23): Wide on, the key row and composer away.
+            TerminalTabAction(title: "Wide View", systemImage: "arrow.left.and.right.square") { model.openWideView() },
             // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
             // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
@@ -738,7 +824,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 model.selectText()
             },
             TerminalTabAction(title: "Select All", systemImage: "selection.pin.in.out") { model.selectAll() },
-            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor", isEnabled: model.connectionState.isAttached) {
+            // Connecting or reattaching, the text is queued for the attach (`sendText`'s own
+            // rule): the menu never blocks input Leo can type (2026-11-24, "grayed out and I
+            // can't interact with anything at all").
+            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor",
+                              isEnabled: model.connectionState.composerNotSentNotice == nil) {
                 model.showSendText()
             },
             TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
@@ -828,22 +918,37 @@ final class TerminalTabSlot {
 struct TerminalTabSlotPage: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
+    let isOnPage: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive,
+                        isOnPage: isOnPage)
             .id(ObjectIdentifier(slot.host))
     }
 }
 
 struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
+    /// For the UI tests' face probe (`TabCardFaceRecord`).
+    let tabID: String
     let insets: EdgeInsets
     @Environment(\.workspaceTabCardInsets) private var pageInsets
 
     var body: some View {
-        TerminalTabCard(model: slot.host.model, insets: pageInsets ?? insets)
+        // The tab's last-known picture (its Mac's thumbnail, or one this phone drew) stands in for the
+        // labeled placeholder, and is asked of the disk again if the cache let it go.
+        let known = slot.host.model.hostMacID.flatMap { TabCardSnapshots.shared.key(macID: $0, tabID: tabID) }.map { key -> UIImage? in
+            let entry = TabCardSnapshots.shared.entry(key)
+            if entry.image == nil { TabCardSnapshots.shared.warm([key]) }
+            return entry.image
+        } ?? nil
+        let card = TerminalTabCard(model: slot.host.model, insets: pageInsets ?? insets, fallback: known)
+        let content = card.content
+        card
             .id(ObjectIdentifier(slot.host))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: content == .nothing && known != nil ? "lastKnown" : "\(content)"))
     }
 }
 #endif

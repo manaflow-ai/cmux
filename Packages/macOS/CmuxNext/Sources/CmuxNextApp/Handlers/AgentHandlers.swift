@@ -42,6 +42,7 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        registry.bindEffect("agentPaneReload", effect: { focusedAgentView("agentPaneReload", context, $0)?.reloadForPerson(); return .done })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
             try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
@@ -323,8 +324,7 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
-        return view
+        chatView(context, invocation) ?? context.registry.refuse(.noChat, id)
     }
 
     /// The agent chat of the invocation's tab, else its pane's selected tab; nil (no refusal) when it is none.
@@ -373,7 +373,7 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu, the pane's "…": a tab here
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu: a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {

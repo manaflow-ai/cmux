@@ -27,6 +27,7 @@ public struct SelectableText: View {
 
     private let content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.chatStill) private var still
 
     public init(_ text: NSAttributedString) {
         content = .attributed(text)
@@ -53,29 +54,32 @@ public struct SelectableText: View {
         }
     }
 
-    @Environment(\.selectableTextStill) private var still
-
     public var body: some View {
-        let text = attributedText
-        let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
-        let baseline = firstFont?.ascender ?? 0
         if still {
-            // A still (`ImageRenderer`) draws only SwiftUI's own views: the UIKit label came out
-            // as SwiftUI's yellow "can't render" placeholder in an agent tab's card picture.
-            Text((try? AttributedString(text, including: \.uiKit)) ?? AttributedString(text.string))
-                .fixedSize(horizontal: false, vertical: true)
-                .alignmentGuide(.firstTextBaseline) { _ in baseline }
+            standIn
         } else {
+            let text = attributedText
+            let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
+            let baseline = firstFont?.ascender ?? 0
             SelectableLabel(text: text)
                 .alignmentGuide(.firstTextBaseline) { _ in baseline }
         }
     }
-}
 
-extension EnvironmentValues {
-    /// `SelectableText` is drawn into a still (a tab card's picture): it draws SwiftUI `Text`
-    /// instead of its selectable UIKit label, which a still cannot draw.
-    @Entry public var selectableTextStill = false
+    /// In a still (`chatStill`: a tab card's picture, the live preview) the label is SwiftUI's own
+    /// `Text`: `ImageRenderer` draws a UIKit label as its yellow placeholder, which covered every
+    /// row of the card's picture once rows held their text in one (#52600).
+    @ViewBuilder private var standIn: some View {
+        switch content {
+        case .attributed(let text):
+            Text((try? AttributedString(text, including: \.uiKit)) ?? AttributedString(text.string))
+        case let .plain(text, font, color, spacing):
+            Text(verbatim: text)
+                .font(Font(font.font(for: typeSize)))
+                .foregroundStyle(Color(uiColor: color))
+                .lineSpacing(spacing)
+        }
+    }
 }
 
 private struct SelectableLabel: UIViewRepresentable {

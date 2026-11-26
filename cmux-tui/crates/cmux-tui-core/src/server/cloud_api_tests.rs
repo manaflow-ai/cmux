@@ -370,11 +370,6 @@ fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
 fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let (origin, seen) = fake(|_| (200, "{}".into()));
     let daemon = Daemon::start("invalid");
-    let mut unknown = params(&origin, "stack", json!({}));
-    unknown["extra_field"] = json!("secret-extra");
-    let (code, message, details) = daemon.send("cloud.owner.handoffs", unknown, None).unwrap_err();
-    assert_eq!(code, "validation.invalid");
-    assert!(!format!("{message} {details}").contains("secret-access"));
 
     let mut no_token = params(&origin, "stack", json!({}));
     no_token["access_token"] = json!("   ");
@@ -392,6 +387,19 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let (code, _, _) = daemon.send("cloud.owner.handoff_open", open, None).unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
+
+    // A param the operation does not name is dropped unread: the call runs and
+    // the value is never sent on.
+    let mut unknown = params(&origin, "owner", json!({}));
+    unknown["extra_field"] = json!("secret-extra");
+    let _ = daemon.send("cloud.owner.handoffs", unknown, None);
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1, "the call ran once");
+    let sent = seen
+        .iter()
+        .map(|s| format!("{} {} {}", s.line, s.headers, String::from_utf8_lossy(&s.body)))
+        .collect::<String>();
+    assert!(!sent.contains("secret-extra"), "{sent}");
 }
 
 /// Every file under `root`, read whole.

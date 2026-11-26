@@ -154,6 +154,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed",
+ "cmux-json",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -175,6 +186,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
@@ -187,6 +199,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -214,6 +227,13 @@ name = "cmux-embed-macros"
 version = "0.1.0"
 dependencies = [
  "zstd",
+]
+
+[[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -268,6 +288,7 @@ version = "0.1.0"
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",

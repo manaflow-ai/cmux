@@ -715,6 +715,24 @@
         }
       }
     },
+    "conversation.status.uploading": {
+      "comment": "Under a sending message whose photo, video or file is uploading: %@ is the percent sent (\"42%\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード中 %@"
+          }
+        }
+      }
+    },
     "conversation.timestamp.dateAtTime": {
       "comment": "Transcript separator for a message older than a week: %1$@ is the date (\"Thu, Sep 24\"), %2$@ the time.",
       "extractionState": "manual",

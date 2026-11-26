@@ -10,6 +10,7 @@ What it reads, in the cmux NEXT UI (SURFACES): the web pages (webviews/src), the
 and the iOS app (cmux-next-ios, Packages/iOS). Tests, galleries, fixtures and previews are not read.
 
 A connection state is a string the person can read that says one (CONNECTION_WORDS: connecting, reconnecting,
+reattaching (the iOS terminal pill's "Reattaching…"),
 retrying, restoring, handshaking, "Getting access", offline, disconnected, not connected, unreachable, can't reach,
 link down, waiting for the service): an inline literal that is copy (it starts with a capital: "Reconnecting…",
 "Not connected to cmux."), a JSX text node, or a dotted string-table key whose English value says one
@@ -39,6 +40,7 @@ any button passes, so the check catches a new state drawn with nothing to do, no
     python3 scripts/cmux-next/check-connection-notices.py --base HEAD^1       # and the shrink-only ratchet
     python3 scripts/cmux-next/check-connection-notices.py --list              # every hit, gated or not
     python3 scripts/cmux-next/check-connection-notices.py --write-allowlist   # drop the rows that are fixed
+    python3 scripts/cmux-next/check-connection-notices.py --input-block       # report input blocked while connecting
 """
 from __future__ import annotations
 
@@ -79,7 +81,7 @@ SKIP = re.compile(
 # What says a connection state. Matched against the English text, case-insensitive.
 CONNECTION_WORDS = re.compile(
     r"(?i)\b("
-    r"re-?connecting|connecting|retrying|restoring|handshak\w*|getting access"
+    r"re-?connecting|connecting|re-?attaching|retrying|restoring|handshak\w*|getting access"
     r"|offline|disconnected|not connected|no connection|connection (?:lost|closed|dropped|interrupted)"
     r"|lost (?:the )?connection|can'?t reach|cannot reach|couldn'?t reach|unreachable"
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
@@ -128,12 +130,18 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`).
+    r"|<[A-Z]\w*Button\b"
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
     r"|\bvar\s+action\s*:\s*\w*Action\?"
     # A sidebar section's click handler for its own rows (`func activate(_ id: LayoutItemID) -> Bool`).
-    r"|\bfunc\s+activate\s*\(\s*_\s+\w+\s*:\s*LayoutItemID\b)"
+    r"|\bfunc\s+activate\s*\(\s*_\s+\w+\s*:\s*LayoutItemID\b"
+    # A web list row's click handler (`run: () => goTo("github")`, `run: github.onRetry`): the person picks the row.
+    # Not a callback that takes an argument (`run: (agent) => resumes.run(agent)`), which is some other action,
+    # and not a type (`timeout(run: () => void, ms)`, a timer or frame scheduler's signature).
+    r"|\brun:\s*(?:\(\s*\)\s*=>(?!\s*(?:void|Promise\b|unknown\b))|\w+(?:\.\w+)*\.on[A-Z]\w*\b))"
 )
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
@@ -337,11 +345,22 @@ def member_at(unit: Unit, index: int) -> str | None:
     if not unit.path.endswith(".swift"):
         m = MAP_PROP.match(unit.lines[index])
         return m.group(1) if m else None
+    # A `let` or `var` statement may be a local inside the member (`let state = isLive ? "…on" : "…off"` in
+    # `liveTooltip`): it is the member only if no declaration indented less encloses it. Read as the member `state`,
+    # which no view names, the words stayed on the strings type and failed there (cmux#53574's Live tooltip).
+    local: tuple[str, int] | None = None
     for back in range(index, -1, -1):
-        m = SWIFT_MEMBER.search(unit.lines[back])
-        if m and m.group(1) != unit.name:
-            return m.group(1)
-    return None
+        line = unit.lines[back]
+        m = SWIFT_MEMBER.search(line)
+        if not m or m.group(1) == unit.name:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if line.lstrip().startswith(("let ", "var ")):
+            if local is None or indent < local[1]:
+                local = (m.group(1), indent)
+            continue
+        return local[0] if local is not None and indent >= local[1] else m.group(1)
+    return local[0] if local is not None else None
 
 
 def module_of(path: str) -> str:
@@ -393,12 +412,49 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    drawn_actions(units, imports)
     propagate(units, imports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
     return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
+
+
+# A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
+# holds some other click (a disclosure, a row) does not lend it to the words beside it.
+DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
+
+
+def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web view that draws a button component (`<ConnectButton onConnect={...} />`, its `<button onClick>` inside)
+    carries that action too: the button sits on the same card as the words. The component is named for its action
+    (DRAWN_ACTION) and declared in the same file or imported into it; a few hops, so a button wrapping a button counts."""
+    acted_by_file: dict[str, set[str]] = {}
+    path_of: dict[str, str] = {}  # module path without suffix (and without a trailing /index) -> file
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stem = unit.path[:-len(".tsx")]
+            path_of[stem] = unit.path
+            path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
+    for _round in range(3):
+        acted_by_file = {}
+        for unit in units.values():
+            if unit.acted and unit.path.endswith(".tsx") and DRAWN_ACTION.match(unit.name):
+                acted_by_file.setdefault(unit.path, set()).add(unit.name)
+        moved = False
+        for unit in units.values():
+            if unit.acted or not unit.path.endswith(".tsx"):
+                continue
+            names = set(acted_by_file.get(unit.path, set())) - {unit.name}
+            for local, target in imports.get(unit.path, []):
+                if local in acted_by_file.get(path_of.get(target, ""), set()):
+                    names.add(local)
+            if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
+                unit.acted = True
+                moved = True
+        if not moved:
+            break
 
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
@@ -582,6 +638,153 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     return 0
 
 
+# ---- Input blocked while connecting (report only) ----
+# Leo, 2026-11-24, back in the iOS app after minutes in another app: "the reattaching dot, dot, dot type thing. ...
+# the entire thing is somehow grayed out and I can't interact with anything at all." The same class as above, one
+# step worse: the screen does not only say a connection state, it takes the person's input away (disabled, no hit
+# testing, dimmed or grayed) until the link is back. This pass reports each place a control or a screen is disabled
+# or dimmed on a connection condition. It reports; it does not fail a run (a blocking check needs Leo's word).
+# A finding is fixed when input is accepted while the link comes back (queued or sent when it is up) and the screen
+# stays as drawn; one that must stay (a send that cannot be queued) says why with an action.
+
+# A condition about the link: an identifier or a state tag that names connecting, reconnecting, reattaching,
+# handshaking, restoring, resuming, offline or disconnected, or the link's own state.
+LINK_CONDITION = re.compile(
+    r"(?i)(?<!\w)(?!can(?:dis)?connect|connector|(?-i:on[A-Z]))"
+    r"\w*(?:connect|reattach|attaching|handshak|offline|resuming|linkstate|linkup|linkdown|linkislive|islinklive"
+    r"|transportstate|socketstate|isreachable|unreachable|isattached)\w*"
+    r"|\b(?:hub|link|relay|transport|socket|connection|session)\??\.(?:isReady|isLive|isAttached|ready|live)\b"
+    r"|\bisLive\b"
+)
+# What takes input away or grays a view out, by language.
+SWIFT_BLOCKS = re.compile(
+    r"\.(?P<kind>disabled|allowsHitTesting|opacity|grayscale|saturation|redacted|blur)\s*\("
+    r"|\b(?P<prop>isUserInteractionEnabled|isEnabled|alpha)\s*(?:=(?!=)|:\s)"
+)
+WEB_BLOCKS = re.compile(
+    r"\b(?P<kind>disabled|aria-disabled|inert|readOnly|aria-busy)\s*=\s*\{"
+    r"|\b(?P<prop>disabled|pointerEvents|opacity)\s*:\s*(?!\s*(?:boolean|number|string)\b)"
+    r"|(?P<cls>pointer-events-none|opacity-\d+|grayscale|is-dimmed|dimmed|is-disabled)\b"
+)
+# A derived name that is a yes-or-no: a Bool, a comparison, a negation or a logic operator.
+BOOLEAN_SHAPE = re.compile(r":\s*Bool\b|[!=]==?|!(?!=)\w|&&|\|\|")
+# A dimming value: an opacity strictly between 0 and 1 (`0.6`, `.5`), not a show-or-hide toggle.
+PARTIAL_OPACITY = re.compile(r"(?<![\w.])0?\.[0-9]*[1-9]")
+# A Swift or TS name the unit derives from the link (`var inputBlocked: Bool { link != .live }`), one hop.
+DERIVED = re.compile(r"\b(?:var|let|const)\s+(\w+)\b[^=\n{]*?(?:=(?!=)|\{)(.*)$")
+
+
+@dataclass
+class InputBlock:
+    surface: str
+    path: str
+    line: int
+    unit: str
+    kind: str
+    code: str
+
+
+def _span(lines: list[str], i: int, start: int) -> str:
+    """The modifier's text from START to its closing bracket, at most four lines on."""
+    text = lines[i][start:]
+    depth = 0
+    out = []
+    for n in range(i, min(i + 4, len(lines))):
+        chunk = text if n == i else lines[n]
+        for ch in chunk:
+            out.append(ch)
+            if ch in "({[":
+                depth += 1
+            elif ch in ")}]":
+                depth -= 1
+                if depth <= 0:
+                    return "".join(out)
+        out.append(" ")
+        if depth <= 0 and n == i and not chunk.rstrip().endswith(("(", "{", "[", "?", ":", "&&", "||")):
+            return "".join(out)
+    return "".join(out)
+
+
+def _argument(text: str) -> str:
+    """A labelled value (`isEnabled: x, …`, `disabled: x,`) up to its own end: the first comma or closing bracket
+    outside brackets of its own."""
+    depth = 0
+    for n, ch in enumerate(text):
+        if ch in "({[":
+            depth += 1
+        elif ch in ")}]":
+            if depth == 0:
+                return text[:n]
+            depth -= 1
+        elif ch in ",;" and depth == 0:
+            return text[:n]
+    return text
+
+
+def input_blocks(tree: Tree) -> list[InputBlock]:
+    """Every place a view's input is taken away or the view is grayed out on a link condition."""
+    found: list[InputBlock] = []
+    for path in tree.files():
+        surface = surface_of(path)
+        if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
+            continue
+        swift = path.endswith(".swift")
+        blocks = SWIFT_BLOCKS if swift else WEB_BLOCKS
+        lines = strip_comments(tree.read(path)).split("\n")
+        for name, first, last in units_of(path, "\n".join(lines)):
+            body = lines[first:last + 1]
+            derived: set[str] = set()
+            for _round in range(2):
+                for i, line in enumerate(body):
+                    m = DERIVED.search(line)
+                    if not m:
+                        continue
+                    rest = m.group(2) + " " + (body[i + 1] if i + 1 < len(body) and len(m.group(2).strip()) < 3
+                                               else "")
+                    if not BOOLEAN_SHAPE.search(m.group(0)):
+                        continue  # an object (`let model = …`), not a yes-or-no about the link
+                    if LINK_CONDITION.search(rest) or any(re.search(rf"\b{re.escape(d)}\b", rest) for d in derived):
+                        derived.add(m.group(1))
+            derived_re = re.compile(r"\b(" + "|".join(map(re.escape, sorted(derived))) + r")\b") if derived else None
+            for i, line in enumerate(body):
+                if NOT_UI_LINE.search(line):
+                    continue
+                for m in blocks.finditer(line):
+                    kind = m.group("kind") or m.group("prop") or m.groupdict().get("cls") or ""
+                    text = line if m.groupdict().get("cls") else _span(body, i, m.start())
+                    if m.group("prop"):
+                        text = _argument(text)
+                    if m.groupdict().get("cls"):
+                        # A class is a block only when its own condition is the link: `link.up ? "" : "dimmed"`.
+                        text = line
+                    if kind in ("opacity", "alpha") and not PARTIAL_OPACITY.search(text):
+                        continue  # shown or hidden (`shown ? 1 : 0`), not grayed out
+                    if LINK_CONDITION.search(text) or (derived_re is not None and derived_re.search(text)):
+                        found.append(InputBlock(surface, path, first + i + 1, name, kind,
+                                                re.sub(r"\s+", " ", text.strip())[:160]))
+                        break
+    return found
+
+
+def report_input_blocks(root: Path, *, as_json: bool = False, out=sys.stdout) -> int:
+    tree = Tree(root)
+    found = input_blocks(tree)
+    if as_json:
+        print(json.dumps({"schema": "cmux.input-blocked-while-connecting.v1", "missing": len(tree.missing),
+                          "findings": [f.__dict__ for f in found]}, indent=2), file=out)
+        return 0
+    for f in found:
+        print(f"{f.surface}\t{f.path}:{f.line}\t{f.unit}\t{f.kind}\t{f.code}", file=out)
+    per: dict[str, int] = {}
+    for f in found:
+        per[f.surface] = per.get(f.surface, 0) + 1
+    note = f"; {len(tree.missing)} tracked file(s) not on disk, unread" if tree.missing else ""
+    print(f"input blocked while connecting: {len(found)} place(s) ("
+          + (", ".join(f"{k} {v}" for k, v in sorted(per.items())) or "none") + f"){note}. A report, not a failing "
+          "check: see cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md", file=out)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -590,7 +793,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-allowlist", action="store_true",
                         help="drop rows that are fixed; with --seed, list every offender (the first list only)")
     parser.add_argument("--seed", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--input-block", action="store_true",
+                        help="report each view disabled or dimmed while the link connects (exits 0: a report)")
+    parser.add_argument("--json", action="store_true", help="with --input-block, the findings as JSON")
     args = parser.parse_args(argv)
+    if args.input_block:
+        return report_input_blocks(args.root, as_json=args.json)
     if args.write_allowlist:
         path = args.root / ALLOWLIST
         allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// The device's own connectivity log: one JSON line per kept record, in a file that rolls to
 /// `<name>.1` when it passes ``maxBytes`` (so at most twice that is on disk). It is read from
