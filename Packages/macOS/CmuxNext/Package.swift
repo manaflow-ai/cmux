@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: ac0c4af68953a49de66e4ee7adc6df8435d8b36a0d26e4953740a84569f5a920
+// app-ffi-pin-checksum: f78b1959f2e73763eb68289303aa3a1a95a4565fc8c3df080df665875967a065
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -3087,6 +3087,8 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextAgentPanePlacementTests",
     "CmuxNextChromiumRuntime",
     "CmuxNextChromiumRuntimeTests",
+    "CmuxNextCompat",
+    "CmuxNextCompatTests",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
 ]
@@ -3095,6 +3097,7 @@ let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxT
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
+    .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
 ]
 
 // The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.
