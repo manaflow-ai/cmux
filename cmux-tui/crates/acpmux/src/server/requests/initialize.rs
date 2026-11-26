@@ -144,6 +144,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TEAM_SEND,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
+    method::MUX_ROOMS,
     method::MUX_TYPING,
     method::MUX_UPLOADS_KEEP,
     method::MUX_USAGE,

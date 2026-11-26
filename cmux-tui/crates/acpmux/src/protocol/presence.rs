@@ -58,6 +58,43 @@ pub struct TypingParams {
     pub meta: Option<AuthorMeta>,
 }
 
+/// `_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it
+/// named before; both empty unsubscribes. A chat must be attached on this connection.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct RoomsParams {
+    #[serde(default)]
+    pub chats: Vec<String>,
+    #[serde(default)]
+    pub workspaces: Vec<String>,
+}
+
+/// `_acpmux/rooms`'s answer: how many rooms the connection watches now.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct RoomsResult {
+    pub rooms: u64,
+}
+
+/// `_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or
+/// one change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per
+/// record that stayed, `left` the ids that went).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomNote {
+    /// `{chat: id}` or `{workspace: id}`.
+    pub room: serde_json::Value,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snapshot: bool,
+    pub presence: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deltas: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<String>,
+}
+
 /// One person in a chat. The hub never marks the caller's own entry: a connection may carry
 /// several people, so the client compares ids (a caller with no author is `owner`).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

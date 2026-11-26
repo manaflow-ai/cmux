@@ -371,7 +371,10 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
-    Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    Capability {
+        id: CHAT_PRESENCE,
+        wire: &[method::MUX_TYPING, method::MUX_PRESENCE, method::MUX_ROOMS, method::MUX_ROOM],
+    },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
     // Chat titles and read marks through the sync engine, pulled and pushed by version vector
