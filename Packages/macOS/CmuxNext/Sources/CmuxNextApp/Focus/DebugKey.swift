@@ -126,6 +126,9 @@ enum DebugKey {
         services.keyRouter.trace = { trace.append($0) }
         TerminalKeyEquivalent.trace = { trace.append($0) }
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
+        // The probe's sample opens before every route: `interceptKeyDown` takes a composer's key first (cmux#45273); the app's sendEvent opens its own.
+        var probesKey = TypingLatencyProbe.isEnabled
+        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
@@ -137,10 +140,8 @@ enum DebugKey {
             }
             // As a real key: through the app and its local monitors when the window is key, else the panes' gesture monitors and then the window.
             if DebugNativeInput.usesAppKitPath(window) {
-                DebugNativeInput.sendThroughApp([event])
+                if probesKey { TypingLatencyProbe.shared.withdraw(); probesKey = false }; DebugNativeInput.sendThroughApp([event])
             } else {
-                // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 // Chromium drops a key AppKit hands a page window that is not key (a slot never activated): DevTools keys reach it.
                 if window !== shell, [nil, "page"].contains(params["target"]?.stringValue), let pageKeys, let controller,
@@ -148,12 +149,11 @@ enum DebugKey {
                     let events = DebugKeyDevToolsEvents(name: params["key"]?.stringValue ?? "", modifiers: (params["modifiers"]?.arrayValue ?? []).compactMap(\.stringValue)).events.map(\.params)
                     pageKeys { await chat.debugDevToolsKeys(events) }
                 } else { window.sendEvent(event) }
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
-            // `probe: "commit"`: a key into a text view (Home's composer, the omnibar): the typing probe writes its row at the commit frame.
-            if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
             return (window !== shell ? "page" : "responder", .null)
         }
+        if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) }  // the first hop, whichever route took the key
+        if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal notice, and key-downs that reached the system beep.
             let palette = services.palette

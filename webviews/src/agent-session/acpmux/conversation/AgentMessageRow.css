@@ -70,8 +70,8 @@
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
-  background: var(--ds-surface-inset);
+  color: var(--cv-chip-ink);
+  background: var(--cv-chip-bg);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
@@ -401,7 +401,7 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__bare {
   min-width: 0;
 }
-/* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
+/* A sender acpmux saw as a program (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */
 .cv-unverified {
   display: inline-flex;

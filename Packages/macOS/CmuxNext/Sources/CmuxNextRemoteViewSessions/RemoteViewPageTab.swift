@@ -90,6 +90,23 @@ public final class RemoteViewPageTab: BrowserTab {
     /// The tab's session, when it streams.
     public var debugSession: RemoteViewPageSession? { session }
 
+    /// Whether the tab shows a remote desktop session (not a Connect prompt or an unavailable notice).
+    public var streams: Bool { session != nil }
+
+    /// Sets the session's quality preset (`remote.setQuality`); false when the tab streams no session.
+    @discardableResult
+    public func selectQuality(_ preset: RemoteQualityPreset) -> Bool {
+        guard let session else { return false }
+        session.selectQuality(preset)
+        return true
+    }
+
+    /// What a row of the session toolbar's Quality menu runs (the App routes it to `remote.setQuality`).
+    public var onPickQuality: ((RemoteQualityPreset) -> Void)? {
+        get { session?.pickQuality }
+        set { session?.pickQuality = newValue }
+    }
+
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }
         onNavigate?(url)

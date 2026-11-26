@@ -35,10 +35,10 @@ chief-usage
 chief-views
 cloud
 cloud-progress
-coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history
@@ -46,7 +46,6 @@ home-channels
 icon-picker
 keybindings
 machines
-mobile-pairing
 onboarding
 passwords
 server-cards
@@ -57,6 +56,7 @@ stats
 glass-parity
 task-manager
 tasks
+terminal-history
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES site-settings site-data certificate"
@@ -87,10 +87,16 @@ bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.
-if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then
-  CMUX_ARTIFACT_RUNTIME_METAFILE="$CMUX_ARTIFACT_RUNTIME_METAFILE" bun scripts/pages/bundle.mjs "$WORK" $PAGES
-else
+if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then export CMUX_ARTIFACT_RUNTIME_METAFILE; fi
+# ci-oops fault isolation (scripts/ci/oops/isolate.py): on a pull request build only, a page that
+# optional-units.json lists and that alone fails to bundle is left out and the rest is bundled again;
+# the job prints a CI_OOPS line for its follow-up. Every other build runs the bundler as it is.
+python3 "$ROOT/scripts/ci/oops/isolate.py" run --kind webview-page --dropped-out "$WORK/oops-dropped" -- \
   bun scripts/pages/bundle.mjs "$WORK" $PAGES
+if [ -s "$WORK/oops-dropped" ]; then
+  kept=""
+  for page in $PAGES; do grep -qxF "$page" "$WORK/oops-dropped" || kept="$kept $page"; done
+  PAGES="$kept"
 fi
 [ -s "$WORK/__shared/page-base.css" ] || { echo "error: pages builder did not emit __shared/page-base.css" >&2; exit 1; }
 if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES_METAFILE"; fi
@@ -159,6 +165,9 @@ if [ "$MODE" != "--check" ]; then
   rm -rf "$OUT_ROOT/__shared"
   cp -R "$WORK/__shared" "$OUT_ROOT/"
   cp "$ROOT/webviews/src/web-abi.json" "$OUT_ROOT/web-abi.json"
+  # A tree with pages left out says so: build-web-bundles.sh never stamps it or installs it (--from) into a strict build.
+  rm -f "$OUT_ROOT/__oops-dropped"
+  if [ -s "$WORK/oops-dropped" ]; then cp "$WORK/oops-dropped" "$OUT_ROOT/__oops-dropped"; fi
 fi
 [ "$MODE" = "--check" ] && echo "page bundles build"
 exit 0

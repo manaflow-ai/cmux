@@ -272,7 +272,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.
+    /// Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first.
     CloudBillingCheckoutOp {
         name: "cloud.billing.checkout",
         class: Mutation,
@@ -288,7 +288,8 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudBillingCheckoutParams {
-    pub plan: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -303,6 +304,7 @@ wire_errors! {
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
         ClientTooOld = "client.too_old",
+        CloudBillingOff = "cloud.billing.off",
         IdempotencyConflict = "idempotency.conflict",
         OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
@@ -645,7 +647,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudMachineCreateOp {
         name: "cloud.machine.create",
         class: Mutation,
@@ -668,6 +670,10 @@ pub struct CloudMachineCreateParams {
     pub image: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_snapshot: Option<SnapshotId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -686,6 +692,7 @@ wire_errors! {
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
         ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
         CloudMemberBudgetReached = "cloud.member_budget.reached",
         CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
         CloudPlanRequired = "cloud.plan.required",

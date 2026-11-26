@@ -9,7 +9,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use cmux_terminal_projection::{DEFAULT_HISTORY_LIMIT, Projection, Segment};
+use cmux_terminal_projection::{AltPan, DEFAULT_HISTORY_LIMIT, Projection, Segment};
 
 /// What a feed gives the phone's surface, in order.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -31,13 +31,50 @@ pub struct ProjectionStats {
     pub resets: u64,
 }
 
+/// A `terminal-find` cell on the phone's re-wrapped rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ProjectionLocation {
+    /// Rows from the bottom of the re-wrapped content (1: its last row).
+    pub from_bottom: u64,
+    pub column: u32,
+}
+
+/// A full-screen app's transcript as one document for a fresh surface of
+/// the Mac's grid (`ESC c` first): its scrollback is the rows the app
+/// scrolled away, its screen the app's screen.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TranscriptPaint {
+    pub bytes: Vec<u8>,
+    /// The document's rows.
+    pub rows: u32,
+    /// The document row the app's screen begins at.
+    pub screen_top: u32,
+}
+
+/// What a vertical pan over a full-screen app does: bytes the phone's
+/// surface paints itself (nothing sent), then rows of wheel for the app on
+/// the Mac (0: nothing goes).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ProjectionAltPan {
+    pub paint: Vec<u8>,
+    /// Rows of wheel, positive toward older content.
+    pub forward_rows: f64,
+}
+
+/// Rows held for a pan over a full-screen app, and their bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ProjectionHeld {
+    pub rows: u64,
+    pub bytes: u64,
+}
+
 #[derive(uniffi::Object)]
 pub struct TerminalProjection {
     inner: Mutex<Projection>,
 }
 
 impl TerminalProjection {
-    fn inner(&self) -> MutexGuard<'_, Projection> {
+    pub(crate) fn inner(&self) -> MutexGuard<'_, Projection> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -81,6 +118,11 @@ impl TerminalProjection {
         segments(self.inner().feed(&bytes, paint))
     }
 
+    /// Paints what unpainted feeds changed, once (nothing on the alternate screen).
+    pub fn flush(&self) -> Vec<ProjectionSegment> {
+        segments(self.inner().flush())
+    }
+
     /// Paints what changed since the last paint.
     pub fn paint(&self) -> Vec<ProjectionSegment> {
         segments(self.inner().paint().into_iter().collect())
@@ -115,8 +157,68 @@ impl TerminalProjection {
         self.inner().take_replies()
     }
 
+    /// A vertical pan of `rows` (positive: toward older content) over the
+    /// alternate screen: within the rows the app scrolled off, the phone
+    /// paints them and nothing is sent; past them, for an app that asked for
+    /// the mouse, on the primary screen or with nothing held, the wheel goes
+    /// to the Mac as before.
+    pub fn alt_pan(&self, rows: f64) -> ProjectionAltPan {
+        let AltPan { paint, forward_rows } = self.inner().alt_pan(rows);
+        ProjectionAltPan { paint, forward_rows }
+    }
+
+    /// A key or a tap: bytes that show the app's live screen again (empty
+    /// when the surface already shows it).
+    pub fn alt_return_live(&self) -> Vec<u8> {
+        self.inner().alt_return_live()
+    }
+
+    /// How many held rows back the surface shows the alternate screen.
+    pub fn alt_rows_back(&self) -> u32 {
+        u32::try_from(self.inner().alt_rows_back()).unwrap_or(u32::MAX)
+    }
+
+    pub fn held(&self) -> ProjectionHeld {
+        let (rows, bytes) = self.inner().held();
+        ProjectionHeld { rows: rows as u64, bytes: bytes as u64 }
+    }
+
     pub fn is_alternate(&self) -> bool {
         self.inner().is_alternate()
+    }
+
+    /// Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+    /// Mac's last row; its column in Mac cells) lands on the phone's rows.
+    /// None: the projection does not hold that row (older than the replay).
+    pub fn locate(&self, host_from_bottom: u64, host_column: u32) -> Option<ProjectionLocation> {
+        let at = self
+            .inner()
+            .locate(usize::try_from(host_from_bottom).ok()?, usize::try_from(host_column).ok()?)?;
+        Some(ProjectionLocation {
+            from_bottom: u64::try_from(at.from_bottom).ok()?,
+            column: u32::try_from(at.column).ok()?,
+        })
+    }
+
+    /// Rows of the full-screen app's transcript above its screen: what the
+    /// phone scrolls up to with no round trip (0: none kept, or not on the
+    /// alternate screen).
+    pub fn transcript_rows_above(&self) -> u32 {
+        let inner = self.inner();
+        if !inner.is_alternate() {
+            return 0;
+        }
+        u32::try_from(inner.held().0).unwrap_or(u32::MAX)
+    }
+
+    /// The transcript as one document (none while no rows are kept).
+    pub fn transcript_paint(&self) -> Option<TranscriptPaint> {
+        let (bytes, rows, screen_top) = self.inner().alt_document()?;
+        Some(TranscriptPaint {
+            bytes,
+            rows: u32::try_from(rows).unwrap_or(u32::MAX),
+            screen_top: u32::try_from(screen_top).unwrap_or(u32::MAX),
+        })
     }
 
     pub fn stats(&self) -> ProjectionStats {
@@ -141,5 +243,49 @@ mod tests {
         let vim = projection.feed(b"\x1b[?1049hvim".to_vec(), true);
         assert!(vim.contains(&ProjectionSegment::Alternate { on: true }));
         assert!(projection.is_alternate());
+    }
+
+    #[test]
+    fn a_full_screen_apps_scrolled_rows_are_kept_for_the_phone() {
+        let projection = TerminalProjection::new(40, 10);
+        projection.set_viewport(40, 10);
+        projection.feed(b"\x1b[?1049h".to_vec(), true);
+        assert_eq!(projection.transcript_rows_above(), 0);
+        assert!(projection.transcript_paint().is_none());
+        // An app whose transcript (rows 1-9) moves up 3 rows a frame over a status row.
+        for first in (0..=12).step_by(3) {
+            let mut frame = String::new();
+            for r in 0..9 {
+                frame.push_str(&format!("\x1b[{};1H\x1b[2Kline {:03}", r + 1, first + r));
+            }
+            frame.push_str("\x1b[10;1H\x1b[2K> status");
+            projection.feed(format!("\x1b[?2026h{frame}\x1b[?2026l").into_bytes(), true);
+        }
+        assert_eq!(projection.transcript_rows_above(), 12);
+        let paint = projection.transcript_paint().expect("rows kept");
+        assert_eq!((paint.rows, paint.screen_top), (22, 12));
+        let text = String::from_utf8_lossy(&paint.bytes);
+        assert!(
+            text.contains("line 000") && text.contains("line 020") && text.ends_with("> status"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_pan_within_held_rows_paints_and_forwards_nothing() {
+        let projection = TerminalProjection::new(80, 24);
+        let _ = projection.set_viewport(54, 38);
+        let mut bytes = b"\x1b[?1049h".to_vec();
+        for i in 0..60 {
+            bytes.extend_from_slice(format!("line {i}\r\n").as_bytes());
+        }
+        let _ = projection.feed(bytes, true);
+        assert_eq!(projection.held().rows, 37);
+        let step = projection.alt_pan(3.0);
+        assert!(!step.paint.is_empty());
+        assert_eq!(step.forward_rows, 0.0);
+        assert_eq!(projection.alt_rows_back(), 3);
+        assert!(!projection.alt_return_live().is_empty());
+        assert_eq!(projection.alt_rows_back(), 0);
     }
 }

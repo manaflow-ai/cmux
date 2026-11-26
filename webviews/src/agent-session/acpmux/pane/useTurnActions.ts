@@ -1,14 +1,14 @@
 // AcpmuxPane's turn rows and turn actions (RFD 0046 step 2.5): the bodies of its `turnRowsShown` and
 // `turnActions` memos, moved out of App.tsx as they were. The memos, their deps arrays and every
 // hook stay in AcpmuxPane; these are plain functions over the values it closes over.
+import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
 import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
-import { type ChatAccounts, ownRouteOf } from "../chatAccounts";
 import type { Presentation } from "../chatDisplay";
-import type { CloudSignIn } from "../cloudAgentLogin";
+import { type CloudSignIn, terminalSignIn } from "../cloudAgentLogin";
 import type { ComposerHandle } from "../Composer";
 import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
@@ -42,6 +42,8 @@ import { trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/tur
 import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
+import { sessionLink } from "../links";
+import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
@@ -60,6 +62,16 @@ import { subagentRowsFrom, type SubagentRows } from "../subagents/subagentRows";
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Held = { session?: string; keys: ReadonlySet<string> };
 
+/// The reader's click on a Worked for held open at its turn's end (`heldWorked`): the hold without
+/// it, and the fold named in `letGo`, so the pass the click asks for does not hold it open again over
+/// the work leaving the view. Undefined when the fold is not held.
+export function letGoHeldWorked<T extends Held & { letGo?: ReadonlySet<string> }>(held: T, id: string): T | undefined {
+  if (!held.keys.has(id)) return undefined;
+  const keys = new Set(held.keys);
+  keys.delete(id);
+  return { ...held, keys, letGo: new Set(held.letGo).add(id) };
+}
+
 /// What `turnRowsShownFrom` reads of AcpmuxPane: the values its `turnRowsShown` memo closes over.
 export interface TurnRowsShownDeps {
   chatPresentation: Presentation;
@@ -68,7 +80,6 @@ export interface TurnRowsShownDeps {
   panelAsks: Set<string>;
   started: readonly StartedSession[];
   startedCache: RefObject<StartedCache>;
-  subagentTray: boolean;
   doneLines: RefObject<DoneLineCache>;
   workflowLabsEnabled: boolean;
   lastTurns: RefObject<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>;
@@ -77,16 +88,17 @@ export interface TurnRowsShownDeps {
   callRelease: number;
   transcriptInView: RefObject<(() => readonly string[] | null) | undefined>;
   heldRuns: RefObject<Held & { asked?: true }>;
-  heldWorked: RefObject<Held>;
+  /// `letGo`: the held Worked for folds the reader's click let go of (App.tsx `toggleActivity`); the
+  /// pass it asks for does not hold them again.
+  heldWorked: RefObject<Held & { letGo?: ReadonlySet<string> }>;
   heldWorkedClosing: RefObject<boolean>;
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
     AcpmuxSnapshot,
-    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers"
+    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers" | "heldFromAt"
   > & {
     summary?: Pick<Summary, "family">;
   };
-  sessionStatus: boolean;
   messageBreaks: readonly number[];
   supersededReplyIds: Set<string> | undefined;
   foldsSeen: RefObject<{ session?: string; folds?: Folds }>;
@@ -98,7 +110,12 @@ export interface TurnRowsShownDeps {
 /// What `turnActionsFrom` reads of AcpmuxPane: the values its `turnActions` memo closes over.
 export interface TurnActionsDeps {
   showCall: (toolCallId: string, startedAt?: number) => boolean;
+  /// True: a failed turn's Retry of `prompt` is held (`@computer-use` while Computer Use is not ready,
+  /// CMUX-682); the chat already said why, or the click opened setup.
+  holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
+  /// Why the shown chat takes no answer, when `restartChat` is undefined (subagents/restart.ts).
+  answerBlock?: AnswerBlock;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
   runningBranchSessions: ReadonlySet<string>;
@@ -142,7 +159,6 @@ export interface TurnActionsDeps {
   catalog: HarnessCatalog;
   cloudRouteHostKind: "local" | "cloud" | undefined;
   cloudTeamMachine: boolean;
-  chatAccounts: ChatAccounts | undefined;
   access: AccessOffer;
 }
 
@@ -155,7 +171,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     panelAsks,
     started,
     startedCache,
-    subagentTray,
     doneLines,
     workflowLabsEnabled,
     lastTurns,
@@ -167,7 +182,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldWorked,
     heldWorkedClosing,
     snapshot,
-    sessionStatus,
     messageBreaks,
     supersededReplyIds,
     foldsSeen,
@@ -181,9 +195,9 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   }
   const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
   // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
-  const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
+  const rows = withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled);
   // The tray takes the running groups out of the rows, so the live line's wait is counted first.
-  const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
+  const trayAgents = trayWaitAgents(startedRows);
   return acpmuxPerf.timed("app.rows", () => {
     const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
@@ -214,7 +228,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           working: snapshot.isWorking && snapshot.canLoadNewer !== true,
           clockOffset: snapshot.clockOffsetMs,
           turnStartedAtMs: snapshot.turnStartedAtMs,
-          sessionStatus,
           // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -222,6 +235,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           messageBreaks,
           trayAgents,
           supersededReplyIds,
+          // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+          heldFromAt: snapshot.heldFromAt,
         },
         last?.turns,
       );
@@ -231,6 +246,11 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     // turn's end folding its work, a run of calls closing) leaves that fold open
     // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
     // toggles change `folds` and are left alone, as is a chat just switched to.
+    // A click on a held Worked for changes no fold, so it names the fold (`letGo`): held again
+    // here, the work it hides leaving the view, it stayed open until the view followed the latest
+    // row. Only that fold: another turn that ends in the same pass still holds its own.
+    const workedLetGo = heldWorked.current.letGo;
+    if (workedLetGo) heldWorked.current = { session: heldWorked.current.session, keys: heldWorked.current.keys };
     const ownChange = foldsSeen.current.session !== shownSessionId || foldsSeen.current.folds !== folds;
     foldsSeen.current = { session: shownSessionId, folds };
     if (heldFolds.current.session !== shownSessionId) heldFolds.current = { session: shownSessionId, keys: new Set() };
@@ -244,6 +264,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     if (inView) {
       const worked = new Set<string>();
       const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+      for (const key of workedLetGo ?? []) worked.delete(key);
       if (worked.size > 0) {
         heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
         turns = shape(withHeldFolds(folds, heldOpen()));
@@ -304,7 +325,9 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
 export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
   const {
     showCall,
+    holdsRetry,
     restartChat,
+    answerBlock,
     queuedMessageActionsRef,
     stableBranches,
     runningBranchSessions,
@@ -339,9 +362,18 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     catalog,
     cloudRouteHostKind,
     cloudTeamMachine,
-    chatAccounts,
     access,
   } = deps;
+  // Sign in again's terminal login: a chat here or on an own machine, and a Cloud chat on an older
+  // machine whose acpmux runs no in-card sign-in (cloudAgentLogin.ts `terminalSignIn`).
+  const terminalLogin = terminalSignIn({
+    connected,
+    loginCommand,
+    card: chatSignIns.cloudSignIn,
+    onCloud: cloudMachineID !== undefined || snapshot.summary?.hostKind === "cloud",
+    machineSignsIn: directClient.current?.supportsAgentLogin === true,
+    teamMachine: cloudTeamMachine,
+  });
   return {
     showCall,
     canSendPromptAgain: restartChat !== undefined,
@@ -433,6 +465,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             // to another chat): say so on the card. Settling as sent left a Retry that did nothing
             // (cmux#34369).
             if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
+            // The footer's Retry sends the turn's prompt again (acpmux rebuilds it): held as a send is.
+            if (prompt && holdsRetry?.(prompt)) return Promise.resolve("retry.failed" as const);
             return retryFailedPrompt({
               sessionId: owner,
               rowId,
@@ -477,6 +511,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // Where it cannot send, the card says why (NextStepCard.tsx), in the typed answer's row.
+    ...(!restartChat && answerBlock && { answerBlock }),
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,
@@ -488,6 +524,29 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             ? answerThrough(callNative)(text)
             : Promise.reject(new Error(CHAT_CHANGED))
       )(restartChat),
+    }),
+    // Connect GitHub (githubConnect.ts, a GitHub call that found no connection for this chat): the
+    // app's `accounts.githubConnect` with the call's repository and this chat's link, which GitHub's
+    // return opens; then Continue, with Continue's reach. A Connect the app did not run rejects with
+    // its reason, for the card.
+    ...(restartChat && {
+      githubConnect: ((owner: string): GitHubConnectOffer => ({
+        connect: (repo, org) => {
+          const returnTo = sessionLink(owner);
+          return callNative("action.run", {
+            id: GITHUB_CONNECT_ACTION,
+            ...(repo && { repo }),
+            // An agent's ask for an org (settings_ask `connection:github:ORG`): the Mac connects
+            // another account even when one is connected (GitHubConnections.swift `connect`).
+            ...(org && !repo && { org }),
+            ...(returnTo && { returnTo }),
+          }).then(() => undefined);
+        },
+        continue: () =>
+          restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+            ? resumeThrough(callNative)()
+            : Promise.resolve(),
+      }))(restartChat),
     }),
     // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
     // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
@@ -558,12 +617,10 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
         }),
     }),
     // Sign in again runs the login in a terminal only where the card can't: a chat on this Mac, or
-    // on a machine whose acpmux has no `agent_login`.
-    ...(connected &&
-      loginCommand &&
-      !cloudMachineID &&
-      !chatSignIns.cloudSignIn &&
-      snapshot.summary?.hostKind !== "cloud" && {
+    // on a machine whose acpmux has no `agent_login` (an older Cloud machine too: its pane's terminal
+    // opens on that machine).
+    ...(terminalLogin.runs &&
+      loginCommand && {
         reauthenticate: () =>
           void callNative("tab.open", {
             kind: "terminal",
@@ -572,17 +629,18 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             run: true,
           }).catch(() => undefined),
       }),
-    ...chatSignIns,
+    cloudSignIn: chatSignIns.cloudSignIn,
+    apiKeySignIn: chatSignIns.apiKeySignIn,
     review: hunkReview,
     route: {
       harness: snapshot.summary?.harness,
       name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
       hostKind: cloudRouteHostKind,
       ...(cloudMachineID && cloudTeamMachine && { teamMachine: true }),
+      ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
-    // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
-    ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
+
     access,
   };
 }

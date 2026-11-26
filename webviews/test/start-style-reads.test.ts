@@ -86,9 +86,11 @@ test("see-through: a changed background is read as drawn, and read again once it
   expect(reads).toBe(before);
 });
 
+// With no inline value (a page no app hosts) transcriptGrid.ts reads the computed one once and keeps it
+// (its computedScale); a page the host writes the scale on reads only the declaration.
 test("gridScale reads the host's inline Interface Size per call, never computed", () => {
   reads = 0;
-  root().style.removeProperty("--cmux-interface-scale");
+  root().style.setProperty("--cmux-interface-scale", "1");
   expect(gridScale()).toBe(1);
   root().style.setProperty("--cmux-interface-scale", "1.25");
   expect(gridScale()).toBe(1.25);
@@ -96,8 +98,8 @@ test("gridScale reads the host's inline Interface Size per call, never computed"
   expect(gridScale()).toBe(1.5);
   root().style.setProperty("--cmux-interface-scale", "nope");
   expect(gridScale()).toBe(1);
-  root().style.removeProperty("--cmux-interface-scale");
   expect(reads).toBe(0);
+  root().style.removeProperty("--cmux-interface-scale");
 });
 
 test("the column's page zoom loads with no computed read and follows the host's change", async () => {

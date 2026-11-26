@@ -142,14 +142,29 @@ impl Hub {
 
     /// Whether anything runs or waits in `session`, as the idle reaper reads it
     /// (`idle.rs` `idle_eligible`), whatever its status.
-    fn archive_held(&self, session: &Session) -> bool {
+    pub(super) fn archive_held(&self, session: &Session) -> bool {
+        self.archive_held_with(session, false)
+    }
+
+    /// [`Self::archive_held`]; `cold` reads the background processes from the table this daemon
+    /// holds, never from the chat's log: a cold chat's log is in its archive, and a read of it
+    /// brings it back. A chat is archived only with no process running (`coldable`), and
+    /// nothing runs in one afterwards.
+    pub(super) fn archive_held_with(&self, session: &Session, cold: bool) -> bool {
+        let processes = || {
+            if cold {
+                self.running_processes_read(session) > 0
+            } else {
+                self.any_process_running(session)
+            }
+        };
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
             || self.secrets.waiting_in(&session.id)
             || session.queued() > 0
             || !session.pending_permissions().is_empty()
-            || self.any_process_running(session)
+            || processes()
             || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             || session.agent_requests.load(Ordering::SeqCst) > 0
             || self.continuation_pending(session)
@@ -185,12 +200,25 @@ impl Hub {
     }
 
     /// The daemon's one inactive-archive worker (module docs): a pass [`FIRST_PASS_AFTER`] from
-    /// now, then every [`PASS_EVERY`], while the setting is on.
+    /// when the setting is first seen on, then every [`PASS_EVERY`], while it is on. While it is
+    /// off (the default) no timer: the setting is read again when the settings file changes, so
+    /// an idle daemon does not wake for it (it woke 60 s after start and every 10 minutes,
+    /// `tests/daemon_idle.rs`).
     pub(crate) fn inactive_archive_worker(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
+        let mut settings = self.settings_changes.subscribe();
         self.scope.spawn_until_cancelled("inactive-archive", async move {
             let mut wait = FIRST_PASS_AFTER;
             loop {
+                // Marked seen before the read: a change after it ends the wait below at once.
+                settings.borrow_and_update();
+                let on = tokio::task::spawn_blocking(|| archive_after_now().is_some());
+                if !on.await.unwrap_or(false) {
+                    if settings.changed().await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 tokio::time::sleep(wait).await;
                 wait = PASS_EVERY;
                 let Some(hub) = weak.upgrade() else { return };

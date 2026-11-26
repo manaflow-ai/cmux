@@ -69,6 +69,14 @@ on:
         required: false
         default: true
         type: boolean
+      # The nightly tree's caller (cmux-tui-artifacts.yml) sets it: plan-build and package take the nightly's
+      # reserved cmux-gcp-nightly-x64 on attempt 1, so no pull request job queues ahead of them (RFD 0021,
+      # route by need). Every other caller leaves it false and keeps cmux-linux.
+      nightly_runner:
+        description: "Run plan-build and package on the nightly's reserved Linux label (attempt 1)"
+        required: false
+        default: false
+        type: boolean
       macos_runner:
         description: "Optional macOS runner label override"
         required: false
@@ -131,6 +139,14 @@ on:
         required: false
         default: "mac"
         type: string
+    # The R2 cargo cache's write credentials. A called workflow sees only the secrets its caller passes, so with
+    # none declared the save steps read empty values and saved nothing (run 45200352920, 2026-11-23). Optional:
+    # cmux-tui-artifacts.yml passes them on feat-cmux-next only, every other caller and ref only reads. A secret
+    # of the build job's next-cache-writer environment still takes precedence over a passed one.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: { required: false }
+      CI_CACHE_R2_SECRET_ACCESS_KEY: { required: false }
+      CI_CACHE_R2_ACCOUNT_ID: { required: false }
     outputs:
       # cmux-tui-artifacts.yml publishes the Windows daemon in its own pass
       # only when this is true: an optional (windows_optional) Windows build
@@ -157,7 +173,7 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -173,7 +189,7 @@ jobs:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
@@ -245,6 +261,11 @@ jobs:
               # cmux-tui-artifacts.yml builds Linux in its own call so the Cloud
               # machine channel moves without waiting for the macOS legs.
               selected = [target for target in targets if target["target"].endswith("-unknown-linux-musl")]
+          elif target_set in ("linux-x86_64", "linux-aarch64"):
+              # cmux-tui-artifacts.yml builds each Linux target in its own call so the
+              # Cloud machine channel points from x86_64 without waiting for aarch64.
+              arch = target_set.removeprefix("linux-")
+              selected = [target for target in targets if target["target"] == f"{arch}-unknown-linux-musl"]
           elif target_set == "macos":
               selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
@@ -280,9 +301,9 @@ jobs:
           lto = os.environ["LTO"]
           if lto not in ("fat", "thin"):
               raise SystemExit(f"unsupported lto: {lto!r}")
-          if lto == "thin" and (target_set != "linux" or packages_requested or not os.environ["ARTIFACT_PREFIX"]):
+          if lto == "thin" and (target_set not in ("linux", "linux-x86_64", "linux-aarch64") or packages_requested or not os.environ["ARTIFACT_PREFIX"]):
               # Thin is only for the Cloud machine channel's own copy of the Linux binaries.
-              raise SystemExit("lto=thin needs target_set=linux, no packages and an artifact_prefix")
+              raise SystemExit("lto=thin needs a Linux target_set (linux, linux-x86_64, linux-aarch64), no packages and an artifact_prefix")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
           print("unix_targets=" + ("true" if selected else "false"))
@@ -309,6 +330,8 @@ jobs:
   build:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      # The R2 cargo cache's bucket (note-210c); only a feat-cmux-next build holds the credentials.
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       # The cmux server's release public keys (decision SV-R1), compiled into
       # the `cmux` binary with option_env!; the binary never reads them at run
       # time. Public keys, so a repository variable, not a secret. Unset means
@@ -317,6 +340,9 @@ jobs:
       CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     name: build ${{ matrix.target }}
     needs: plan-build
+    # The R2 cargo cache's write credentials live in this environment, whose deployment branch is
+    # feat-cmux-next only (note-171, note-210c); every other ref has none and only reads.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     # target_set=windows selects no Unix target (an empty matrix is an error).
     if: needs.plan-build.outputs.unix_targets == 'true'
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
@@ -331,6 +357,25 @@ jobs:
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -347,7 +392,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
@@ -416,6 +464,11 @@ jobs:
         with:
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Set up Node for the shipped browser pane
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -458,6 +511,21 @@ jobs:
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
+      # The native leg (the macOS fallback, or a feat-cmux-next push leg on a free mini) built
+      # into cmux-tui/target, which actions/checkout's clean empties every job, so every one
+      # compiled cold: run 44947539922's fallback took 2h01m here and the job timeout cancelled
+      # it before it shipped. On an owned Mac it now starts from an APFS clone of the target the
+      # last successful native build on that Mac kept ("Keep the warm Mac target" below);
+      # scripts/ci/cmux-tui-mac-warm-target.sh prints "mac warm target: hit, ..." or "miss (...)".
+      - name: Start from this Mac's warm target
+        if: matrix.cross == false && runner.os == 'macOS'
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh restore ${{ matrix.build_target }} \
+            || echo "warning: mac warm target restore failed; building as is" >&2
+
       - name: Build cmux-tui (native)
         if: matrix.cross == false
         env:
@@ -485,6 +553,26 @@ jobs:
           # Six cargo builds, at once with 40 GiB of memory or more, else one after another
           # (a 16 GB mini ran out of memory building them at once).
           ../scripts/ci/cmux-tui-mac-cargo-builds.sh ${{ matrix.build_target }}
+
+      # The macOS legs built on Linux get the same warm start as the Linux musl
+      # legs: their own cache per target, saved only by feat-cmux-next pushes. Its
+      # key adds the cross toolchain (clang, lld, Zig, the SDK version label, and
+      # macos-cross.sh with its stubs), so a toolchain change starts cold instead of
+      # reusing objects built by the old one. A miss is a cold build, as before.
+      - name: Install the macOS cross toolchain
+        id: darwin-cross
+        if: matrix.darwin_on_linux
+        env:
+          # The SDK version recorded in LC_BUILD_VERSION. The Mac legs record
+          # their runner's Xcode SDK (15.5 or 26.5 in October 2026); no SDK
+          # file is read.
+          XC_SDK_VERSION: "26.5"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
+          key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
+          { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -529,20 +617,100 @@ jobs:
           path: /home/runner/cmux-tui-fat-warm
           commit: on-change
 
+      # Pool runners mount no sticky disk but keep HOME across jobs, so the darwin cross leg keeps
+      # its warm target in the runner slot's own directory (scripts/ci/machine-channel-warm-target.sh
+      # pool-dir; bounded, and removed when the host runs short of disk). It built cold on every
+      # push before: 1475 s for the build step (job 139565194555). A recorded tree with the current
+      # toolchain stamp skips the R2 restore below; an unrecorded one is seeded from it.
+      - name: Locate the pool warm target (feat-cmux-next, fat, aarch64 macOS on Linux)
+        id: pool-warm-darwin
+        if: inputs.lto != 'thin' && matrix.darwin_on_linux && runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-') && matrix.target == 'aarch64-apple-darwin' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          MACHINE_CHANNEL_WARM_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          disk="$(scripts/ci/machine-channel-warm-target.sh pool-dir "$WARM_TARGET")"
+          [[ -n "$disk" ]] || exit 0
+          hit="$(scripts/ci/machine-channel-warm-target.sh probe "$disk" "$WARM_TARGET")"
+          echo "pool warm target: $hit at $disk"
+          { echo "disk=$disk"; echo "hit=$([[ "$hit" == hit ]] && echo true || echo false)"; } >> "$GITHUB_OUTPUT"
+
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
       # recompiles only the workspace crates (cmux-tui's group took 346 s cold,
       # run 42381345286). Only feat-cmux-next pushes write it, and only when the
       # key changes; a miss or a failed restore is a cold build, never a failure.
       - name: Restore the Linux cargo cache
-        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin' && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success'
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin' && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && (startsWith(runner.name, 'blacksmith') || github.repository != 'manaflow-ai/cmux')
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
+          shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
+
+      # Off Blacksmith the GitHub store above misses (it is full and churns in minutes), so the dependency
+      # builds of the three shipped legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both
+      # musl targets) come from R2, as the fast tier's do. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
+      # The Cloud machine channel's thin musl legs (build-machine-channel, lto=thin, on cmux-linux) too, under
+      # their own key (LEG carries the lto): they had no warm start off Blacksmith and built cold, 17-18 min
+      # of a 22.6 min aarch64 leg in run 45443556021 (2026-11-24), which the channel point waits for.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' && steps.pool-warm-darwin.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          LEG: ${{ matrix.target }}-${{ inputs.lto }}
+          # The cross toolchain, which Cargo does not track (empty on the musl legs).
+          TOOLCHAIN: ${{ matrix.darwin_on_linux && format('{0}-{1}', steps.darwin-cross.outputs.key, hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**')) || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          inputs="$( { git ls-files -z -- 'cmux-tui/Cargo.lock' 'cmux-tui/**/Cargo.lock' 'cmux-tui/rust-toolchain.toml' 'first-party-apps/cloud/server/Cargo.lock' \
+            | xargs -0 sha256sum; rustc -Vv; cargo -V; printf '%s\n' "$TOOLCHAIN"; } | sha256sum | cut -c1-16)"
+          workspace="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
+          prefix="cmux-tui-cargo-v1-$LEG-$workspace-"
+          {
+            echo "target-prefix=$prefix"
+            echo "target-key=$prefix$inputs"
+            echo "registry-prefix=cmux-tui-cargo-registry-v1-"
+            echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
+            echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo build from R2
+        id: r2-cargo-target
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      - name: Restore the cargo registry from R2
+        id: r2-cargo-registry
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
@@ -763,39 +931,21 @@ jobs:
           cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
             --release --locked --target "$AGENT_PLUGIN_TARGET"
 
-      # The macOS legs built on Linux get the same warm start as the Linux musl
-      # legs: their own cache per target, saved only by feat-cmux-next pushes. Its
-      # key adds the cross toolchain (clang, lld, Zig, the SDK version label, and
-      # macos-cross.sh with its stubs), so a toolchain change starts cold instead of
-      # reusing objects built by the old one. A miss is a cold build, as before.
-      - name: Install the macOS cross toolchain
-        id: darwin-cross
-        if: matrix.darwin_on_linux
-        env:
-          # The SDK version recorded in LC_BUILD_VERSION. The Mac legs record
-          # their runner's Xcode SDK (15.5 or 26.5 in October 2026); no SDK
-          # file is read.
-          XC_SDK_VERSION: "26.5"
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
-          key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
-          { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
-
       # Saved by every feat-cmux-next build, not only pushes: feat-cmux-next builds these legs from
       # workflow_dispatch (cmux-next dispatches each tree), and its pushes mostly skip them, so a
       # push-only save-if never wrote an entry and every leg, base and pull request, built cold
       # ("No cache found", cargo 18-22 min; jobs 136816451772, 137080163013, 2026-11-21/22).
       - name: Restore the macOS-on-Linux cargo cache
-        if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success'
+        if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success' && (startsWith(runner.name, 'blacksmith') || github.repository != 'manaflow-ai/cmux')
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-darwin-on-linux-${{ matrix.target }}
-          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
+          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock', 'cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
@@ -815,6 +965,10 @@ jobs:
           # so a change empties the disk (scripts/ci/machine-channel-warm-target.sh).
           MACHINE_CHANNEL_WARM_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
           WARM_TARGET: ${{ matrix.build_target }}
+          # A pool runner's own warm directory, else the sticky disk's mount point.
+          WARM_DISK: ${{ steps.pool-warm-darwin.outputs.disk || '/home/runner/cmux-tui-fat-warm' }}
+          # An exact R2 hit (its key holds the toolchain stamp) seeds a new pool tree as built.
+          MACHINE_CHANNEL_WARM_SEED_EXACT: ${{ steps.r2-cargo-target.outputs.cache-hit == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -823,8 +977,8 @@ jobs:
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
           # "Record the warm target", after "Stage binary", prunes and records it. Without a
-          # mounted disk restore does nothing.
-          ./scripts/ci/machine-channel-warm-target.sh restore /home/runner/cmux-tui-fat-warm "$WARM_TARGET" \
+          # mounted disk (or a pool runner's own directory) restore does nothing.
+          ./scripts/ci/machine-channel-warm-target.sh restore "$WARM_DISK" "$WARM_TARGET" \
             || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
           bash tests/test_tailnet_cross_link.sh
@@ -972,14 +1126,30 @@ jobs:
           DARWIN_ON_LINUX: ${{ matrix.darwin_on_linux }}
           # The stamp "Build the macOS binaries on Linux" restored against.
           DARWIN_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
+          POOL_DISK: ${{ steps.pool-warm-darwin.outputs.disk }}
         shell: bash
         run: |
           set -euo pipefail
-          disk=/home/runner/cmux-tui-fat-warm
+          disk=${POOL_DISK:-/home/runner/cmux-tui-fat-warm}
           [[ "$LTO" != thin || "$DARWIN_ON_LINUX" == true ]] || disk=/home/runner/machine-channel-warm
           [[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"
           scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
             || echo "warning: warm target record failed" >&2
+
+      # Any successful native Mac build from this repository (a push, a dispatch, a same-repository
+      # pull request, a lane's macOS fallback included), once staged, becomes the one base tree every
+      # later native leg on that Mac clones before it builds; a fork's pull request never writes it.
+      # The fallback lands on any of several Macs, so each builds cold once, on its first native leg
+      # (bounded by scripts/ci/cmux-tui-mac-cargo-builds.sh), and warm after.
+      # scripts/ci/cmux-tui-mac-warm-target.sh.
+      - name: Keep the warm Mac target
+        if: success() && matrix.cross == false && runner.os == 'macOS' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh record ${{ matrix.build_target }} \
+            || echo "warning: mac warm target record failed" >&2
 
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
@@ -1054,6 +1224,55 @@ jobs:
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
 
+      # A feat-cmux-next build off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
+      # rust-cache keeps (scripts/ci/cargo_target_strip.py). Last in the job, after the staging and the
+      # uploads have read target/. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
+      - name: Strip the workspace's own output before the R2 save
+        id: r2-cargo-strip
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        env:
+          REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
+            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # Extracted sources come back from the .crate files in registry/cache.
+          rm -rf "$REGISTRY/src"
+          du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the cargo build to R2
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+
+      - name: Save the cargo registry to R2
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
@@ -1077,6 +1296,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1270,6 +1508,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1329,7 +1586,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1338,6 +1595,25 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1350,7 +1626,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download darwin arm64 binary

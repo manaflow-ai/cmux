@@ -60,6 +60,20 @@ fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
     assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
 }
 
+#[test]
+fn top_level_engine_verbs_are_engine_commands_and_free_cmux_words() {
+    // `cmux send` / `cmux inbox` run the engine's own grammar (no second implementation), so
+    // each word must be an engine command, and never a cmux scope a person already uses.
+    for verb in TOP_LEVEL_ENGINE_VERBS {
+        assert!(acpmux::cli::entry::is_command(verb), "{verb} is not an engine command");
+        let mut args = strings(&["--json", verb, "list"]);
+        hoist_leading_json(&mut args);
+        assert_eq!(args, strings(&[verb, "--json", "list"]), "{verb}");
+        let plan = command::parse(&strings(&[verb]), Surface::Cmux);
+        assert!(plan.is_err(), "{verb} is also a cmux scope");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
@@ -284,6 +298,7 @@ mod remote_cli_docs {
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
                 || agent_engine_requested(&parser_words)
+                || TOP_LEVEL_ENGINE_VERBS.contains(&parser_words[0].as_str())
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
@@ -1680,4 +1695,24 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
     assert_eq!(hoisted(&["--json", "host", "status"]), strings(&["host", "status", "--json"]));
     assert_eq!(hoisted(&["--json", "link", "status"]), strings(&["link", "--json", "status"]));
     assert_eq!(hoisted(&["--json", "tab", "list"]), strings(&["--json", "tab", "list"]));
+}
+
+/// `cmux machine reconnect --help` names that app verb's help topic, `machine list --help` the
+/// catalog verb's, and a verb the grammar runs keeps its own topic (the Cloud and remote command
+/// matrix).
+#[test]
+fn machine_verbs_get_their_own_help_topic() {
+    let topic = |words: &[&str]| match parse(&strings(words), Surface::Cmux) {
+        Ok(ParsedCommand::Help(topic)) => topic,
+        _ => panic!("{words:?} is not help"),
+    };
+    for verb in ["reconnect", "set-icon", "clear-icon"] {
+        let expected = format!("machine {verb}{APP_ACTION_TOPIC}");
+        assert_eq!(topic(&["machine", verb, "--help"]).as_deref(), Some(expected.as_str()));
+        assert!(app_action_help::verb_help("machine", verb).is_some());
+    }
+    assert_eq!(topic(&["machine", "list", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["machine", "ls", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["tab", "rename", "--help"]).as_deref(), Some("tab rename"));
+    assert!(scope_help("machine ls").contains("cmux machine list"));
 }

@@ -665,6 +665,17 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
+    /// The "+" button's menu (the host builds and shows it at `anchor`, the button). Nil: the "+"
+    /// opens ``onPickAttachments`` at once.
+    public var onPlusMenu: ((_ anchor: NSView) -> Void)? {
+        get { projection.onPlusMenu }
+        set { projection.onPlusMenu = newValue }
+    }
+    /// Text from the + menu (a clipboard row): the message box takes the keyboard and the text
+    /// goes in at its caret, replacing a selection, as typing it would (the end of the draft
+    /// when the box did not hold the keyboard).
+    /// - Parameter text: The text to insert.
+    public func insertIntoPrimaryInput(_ text: String) { controller.insertIntoCompose(text) }
     /// A paste in the field: true when the host's intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
@@ -708,8 +719,8 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
-    /// The content hashes of the field's attachments, in order, each time they change: a chip
-    /// added or removed, or the draft sent.
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
+    /// chip added or removed, or the draft sent.
     public var onDraftAttachmentsChange: ([String]) -> Void {
         get { projection.onDraftAttachmentsChange }
         set { projection.onDraftAttachmentsChange = newValue }
@@ -737,9 +748,13 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
+    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
+    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
     public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
+    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
@@ -873,7 +888,8 @@ public final class MessagesLabHomeView: NSView {
                 guard case let .custom(custom) = part, custom.kind == HomeTableRowProvider.kind,
                       let payload = HomeTableRowProvider.payload(custom) else { continue }
                 let width: CGFloat = 700
-                let loaded = HomeTableGrid(payload.table, available: width).pictureRects(at: .zero).filter { !$0.loading }
+                let grid = HomeTableGrid(payload.table, available: width)
+                let loaded = grid.pictureRects(at: grid.cardOrigin(.zero)).filter { !$0.loading }
                 guard let target = loaded[checked: min(max(0, index), loaded.count - 1)],
                       controller.openTablePicture(custom, at: CGPoint(x: target.rect.midX, y: target.rect.midY), width: width),
                       let viewer = controller.pictureViewer else { continue }

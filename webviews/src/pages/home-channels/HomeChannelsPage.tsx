@@ -56,6 +56,7 @@ import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import { PresentationToggle, usePresentation } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
+import { KeyHint } from "../../ui/KeyHint";
 
 const NOTICE_MS = 1600;
 
@@ -756,7 +757,7 @@ export function HomeChannelsPage({
                             strings={strings}
                             placeholder={format("composer.placeholder", place)}
                             label={format("composer.placeholder", name)}
-                            disabled={!online}
+                            held={!online}
                             people={mentionable}
                             onEditLast={() => {
                               const last = lastEditable(
@@ -899,7 +900,7 @@ function EmptyState({
         )}
         <button type="button" className="lg-button" onClick={onPalette}>
           <span>{t("rail.jump")}</span>
-          <kbd className="lg-kbd">⌘K</kbd>
+          <KeyHint keys="⌘K" />
         </button>
       </div>
     </div>

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceHibernation.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحرر ذاكرة مساحات العمل غير المستخدمة. تستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oslobađa memoriju nekorištenih radnih prostora. Terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Frigør hukommelsen fra ubrugte arbejdsområder. Terminaler og agenter kører videre."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gibt den Speicher ungenutzter Arbeitsbereiche frei. Terminals und Agenten laufen weiter."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frees the memory of unused workspaces. Terminals and agents keep running."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Libera la memoria de los espacios de trabajo sin usar. Los terminales y los agentes siguen en marcha."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Libère la mémoire des espaces de travail inutilisés. Les terminaux et les agents continuent de tourner."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Libera la memoria degli spazi di lavoro inutilizzati. Terminali e agenti continuano a funzionare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "使っていないワークスペースのメモリを解放します。ターミナルとエージェントは動き続けます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដោះលែងអង្គចងចាំនៃកន្លែងធ្វើការដែលមិនប្រើ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사용하지 않는 워크스페이스의 메모리를 해제합니다. 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Frigjør minnet til ubrukte arbeidsområder. Terminaler og agenter fortsetter å kjøre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zwalnia pamięć nieużywanych obszarów roboczych. Terminale i agenci działają dalej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Libera a memória dos espaços de trabalho sem uso. Terminais e agentes continuam rodando."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Освобождает память неиспользуемых рабочих пространств. Терминалы и агенты продолжают работать."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คืนหน่วยความจำของพื้นที่ทำงานที่ไม่ได้ใช้ เทอร์มินัลและเอเจนต์ยังทำงานต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kullanılmayan çalışma alanlarının belleğini boşaltır. Terminaller ve ajanlar çalışmaya devam eder."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Звільняє пам’ять невикористовуваних робочих просторів. Термінали й агенти працюють далі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giải phóng bộ nhớ của các không gian làm việc không dùng. Terminal và tác tử vẫn chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "释放未使用的工作区的内存。终端和代理会继续运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "釋放未使用的工作區的記憶體。終端機和代理會繼續執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

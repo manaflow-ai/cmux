@@ -24,6 +24,12 @@
 // to success in place), `undo-*` the one-line toasts closing a tab or archiving a session leave.
 // Each is drawn in today's look and pinned to each v2 arm (`-mark`, `-tinted`, `-accent-bar`), and
 // the bare variants take the arm from the compare view.
+//
+// Move to Cloud's working toast (`move-*`; native, CloudMove.swift, drawn here in the same deck):
+// its headline, then Rust's line (cmux-tui moves/progress.rs), word for word from its tests: a step
+// is named from the click on, and a step past its usual time keeps a clock of how long it has run
+// (Leo, 2026-11-23: "you guys need to be absolutely exhaustively testing out what would a new user
+// be seeing here?").
 import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -43,7 +49,10 @@ type Toasts =
   | "promise-error"
   | "promise-play"
   | "undo-close-tab"
-  | "undo-archive";
+  | "undo-archive"
+  | "move-start"
+  | "move-copy"
+  | "move-longer";
 type Props = {
   toasts: Toasts;
   layout?: StackLayout;
@@ -78,7 +87,17 @@ const FIXTURES: Record<Toasts, ToastSpec[]> = {
   "promise-play": [],
   "undo-close-tab": [{ message: "Closed “Build logs”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
   "undo-archive": [{ message: "Archived “Fix login race”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
+  "move-start": [moving("1 of 5 · Checking the folder · about 40 s left")],
+  "move-copy": [moving("3 of 5 · Copying the folder (1,204 files) · about 45 s left")],
+  "move-longer": [
+    moving("4 of 5 · Handing the agent to dev · taking longer than usual, 1 min so far (usually about 10 s)"),
+  ],
 };
+
+/** Move to Cloud's working toast with `line`, Rust's words for the step it is on. */
+function moving(line: string): ToastSpec {
+  return { id: "cloud-move", state: "working", title: "Moving this chat to Cloud…", message: line };
+}
 
 /** The play's signal that the promise variant's work is done. */
 const FINISH_EVENT = "toast-gallery-finish";
@@ -267,6 +286,18 @@ export default componentEntry<Props>({
     "top-right": {
       props: { toasts: "count", placement: "top-right", drag: "ghosts" },
       note: "A kind of toast dragged to the top right once shows there after.",
+    },
+    "move-start": {
+      props: { toasts: "move-start" },
+      note: "Move to Cloud, just clicked: the first step is named at once, with about how long is left.",
+    },
+    "move-copy": {
+      props: { toasts: "move-copy" },
+      note: "Move to Cloud, about 20 s in: copying the folder, its file count and a measured countdown.",
+    },
+    "move-longer": {
+      props: { toasts: "move-longer" },
+      note: "Move to Cloud past a step's usual time: it says so and keeps a clock of the time so far.",
     },
     ...v2Variants,
   },

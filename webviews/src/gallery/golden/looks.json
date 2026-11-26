@@ -121,6 +121,54 @@
       "setup": "examples/looks/tachyon"
     },
     {
+      "id": "plush-addon",
+      "title": "Plush (add-on)",
+      "note": "The Plush example add-on in its cool blue-gray tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-dark.json" }
+      }
+    },
+    {
+      "id": "plush-dusk-addon",
+      "title": "Plush Dusk (add-on)",
+      "note": "The Plush example add-on in its soft lavender tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush-dusk.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-dusk-dark.json" }
+      }
+    },
+    {
+      "id": "plush-clay-addon",
+      "title": "Plush Clay (add-on)",
+      "note": "The Plush example add-on in its warm sand tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush-clay.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-clay-dark.json" }
+      }
+    },
+    {
       "id": "kerf-addon",
       "title": "Kerf (add-on)",
       "note": "The Kerf example add-on, drawn from captured references (examples/looks/kerf/README.md).",

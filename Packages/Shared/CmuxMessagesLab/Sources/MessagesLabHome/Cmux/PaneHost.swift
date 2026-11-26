@@ -296,7 +296,7 @@ final class HostView: NSView {
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,
@@ -563,7 +563,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followKeyState()  // its own window's key state (cx-95476)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
+        // cmux: the "+" opens the host's + menu above the button (Files, the recent clipboard).
+        host.fieldChrome.onPlus = { [weak self] in
+            guard let self else { return }
+            self.intents?.plusClicked(anchor: self.host.fieldChrome.plus)
+        }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in
             self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
@@ -610,6 +614,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
         tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
+        tv.view.onOpenDraftPicture = { [weak self, weak field = tv.view] id, rect, image in
+            guard let self else { return false }
+            let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
+            return self.openDraftPicture(id, from: from)
+        }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
         tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }

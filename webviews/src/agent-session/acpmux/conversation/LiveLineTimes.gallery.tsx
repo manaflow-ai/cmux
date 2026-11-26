@@ -18,12 +18,6 @@ import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 type Props = { arm: "labelled" | "turn" | "hover"; thoughts?: boolean };
 
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 549,
 };
 

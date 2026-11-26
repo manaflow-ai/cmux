@@ -7,13 +7,17 @@ import "./desktop.css";
 import "../../ui/glass/glass.css";
 // RUNNING-WAVE: the one shimmer across running indicators (ui/wave.ts).
 import "../../ui/wave.css";
+// TOOLTIP REFRESH: the opt-in look of every tooltip and hover card (experiments.hoverLook), after the glass.
+import "../../ui/hoverLook.css";
 import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
+import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installHoverLook } from "../../ui/hoverLook";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
 import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
@@ -73,6 +77,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
+  // TOOLTIP REFRESH: data-hover-look follows experiments.hoverLook (off by default; ui/hoverLook.ts).
+  installHoverLook(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
@@ -93,6 +99,9 @@ export function installDesktopLayer(doc: Document = document): void {
   // Transparency, with no host still or with no glass on the page). The fallback keeps a still the
   // host sends before the lens chunk arrives; the WebGL engine stays out of each page's eager budget.
   installBackdropFallback(view);
+  // GLASS BLURS WHAT IT COVERS: a menu or popover the App does not draw glass under blurs the page
+  // under it in place, so no text reads crisp through it (ui/glass/pageGlassBlur.ts).
+  if (doc.body) installPageGlassBlur(doc);
   void import("../../ui/glass/lens").then(({ installGlassLens }) => installGlassLens(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.

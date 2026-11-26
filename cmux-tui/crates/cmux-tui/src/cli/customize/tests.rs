@@ -579,3 +579,37 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
     assert!(human.contains("\nNext:\n"));
 }
+
+#[test]
+fn checklist_takes_only_the_connections_it_knows() {
+    assert_eq!(parse(&words(&["checklist"])), Ok(Request::Checklist { connected: vec![] }));
+    assert_eq!(
+        parse(&words(&["checklist", "--has", "github", "--has", "mcp", "--has", "github"])),
+        Ok(Request::Checklist { connected: vec!["github".to_owned(), "mcp".to_owned()] })
+    );
+    assert!(parse(&words(&["checklist", "--has", "slack"])).is_err());
+    assert!(parse(&words(&["checklist", "--has"])).is_err());
+    assert!(parse(&words(&["checklist", "theme"])).is_err());
+}
+
+#[test]
+fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
+    use super::doctor::Request as Doctor;
+    use cmux_customize::library::doctor::FixKind;
+    assert_eq!(parse(&words(&["doctor"])), Ok(Request::Doctor(Doctor::Report { announce: false })));
+    assert_eq!(
+        parse(&words(&["doctor", "--announce"])),
+        Ok(Request::Doctor(Doctor::Report { announce: true }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "fix", "layer-on:pr-7", "off"])),
+        Ok(Request::Doctor(Doctor::Fix { id: "layer-on:pr-7".to_owned(), kind: FixKind::Off }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "dismiss", "unknown-key:mystery"])),
+        Ok(Request::Doctor(Doctor::Dismiss { id: "unknown-key:mystery".to_owned() }))
+    );
+    assert!(parse(&words(&["doctor", "fix", "layer-on:pr-7", "delete"])).is_err());
+    assert!(parse(&words(&["doctor", "fix", "--all", "off"])).is_err());
+    assert!(parse(&words(&["doctor", "dismiss"])).is_err());
+}
