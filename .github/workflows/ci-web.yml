@@ -2,6 +2,16 @@ name: CI web
 
 on:
   workflow_call:
+    # Base-side callers (post-merge batch, feat-cmux-next pushes) pass the R2 write secrets so base-comparison
+    # logs go to R2: the GitHub cache is over its 10 GB cap and evicts them before pull requests read them.
+    # Pull request callers pass none; they only read, which needs no credentials.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID:
+        required: false
+      CI_CACHE_R2_SECRET_ACCESS_KEY:
+        required: false
+      CI_CACHE_R2_ACCOUNT_ID:
+        required: false
     inputs:
       # ci.yml passes all three routes. The post-merge batch tier (cmux-next-post-merge.yml, suite `web`) passes only
       # sha and only, so these default to what cmux-next-web.yml passed on base pushes: every web check, no macOS.
@@ -129,8 +139,13 @@ jobs:
         id: base-history-cache
         if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          # R2, not the GitHub cache: that store is over its 10 GB cap and evicted this small entry before
+          # pull requests read it, so their base comparison missed and every base red was charged to them.
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
           restore-keys: webviews-test-history-${{ github.base_ref }}-
@@ -196,7 +211,11 @@ jobs:
           picked=""
           class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
           rm -f "$class_file"
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
+          # A full-ci (land-tier) head into feat-cmux-next picks too: its post-merge batch runs every shard and
+          # reverts a red. 30 days to 11-25: react-apps-check had 9 real catches in 148 runs; the batch keeps the
+          # whole matrix after merge, so the land tier's 8-shard run bought no catch the pick and the batch missed.
+          # CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for a full-ci head again.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && { [ "$FULL_CI" != true ] || { [ "$CI_WEBVIEWS_PR_BASE" = feat-cmux-next ] && [ "$CI_WEBVIEWS_FULL_TO_BATCH" != 0 ]; }; }; then
             picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
               --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --summary "$GITHUB_STEP_SUMMARY" \
               --class-out "$class_file")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$class_file"; }
@@ -2294,7 +2313,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
-          sparse-checkout: scripts/ci/webviews_test_shards.py
+          sparse-checkout: |
+            scripts/ci/webviews_test_shards.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -2353,6 +2374,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/webviews_test_history.py
             scripts/ci/web_subareas.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -2370,8 +2392,11 @@ jobs:
         id: history-cache
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-history-${{ github.ref_name }}-
@@ -2435,8 +2460,15 @@ jobs:
         if: ${{ steps.history-stage.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 2
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
