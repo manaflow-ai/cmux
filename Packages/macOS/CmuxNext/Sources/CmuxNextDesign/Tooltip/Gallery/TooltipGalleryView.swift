@@ -20,7 +20,7 @@ final class TooltipGalleryView: NSView {
     private func build() {
         let intro = ThemedLabel(wrappingLabelWithString:
             "Every tooltip in cmux, native and pages: the control's name in regular 12 pt text in the tooltip ink, the "
-            + "shortcut's keys on the dialogs' keycap 4 pt in from the top, bottom and end, one line and one height with "
+            + "shortcut's keys as plain glyphs in the secondary ink, no plate, 8 pt after it, one line and one height with "
             + "or without keys, an ellipsis past 320 pt, below its control and flipping above at the screen's edge, "
             + "shown and hidden in one frame. A control that shows its own text and a row with a hover card have none.")
         intro.font = Typography.body

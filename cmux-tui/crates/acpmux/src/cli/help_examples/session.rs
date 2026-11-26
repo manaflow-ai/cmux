@@ -412,4 +412,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
         ],
     ),
+    (
+        "session hold",
+        &[
+            ("Pause coord's next prompts", "acpmux session hold coord"),
+            (
+                "Hold every session here but coord for 4 hours",
+                "acpmux session hold --fleet --allow coord --for 4h --reason \"migration\"",
+            ),
+            ("Show the fleet hold", "acpmux session hold --fleet --status"),
+        ],
+    ),
+    (
+        "session release",
+        &[
+            ("Let coord run its next prompt", "acpmux session release coord"),
+            ("Release the fleet-wide hold", "acpmux session release --fleet"),
+        ],
+    ),
+    (
+        "session place",
+        &[
+            ("Run coord in the cloud", "acpmux session place coord --on cloud"),
+            ("Let acpmux pick", "acpmux session place coord --on auto --reason \"laptop asleep\""),
+        ],
+    ),
 ];

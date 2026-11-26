@@ -132,6 +132,45 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::HistoryDelete(args) => {
+            let client = connect(true).await?;
+            let export = args.export.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_HISTORY_DELETE,
+                    json!({"dryRun": args.dry_run, "olderThanDays": args.older_than_days, "export": export}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_history_report(
+                    &v,
+                    if args.dry_run { "would be deleted (preview)" } else { "deleted" },
+                    "deleted",
+                );
+            }
+            Ok(())
+        }
+        Command::HistoryOffload(args) => {
+            let client = connect(true).await?;
+            let v = client
+                .request(
+                    method::MUX_HISTORY_OFFLOAD,
+                    json!({"dryRun": args.dry_run, "olderThanDays": args.older_than_days}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_history_report(
+                    &v,
+                    if args.dry_run { "would be offloaded (dry run)" } else { "offloaded" },
+                    "offloaded",
+                );
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
@@ -2085,5 +2124,30 @@ mod tests {
         assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
         assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
         assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
+    }
+}
+
+/// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
+fn print_history_report(v: &Value, verb: &str, key: &str) {
+    let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
+    println!(
+        "{} chats unchanged for over {} days {verb}: {:.1} MB",
+        count.and_then(Value::as_u64).unwrap_or(0),
+        v["olderThanDays"],
+        v["bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0,
+    );
+    for chat in v["chats"].as_array().into_iter().flatten() {
+        let bytes = chat.get("bytes").or_else(|| chat.get("archiveBytes")).and_then(Value::as_u64);
+        println!(
+            "  {}  {}d  {:.1} MB  {}",
+            chat["sessionId"].as_str().unwrap_or("?"),
+            chat["idleDays"],
+            bytes.unwrap_or(0) as f64 / 1_048_576.0,
+            chat["name"].as_str().unwrap_or(""),
+        );
+    }
+    println!("skipped: {}", v["skipped"]);
+    if let Some(to) = v.get("export").and_then(Value::as_str) {
+        println!("exported to {to}");
     }
 }
