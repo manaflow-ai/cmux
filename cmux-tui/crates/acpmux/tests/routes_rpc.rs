@@ -11,9 +11,6 @@
 //! One test: the methods read acpmux's home from ACPMUX_HOME, a process-wide
 //! setting.
 
-#[path = "support/quiet_restart.rs"]
-mod quiet_restart;
-
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -151,7 +148,6 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
         std::env::set_var("ANTHROPIC_AUTH_TOKEN", "zzinherited");
     }
     let hub = hub(&root);
-    let clock = quiet_restart::clock(&hub);
     let mut local = client(&hub, Origin::Local);
 
     // Routes are files; a secret is a reference, never the value.
@@ -318,7 +314,6 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
     let (failed, _) = local.call_text("session/prompt", limit).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
-    quiet_restart::hibernate(&hub, &id, &clock).await;
     assert_eq!(
         local.env_of(&id, "ANTHROPIC_BASE_URL").await,
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"

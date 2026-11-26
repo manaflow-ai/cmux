@@ -1068,8 +1068,9 @@ impl Hub {
             }
             return steered;
         }
-        // An automatic continuation runs only while its chat still ends on the cut turn: no await
-        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
+        // An automatic continuation runs only while its chat still ends on the cut turn. Its
+        // required environment handoff has already completed before this prompt is admitted;
+        // ordinary prompts may await the quiet restart check below before `queue_slot`.
         let after_turn = opts.after_turn.clone();
         let fired = opts.fired;
         super::auto_resume::check_cut(
