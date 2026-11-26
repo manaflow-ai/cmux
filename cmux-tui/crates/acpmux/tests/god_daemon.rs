@@ -624,7 +624,7 @@ impl Daemon {
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(stderr.try_clone().unwrap()))
             .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
