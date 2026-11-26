@@ -2426,6 +2426,12 @@ pub(crate) fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
 pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+    let path = link_upload(folder, name, part)?;
+    let _ = std::fs::remove_file(part);
+    Ok(path)
+}
+
+fn link_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
@@ -2437,15 +2443,98 @@ pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<P
             folder.join(format!("{stem} {attempt}{extension}"))
         };
         match std::fs::hard_link(part, &candidate) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(part);
-                return Ok(candidate);
-            }
+            Ok(()) => return Ok(candidate),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(Refusal::new("io", format!("cannot save the upload: {e}"))),
         }
     }
     Err(Refusal::new("io", "too many files with that name"))
+}
+
+/// A completed upload remains replayable if its final reply was lost. The
+/// record is private, device-scoped, and binds to the published inode, not just
+/// a filename that the user might later replace.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct UploadCompletion {
+    name: String,
+    size: u64,
+    file: String,
+    device: u64,
+    inode: u64,
+}
+
+fn completed_upload(
+    receipt: &Path,
+    folder: &Path,
+    name: &str,
+    size: u64,
+) -> Result<Option<PathBuf>, Refusal> {
+    use std::io::Read;
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(receipt)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(Refusal::new("io", e.to_string())),
+    };
+    let meta = file.metadata().map_err(|e| Refusal::new("io", e.to_string()))?;
+    if !meta.is_file() || meta.nlink() != 1 || meta.len() > 4096 {
+        return Err(Refusal::new("io", "invalid upload completion"));
+    }
+    let done: UploadCompletion = serde_json::from_reader(file.take(4097))
+        .map_err(|_| Refusal::new("io", "invalid upload completion"))?;
+    if done.name != name || done.size != size {
+        return Err(Refusal::new("bad_request", "upload_id already completed a different file"));
+    }
+    if Path::new(&done.file).file_name().and_then(|name| name.to_str()) != Some(done.file.as_str()) {
+        return Err(Refusal::new("io", "invalid completed upload path"));
+    }
+    let path = folder.join(&done.file);
+    let meta = std::fs::symlink_metadata(&path)
+        .map_err(|_| Refusal::new("not_found", "the completed upload is no longer present"))?;
+    if !meta.is_file() || meta.len() != size || (meta.dev(), meta.ino()) != (done.device, done.inode) {
+        return Err(Refusal::new("io", "the completed upload changed"));
+    }
+    Ok(Some(path))
+}
+
+fn publish_resumable_upload(
+    folder: &Path,
+    name: &str,
+    part: &Path,
+    receipt: &Path,
+    size: u64,
+) -> Result<PathBuf, Refusal> {
+    use std::io::Write;
+    let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+    let path = link_upload(folder, name, part)?;
+    let meta = std::fs::symlink_metadata(&path).map_err(io_error)?;
+    let done = UploadCompletion {
+        name: name.into(),
+        size,
+        file: path.file_name().unwrap().to_string_lossy().into_owned(),
+        device: meta.dev(),
+        inode: meta.ino(),
+    };
+    // Retain the part until the completion is durable. If recording it fails,
+    // its second link makes subsequent attempts refuse instead of publishing
+    // another copy. A normal lost reply replays the receipt below.
+    let mut record = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(receipt)
+        .map_err(io_error)?;
+    record
+        .write_all(&serde_json::to_vec(&done).map_err(|e| Refusal::new("io", e.to_string()))?)
+        .map_err(io_error)?;
+    record.sync_all().map_err(io_error)?;
+    std::fs::File::open(folder).and_then(|dir| dir.sync_all()).map_err(io_error)?;
+    std::fs::File::open(receipt.parent().unwrap()).and_then(|dir| dir.sync_all()).map_err(io_error)?;
+    let _ = std::fs::remove_file(part);
+    Ok(path)
 }
 
 /// `upload` `{name, size, cwd?}`: the phone sends exactly `size` bytes as
@@ -2546,6 +2635,12 @@ async fn receive_upload(
         let _release;
         let raw = open_upload_part(&part).await?;
         _release = UploadLockRelease;
+        let receipt = parts.join(format!(".{id}.done"));
+        if let Some(path) = completed_upload(&receipt, &folder, &name, size)? {
+            let _ = std::fs::remove_file(&part);
+            let _ = sender.send(Bytes::from(format!("{{\"have\":{size}}}\n"))).await;
+            return Ok((path, size));
+        }
         let meta = raw.metadata().map_err(io_error)?;
         if !meta.is_file() || meta.nlink() != 1 {
             return Err(Refusal::new("io", "the upload part must be a regular file with one link"));
@@ -2613,7 +2708,7 @@ async fn receive_upload(
         file.flush().await.map_err(io_error)?;
         file.sync_data().await.map_err(io_error)?;
         send_upload_ack(sender, received).await;
-        return Ok((publish_upload(&folder, &name, &part)?, size));
+        return Ok((publish_resumable_upload(&folder, &name, &part, &receipt, size)?, size));
     }
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
@@ -2707,7 +2802,8 @@ fn cleanup_stale_upload_parts(folder: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let bytes = name.as_encoded_bytes();
-        if !bytes.strip_prefix(b".").is_some_and(|rest| rest.ends_with(b".part")) {
+        if !bytes.strip_prefix(b".").is_some_and(|rest| rest.ends_with(b".part") || rest.ends_with(b".done"))
+        {
             continue;
         }
         let path = entry.path();

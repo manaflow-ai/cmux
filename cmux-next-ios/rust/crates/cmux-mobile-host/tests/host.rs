@@ -1117,7 +1117,52 @@ async fn resumable_upload_reports_have_acks_and_path() {
     assert_eq!(lines[0], serde_json::json!({"ack": MIB + 3}));
     let path = std::path::PathBuf::from(lines[1]["path"].as_str().unwrap());
     assert_eq!(lines[1]["size"], MIB + 3);
-    assert_eq!(std::fs::metadata(path).unwrap().len(), (MIB + 3) as u64);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), (MIB + 3) as u64);
+    // Model losing the final reply: the phone knows only its last ack (or
+    // none), and reopens the same upload. No payload or duplicate is needed.
+    for offset in [0, MIB, MIB + 3] {
+        let mut retry = connected
+            .link
+            .open(
+                "upload",
+                serde_json::json!({
+                    "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id, "offset": offset
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(next_line(&mut retry, &mut Vec::new()).await, serde_json::json!({"have": MIB + 3}));
+        let (reply, code) = drain(&mut retry).await;
+        assert_eq!(code, "eof");
+        let done: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(done["path"], path.to_string_lossy().as_ref());
+    }
+    assert!(!path.with_file_name("whole 2.bin").exists());
+    let mut changed = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "different.bin", "size": MIB + 3, "upload_id": upload_id
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut changed).await.1, "bad_request");
+    // A later replacement at the same path is not this upload's completion.
+    std::fs::rename(&path, path.with_extension("saved")).unwrap();
+    std::fs::write(&path, vec![0; MIB + 3]).unwrap();
+    let mut replaced = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut replaced).await.1, "io");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

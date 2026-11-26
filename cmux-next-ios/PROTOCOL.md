@@ -1162,12 +1162,12 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `offset` is a byte offset represented as a number or decimal string, default
   zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
   in place of the link session so the same phone can resume after redial.
-  The host keeps the partial file at `.parts/.<upload_id>.part`, a `.parts`
-  folder beside the upload folders (`<cwd>/.cmux/attachments/.parts`, or
-  `<uploads>/.parts`), keyed by the random `upload_id` alone, so a new link
-  with a new device or session finds it. The finished file is published into
-  the upload folder,
-  truncates it to `offset`, and first answers `{"have":offset}\n`. If the
+  The host keeps the partial file at
+  `<upload-folder>/.parts-<SHA-256 of lowercase phone device ID>/.<upload_id>.part`.
+  The staging directory is private (0700), cannot be a symlink, and remains
+  inside the authorized upload folder even if that folder resolves to an alias.
+  Only the same authenticated phone can resume it across link sessions.
+  The host truncates the part to `offset`, and first answers `{"have":offset}\n`. If the
   requested offset is past the partial file, it answers
   `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
   within the part but beyond the declared size closes `bad_request`.
@@ -1181,7 +1181,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   and closes `stalled`. Receiving more than `size` bytes deletes the partial
   file and closes `bad_request`. Resumable replies are one JSON object per
   newline-terminated line. The host removes resumable parts older than 24 hours
-  when it next opens the `.parts` folder. Uploads without `upload_id` retain the
+  when it next opens the device's staging folder. Completed uploads retain a
+  private `.done` receipt for the same retention period. A retry of the same ID,
+  name and size receives `{"have":size}` and the original path without publishing
+  another file. A changed or removed published file is refused; the receipt never
+  authorizes a replacement file at that path. Uploads without `upload_id` retain the
   legacy reply framing and interruption behavior.
 - `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
   upload or a file open as sealed, content-defined chunks (cmux-tui
