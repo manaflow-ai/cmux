@@ -5938,6 +5938,24 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-download.sh
 
+      # Clean-sheet CI RFD hq#26225: a write-once manifest per app-input digest beside the build. Nothing reads it yet;
+      # it cannot fail or change the publish (the script exits 0 on any error, each call is time-bounded).
+      - name: Write the build manifest for this app-input digest
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.next_downloads.outcome == 'success' && !env.LEFT_SLOT
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          APP_INPUT_DIGEST: ${{ needs.decide.outputs.app_input_digest }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          DMG: nightly-out/${{ env.CHANNEL_DMG_PREFIX }}-arm64-${{ env.NIGHTLY_BUILD }}.dmg
+          RUN_ID: ${{ github.run_id }}
+        run: python3 .publish-tooling/scripts/ci/app_build_manifest.py || true
+
       # Why: docs/ci/nightly-workflow-notes.md#note-3
       - name: Download the Chromium runtime pack
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
