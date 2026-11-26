@@ -437,12 +437,14 @@ async function main(): Promise<number> {
       const deadline = Date.now() + TURN_BUDGET_MS;
       for (;;) {
         const r = await exec(`${GUEST}d="$HOME/Projects/auto/${id}"; [ -d "$d" ] || { echo "@@missing"; exit 0; }; git -C "$d" rev-parse HEAD; cat "$d/local.txt" "$d/uncommitted.txt" "$d/${RAN_FILE}" 2>&1; echo "@@done"`, 60_000);
-        if (/@@done/.test(r.stdout)) {
-          const o = r.stdout;
-          for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}`);
+        // The import may still be laying the folder out when the holder flips: a check waits for the whole folder
+        // (the daemon renames it into place once whole) and fails only at the deadline, naming what it saw last.
+        const o = r.stdout;
+        const lacks = /@@done/.test(o) ? [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"].find((want) => !o.includes(want)) : "the folder";
+        if (lacks === undefined) {
           return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
         }
-        if (Date.now() > deadline) throw new Error(`no folder for the chat on the machine: ${(r.stdout + r.stderr).slice(-300)}`);
+        if (Date.now() > deadline) throw new Error(`the machine's folder lacks ${JSON.stringify(lacks)} after ${TURN_BUDGET_MS / 1000} s: ${(o + r.stderr).slice(-400)}`);
         await sleep(5000);
       }
     });
