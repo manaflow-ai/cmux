@@ -209,6 +209,9 @@ key = "cmux.acpmux.lastPick"
 key = "cmux.acpmux.modelCatalog"
 
 [[storage_key]]
+key = "cmux.acpmux.modelPickerOrder"
+
+[[storage_key]]
 key = "cmux.acpmux.modelChipIcon"
 
 [[storage_key]]
