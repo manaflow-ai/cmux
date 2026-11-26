@@ -111,6 +111,7 @@ MARKS = [
     ("services.windows", "services: window manager"),
     ("services.palette_updater", "services: palette, update sheet"),
     ("dfl.services", "dfl: services"),
+    ("dfl.app_actions", "dfl: AppActions.bind"),
     ("dfl.bind", "dfl: actions bound"),
     ("dfl.settings", "dfl: settings and control"),
     ("dfl.menu", "dfl: main menu"),
