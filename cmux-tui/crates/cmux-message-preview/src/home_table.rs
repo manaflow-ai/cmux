@@ -97,7 +97,7 @@ pub fn segments(text: &str) -> Vec<Segment> {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut out = Vec::new();
     let mut pending: Vec<&str> = Vec::new();
-    let mut fence: Option<String> = None;
+    let mut fence = None;
     let flush = |pending: &mut Vec<&str>, out: &mut Vec<Segment>| {
         if !pending.is_empty() {
             out.push(Segment::Text(pending.join("\n")));
@@ -107,16 +107,17 @@ pub fn segments(text: &str) -> Vec<Segment> {
     let mut i = 0;
     while let Some(&line) = lines.get(i) {
         let trimmed = trim_ws(line);
-        if let Some(open) = &fence {
+        if let Some(open) = fence {
             pending.push(line);
-            if trimmed.starts_with(open.as_str()) {
+            if trimmed.starts_with(open) {
                 fence = None;
             }
             i += 1;
             continue;
         }
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            fence = Some(trimmed[..3].to_owned());
+        if let Some(marker) = ["```", "~~~"].into_iter().find(|marker| trimmed.starts_with(*marker))
+        {
+            fence = Some(marker);
             pending.push(line);
             i += 1;
             continue;
@@ -135,9 +136,13 @@ pub fn segments(text: &str) -> Vec<Segment> {
                 rows.push(fit(cells, header.len()));
                 j += 1;
             }
-            if !rows.is_empty() && rows.len() <= MAX_ROWS && header.len() <= MAX_COLUMNS {
+            if !rows.is_empty()
+                && rows.len() <= MAX_ROWS
+                && header.len() <= MAX_COLUMNS
+                && let Some(raw_lines) = lines.get(i..j)
+            {
                 flush(&mut pending, &mut out);
-                let raw = lines[i..j].join("\n");
+                let raw = raw_lines.join("\n");
                 out.push(Segment::Table { table: Table { header, alignments, rows }, raw });
                 i = j;
                 continue;
@@ -153,21 +158,24 @@ pub fn segments(text: &str) -> Vec<Segment> {
 /// A row's cells: the line must hold a pipe outside code spans and escapes; the outer pipes are
 /// optional. `None` for a line that is not a table row.
 pub fn cells(line: &str) -> Option<Vec<String>> {
-    let mut s = graphemes(trim_ws(line));
+    let graphemes = graphemes(trim_ws(line));
+    let mut s = graphemes.as_slice();
     if !s.contains(&"|") {
         return None;
     }
-    if s.first() == Some(&"|") {
-        s.remove(0);
+    if let ["|", rest @ ..] = s {
+        s = rest;
     }
-    if s.last() == Some(&"|") && !(s.len() >= 2 && s[s.len() - 2] == "\\") {
-        s.pop();
+    if let [rest @ .., "|"] = s
+        && rest.last() != Some(&"\\")
+    {
+        s = rest;
     }
     let mut cells = Vec::new();
     let mut cell = String::new();
     let mut code = false;
     let mut escaped = false;
-    for ch in s {
+    for &ch in s {
         if escaped {
             if ch != "|" {
                 cell.push('\\');
@@ -283,9 +291,11 @@ pub fn cell(markdown: &str) -> Cell {
             && let Some(close) = find(&chars, i + 2, "]")
             && chars.get(close + 1) == Some(&"(")
             && let Some(end) = find(&chars, close + 2, ")")
+            && let Some(alt) = chars.get(i + 2..close)
+            && let Some(source) = chars.get(close + 2..end)
         {
-            let alt = chars[i + 2..close].concat();
-            let source = chars[close + 2..end].concat().trim_matches([' ', '<', '>']).to_owned();
+            let alt = alt.concat();
+            let source = source.concat().trim_matches([' ', '<', '>']).to_owned();
             images.push(Image { alt, source });
             i = end + 1;
             continue;
@@ -295,9 +305,11 @@ pub fn cell(markdown: &str) -> Cell {
             && let Some(close) = find(&chars, i + 1, "]")
             && chars.get(close + 1) == Some(&"(")
             && let Some(end) = find(&chars, close + 2, ")")
-            && let Some(url) = url_with_scheme(&chars[close + 2..end].concat())
+            && let Some(title) = chars.get(i + 1..close)
+            && let Some(target) = chars.get(close + 2..end)
+            && let Some(url) = url_with_scheme(&target.concat())
         {
-            push(&mut text, &mut len16, &chars[i + 1..close].concat());
+            push(&mut text, &mut len16, &title.concat());
             links.push(url);
             i = end + 1;
             continue;
@@ -340,8 +352,7 @@ fn split_graphemes(s: &str, sep: impl Fn(&str) -> bool) -> Vec<String> {
 /// `target` as Foundation's `URL(string:)` (macOS 14 and later, which percent-encodes characters a
 /// URL cannot hold) writes it back, when it parses and has a scheme; `None` otherwise.
 fn url_with_scheme(target: &str) -> Option<String> {
-    let colon = target.find(':')?;
-    let scheme = &target[..colon];
+    let (scheme, _) = target.split_once(':')?;
     let mut bytes = scheme.bytes();
     if !bytes.next()?.is_ascii_alphabetic()
         || !bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
@@ -459,9 +470,8 @@ pub fn plan_card(table: &Table) -> Option<Vec<PlanRow>> {
         table.rows.iter().map(|r| split_graphemes(&cell(&at(r, c)).text, |g| g == " ").len()).sum()
     };
     let counts: Vec<(usize, usize)> = others.iter().map(|&c| (c, words(c))).collect();
-    let mut title_column = counts.first()?.0;
-    let mut most = counts[0].1;
-    for &(c, n) in &counts[1..] {
+    let (&(mut title_column, mut most), rest) = counts.split_first()?;
+    for &(c, n) in rest {
         if n > most {
             title_column = c;
             most = n;
@@ -504,18 +514,15 @@ pub fn plan_card(table: &Table) -> Option<Vec<PlanRow>> {
 /// `a12` when `text` starts with a subagent id (`a12`, `A7, added …`), lowercased.
 pub fn owner_id(text: &str) -> Option<String> {
     let g = graphemes(trim_ws(text));
-    if !matches!(g.first(), Some(&"a") | Some(&"A")) {
+    let ["a" | "A", suffix @ ..] = g.as_slice() else {
         return None;
-    }
-    let digits: Vec<&str> = g[1..]
-        .iter()
-        .take_while(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_digit())
-        .copied()
-        .collect();
+    };
+    let digits: Vec<&str> =
+        suffix.iter().take_while(|d| matches!(d.as_bytes(), [b'0'..=b'9'])).copied().collect();
     if digits.is_empty() || digits.len() > 4 {
         return None;
     }
-    if let Some(after) = g.get(1 + digits.len()).and_then(|a| a.chars().next())
+    if let Some(after) = suffix.get(digits.len()).and_then(|a| a.chars().next())
         && (after.is_alphabetic() || after.is_numeric())
     {
         return None;
@@ -530,9 +537,8 @@ pub fn note(cell: &str, owner: &str) -> Option<String> {
     let rest: String = trim_ws(cell).graphemes(true).skip(owner_len).collect();
     let mut note = rest.trim_matches(|c: char| ",;:-–—".contains(c) || is_ws(c)).to_owned();
     let g = graphemes(&note);
-    if g.first() == Some(&"(") && g.last() == Some(&")") {
-        let inner = if g.len() >= 2 { g[1..g.len() - 1].concat() } else { String::new() };
-        note = trim_ws(&inner).to_owned();
+    if let ["(", inner @ .., ")"] = g.as_slice() {
+        note = trim_ws(&inner.concat()).to_owned();
     }
     (!note.is_empty()).then_some(note)
 }
@@ -565,15 +571,15 @@ fn percent_decoded(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%'
+    while let Some(&current) = b.get(i) {
+        if current == b'%'
             && let Some(byte) = s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok())
         {
             out.push(byte);
             i += 3;
             continue;
         }
-        out.push(b[i]);
+        out.push(current);
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -584,27 +590,27 @@ fn percent_decoded(s: &str) -> String {
 pub fn pull_request_key(link: &str) -> Option<String> {
     let rest = link.strip_prefix("https://")?;
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
+    let (authority, after) = rest.split_at_checked(end)?;
     let host = authority.rsplit('@').next().unwrap_or(authority);
-    let host = match host.rfind(':') {
-        Some(p) if host[p + 1..].bytes().all(|b| b.is_ascii_digit()) => &host[..p],
+    let host = match host.rsplit_once(':') {
+        Some((hostname, port)) if port.bytes().all(|b| b.is_ascii_digit()) => hostname,
         _ => host,
     };
     if !host.eq_ignore_ascii_case("github.com") {
         return None;
     }
-    let after = &rest[end..];
-    let path = &after[..after.find(['?', '#']).unwrap_or(after.len())];
-    let parts: Vec<String> =
-        path.split('/').filter(|p| !p.is_empty()).map(percent_decoded).collect();
-    if parts.len() < 4 || parts[2] != "pull" {
+    let path = after.split(['?', '#']).next()?;
+    let mut parts = path.split('/').filter(|p| !p.is_empty()).map(percent_decoded);
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if parts.next()?.as_str() != "pull" {
         return None;
     }
-    let number: i64 = parts[3].parse().ok()?;
+    let number: i64 = parts.next()?.parse().ok()?;
     if number <= 0 {
         return None;
     }
-    Some(format!("{}/{}#{number}", parts[0].to_lowercase(), parts[1].to_lowercase()))
+    Some(format!("{}/{}#{number}", owner.to_lowercase(), repo.to_lowercase()))
 }
 
 /// The canonical `https://github.com/owner/repo/pull/N` of a GitHub pull request link (Swift
@@ -612,7 +618,7 @@ pub fn pull_request_key(link: &str) -> Option<String> {
 pub fn pull_request_url(link: &str) -> Option<String> {
     let key = pull_request_key(link)?;
     let parts: Vec<&str> = key.split('#').filter(|p| !p.is_empty()).collect();
-    let [repo, number] = parts[..] else { return None };
+    let [repo, number] = parts.as_slice() else { return None };
     let number: i64 = number.parse().ok()?;
     Some(format!("https://github.com/{repo}/pull/{number}"))
 }
@@ -632,27 +638,33 @@ pub fn column_widths(natural: &[f64], available: f64) -> Vec<f64> {
     let mut fixed = vec![false; natural.len()];
     let mut room = available;
     loop {
-        let open: Vec<usize> = (0..natural.len()).filter(|&i| !fixed[i]).collect();
-        if open.is_empty() {
+        let open = fixed.iter().filter(|&&is_fixed| !is_fixed).count();
+        if open == 0 {
             break;
         }
-        let share = room / open.len() as f64;
-        let small: Vec<usize> = open.into_iter().filter(|&i| natural[i] <= share).collect();
-        if small.is_empty() {
-            break;
+        let share = room / open as f64;
+        let mut fixed_any = false;
+        for (&width, is_fixed) in natural.iter().zip(&mut fixed) {
+            if !*is_fixed && width <= share {
+                *is_fixed = true;
+                room -= width;
+                fixed_any = true;
+            }
         }
-        for i in small {
-            fixed[i] = true;
-            room -= natural[i];
+        if !fixed_any {
+            break;
         }
     }
-    let open_natural: f64 = (0..natural.len()).filter(|&i| !fixed[i]).map(|i| natural[i]).sum();
-    (0..natural.len())
-        .map(|i| {
-            if fixed[i] {
-                natural[i]
+    let open_natural: f64 =
+        natural.iter().zip(&fixed).filter(|&(_, &fixed)| !fixed).map(|(&width, _)| width).sum();
+    natural
+        .iter()
+        .zip(fixed)
+        .map(|(&width, fixed)| {
+            if fixed {
+                width
             } else {
-                MIN_COLUMN.max((room * natural[i] / open_natural.max(1.0)).floor())
+                MIN_COLUMN.max((room * width / open_natural.max(1.0)).floor())
             }
         })
         .collect()

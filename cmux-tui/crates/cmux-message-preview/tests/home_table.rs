@@ -221,6 +221,12 @@ fn pull_request_links_read_as_chief_plan_does() {
         pull_request_url("https://github.com/o/r/pull/+12?x#y").as_deref(),
         Some("https://github.com/o/r/pull/12")
     );
+    assert_eq!(
+        pull_request_key("https://github.com:443/%C3%89quipe/dépôt/pull/%37/files").as_deref(),
+        Some("équipe/dépôt#7")
+    );
+    assert_eq!(pull_request_key("https://github.com/o/r/pull"), None);
+    assert_eq!(pull_request_key("https://github.com/o/r/pull/%é"), None);
     assert_eq!(pull_request_key("http://github.com/o/r/pull/1"), None);
     assert_eq!(pull_request_key("https://github.com/o/r/issues/1"), None);
     assert_eq!(pull_request_key("https://github.com/o/r/pull/0"), None);
@@ -248,4 +254,5 @@ fn wide_columns_share_the_room_narrow_ones_keep_theirs() {
     assert!(widths[1] > widths[2]);
     assert!(widths[2] >= MIN_COLUMN);
     assert_eq!(widths, [70.0, 405.0, 225.0]);
+    assert_eq!(column_widths(&[60.0, 120.0, 1000.0, 400.0], 450.0), [60.0, 120.0, 192.0, 77.0]);
 }
