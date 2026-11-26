@@ -233,12 +233,11 @@ class CancelledTip(unittest.TestCase):
         steps = job["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
-        sparse = tooling["with"]["sparse-checkout"].split()
-        self.assertIn("scripts/ci/nightly_next_cancelled_tip.sh", sparse)
-        # nightly_repick.py and every scripts/ci module it imports.
-        for name in ("nightly_repick.py", "nightly_compile_red.py", "owned_pool_rescue.py", "owned_pool_sources.py", "pr_runner_pool.py",
-                     "simple_pool_picker.py", "ui_tests_dispatch.py"):
-            self.assertIn(f"scripts/ci/{name}", sparse)
+        # The whole tree at depth 1: a sparse checkout is a blob:none promisor clone whose lazy
+        # blob fetch stalled a tick's checkout on 2026-11-26 ("could not fetch ... from promisor remote").
+        self.assertNotIn("sparse-checkout", tooling["with"])
+        self.assertNotIn("filter", tooling["with"])
+        self.assertEqual(tooling["with"]["fetch-depth"], 1)
         names = [step.get("name") for step in steps]
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
