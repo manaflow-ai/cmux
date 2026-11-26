@@ -2145,7 +2145,7 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
@@ -2398,6 +2398,46 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.machine.request": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly vcpu: number
+      readonly mem_gib?: number
+      readonly fanout?: number
+      readonly kind?: "linux" | "mac" | "gpu"
+      readonly for: string
+      readonly until?: string
+    }
+    readonly result: {
+      readonly outcome: "fits" | "grow" | "over_plan" | "fanout" | "unavailable" | "refused"
+      readonly message: string
+      readonly machine: string
+      readonly size?: {
+        readonly name?: string
+        readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+        readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly code?: string
+      readonly fanout?: {
+        readonly handle: string
+        readonly width: number | "Infinity" | "-Infinity" | "NaN"
+        readonly each: {
+          readonly name?: string
+          readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+          readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+        }
+        readonly slots: ReadonlyArray<{
+          readonly index: number | "Infinity" | "-Infinity" | "NaN"
+          readonly status: "created" | "refused" | "unconfirmed"
+          readonly machine?: string
+          readonly code?: string
+          readonly message?: string
+        }>
+      }
+      readonly upgrade_plan?: string
     }
   }
   /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -4608,6 +4648,7 @@ export const cloudOpMeta = {
   "cloud.usage.current": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.machine.request": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.receiver.lifecycle": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },

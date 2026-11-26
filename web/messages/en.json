@@ -4320,6 +4320,7 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
@@ -7783,5 +7784,15 @@
         }
       }
     }
+  },
+  "connected": {
+    "title": "You're signed in to {app}",
+    "titleGeneric": "You're signed in",
+    "errorTitle": "Couldn't sign in to {app}",
+    "errorTitleGeneric": "Sign-in didn't finish",
+    "body": "Head back to cmux to keep going.",
+    "errorBody": "Go back to cmux and try again.",
+    "button": "Back to cmux",
+    "closeHint": "You can close this tab."
   }
 }
