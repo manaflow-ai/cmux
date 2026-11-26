@@ -4,7 +4,8 @@
 //! the group hover card's summary (`group_hover_summary`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), a workspace row's own layout
-//! (`sidebar_row_layout`), the app sidebar
+//! (`sidebar_row_layout`), the workspace hover card's choice and order
+//! (`sidebar_hover_card_rules`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -288,6 +289,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_hover_card_rules" => {
+                use cmux_layout_reducer::sidebar_hover_card_rules;
+                let request: sidebar_hover_card_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_hover_card_rules::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
