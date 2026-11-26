@@ -30,10 +30,6 @@ import Testing
                 Text("Which transport should be the default on cellular?").font(.headline)
                 ForEach(["WebRTC", "WireGuard", "Other…"], id: \.self) { Text($0).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading) }
             }
-        case "plan":
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(["Add TransportKind", "Route LinkDialer", "Run the tests"], id: \.self) { Label($0, systemImage: "circle") }
-            }
         case "image":
             Color.gray.frame(width: 200, height: 150).frame(maxWidth: .infinity, alignment: .trailing)
         default:
@@ -46,7 +42,7 @@ import Testing
         }
     }
 
-    private static let kinds = ["markdown", "tool", "question", "plan", "image", "actions", "markdown"]
+    private static let kinds = ["markdown", "tool", "question", "image", "actions", "markdown"]
 
     private func transcript(clamped: Bool, frames: Frames) -> some View {
         VStack(alignment: .leading, spacing: 16) {
