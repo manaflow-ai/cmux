@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextHistory
 import WebKit
 import CmuxNextWakeups
 
@@ -47,11 +48,10 @@ enum WindowHintTargets {
     static func collect(in content: NSView) -> Found {
         guard let window = content.window else { return Found() }
         let bounds = content.convert(content.bounds, to: nil)
-        var found: [Target] = []
-        var seen = Set<[Int]>()
+        var candidates: [(element: NSAccessibilityProtocol, role: NSAccessibility.Role, frame: CGRect)] = []
         var stack: [Any] = [content]
         var visited = 0
-        while let next = stack.popLast(), visited < 5000, found.count < limit {
+        while let next = stack.popLast(), visited < 5000 {
             visited += 1
             if let view = next as? NSView {
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
@@ -63,15 +63,14 @@ enum WindowHintTargets {
             // Only controls report enabled; custom rows and tabs leave it unset.
             if element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
-                // Outside the content the clip is a null rect (infinite origin): left out before the Int key.
-                let rect = window.convertFromScreen(element.accessibilityFrame()).intersection(bounds)
-                if !rect.isNull, rect.width >= 4, rect.height >= 4,
-                   seen.insert([rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }).inserted {
-                    found.append(Target(rect: rect, role: role.rawValue, title: describe(element)))
-                }
+                candidates.append((element, role, window.convertFromScreen(element.accessibilityFrame())))
             }
             // Children in reverse so the walk pops them in reading order.
             stack.append(contentsOf: (element.accessibilityChildren() ?? []).reversed())
+        }
+        let found = AppHistoryRules.hintRects(candidates.map(\.frame), bounds: bounds, limit: limit).compactMap { index, rect in
+            candidates.indices.contains(index)
+                ? Target(rect: rect, role: candidates[index].role.rawValue, title: describe(candidates[index].element)) : nil
         }
         return Found(targets: found, pages: webViews(in: content), bounds: bounds)
     }
@@ -110,24 +109,12 @@ enum WindowHintTargets {
     /// One page's script result (CSS pixels from its viewport's top left)
     /// in window coordinates.
     private static func targets(_ json: String, in page: WKWebView, clip: CGRect) -> [Target] {
-        struct Element: Decodable {
-            var x: Double, y: Double, left: Double, top: Double
-            var text: String?
-        }
-        guard let elements = try? JSONDecoder().decode([Element].self, from: Data(json.utf8)) else { return [] }
-        let zoom = page.pageZoom * page.magnification
-        func point(_ x: Double, _ y: Double) -> NSPoint {
-            let local = NSPoint(x: x * zoom, y: page.isFlipped ? y * zoom : page.bounds.height - y * zoom)
-            return page.convert(local, to: nil)
-        }
-        return elements.compactMap { element in
-            // The script gives the top-left corner and the center; the far corner mirrors the first.
-            let near = point(element.left, element.top), far = point(2 * element.x - element.left, 2 * element.y - element.top)
-            let rect = CGRect(x: min(near.x, far.x), y: min(near.y, far.y), width: abs(far.x - near.x),
-                              height: abs(far.y - near.y)).intersection(clip)
-            guard rect.width >= 4, rect.height >= 4 else { return nil }
-            return Target(rect: rect, role: "web", title: element.text ?? "",
-                          page: PageElement(webView: page, x: element.x, y: element.y))
+        let links = AppHistoryRules.hintPage(json, zoom: page.pageZoom * page.magnification, flipped: page.isFlipped,
+                                             height: page.bounds.height)
+        return links.compactMap { link in
+            guard let rect = AppHistoryRules.hintPageRect(near: page.convert(link.nearPoint, to: nil),
+                                                          far: page.convert(link.farPoint, to: nil), clip: clip) else { return nil }
+            return Target(rect: rect, role: "web", title: link.text, page: PageElement(webView: page, x: link.x, y: link.y))
         }
     }
 

@@ -4,6 +4,7 @@ import CmuxNextOnboarding
 import Foundation
 import Observation
 import CmuxNextFilesUI
+import CmuxNextHistory
 
 /// The right sidebar's file explorer (classic's Files mode): a folder tree
 /// rooted at the focused terminal's folder, folders first, hidden items left
@@ -31,8 +32,8 @@ final class FileExplorerModel {
     @ObservationIgnored private let lister: any DirectoryListing
     @ObservationIgnored private let git: any MarkdownGitRunning
     @ObservationIgnored private var children: [URL: [FileEntry]] = [:]
-    /// Git states by the item's absolute path (symlinks resolved, as git prints them).
-    @ObservationIgnored private var gitStates: [String: FileGitState] = [:]
+    /// Git states (``FileGitState`` raw values) by the item's absolute path (symlinks resolved, as git prints them).
+    @ObservationIgnored private var gitStates: [String: String] = [:]
     /// Folders (absolute, resolved) with a changed item inside.
     @ObservationIgnored private var changedFolders: Set<String> = []
     /// The root with symlinks resolved, the prefix git's paths share.
@@ -98,8 +99,7 @@ final class FileExplorerModel {
             selection = nil
         }
         if asked { self.asked.insert(folder) }
-        let mayRead = !isProtected(folder) || self.asked.contains { folder == $0 || folder.path.hasPrefix($0.path + "/") }
-        guard mayRead else {
+        guard AppHistoryRules.fileMayRead(protected: isProtected(folder), folder: folder.path, asked: self.asked.map(\.path)) else {
             held = true
             generation += 1
             failure = nil
@@ -145,30 +145,14 @@ final class FileExplorerModel {
     }
 
     /// `git status` of the repository holding `root` (read-only, no optional locks): nothing outside one.
-    private func readGit(_ root: URL) async -> (root: String, states: [String: FileGitState], folders: Set<String>, top: String?) {
+    private func readGit(_ root: URL) async -> (root: String, states: [String: String], folders: Set<String>, top: String?) {
         let resolved = root.resolvingSymlinksInPath().path
         guard let top = await git.run(["rev-parse", "--show-toplevel"], in: root.path), top.status == 0 else { return (resolved, [:], [], nil) }
         let topPath = URL(fileURLWithPath: top.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
         guard !topPath.isEmpty, let output = await git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: topPath),
               output.status == 0 else { return (resolved, [:], [], nil) }
-        var states: [String: FileGitState] = [:]
-        var folders: Set<String> = []
-        for (relative, state) in FileGitState.parse(output.output) {
-            let path = (topPath as NSString).appendingPathComponent(relative)
-            states[path] = state
-            var parent = (path as NSString).deletingLastPathComponent
-            while parent.count > topPath.count, folders.insert(parent).inserted {
-                parent = (parent as NSString).deletingLastPathComponent
-            }
-        }
-        return (resolved, states, folders, topPath)
-    }
-
-    /// The git state of the item at `url` (under the root).
-    private func gitState(of url: URL, isFolder: Bool) -> FileGitState? {
-        let path = (resolvedRoot as NSString).appendingPathComponent(relativePath(of: url))
-        if let state = gitStates[path] { return state }
-        return isFolder && changedFolders.contains(path) ? .containsChanges : nil
+        let tree = AppHistoryRules.fileGit(top: topPath, entries: FileGitState.parse(output.output).mapValues(\.rawValue))
+        return (resolved, tree.states, tree.folders, topPath)
     }
 
     /// Expands a collapsed folder (listing it) or collapses an expanded one.
@@ -191,26 +175,26 @@ final class FileExplorerModel {
 
     /// `url`'s path under the root ("Sources/App.swift"); the full path outside it.
     func relativePath(of url: URL) -> String {
-        guard let root else { return url.path }
-        let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        return url.path.hasPrefix(base) ? String(url.path.dropFirst(base.count)) : url.path
+        AppHistoryRules.fileRelative(url.path, root: root?.path)
     }
 
     private func rebuild() {
         guard let root else { rows = []; return }
-        var out: [FileExplorerRow] = []
-        func add(_ folder: URL, depth: Int) {
-            for entry in Self.sorted(children[folder] ?? []) {
+        var urls: [String: URL] = [:]
+        var listed: [String: [AppHistoryRules.FileEntry]] = [:]
+        for (folder, entries) in children {
+            listed[folder.path] = Self.sorted(entries).map { entry in
                 let url = entry.url.standardizedFileURL
-                let isFolder = entry.kind == .folder
-                let open = isFolder && expanded.contains(url)
-                out.append(FileExplorerRow(url: url, name: entry.name, depth: depth, isFolder: isFolder, isExpanded: open,
-                                           git: gitState(of: url, isFolder: isFolder)))
-                if open { add(url, depth: depth + 1) }
+                urls[url.path] = url
+                return AppHistoryRules.FileEntry(path: url.path, name: entry.name, isFolder: entry.kind == .folder)
             }
         }
-        add(root, depth: 0)
-        rows = out
+        rows = AppHistoryRules.fileRows(root: root.path, resolvedRoot: resolvedRoot, children: listed, expanded: expanded.map(\.path),
+                                        states: gitStates, folders: changedFolders).map { row in
+            FileExplorerRow(url: urls[row.path] ?? URL(fileURLWithPath: row.path, isDirectory: row.isFolder), name: row.name,
+                            depth: row.depth, isFolder: row.isFolder, isExpanded: row.isExpanded,
+                            git: row.git.flatMap(FileGitState.init(rawValue:)))
+        }
     }
 
     /// Folders first, then by name as Finder sorts; hidden items left out.

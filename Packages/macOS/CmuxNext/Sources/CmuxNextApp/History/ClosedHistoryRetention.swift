@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHistory
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -19,8 +20,6 @@ final class ClosedHistoryRetention {
     private var deadlines: [String: DemandTimer] = [:]
     private var lastPrune: [String: ContinuousClock.Instant] = [:]
     private var limits = ClosedRetention(maxGroups: 0, maxAgeDays: 0)
-    private static let interval = Duration.seconds(60)
-    private static let retry = Duration.seconds(3600)
 
     init(services: AppServices) {
         self.services = services
@@ -76,27 +75,19 @@ final class ClosedHistoryRetention {
             guard daemon.store.servesStateResources, case .connected = daemon.store.connectionState else { continue }
             let machine = daemon.machineID
             let items = daemon.store.closedItems
-            guard let prune = limits.prune(items, nowMs: nowMs) else {
-                // Within the limits: check again when the oldest group gets too old.
-                if limits.maxAgeDays > 0, let oldest = items.map(\.closedAtMs).min() {
-                    let due = oldest &+ UInt64(limits.maxAgeDays) * 86_400_000
-                    recheck(machine, after: .milliseconds(Int64(clamping: (due > nowMs ? due - nowMs : 0) &+ 1)))
-                } else {
-                    deadlines[machine]?.cancel()
-                }
-                continue
-            }
-            if let last = lastPrune[machine], last.duration(to: .now) < Self.interval {
-                recheck(machine, after: Self.interval - last.duration(to: .now))
-                continue
-            }
-            lastPrune[machine] = .now
-            if limits.maxAgeDays > 0, items.count >= SessionStateMirror.closedLimit {
-                recheck(machine, after: Self.retry)
-            } else {
+            let prune = limits.prune(items, nowMs: nowMs)
+            let check = AppHistoryRules.ClosedCheck(
+                overLimit: prune != nil, maxAgeDays: limits.maxAgeDays, oldestMs: items.map(\.closedAtMs).min(), nowMs: nowMs,
+                count: items.count, closedLimit: SessionStateMirror.closedLimit, sinceLastPrune: lastPrune[machine].map { $0.duration(to: .now) })
+            guard let decision = AppHistoryRules.closedCheck(check) else { continue }
+            if let after = decision.recheckAfter {
+                recheck(machine, after: after)
+            } else if decision.cancelDeadline {
                 deadlines[machine]?.cancel()
             }
-            daemon.send("closed.delete", onFailure: { [weak self] _ in self?.recheck(machine, after: Self.retry) }) { connection in
+            guard decision.prune, let prune else { continue }
+            lastPrune[machine] = .now
+            daemon.send("closed.delete", onFailure: { [weak self] _ in self?.recheck(machine, after: decision.retry) }) { connection in
                 try await connection.state.pruneClosed(prune)
             }
         }
