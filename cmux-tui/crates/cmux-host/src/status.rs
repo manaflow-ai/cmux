@@ -109,6 +109,13 @@ impl MachineFacts {
     }
 }
 
+/// Windows has no statvfs; the disk reads as unknown (0, 0) there, as a failed read does.
+#[cfg(not(unix))]
+fn root_disk_mib() -> (u64, u64) {
+    (0, 0)
+}
+
+#[cfg(unix)]
 fn root_disk_mib() -> (u64, u64) {
     let Ok(path) = std::ffi::CString::new("/") else {
         return (0, 0);
