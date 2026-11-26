@@ -751,10 +751,7 @@ fn snapshot_impl(
             )
         })?;
 
-        let mut rect = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            ..Default::default()
-        };
+        let mut rect = sys::GhosttySelection { ..Default::default() };
         check(unsafe {
             sys::ghostty_kitty_graphics_placement_rect(
                 iterator.0,
@@ -902,16 +899,21 @@ fn copy_image(
     image: sys::GhosttyKittyGraphicsImage,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
 ) -> Result<KittyImage> {
-    let id = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_ID)?;
-    let number = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_NUMBER)?;
-    let generation = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_GENERATION)?;
-    let width = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_WIDTH)?;
-    let height = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_HEIGHT)?;
+    let id = image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID)?;
+    let number = image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER)?;
+    let generation = image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION)?;
+    let width = image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH)?;
+    let height = image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT)?;
     let raw_format: sys::GhosttyKittyImageFormat =
-        image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_FORMAT)?;
+        image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT)?;
     let format = snapshot_image_format(raw_format)?;
-    let data_ptr: *const u8 = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR)?;
-    let data_len: usize = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN)?;
+    // libghostty-vt 1.0: the pixels come as one GhosttyString. An image whose
+    // pixels have not arrived returns GHOSTTY_NO_VALUE (an error here, as a
+    // null pointer with a nonzero length was before).
+    let pixels: sys::GhosttyString =
+        image_value(image, sys::GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS)?;
+    let data_ptr: *const u8 = pixels.ptr;
+    let data_len: usize = pixels.len;
 
     if let Some(data) = pixel_cache.get(&generation) {
         return Ok(KittyImage {
