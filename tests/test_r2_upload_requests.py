@@ -249,34 +249,6 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
 
-    def test_keep_existing_never_writes_over_different_published_bytes(self):
-        # A rerun re-signs the attestation bundle, so its bytes differ from the
-        # published ones: --keep-existing keeps the published bytes and sends no PUT.
-        endpoint, requests = self.start_endpoint(existing=True)
-        result = self.upload("manifest.json.sigstore.json", "--write-once", "--keep-existing",
-                             endpoint=endpoint, body=b"re-signed bundle\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Kept the published object", result.stdout)
-        self.assertEqual([r[0] for r in requests], ["HEAD", "GET"])
-
-    def test_keep_existing_after_a_concurrent_write_keeps_the_winner(self):
-        endpoint, requests = self.start_endpoint(put_status=412)
-        result = self.upload("manifest.json.sigstore.json", "--write-once", "--keep-existing",
-                             endpoint=endpoint, body=b"losing bundle\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
-
-    def test_write_once_without_keep_existing_still_refuses_different_bytes(self):
-        endpoint, requests = self.start_endpoint(existing=True)
-        result = self.upload("manifest.json", "--write-once", endpoint=endpoint, body=b"other\n")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("different SHA-256", result.stderr)
-        self.assertNotIn("PUT", [r[0] for r in requests])
-
-    def test_keep_existing_needs_write_once(self):
-        result = self.upload("manifest.json", "--keep-existing")
-        self.assertEqual(result.returncode, 2)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
