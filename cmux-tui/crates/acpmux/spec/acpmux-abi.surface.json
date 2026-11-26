@@ -1,5 +1,5 @@
 {
-  "revision": 1,
+  "revision": 2,
   "surface": {
     "event:_acpmux/admission_waiting": {
       "/*untyped*": {
@@ -295,6 +295,62 @@
           "\"offline\"",
           "\"reconnecting\""
         ]
+      },
+      "/status": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/status/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/status/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/status/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/status/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/status/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/words": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:_acpmux/permission_pending": {
@@ -490,6 +546,112 @@
       },
       "/session/children": {
         "ty": "uint32",
+        "required": true
+      },
+      "/session/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/session/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/session/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/session/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/session/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/session/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/session/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/session/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/session/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/session/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/session/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/session/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/session/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/words": {
+        "ty": "string",
         "required": true
       },
       "/session/createdAt": {
@@ -940,6 +1102,9 @@
         "ty": "string",
         "required": true
       },
+      "/session/pinned": {
+        "ty": "boolean"
+      },
       "/session/policy": {
         "ty": "string",
         "nullable": true
@@ -1045,6 +1210,15 @@
       "/session/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/session/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/session/queue/*/prompt": {
         "ty": "string",
@@ -1228,60 +1402,6 @@
       "/session/tags/*": {
         "ty": "string"
       },
-      "/session/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/session/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/session/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/session/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/session/taskList/items/*": {
-        "ty": "object"
-      },
-      "/session/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/session/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/session/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/session/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/session/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/session/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -1414,11 +1534,6 @@
       "/session/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/session/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/session/turn/prompt": {
         "ty": "string",
@@ -6883,6 +6998,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/auto_session/move": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/auto_session/set": {
       "/*untyped*": {
         "ty": "json",
@@ -8211,6 +8332,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/chat_move": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/chat_open": {
       "/*untyped*": {
         "ty": "json",
@@ -8248,6 +8375,24 @@
       }
     },
     "request:_acpmux/chat_roots_record": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/chat_secrets_clear": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/chat_secrets_list": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/chat_secrets_set": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -8403,6 +8548,30 @@
         "nullable": true
       }
     },
+    "request:_acpmux/connections/claude_token.begin": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.cancel": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.code": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.wait": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/connections/credential": {
       "/*untyped*": {
         "ty": "json",
@@ -8410,6 +8579,12 @@
       }
     },
     "request:_acpmux/connections/key.add": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/key.check": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -15306,6 +15481,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/paused_files": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/peer_add": {
       "/*untyped*": {
         "ty": "json",
@@ -16483,6 +16664,16 @@
         "nullable": true
       }
     },
+    "request:_acpmux/pin": {
+      "/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/sessionId": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:_acpmux/place": {
       "/*untyped*": {
         "ty": "json",
@@ -16490,6 +16681,24 @@
       }
     },
     "request:_acpmux/place_chat": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_get": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/place_undo": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26136,18 +26345,6 @@
         "nullable": true
       }
     },
-    "request:_acpmux/task_list/get": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/task_list/set": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
     "request:_acpmux/task_new": {
       "/*untyped*": {
         "ty": "json",
@@ -26172,6 +26369,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/listen": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -26185,6 +26388,18 @@
       }
     },
     "request:_acpmux/team_audit": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/trace/spans": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/trace/status": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -28428,6 +28643,12 @@
       }
     },
     "request:agent-session-turn-prepare": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:agent/credentials.update": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -30929,6 +31150,112 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/session/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/session/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/session/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/session/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/session/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/session/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/session/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/session/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
       "/data/session/configOptions": {
         "ty": "json"
       },
@@ -31393,6 +31720,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/session/pinned": {
+        "ty": "boolean"
+      },
       "/data/session/policy": {
         "ty": "string",
         "nullable": true
@@ -31498,6 +31828,15 @@
       "/data/session/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/session/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/session/queue/*/prompt": {
         "ty": "string",
@@ -31684,60 +32023,6 @@
       "/data/session/tags/*": {
         "ty": "string"
       },
-      "/data/session/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/session/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/session/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/session/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/session/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/session/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/session/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/session/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/session/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/session/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/session/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -31870,11 +32155,6 @@
       "/data/session/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/session/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/session/turn/prompt": {
         "ty": "string",
@@ -32093,6 +32373,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/auto_session/move": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/auto_session/set": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32219,6 +32505,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/chat_move": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/chat_open": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32256,6 +32548,24 @@
       }
     },
     "response:_acpmux/chat_roots_record": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_secrets_clear": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_secrets_list": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_secrets_set": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -32411,6 +32721,30 @@
         "nullable": true
       }
     },
+    "response:_acpmux/connections/claude_token.begin": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.cancel": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.code": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/connections/credential": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32418,6 +32752,12 @@
       }
     },
     "response:_acpmux/connections/key.add": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/key.check": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33499,6 +33839,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/paused_files": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/peer_add": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33824,6 +34170,1222 @@
         "nullable": true
       }
     },
+    "response:_acpmux/pin": {
+      "/data/agentSessionId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/approvedPlan": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/approvedPlan/at": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/approvedPlan/edited": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/approvedPlan/markdown": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/approvedPlan/permissionId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/approvedPlan/turn": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/attached": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/backgroundsWork": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/capacityWait": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/capacityWait/error": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/capacityWait/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "agent_exited",
+          "capacity",
+          "context",
+          "disk",
+          "rate_limit",
+          "transport"
+        ]
+      },
+      "/data/capacityWait/resumesAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/capacityWait/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/capacityWait/turnId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/children": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/createdAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/createdBy": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/createdBy/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agent\"",
+          "\"person\"",
+          "\"script\""
+        ]
+      },
+      "/data/createdBy/session": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/createdBy/workspace": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/credentialOnlyHere": {
+        "ty": "boolean"
+      },
+      "/data/currentModeId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/depth": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/displayName": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/effort": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/enforcement": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/enforcement/detail": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/enforcement/isolation": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "unverified"
+        ]
+      },
+      "/data/enforcement/label": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/enforcement/policy": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/eventCount": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/family": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/forkSeq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/forksAnyTurn": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/data/formerNames": {
+        "ty": "array"
+      },
+      "/data/formerNames/*": {
+        "ty": "string"
+      },
+      "/data/handle": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/harness": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnessSandboxFailed": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/harnessSandboxFailing": {
+        "ty": "boolean"
+      },
+      "/data/hasDraft": {
+        "ty": "boolean"
+      },
+      "/data/icon": {
+        "ty": "untagged_union|object",
+        "nullable": true
+      },
+      "/data/icon/brand": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/icon/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/icon/hue": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/icon/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"brand\"",
+          "\"emoji\"",
+          "\"image\"",
+          "\"symbol\""
+        ]
+      },
+      "/data/icon/mime": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/icon/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/icon/source": {
+        "ty": "string"
+      },
+      "/data/icon/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/indicator": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "done",
+          "failed",
+          "input",
+          "lost",
+          "working"
+        ]
+      },
+      "/data/inputSince": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/lane": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lane/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/lane/since": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/lane/stalledSince": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/lane/state": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "failed",
+          "idle",
+          "input",
+          "lost",
+          "working"
+        ]
+      },
+      "/data/lane/step": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/lane/title": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/lastMessage": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lastMessage/role": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "agent",
+          "user"
+        ]
+      },
+      "/data/lastMessage/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lastPrompt": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastReturn": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lastReturn/since": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lastReturn/turns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lastSeq": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lastTurn": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lastTurn/detail": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lastTurn/details/binary": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/exitCode": {
+        "ty": "int64",
+        "nullable": true
+      },
+      "/data/lastTurn/details/freeBytes": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/lastTurn/details/lastSeenAt": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/path": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/peer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/queued": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/data/lastTurn/details/retryAfterMs": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/lastTurn/details/signal": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/details/totalBytes": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/lastTurn/endedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lastTurn/errorKind": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/errorSource": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/errorText": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/heldUntil": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/lastTurn/promptId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/recovery": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/status": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/stopReason": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lastTurn/turnId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/lifecycleReceipt": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/lifecycleReceipt/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lifecycleReceipt/sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/lifecycleReceipt/source": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lifecycleReceipt/state": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/loopEpisode": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/loopEpisode/count": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/loopEpisode/diagnosis": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/loopEpisode/episodeId": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/loopEpisode/hint": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/loopEpisode/since": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/mcpServers": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/mcpServers/*": {
+        "ty": "object"
+      },
+      "/data/mcpServers/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/mcpServers/*/status": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "connected",
+          "failed",
+          "pending"
+        ]
+      },
+      "/data/model": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/movedTo": {
+        "ty": "json"
+      },
+      "/data/moving": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/nameGiven": {
+        "ty": "boolean"
+      },
+      "/data/parent": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/parentId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/peer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/pendingPermissions": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/personHold": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/personHold/folder": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/personHold/reason": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/pinned": {
+        "ty": "boolean"
+      },
+      "/data/policy": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/preview": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/pullRequests": {
+        "ty": "array"
+      },
+      "/data/pullRequests/*": {
+        "ty": "string"
+      },
+      "/data/queue": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/queue/*": {
+        "ty": "object"
+      },
+      "/data/queue/*/author": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/author/avatar": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/queue/*/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/awaitingOwner": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/queue/*/class": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"block\"",
+          "\"fyi\"",
+          "\"question\"",
+          "\"result\""
+        ]
+      },
+      "/data/queue/*/client": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/fromAgent": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/fromHarness": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/fromSessionId": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/held": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/queue/*/heldByStop": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/queue/*/images": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/queue/*/images/*": {
+        "ty": "object"
+      },
+      "/data/queue/*/images/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/images/*/mimeType": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/images/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/images/*/source": {
+        "ty": "json"
+      },
+      "/data/queue/*/inboxNotice": {
+        "ty": "json",
+        "required": true
+      },
+      "/data/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
+      },
+      "/data/queue/*/prompt": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/promptId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/provenance": {
+        "ty": "json",
+        "required": true
+      },
+      "/data/queue/*/queuedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/queue/*/revision": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/queue/*/subagentRetry": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/subagentRetry/agentId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queue/*/subagentRetry/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/subagentRetry/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/queue/*/turnId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queuePaused": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/queued": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/rateLimitParked": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/rateLimitedUntil": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/retiredAgentSessionIds": {
+        "ty": "array"
+      },
+      "/data/retiredAgentSessionIds/*": {
+        "ty": "string"
+      },
+      "/data/retry": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/retry/attempt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/retry/nextAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/retry/of": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/retry/promptId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/retry/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "agent_exited",
+          "capacity",
+          "context",
+          "disk",
+          "rate_limit",
+          "transport"
+        ]
+      },
+      "/data/retry/turnId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/retryDeciding": {
+        "ty": "boolean"
+      },
+      "/data/root": {
+        "ty": "string"
+      },
+      "/data/rules": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/seenSeq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessionId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/shortName": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/shown": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/spawnToolCallId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/spawnedBy": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/startedBy": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/starting": {
+        "ty": "boolean"
+      },
+      "/data/state": {
+        "ty": "string"
+      },
+      "/data/stateSeq": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/status": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/steering": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/stuckError": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/stuckReason": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auth",
+          "capacity",
+          "harness_unavailable",
+          "spawn_failed"
+        ]
+      },
+      "/data/stuckSince": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/tags": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/tags/*": {
+        "ty": "string"
+      },
+      "/data/timeBreakdown": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/timeBreakdown/categories": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/timeBreakdown/categories/*": {
+        "ty": "object"
+      },
+      "/data/timeBreakdown/categories/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/timeBreakdown/categories/*/tokens": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/timeBreakdown/categories/*/wallMs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/timeBreakdown/spans": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/timeBreakdown/spans/*": {
+        "ty": "object"
+      },
+      "/data/timeBreakdown/spans/*/category": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/timeBreakdown/spans/*/endAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/timeBreakdown/spans/*/promptId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/timeBreakdown/spans/*/startAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/timeBreakdown/spans/*/tokens": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/timeBreakdown/spans/*/turnId": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/timeBreakdown/spans/*/turnSeq": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/timeBreakdown/spans/*/turnTokens": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/timeBreakdown/tokensComplete": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/timeBreakdown/totalMs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/timeBreakdown/totalTokens": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/titleSource": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/tools": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/tools/*": {
+        "ty": "object"
+      },
+      "/data/tools/*/canToggle": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/tools/*/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/tools/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tools/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tools/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tools/*/source": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/toolsMutable": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/data/transcriptSeq": {
+        "ty": "uint64"
+      },
+      "/data/turn": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/turn/activity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/turn/client": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/turn/prompt": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/turn/promptId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/turn/stalledSince": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/turn/startedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/turn/turnId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/turn/turnSeq": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/turnCount": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/unread": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/unreadTurns": {
+        "ty": "uint64"
+      },
+      "/data/updatedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/usageStats": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/usageStats/autocompact": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"capped\"",
+          "\"none\"",
+          "\"unknown\""
+        ]
+      },
+      "/data/usageStats/autocompactCap": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/cacheReadShare24h": {
+        "ty": "double",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/calls24h": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/compactions24h": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/contextTokens": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/contextWindow": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/costPerCallUsd24h": {
+        "ty": "double",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/costUsd24h": {
+        "ty": "double",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/launcher": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/subagents1h": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/subagents24h": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/subagentsLive": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/tokens24h": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/tokensByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/tokensByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/usageStats/tokensByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/tokensByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
+      "/data/usageStats/updatedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/waitingOn": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/waitingPrompt": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/waitsForSlot": {
+        "ty": "boolean"
+      },
+      "/data/watching": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workingBelow": {
+        "ty": "boolean"
+      }
+    },
     "response:_acpmux/place": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33831,6 +35393,24 @@
       }
     },
     "response:_acpmux/place_chat": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_get": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/place_undo": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -34456,6 +36036,112 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/sessions/*/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/sessions/*/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
       "/data/sessions/*/createdAt": {
         "ty": "uint64",
         "required": true
@@ -34904,6 +36590,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/sessions/*/pinned": {
+        "ty": "boolean"
+      },
       "/data/sessions/*/policy": {
         "ty": "string",
         "nullable": true
@@ -35009,6 +36698,15 @@
       "/data/sessions/*/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/sessions/*/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/sessions/*/queue/*/prompt": {
         "ty": "string",
@@ -35192,60 +36890,6 @@
       "/data/sessions/*/tags/*": {
         "ty": "string"
       },
-      "/data/sessions/*/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/sessions/*/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/sessions/*/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/sessions/*/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/sessions/*/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -35378,11 +37022,6 @@
       "/data/sessions/*/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/sessions/*/turn/prompt": {
         "ty": "string",
@@ -35817,18 +37456,6 @@
         "nullable": true
       }
     },
-    "response:_acpmux/task_list/get": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "response:_acpmux/task_list/set": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
     "response:_acpmux/task_new": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35853,6 +37480,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/listen": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35866,6 +37499,18 @@
       }
     },
     "response:_acpmux/team_audit": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/trace/spans": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/trace/status": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36301,6 +37946,112 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/sessions/*/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/sessions/*/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
       "/data/sessions/*/createdAt": {
         "ty": "uint64",
         "required": true
@@ -36749,6 +38500,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/sessions/*/pinned": {
+        "ty": "boolean"
+      },
       "/data/sessions/*/policy": {
         "ty": "string",
         "nullable": true
@@ -36854,6 +38608,15 @@
       "/data/sessions/*/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/sessions/*/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/sessions/*/queue/*/prompt": {
         "ty": "string",
@@ -37037,60 +38800,6 @@
       "/data/sessions/*/tags/*": {
         "ty": "string"
       },
-      "/data/sessions/*/taskList": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/current": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/done": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*": {
-        "ty": "object"
-      },
-      "/data/sessions/*/taskList/items/*/content": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/sessions/*/taskList/items/*/status": {
-        "ty": "enum",
-        "required": true,
-        "values": [
-          "completed",
-          "in_progress",
-          "pending"
-        ]
-      },
-      "/data/sessions/*/taskList/next": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
-      },
-      "/data/sessions/*/taskList/source": {
-        "ty": "untagged_union|literal",
-        "values": [
-          "\"agent\"",
-          "\"chief\"",
-          "\"harness\""
-        ]
-      },
-      "/data/sessions/*/taskList/total": {
-        "ty": "uint32",
-        "required": true
-      },
-      "/data/sessions/*/taskList/updatedAt": {
-        "ty": "uint64",
-        "required": true
-      },
       "/data/sessions/*/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -37223,11 +38932,6 @@
       "/data/sessions/*/turn/client": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/turn/planStep": {
-        "ty": "string",
-        "required": true,
-        "nullable": true
       },
       "/data/sessions/*/turn/prompt": {
         "ty": "string",
@@ -37488,6 +39192,12 @@
       }
     },
     "response:agent-session-turn-prepare": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:agent/credentials.update": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
