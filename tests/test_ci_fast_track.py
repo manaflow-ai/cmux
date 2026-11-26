@@ -47,6 +47,20 @@ class FastTrackTests(unittest.TestCase):
     def test_full_ci_label_wins(self):
         self.assertEqual(self._route(["docs/a.md"], labels=("full-ci",)), ["cheap.yml", "full.yml"])
 
+    def test_full_ci_keeps_path_filters(self):
+        # Before, full-ci started every callee whatever its path filter: swift-linux-packages.yml ran on 511 branches
+        # in 24 h (42.8k runner-min). full-ci lifts the tier gates only; a callee the change cannot reach stays off.
+        callees = {**CALLEES, "swift.yml": {"types": ["synchronize"], "paths": ["Packages/**"]}}
+        event = {"action": "synchronize", "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
+        start, why = pr_router.route(event, callees, ["docs/a.md"], decided=("full", "x"))
+        self.assertEqual(start, ["cheap.yml", "full.yml"])
+        self.assertEqual(why["swift.yml"], "its path filter admits no changed file")
+        # Adding full-ci is the land handoff: it routes as ready_for_review, still through the path filters.
+        added = {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": event["pull_request"]}
+        callees = {name: {**c, "types": ["ready_for_review"]} for name, c in callees.items()}
+        self.assertNotIn("swift.yml", pr_router.route(added, callees, ["docs/a.md"], decided=("full", "x"))[0])
+        self.assertIn("swift.yml", pr_router.route(added, callees, ["Packages/x.swift"], decided=("full", "x"))[0])
+
 
 if __name__ == "__main__":
     unittest.main()

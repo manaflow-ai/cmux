@@ -165,26 +165,27 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
-        if added and (added == FULL_CI or added in config.get("labels", [])):
+        if added and added != FULL_CI and added in config.get("labels", []):
             start.append(name)
             why[name] = f"label '{added}' added"
             continue
-        if FULL_CI in labels:
-            start.append(name)
-            why[name] = "full-ci"
-            continue
-        if tier == "none":
+        # full-ci lifts the tier gates below (draft, cheap, none), not the path filters: a callee none of whose
+        # inputs the change touches has nothing to check on a full-ci head either. Before, full-ci started every
+        # callee: 24 h to 2026-11-26T08, swift-linux-packages.yml ran on 511 branches (42.8k runner-min) where
+        # its filter admits about 3 merges in 100; lane PRs carry full-ci from the land handoff on.
+        full_ci = added == FULL_CI or FULL_CI in labels
+        if tier == "none" and not full_ci:
             why[name] = tier_reason
             continue
-        if cheap and fast and not config.get("draft"):
+        if cheap and fast and not config.get("draft") and not full_ci:
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
             continue
-        if cheap and not config.get("draft"):
+        if cheap and not config.get("draft") and not full_ci:
             why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
                          else tier_reason)
             continue
         # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
-        if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
+        if tier != "full" and not full_ci and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
             why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
             continue
         if files is None:
