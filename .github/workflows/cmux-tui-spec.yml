@@ -1010,6 +1010,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+          # Include the synthetic PR merge commit's comparison parent in the authenticated checkout.
+          fetch-depth: 2
 
       - name: Test the changed-package rustfmt check
         run: python3 .github/scripts/test_cmux_tui_fmt_changed.py
@@ -1029,7 +1031,7 @@ jobs:
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
           fi
-          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] && ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; checking every package"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
@@ -1082,6 +1084,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+          # Include the synthetic PR merge commit's comparison parent in the authenticated checkout.
+          fetch-depth: 2
 
       - name: Test the changed-package clippy check
         run: python3 .github/scripts/test_cmux_tui_clippy_changed.py
@@ -1119,7 +1123,7 @@ jobs:
             echo "::warning::base is not a full commit SHA; linting the whole workspace"
             BASE_SHA=""
           fi
-          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] && ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
