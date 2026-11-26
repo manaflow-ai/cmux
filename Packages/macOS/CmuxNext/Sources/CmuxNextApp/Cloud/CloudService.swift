@@ -862,7 +862,10 @@ final class CloudService {
 
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
+    /// Binds only after the stored session has restored, as the account loop above does: before that `auth.user`
+    /// is the cached account, which can differ from the stored token's.
     func shareOwnerToken(api: URL?) async -> String? {
+        await auth.awaitRestored()
         guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
