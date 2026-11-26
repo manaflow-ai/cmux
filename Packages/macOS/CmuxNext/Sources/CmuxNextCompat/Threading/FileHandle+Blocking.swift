@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension FileHandle {
@@ -81,3 +82,4 @@ extension FileHandle {
         try write(contentsOf: data)
     }
 }
+#endif

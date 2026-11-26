@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 /// The resource bundles this process opened and holds: the launch warm-up's, and the downloaded
@@ -140,3 +141,4 @@ extension Bundle {
         return parts[index...].joined(separator: "/")
     }
 }
+#endif

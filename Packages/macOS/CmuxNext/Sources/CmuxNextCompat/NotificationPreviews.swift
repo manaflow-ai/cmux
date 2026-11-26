@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
 
 /// When a banner shows what the agent said (its last message), named like macOS's own Show
@@ -17,3 +18,4 @@ public enum NotificationPreviews: String, Hashable, Sendable, CaseIterable {
         return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
 }
+#endif

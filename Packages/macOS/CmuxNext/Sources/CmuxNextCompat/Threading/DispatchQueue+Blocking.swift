@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Dispatch
 
 extension DispatchQueue {
@@ -30,3 +31,4 @@ extension DispatchWorkItem {
         wait()
     }
 }
+#endif

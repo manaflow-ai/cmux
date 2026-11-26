@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension Process {
@@ -29,3 +30,4 @@ extension Process {
         try run()
     }
 }
+#endif

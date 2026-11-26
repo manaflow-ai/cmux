@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 package import Darwin
 import Foundation
 
@@ -76,3 +77,4 @@ package struct OpenFileLimit {
         return Change(before: soft, after: after)
     }
 }
+#endif

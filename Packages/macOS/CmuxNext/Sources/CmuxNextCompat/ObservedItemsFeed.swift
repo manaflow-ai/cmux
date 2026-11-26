@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Observation
 
 /// A list of models, each mapped to an item, whose items in list order decide when `changed` runs: a New Tab
@@ -140,3 +141,4 @@ import Observation
 
     func move() { value &+= 1 }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension Data {
@@ -32,3 +33,4 @@ extension Data {
         try write(to: url, options: options)
     }
 }
+#endif

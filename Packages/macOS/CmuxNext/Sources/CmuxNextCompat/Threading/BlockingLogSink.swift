@@ -1,3 +1,4 @@
+#if canImport(os)
 import os
 
 /// Records each new main-thread blocking call site in the unified log and continues: the sink of
@@ -37,3 +38,4 @@ public final class BlockingLogSink: BlockingViolationSink {
             + (frames.isEmpty ? "none" : frames.joined(separator: " "))
     }
 }
+#endif

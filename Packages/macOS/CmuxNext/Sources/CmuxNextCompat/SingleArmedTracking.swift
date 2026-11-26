@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Observation
 
 /// `withObservationTracking` for a computation that also runs for reasons it does not observe (a notification, a
@@ -38,3 +39,4 @@ public final class SingleArmedTracking {
         }
     }
 }
+#endif

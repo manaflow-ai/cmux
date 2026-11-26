@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension String {
@@ -64,3 +65,4 @@ extension StringProtocol {
         try write(to: url, atomically: useAuxiliaryFile, encoding: encoding)
     }
 }
+#endif

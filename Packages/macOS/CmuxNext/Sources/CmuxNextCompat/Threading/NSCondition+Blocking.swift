@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension NSCondition {
@@ -27,3 +28,4 @@ extension NSCondition {
         return wait(until: limit)
     }
 }
+#endif

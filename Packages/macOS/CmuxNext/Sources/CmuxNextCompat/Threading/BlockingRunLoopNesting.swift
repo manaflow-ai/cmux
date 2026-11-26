@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import CoreFoundation
 
@@ -50,4 +51,5 @@ struct BlockingRunLoopNesting {
         held.removeAll()
     }
 }
+#endif
 #endif

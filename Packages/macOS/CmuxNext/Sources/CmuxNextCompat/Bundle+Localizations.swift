@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension Bundle {
@@ -19,3 +20,4 @@ extension Bundle {
         return localizedString(forKey: key, value: value, table: table)
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
 
@@ -46,4 +47,5 @@ struct BlockingPendingCall {
         withUnsafeBytes(of: addresses) { Array($0.bindMemory(to: UInt.self).prefix(addressCount)) }
     }
 }
+#endif
 #endif

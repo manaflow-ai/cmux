@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 public import Foundation
 
 /// What one read of a pipe's ready bytes gave (``Foundation/FileHandle/readReady(maxLength:)``).
@@ -18,7 +22,11 @@ extension FileHandle {
     /// exception Swift cannot catch, which aborts the app (cmuxterm-hq#4753).
     public nonisolated func readReady(maxLength: Int = 64 * 1024) -> PipeRead {
         var buffer = [UInt8](repeating: 0, count: maxLength)
+        #if canImport(Darwin)
         let count = Darwin.read(fileDescriptor, &buffer, buffer.count)
+        #else
+        let count = Glibc.read(fileDescriptor, &buffer, buffer.count)
+        #endif
         if count > 0 { return .bytes(Data(buffer[..<count])) }
         if count < 0, errno == EINTR || errno == EAGAIN { return .retry }
         return .end
