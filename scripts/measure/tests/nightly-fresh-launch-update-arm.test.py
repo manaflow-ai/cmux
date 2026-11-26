@@ -43,7 +43,7 @@ class FakeSmoke:
         return []
 
     def forget_apps(self, *_):
-        return []
+        pass
 
 
 class UpdateArm(unittest.TestCase):
