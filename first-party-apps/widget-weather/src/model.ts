@@ -131,7 +131,7 @@ export function skyFor(code: number, day: boolean): Sky {
   return day ? "clear-day" : "clear-night"
 }
 
-/** The middle stop kept for callers that need a single representative sky color. */
+/** Legacy flat colors kept for callers that need a single representative sky color. */
 export const SKY_COLORS: Record<Sky, string> = {
   "clear-day": "#3A86D4",
   "clear-night": "#14203A",
