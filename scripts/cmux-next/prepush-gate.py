@@ -786,7 +786,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
-    # Two batch reads, not a `git show` a file: each cost about 0.5 s on big-red's cmux mirror (2026-11-21: 11 s).
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:

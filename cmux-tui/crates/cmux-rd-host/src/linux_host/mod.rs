@@ -569,7 +569,7 @@ fn grant(control: bool) -> Res<()> {
 }
 
 /// How [`mutter_line`] starts (`grant` tells it from a portal grant by it).
-const MUTTER_LINE_START: &str = "This GNOME desktop is shared through mutter directly";
+const MUTTER_LINE_START: &str = "Screen sharing on this GNOME desktop needs no approval";
 
 /// What a join says on a GNOME desktop, where shares go through mutter's own screen cast
 /// (mutter.rs) and nothing is asked: `None` when the portal is the path. `remote_desktop`:
@@ -587,11 +587,9 @@ fn mutter_line(
     } else if remote_desktop {
         " (view and control)"
     } else {
-        " (view only: this mutter offers no keyboard and pointer)"
+        " (view only: this desktop offers no keyboard and pointer control)"
     };
-    Some(format!(
-        "{MUTTER_LINE_START}{what}: shares need no grant and show no dialog on this screen."
-    ))
+    Some(format!("{MUTTER_LINE_START}{what}: no dialog appears on this screen."))
 }
 
 /// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
@@ -2072,9 +2070,10 @@ mod tests {
         let line = mutter_line(WaylandCapture::Mutter, true, true).unwrap();
         assert!(line.starts_with(MUTTER_LINE_START));
         assert!(line.contains("view and control"));
-        assert!(line.contains("need no grant and show no dialog"));
+        assert!(line.contains("needs no approval") && line.contains("no dialog appears"));
+        assert!(!line.contains("mutter"));
         let view = mutter_line(WaylandCapture::Mutter, false, true).unwrap();
-        assert!(view.contains("view only"));
+        assert!(view.contains("view only") && !view.contains("mutter"));
         let plain = mutter_line(WaylandCapture::Mutter, false, false).unwrap();
         assert!(plain.starts_with(&format!("{MUTTER_LINE_START}:")));
     }

@@ -3857,7 +3857,7 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 class MergeUpstreamRunTests(unittest.TestCase):
-    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    """2026-11-21: a merge push's gate took 798 s on a Linux workstation (the hook's 600 s limit): gate_own's run over the range
     the merge does not own ran every check again, whole-package dependency and surface material trees among them
     (293 s), though only the checks the push's own run found something in are ever read from it."""
 
