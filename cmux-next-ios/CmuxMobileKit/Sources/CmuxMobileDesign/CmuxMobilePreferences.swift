@@ -22,6 +22,14 @@ public enum CmuxMobilePreferences {
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
         /// The terminal composer's Autocorrect toggle (its + menu, Settings → Terminal).
         public static let terminalComposerAutocorrect = "cmuxMobile.settings.terminalComposerAutocorrect"
+        /// Settings → Terminal → Cancel Uploads with Send (off by default; Leo's UI rule, 2026-11: a
+        /// visible change waits behind a toggle): on, Send stays tappable while attachments upload
+        /// and a tap cancels the upload. Off, Send is disabled while they upload, as before.
+        public static let terminalComposerCancelUpload = "cmuxMobile.settings.terminalComposerCancelUpload"
+        /// Settings → Terminal → Paste All Images (off by default): on, pasting adds every image on
+        /// the clipboard as its own attachment, each in its own format. Off, paste adds the first
+        /// image as a PNG, as before.
+        public static let terminalComposerPasteAllImages = "cmuxMobile.settings.terminalComposerPasteAllImages"
         /// Settings → Terminal → Terminal and Chat Toggle (off by default; Leo, 2026-11-17: "the
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
@@ -85,6 +93,8 @@ public enum CmuxMobilePreferences {
     public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
+    public static let defaultTerminalComposerCancelUpload = false
+    public static let defaultTerminalComposerPasteAllImages = false
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     /// Off: a shell line is not prose. On for talking to an agent CLI in
@@ -172,6 +182,17 @@ public enum CmuxMobilePreferences {
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
+    }
+
+    /// Send cancels an upload in progress (on) or is disabled while attachments upload (off, the
+    /// default). Read by the terminal composer each time it draws Send.
+    public static func terminalComposerCancelUpload(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalComposerCancelUpload) as? Bool ?? defaultTerminalComposerCancelUpload
+    }
+
+    /// Paste adds every clipboard image (on) or only the first, as a PNG (off, the default).
+    public static func terminalComposerPasteAllImages(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalComposerPasteAllImages) as? Bool ?? defaultTerminalComposerPasteAllImages
     }
 
     /// Predictive echo inside full-screen apps (an agent's TUI), off by default.

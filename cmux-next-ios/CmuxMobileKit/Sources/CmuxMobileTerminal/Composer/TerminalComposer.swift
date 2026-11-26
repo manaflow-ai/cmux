@@ -289,9 +289,12 @@ struct TerminalComposer: View {
     private var sendButton: some View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
+        // Cancel Uploads with Send (off by default): on, Send stays tappable while attachments
+        // upload and a tap cancels them; off, Send is disabled until they finish, as before.
+        let cancelsUpload = CmuxMobilePreferences.terminalComposerCancelUpload()
         return Button {
             if model.isUploading {
-                model.cancelAttachmentSend()
+                if cancelsUpload { model.cancelAttachmentSend() }
             } else {
                 send()
             }
@@ -316,13 +319,14 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(!canSend)
+        .disabled(!canSend || (model.isUploading && !cancelsUpload))
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Cancel sending" : failed ? "Send failed" : "Send")
+        .accessibilityLabel(model.isUploading ? (cancelsUpload ? "Cancel sending" : "Sending")
+                            : failed ? "Send failed" : "Send")
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -346,6 +350,14 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
+            // Paste All Images (off by default): off, the first image as a PNG, as before.
+            guard CmuxMobilePreferences.terminalComposerPasteAllImages() else {
+                guard let image = board.image, let data = image.pngData() else { return }
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
+                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)),
+                                                       data: data))
+                return
+            }
             let stamp = Self.stamp()
             for (index, item) in board.composerImages().enumerated() {
                 let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"

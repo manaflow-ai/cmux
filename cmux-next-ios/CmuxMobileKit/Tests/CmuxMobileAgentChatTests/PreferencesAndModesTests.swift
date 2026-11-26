@@ -70,6 +70,11 @@ import Testing
         #expect(CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults) == settings.predictiveEchoFullScreen)
         #expect(!CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
+        // Visible composer changes wait behind toggles that start off (Leo's UI rule, 2026-11).
+        #expect(CmuxMobilePreferences.terminalComposerCancelUpload(defaults) == settings.terminalComposerCancelUpload)
+        #expect(!CmuxMobilePreferences.terminalComposerCancelUpload(defaults))
+        #expect(CmuxMobilePreferences.terminalComposerPasteAllImages(defaults) == settings.terminalComposerPasteAllImages)
+        #expect(!CmuxMobilePreferences.terminalComposerPasteAllImages(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing on (the default), Send and Return still steer, as the Mac's Return does; only
@@ -83,6 +88,8 @@ import Testing
         settings.terminalJumpToBottom = false
         settings.predictiveEcho = false
         settings.predictiveEchoFullScreen = true
+        settings.terminalComposerCancelUpload = true
+        settings.terminalComposerPasteAllImages = true
         settings.dismissKeyboardAfterSend = false
         settings.followUp = .steer
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
@@ -91,6 +98,8 @@ import Testing
         #expect(!CmuxMobilePreferences.terminalJumpToBottom(defaults))
         #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
+        #expect(CmuxMobilePreferences.terminalComposerCancelUpload(defaults))
+        #expect(CmuxMobilePreferences.terminalComposerPasteAllImages(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing off, Queue steers too, as the Mac's ⌘Return does.

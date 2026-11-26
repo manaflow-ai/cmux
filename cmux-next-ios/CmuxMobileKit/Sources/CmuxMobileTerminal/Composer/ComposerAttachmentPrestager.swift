@@ -14,8 +14,24 @@ final class ComposerAttachmentPrestager {
 
     struct Entry {
         let task: Task<String, any Error>
+        let signature: Signature
+    }
+
+    /// What an entry was started for, compared on each sync. It holds the byte count and the
+    /// file URL, never the bytes: a terminal attachment's bytes do not change under its ID, and
+    /// comparing a multi-megabyte image's whole `Data` on the main actor at every sync cost a
+    /// full scan of it (review P2 F1 on #57804).
+    struct Signature: Equatable {
         let name: String
-        let payload: LinkUpload.Payload
+        let byteCount: Int?
+        let fileURL: URL?
+
+        init?(_ attachment: ComposerAttachment) {
+            guard attachment.data != nil || attachment.fileURL != nil else { return nil }
+            name = attachment.name
+            byteCount = attachment.data?.count
+            fileURL = attachment.data == nil ? attachment.fileURL : nil
+        }
     }
 
     private(set) var entries: [ComposerAttachment.ID: Entry] = [:]
@@ -34,9 +50,9 @@ final class ComposerAttachmentPrestager {
         }
 
         for attachment in attachments where claimedEntries[attachment.id] == nil {
-            guard let payload = try? attachment.payload() else { continue }
+            guard let signature = Signature(attachment) else { continue }
             if let existing = entries[attachment.id] {
-                if existing.name == attachment.name, existing.payload == payload { continue }
+                if existing.signature == signature { continue }
                 existing.task.cancel()
                 entries[attachment.id] = nil
             }
@@ -45,7 +61,7 @@ final class ComposerAttachmentPrestager {
                 try Task.checkCancellation()
                 return try await upload(transfer.payload, transfer.name)
             }
-            entries[attachment.id] = Entry(task: task, name: attachment.name, payload: payload)
+            entries[attachment.id] = Entry(task: task, signature: signature)
         }
     }
 

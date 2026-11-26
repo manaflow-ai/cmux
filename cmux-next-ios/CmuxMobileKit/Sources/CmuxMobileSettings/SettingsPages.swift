@@ -385,6 +385,22 @@ struct TerminalPage: View {
                 Text("Corrects and predicts words in the terminal composer, for talking to an agent in prose. Also in the composer's + menu.")
             }
             Section {
+                Toggle(isOn: $settings.terminalComposerCancelUpload) {
+                    SettingsLabel("Cancel Uploads with Send", symbol: "xmark.circle")
+                }
+                .accessibilityIdentifier("settings.terminalComposerCancelUpload")
+            } footer: {
+                Text("While attachments upload, Send stays tappable and a tap cancels the upload. Off, Send waits until they finish.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalComposerPasteAllImages) {
+                    SettingsLabel("Paste All Images", symbol: "photo.on.rectangle")
+                }
+                .accessibilityIdentifier("settings.terminalComposerPasteAllImages")
+            } footer: {
+                Text("Pasting adds every image on the clipboard, each in its own format. Off, paste adds the first image.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalChatToggle) {
                     SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
                 }
