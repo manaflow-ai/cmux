@@ -221,6 +221,11 @@ def caller_jobs(text: str) -> dict[str, str]:
     return jobs
 
 
+# Called from pr-router.yml on a failed job, never routed by the change: head-fail-fast.yml cancels a red
+# head's other heavy runs (scripts/ci/head_fail_fast.py), so it has no pr_router.json row.
+NOT_ROUTED = {"head-fail-fast.yml"}
+
+
 def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     """What disagrees: a callee with no caller job, a caller job of no callee, a callee that is not
     `workflow_call`-able or still starts on its own for feat-cmux-next pull requests."""
@@ -244,7 +249,7 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
                 if unknown:
                     problems.append(f"{name}: table_jobs {unknown} are not jobs of ci/steps.toml")
     for name in jobs:
-        if name not in callees:
+        if name not in callees and name not in NOT_ROUTED:
             problems.append(f"{name}: pr-router.yml calls it but pr_router.json does not route it")
     for name in callees:
         path = workflows / name

@@ -1127,6 +1127,10 @@
           "scripts/ci/workflow_paths_cover_inputs.py",
           "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
         ]
+      },
+      "pipeline-fail-fast": {
+        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
+        "suggested_inputs": []
       }
     }
   }
