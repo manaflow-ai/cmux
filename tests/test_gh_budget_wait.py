@@ -247,6 +247,24 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
         self.assertEqual(h.waited(), 1)
 
+    def test_a_dispatch_github_could_not_read_the_workflow_for_is_tried_again(self) -> None:
+        # Run 45798252585: dispatch-published-in got "HTTP 422 ... twirp error resource_exhausted: gitmon refuses
+        # to schedule us"; GitHub never read the workflow file, so nothing ran and the same call is tried again.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Invalid Argument - failed to parse "
+                                    "workflow: failed to fetch workflow: getting blob contents: twirp error resource_exhausted: "
+                                    "gitmon refuses to schedule us: fail-fast:network")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"] * 2)
+
+    def test_another_422_is_not_tried_again(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Unexpected inputs provided")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertNotEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"])
+
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -453,6 +471,8 @@ PUBLISH_PATH = (
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    # The tail's read of the run that published: run 45819376175's died on the rate limit (2026-11-26).
+    "published-build",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
@@ -519,6 +539,10 @@ SHARED_TOKEN_ONLY = {
     # The post-publication dispatch, the same way: github.token first, then cmux-bot and the CI pools at once
     # (run 45562645699 slept 12.9 min here).
     ("dispatch-published-in", "Ask for this build's post-publication run"),
+    # The tail's reads of the run that published: secret-free by design (test_nightly_trusted_routing CMUX_LINUX_JOBS),
+    # so they wait out github.token's hour in the wrapper (run 45819376175 went red on it, 2026-11-26).
+    ("published-build", "Check the run that published"),
+    ("published-build", "Download its record"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),

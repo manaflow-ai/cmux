@@ -7864,7 +7864,8 @@ jobs:
     # publish either tho") it takes the nightly's reserved Linux label: on the nightly-only minis it queued 8-17 min
     # behind 25-min tail pollers before the GitHub release could start (runs 45572455172, 45575194160).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
-    timeout-minutes: 10
+    # Room for gh_budget_wait.sh's wait through github.token's spent hour (tests/test_gh_budget_wait.py).
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read
@@ -7925,6 +7926,11 @@ jobs:
       - name: Name the run that published
         id: source
         run: python3 scripts/ci/nightly_published_build.py source
+      # Run 45819376175 (2026-11-26): the tail's one read of the source run died on "API rate limit exceeded for
+      # installation" (github.token's hour spent by the fleet), so a published build got no notes, deltas or
+      # comments and the run went red. Its reads now go through gh_budget_wait.sh and wait for the reset instead
+      # (the job stays secret-free, so no App pool to move to; the timeout leaves room for the hour).
+      - *wait-through-github-api-rate-l
       - name: Check the run that published
         if: steps.source.outputs.run != ''
         env:
@@ -7936,14 +7942,15 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/attempts/$ATTEMPT" > "$SOURCE_RUN_FILE"
           python3 scripts/ci/nightly_published_build.py check-source
+      # gh run download, not actions/download-artifact: its artifact list and zip reads go through the same wrapper.
       - name: Download its record
         if: steps.source.outputs.run != ''
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          run-id: ${{ steps.source.outputs.run }}
-          github-token: ${{ github.token }}
-          name: nightly-published-build-${{ steps.source.outputs.attempt }}
-          path: ${{ runner.temp }}/published-build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.source.outputs.run }}
+          NAME: nightly-published-build-${{ steps.source.outputs.attempt }}
+          DEST: ${{ runner.temp }}/published-build
+        run: gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$DEST"
       - name: Read the published build
         id: record
         env:
@@ -8014,6 +8021,7 @@ jobs:
         # No loop (tests/test_ci_no_github_token_polling.py). A 4xx fails this job (report-nightly-failure lists it).
         # A 5xx may or may not have made the run (45693929930: HTTP 500, no tail, no notes, no comments): look once
         # for a tail started since, and ask once more only if none did, so an accepted dispatch never gets two.
+        # A 422 "twirp error resource_exhausted" is GitHub failing to read the workflow file (45798252585): the same.
         env: *dispatch-pools
         run: |
           set -uo pipefail
@@ -8022,7 +8030,7 @@ jobs:
             -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")" 2>"$RUNNER_TEMP/dispatch.err"; }
           ask && exit 0
           cat "$RUNNER_TEMP/dispatch.err" >&2
-          grep -q 'HTTP 5[0-9][0-9]' "$RUNNER_TEMP/dispatch.err" || exit 1
+          grep -qE 'HTTP 5[0-9][0-9]|twirp error resource_exhausted' "$RUNNER_TEMP/dispatch.err" || exit 1
           sleep 30
           n="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml --event workflow_dispatch --branch "$GITHUB_REF_NAME" \
             --created ">=$started" --json displayTitle \

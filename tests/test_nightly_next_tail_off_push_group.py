@@ -99,10 +99,12 @@ else:
     if not re.search(r"gh api [^\n]*actions/runs/[^\n]*/attempts/", body) \
             or "nightly_published_build.py check-source" not in body:
         failures.append("published-build must check the source run through the API (check-source)")
-    download = next((s for s in source.get("steps", []) if "download-artifact" in str(s.get("uses", ""))), None)
-    with_ = (download or {}).get("with") or {}
-    if download is None or "nightly-published-build" not in str(with_.get("name", "")) \
-            or "steps.source.outputs.run" not in str(with_.get("run-id", "")):
+    # gh run download through gh_budget_wait.sh (run 45819376175 went red on a rate-limited read, 2026-11-26).
+    download = next((s for s in source.get("steps", []) if "gh run download" in str(s.get("run", ""))), None)
+    env_ = (download or {}).get("env") or {}
+    if download is None or "nightly-published-build" not in str(env_.get("NAME", "")) \
+            or "steps.source.outputs.run" not in str(env_.get("RUN", "")) \
+            or not re.search(r'gh run download "\$RUN" [^\n]*--name "\$NAME"', str(download.get("run", ""))):
         failures.append("published-build must read the record from the checked source run's artifact")
 
 for name in TAIL:
