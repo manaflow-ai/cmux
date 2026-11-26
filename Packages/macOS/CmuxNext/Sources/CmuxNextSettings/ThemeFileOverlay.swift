@@ -226,3 +226,9 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         }
     }
 }
+
+nonisolated extension ThemeFileOverlay {
+    /// A `colors.light` or `colors.dark` half over a theme that is the same in both appearances
+    /// (cmux-config `theme_file::colors::HALF_NEEDS_PAIR`).
+    static let halfNeedsPair = "a light or dark half needs appearance.theme \"light:NAME,dark:NAME\""
+}

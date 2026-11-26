@@ -36,6 +36,8 @@ pub(crate) struct RemoteRows {
     names: Names,
     /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
     pub(crate) writes: u64,
+    /// Changes that can alter name or prefix lookup, including whether a candidate is closed.
+    pub(super) route_changes: u64,
     /// The summary each row had before a dropped link marked it stale
     /// ([`Self::mark_peer_stale`]): a follow of the peer's list after the link is back sends only
     /// the rows that changed (`row_log.rs`), so the rest are put back as they were. Any other
@@ -100,6 +102,7 @@ impl RemoteRows {
         if let Some(old) = self.rows.get_mut(&key)
             && Self::same_index(old, &row)
         {
+            self.route_changes += u64::from(old.summary.closed() != row.summary.closed());
             *old = row;
             self.stale_from.remove(&key);
             self.writes += 2;
@@ -107,6 +110,7 @@ impl RemoteRows {
         }
         self.take(&key);
         self.writes += 1;
+        self.route_changes += 1;
         if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
@@ -135,6 +139,7 @@ impl RemoteRows {
             && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
+            && a.summary.former_names() == b.summary.former_names()
             && a.summary.same_pair(&b.summary)
     }
 
@@ -147,6 +152,7 @@ impl RemoteRows {
         let row = self.rows.remove(key)?;
         self.stale_from.remove(key);
         self.writes += 1;
+        self.route_changes += 1;
         self.names.remove(key, &row);
         let place = ListPlace::of(key, &row);
         if row.summary.closed() {
@@ -317,6 +323,19 @@ impl RemoteRows {
         self.per_peer.iter().map(|(peer, count)| (peer.clone(), *count)).collect()
     }
 
+    /// Only the rows that actually had this former name.
+    pub(super) fn formerly_named(
+        &self,
+        name: &str,
+    ) -> impl Iterator<Item = (&String, &Arc<RemoteSession>)> {
+        self.names
+            .by_former
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| Some((key, self.rows.get(key)?)))
+    }
+
     /// The rows tagged with `pair`.
     pub(crate) fn with_pair(
         &self,
@@ -410,6 +429,7 @@ struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
     by_alias: POrdMap<String, PSet<String>>,
+    by_former: PMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
@@ -438,6 +458,9 @@ impl Names {
                 self.map(which).entry(value).or_default().insert(key.to_owned());
             }
         }
+        for name in row.summary.former_names() {
+            self.by_former.entry(name.to_string()).or_default().insert(key.to_owned());
+        }
         if let Some(alias) = row.summary.alias() {
             self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
         }
@@ -453,6 +476,14 @@ impl Names {
                 keys.remove(key);
                 if keys.is_empty() {
                     map.remove(&value);
+                }
+            }
+        }
+        for name in row.summary.former_names() {
+            if let Some(keys) = self.by_former.get_mut(&**name) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.by_former.remove(&**name);
                 }
             }
         }
@@ -473,6 +504,7 @@ impl Names {
         self.by_name.is_empty()
             && self.by_bare_name.is_empty()
             && self.by_alias.is_empty()
+            && self.by_former.is_empty()
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
