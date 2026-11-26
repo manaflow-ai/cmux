@@ -377,6 +377,62 @@ class ProjectionTests(unittest.TestCase):
         self.assertTrue(all(isinstance(m, str) and "${" not in m and m == m.strip() for m in logs.PLATFORM_MSGS))
 
 
+class NeverBoundTests(unittest.TestCase):
+    """Prod journey 45767907054 (2026-11-26 06:42Z): a cold create's VM was made and its bind token minted, then it sat
+    `provisioning, host null` until never_bound. The platform logged its trace and its guest probe, and this reader
+    dropped both. These keep the step a create reached and the guest's typed facts, never its addresses or hosts."""
+
+    PROBE_OUT = ("uptime_s=301.52\nbind_file=present\nnameservers=10.0.0.2,\nroute=default via 10.0.0.1 dev eth0\n"
+                 "dns api.cmux.example=203.0.113.9\ndns coderouter.cmux.internal=unresolved\n"
+                 "https https://api.cmux.example/v1/cloud/bind http=405 ip=203.0.113.9 connect_s=0.01 tls_s=0.02 "
+                 "total_s=0.05\nhttps https://coderouter.cmux.internal/ curl: (6) Could not resolve host: "
+                 "coderouter.cmux.internal http=000 ip= connect_s=0 tls_s=0 total_s=0.001\n")
+
+    def test_a_create_trace_keeps_its_listed_steps_in_order(self):
+        row = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "steps": {"edge": 900, "driver": 400, "ensure": 24800, "secret_thing": 5,
+                                         "bind_file": "x"}, "power": {"call_ms": 3}, "total_ms": 31000}))
+        self.assertEqual(row["log"], {"msg": "cloud.create.trace", "machine": logs.base.tag(VM), "outcome": "ok",
+                                      "attempt": 1, "total_ms": 31000,
+                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800}})
+        self.assertEqual(list(row["log"]["steps"]), ["driver", "edge", "ensure"])
+        for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
+            self.assertIn(msg, logs.PLATFORM_MSGS)
+
+    def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
+        row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,
+                               "code": "cloud.machine.never_bound", "ms": 305000, "create_running": False,
+                               "bind_probe": {"outcome": "ran", "ms": 4100, "exit": 0, "out": self.PROBE_OUT,
+                                              "truncated": False}}))
+        log = row["log"]
+        self.assertIs(log["create_running"], False)
+        self.assertEqual(log["bind_probe"], {"outcome": "ran", "ms": 4100, "exit": 0, "truncated": False,
+                                             "uptime": "300s-900s", "bind_file": "present", "nameservers": 1,
+                                             "route": "default", "dns_api": "resolved", "dns_edge": "unresolved",
+                                             "https_api": 405, "https_edge": "curl_6"})
+        text = json.dumps(row)
+        for secret in ("203.0.113", "10.0.0", "cmux.example", "coderouter.cmux.internal", "eth0", VM, TEAM):
+            self.assertNotIn(secret, text)
+
+    def test_every_probe_outcome_and_odd_out_text_stays_typed(self):
+        cases = (({"outcome": "failed", "ms": 15, "error": "VmNotRunning"}, {"outcome": "failed", "ms": 15,
+                                                                          "error": True}),
+                 ({"outcome": "failed", "ms": 15, "error": "cloud.vm.not_running"},
+                  {"outcome": "failed", "ms": 15, "error": "cloud.vm.not_running"}),
+                 ({"outcome": "no_route", "ms": 0}, {"outcome": "no_route", "ms": 0}),
+                 ({"outcome": "weird", "ms": -1}, {"outcome": "other"}),
+                 ({"outcome": "ran", "ms": 9, "exit": 0, "out": "uptime_s=12\nbind_file=missing\nroute=\ncurl=absent\n"},
+                  {"outcome": "ran", "ms": 9, "exit": 0, "uptime": "lt60s", "bind_file": "missing", "route": "none",
+                   "https_api": "curl_absent", "https_edge": "curl_absent"}),
+                 ({"outcome": "ran", "ms": 9, "out": "https https://a/ http=000 ip= total_s=3\nuptime_s=nan?x"},
+                  {"outcome": "ran", "ms": 9, "https_api": "no_answer"}))
+        for probe, want in cases:
+            with self.subTest(probe=probe):
+                row = logs.line(event({"msg": "cloud.machine.start_overdue", "machine": VM,
+                                       "code": "cloud.machine.never_bound", "bind_probe": probe}))
+                self.assertEqual(row["log"]["bind_probe"], want)
+
+
 class IdleKeptTests(unittest.TestCase):
     """cmux#54889: how many overdue machines stayed up only for the disabled cmux-chief-update.timer, from a window
     read, with no machine, team or guest-written name in a row."""

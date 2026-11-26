@@ -526,6 +526,8 @@ mod tests;
 #[cfg(test)]
 mod upstream_tests;
 #[cfg(test)]
+mod view_session_tests;
+#[cfg(test)]
 mod view_tests;
 #[cfg(test)]
 mod view_transport_tests;

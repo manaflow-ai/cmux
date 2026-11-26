@@ -1,17 +1,20 @@
 //! The remote desktop viewer's rules and state, moved out of the Swift
 //! `CmuxNextRemoteView` module: keyboard routing and held keys, the pane's
-//! state reducer, the tab record and policy, and the stream transport's
-//! rules (control codec, handshake, session bookkeeping, frame splitting,
-//! cursor feed and popup surface streams). Every op is pure: the
-//! caller passes the state in and takes the next state back
-//! (`cmux_rd_view_call`, `view_ffi.rs`).
+//! state reducer, the tab record and policy, the session and tab-list
+//! bookkeeping, and the stream transport's rules (control codec,
+//! handshake, session bookkeeping, frame splitting, cursor feed and popup
+//! surface streams). Every op is pure: the caller passes the state in and
+//! takes the next state back (`cmux_rd_view_call`, `view_ffi.rs`).
 
 pub mod control;
 pub mod cursor;
 pub mod handshake;
 pub mod keyboard;
 pub mod pane;
+pub mod session;
+mod session_ops;
 pub mod tab;
+pub mod tabs;
 pub mod transport;
 
 use cmux_rd_proto::{base64_decode, control::Control};
@@ -161,9 +164,9 @@ pub enum Request {
     #[serde(rename = "text.events")]
     TextEvents { text: String },
     #[serde(rename = "pane.reduce")]
-    PaneReduce { state: PaneState, event: PaneEvent, now: i64 },
+    PaneReduce { state: Box<PaneState>, event: PaneEvent, now: i64 },
     #[serde(rename = "pane.view")]
-    PaneView { state: PaneState },
+    PaneView { state: Box<PaneState> },
     #[serde(rename = "latency.sample")]
     LatencySample {
         #[serde(default)]
@@ -326,6 +329,9 @@ fn events(state: &KeyboardState, events: Vec<InputEvent>) -> Value {
 
 /// Runs one request; Err when the request is not one.
 pub fn call(request: &[u8]) -> Result<Value, serde_json::Error> {
+    if let Some(answer) = session_ops::call(request) {
+        return answer;
+    }
     let request: Request = serde_json::from_slice(request)?;
     Ok(run(request))
 }
