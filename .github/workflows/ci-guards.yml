@@ -385,7 +385,7 @@ jobs:
       - name: Validate the VM image qcow2 export
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
-          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get -o DPkg::Lock::Timeout=100 install -y -qq qemu-utils >/dev/null 2>&1 || true
           python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
@@ -710,7 +710,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -752,7 +752,7 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts
+        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
@@ -902,6 +902,10 @@ jobs:
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
+
+      - name: Validate the Cargo.lock merge driver
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_merge_cargo_lock.py
 
       # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
       - name: Validate string catalogs are edited in place
@@ -1284,6 +1288,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate every non-cone sparse checkout keeps .gitmodules
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
+
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -1351,6 +1359,10 @@ jobs:
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
+
+      - name: Validate every push- or PR-started workflow has a concurrency group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
 
       - name: Validate pull_request tailnet joins are opt-in and same-repo only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1445,6 +1457,10 @@ jobs:
       - name: Validate the submodule init cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_init_submodule.sh
+
+      - name: Validate ios-live person slots and supervision
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_person_slot.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
