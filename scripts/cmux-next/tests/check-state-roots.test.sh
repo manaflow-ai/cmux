@@ -114,6 +114,10 @@ idpass "$SW" "a reworded line keeps its row: the id, a quote to a slash" '    le
 idpass "$SW" "a reworded line keeps its row: the id, a quote to a space" '    let d = "com.cmuxterm.app x"' "$SW\tcom.cmuxterm.app\t1\tkeep\treviewed\n"
 idpass "$SW" "a reworded line keeps its row: a root, a slash to a quote" '    let d = home + "/.config/cmux"' "$SW\t.config/cmux\t1\tkeep\treviewed\n"
 idpass "$RS" "a reworded line keeps its row: a join, a paren to a comma" '    let d = home.join("cmux", "x");' "$RS\tjoin(\"cmux\")\t1\tkeep\treviewed\n"
+idpass "$SW" "an old-style row (trailing slash) reads as its bare key" '    let d = home + "/.config/cmux/x"' "$SW\t.config/cmux/\t1\tkeep\treviewed\n"
+idpass "$SW" "an old-style row (trailing quote) reads as its bare key" '    let d = "com.cmuxterm.app"' "$SW\tcom.cmuxterm.app\"\t1\tkeep\treviewed\n"
+idfail "$SW" "an old-style row still caps the count" '    let a = "/.config/cmux/a"; let b = "/.config/cmux/b";' "$SW\t.config/cmux/\t1\tkeep\treviewed\n"
+idpass "$SW" "a row for an id that only starts with the Classic id is not stale" '    let ok = !isCmux("com.cmuxterm.appx")' "$SW\tcom.cmuxterm.appx\t1\tkeep\treviewed\n"
 idpass "$SW" "NEXT's own config folder" '    let d = home + "/.config/cmux-next/cmux-next.json"'
 idpass "$SW" "NEXT's own state folder" '    let d = home + "/.local/state/cmux-next/x"'
 idpass "$RS" "NEXT's own cache" '    let d = format!("{home}/.cache/cmux-next/x");'
