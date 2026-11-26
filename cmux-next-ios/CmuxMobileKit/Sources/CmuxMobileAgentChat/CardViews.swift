@@ -54,7 +54,7 @@ struct PermissionCard: View {
                 }
             }
             .padding(16)
-            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
         }
     }
@@ -262,8 +262,8 @@ public struct QuestionCard: View {
             }
         }
         .padding(16)
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
-        .clipShape(.rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
+        .clipShape(.rect(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
     }
 
     private func needsNext(_ item: AgentQuestion.Item) -> Bool {
@@ -461,6 +461,7 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             HStack(spacing: 8) {
+                // retry-prompt-ok: re-runs the failed turn (spends tokens; the cause may need fixing first)
                 Button(leadsWithContinue ? "Continue" : "Retry", action: retry)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)
@@ -474,7 +475,7 @@ struct FailureCard: View {
             }
         }
         .padding(16)
-        .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
     }
 }
 
@@ -530,7 +531,7 @@ struct NextStepCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agentChat.nextStep")
         .onChange(of: answer) { _, _ in sent = false }

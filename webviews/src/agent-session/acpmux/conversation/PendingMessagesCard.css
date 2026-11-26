@@ -9,7 +9,7 @@
 .cv-pending {
   margin: 0;
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -21,7 +21,7 @@
   white-space: nowrap;
 }
 .cv-pending__body {
-  margin-inline-start: 24px;
+  margin-inline-start: var(--ds-space-fixed-5);
 }
 .cv-pending__sender-head {
   display: flex;

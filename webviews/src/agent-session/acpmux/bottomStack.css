@@ -262,10 +262,10 @@
    travel the whole height on the fold's clock, and nothing is left to drop in one frame when it goes.
    At rest the layout is the same. */
 .acpmux-asks-stack > .acpmux-trust-fold:not(:last-child) {
-  margin-bottom: -8px;
+  margin-bottom: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-asks-stack > * + .acpmux-trust-fold:last-child {
-  margin-top: -8px;
+  margin-top: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-asks-stack > .acpmux-trust-fold:not(:last-child)::after,
 .acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
@@ -277,13 +277,42 @@
   min-height: 0;
   padding-bottom: 0;
 }
-/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold. */
-.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child {
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold of the
+   trust question or a pinned question, whichever leaves last. */
+.acpmux-asks-stack[data-leaving] {
   --acpmux-stack-foot: 10px;
 }
 .acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
   content: "";
   display: block;
+  padding-top: var(--acpmux-stack-foot);
+}
+/* A pinned question folding out (PendingAsks.tsx `PinnedAsk`, `data-leaving`) carries the same: the
+   stack's gap beside it, and the stack's foot when nothing else is left, inside the height its fold
+   animates. Its own column gap (PendingAsks.css) sits before the added room, so the room takes it back. */
+.acpmux-asks-stack > .acpmux-pending-ask[data-leaving]:not(:last-child) {
+  margin-bottom: -8px;
+}
+.acpmux-asks-stack > * + .acpmux-pending-ask[data-leaving]:last-child {
+  margin-top: -8px;
+}
+.acpmux-asks-stack > .acpmux-pending-ask[data-leaving]:not(:last-child)::after {
+  content: "";
+  display: block;
+  margin-top: calc(-1 * var(--ds-space-1, 4px));
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-asks-stack > * + .acpmux-pending-ask[data-leaving]:last-child::before {
+  content: "";
+  display: block;
+  order: -1;
+  margin-bottom: calc(-1 * var(--ds-space-1, 4px));
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-asks-stack[data-leaving] > .acpmux-pending-ask[data-leaving]:last-child::after {
+  content: "";
+  display: block;
+  margin-top: calc(-1 * var(--ds-space-1, 4px));
   padding-top: var(--acpmux-stack-foot);
 }
 /* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
@@ -343,7 +372,7 @@
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: min(320px, 60%);
   transform-origin: 50% 100%;
   will-change: transform, opacity;
@@ -352,7 +381,7 @@
 .acpmux-send-tuck__pill {
   overflow: hidden;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
   color: var(--agent-text);

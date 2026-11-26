@@ -178,7 +178,7 @@ Rules for pages built on the kit:
 - Color comes from the theme. Use the tokens or the `--cmux-*` variables, never a literal color.
 - Don't restyle `.kit-*` or `.ui-*` classes. If a page needs a variant, add it here.
 - Visible text comes from the caller, in the page's language. The kit holds no strings.
-- Use `space()` for spacing that follows page density. The generated `--ds-space-fixed-*` CSS variables preserve the geometry of existing fixed-pixel layouts during migration.
+- Use `space()` for spacing that follows page density. For existing fixed-pixel layouts, run `python3 webviews/scripts/pages/migrate-ds-spacing.py --write` from the repository root. It uses the fixed Instrument scale for margins, padding and gaps. Declarations with off-scale values and custom-property fallbacks keep their original geometry. Run with `--check` to list whether any eligible declarations remain.
 - Raw values (a pixel size, a hex colour, a duration) still compile outside the closed directories, but
   they are discouraged: use a token, and if no token fits, ask for one here.
 
@@ -274,7 +274,11 @@ From an extension folder, run `cmux ext dev --once --json`. The `scene` field sh
 rendered. The `design` findings flag raw hex colors and spacing or type sizes outside the
 folder’s design scale. These warnings let the view render while you compare it with the gallery.
 
-For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
+For a local view, `cmux customize status` reports literal hex colors passed directly to scene
+modifiers such as `.foregroundColor("#666666")`. Use a theme color such as `"secondary"` to
+follow the active appearance. A draft with a literal color can still be applied.
+
+Start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
 Use the gallery above as a visual reference. A prompt for an agent:
 
 > Build a sidebar focus timer from the scene globals in the focus timer example. Start at 20 minutes

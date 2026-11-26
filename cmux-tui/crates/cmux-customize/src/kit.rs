@@ -447,7 +447,8 @@ pub fn components_in(request: &Request, manifest: &Value, path: &Path) -> Result
     let find = |name: &str| {
         all.iter()
             .copied()
-            .find(|c| c["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .filter(|c| c["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .min_by_key(|c| c["kitExport"] != true)
     };
     let missing = |name: &str| {
         let close: Vec<&str> = all

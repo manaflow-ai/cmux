@@ -355,10 +355,18 @@ function rolesBlock(roles) {
   return out;
 }
 
+function fixedSpacingDeclarations(data) {
+  return [
+    ...data.spacing.steps.map((step) => `  --ds-space-fixed-${step.name}: ${px(step.px)};`),
+    ...data.spacing.layout.map((size) => `  --ds-space-fixed-${size}: ${px(size)};`),
+  ];
+}
+
 function cssBlock(data, roles) {
   const out = [BEGIN, ":root {"];
   for (const step of data.spacing.steps) out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
   for (const size of data.spacing.layout) out.push(`  --ds-space-${size}: ${px(size)}; /* layout gap */`);
+  out.push(...fixedSpacingDeclarations(data));
   for (const control of data.controls)
     out.push(`  --ds-control-${control.name}: ${px(control.px)}; /* ${control.for} */`);
   for (const icon of data.icons) out.push(`  --ds-icon-${icon.name}: ${px(icon.px)}; /* ${icon.for} */`);
@@ -461,14 +469,6 @@ function cssBlock(data, roles) {
   // The host's Reduce Transparency, and Liquid Glass off (appearance.liquidGlass, data-glass="off").
   out.push(':root:is([data-reduce-transparency], [data-glass="off"]) {', ...still, "}");
   out.push(...rolesBlock(roles), END);
-  return out.join("\n");
-}
-
-function fixedSpacing(data) {
-  const out = [FIXED_BEGIN, ":root {"];
-  for (const step of data.spacing.steps) out.push(`  --ds-space-fixed-${step.name}: ${px(step.px)};`);
-  for (const size of data.spacing.layout) out.push(`  --ds-space-fixed-${size}: ${px(size)};`);
-  out.push("}", FIXED_END, "");
   return out.join("\n");
 }
 
@@ -641,7 +641,7 @@ export function writeDesignScale({ check = false, log = console.log } = {}) {
   }
   const fixedPath = path.join(repo, FIXED_CSS_FILE);
   const fixedCurrent = fs.existsSync(fixedPath) ? fs.readFileSync(fixedPath, "utf8") : "";
-  const fixedWanted = fixedSpacing(data);
+  const fixedWanted = [FIXED_BEGIN, ":root {", ...fixedSpacingDeclarations(data), "}", FIXED_END, ""].join("\n");
   if (fixedWanted !== fixedCurrent) {
     if (check) {
       drifted = true;

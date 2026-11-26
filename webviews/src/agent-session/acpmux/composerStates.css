@@ -1006,7 +1006,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    .acpmux-queued-action). The ⋯ menu wears the composer menus' look (modelPicker.css). */
 .acpmux-queued-action.acpmux-queued-steer {
   width: auto;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   padding: 0 6px 0 4px;
   font: inherit;
   font-size: var(--text-detail);
@@ -1235,8 +1235,8 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   min-width: 0;
   overflow: hidden;
   /* Room for a focused tile's ring (1.5px and 1px out) inside the clip. */
-  margin: -4px;
-  padding: 4px;
+  margin: calc(-1 * var(--ds-space-fixed-1));
+  padding: var(--ds-space-fixed-1);
 }
 .acpmux-queued-image-slot[data-video] .acpmux-queued-image {
   position: relative;
@@ -1246,8 +1246,8 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 4px;
+  gap: var(--ds-space-fixed-1);
+  padding: 0 var(--ds-space-fixed-1);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   /* As tall as its glyph, so on a 36 px tile the chip sits under the poster's middle, which the

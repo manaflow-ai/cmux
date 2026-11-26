@@ -1,7 +1,7 @@
 .select-gallery {
   display: grid;
   justify-items: center;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
   min-height: 200px;
   padding: 36px 24px;
   color: var(--cmux-text, CanvasText);

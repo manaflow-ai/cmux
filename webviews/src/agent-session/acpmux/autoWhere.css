@@ -44,9 +44,9 @@
 .acpmux-auto-arrival {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-height: 24px;
-  padding: var(--grid-half-step) 4px var(--grid-half-step) 8px;
+  padding: var(--grid-half-step) var(--ds-space-fixed-1) var(--grid-half-step) var(--ds-space-fixed-2);
   border-radius: 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
