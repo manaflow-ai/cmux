@@ -95,14 +95,6 @@ export function cycleRate(bounds: number[], times: number[], values: number[]) {
   return { rate, se, cycles, span: sumSpan, perCycle: cost.map((c, i) => c / span[i]!) };
 }
 
-/// Where the cycles of a run end: at each major collection episode's end, and, when the run stopped (`end`) before
-/// `want` cycles closed, at the run's end too. A cap cuts off the long cycles and keeps the short ones, so closed cycles
-/// alone read high; the open tail counts as one more cycle whose collection has not come yet (one collection short).
-export function cycleBounds(ends: number[], end: number, want: number) {
-  const capped = ends.length > 0 && ends.length < want + 1 && end > ends[ends.length - 1]!;
-  return { bounds: capped ? [...ends, end] : ends, capped };
-}
-
 /// Two major collections less than this apart (microseconds) are one episode, and a cycle ends at the episode's last:
 /// V8 often follows a collection with another within a second (chats x10: ends at 6.1 and 6.8 s), and a 0.7 s "cycle"
 /// between them, read alone, is all collection (1194 ms/s against 77 for the next). The span between episodes still
@@ -116,15 +108,22 @@ export function majorGcEnds(
   events: { pid: number; ts: number; dur: number; heapBefore: number }[],
   gapUs = EPISODE_GAP_US,
 ) {
-  if (!events.length) return { pid: null as number | null, ends: [] as number[] };
+  if (!events.length) return { pid: null as number | null, ends: [] as number[], heaps: [] as number[] };
   const pid = [...events].sort((a, b) => b.heapBefore - a.heapBefore)[0]!.pid;
   const mine = events.filter((e) => e.pid === pid).sort((a, b) => a.ts - b.ts);
+  // heaps: each episode's largest heap before a collection, bytes (what the cycle ending there collected from).
   const ends: number[] = [];
+  const heaps: number[] = [];
   for (const e of mine) {
     const end = e.ts + e.dur;
-    if (ends.length && e.ts - ends[ends.length - 1]! < gapUs)
-      ends[ends.length - 1] = Math.max(ends[ends.length - 1]!, end);
-    else ends.push(end);
+    const last = ends.length - 1;
+    if (ends.length && e.ts - ends[last]! < gapUs) {
+      ends[last] = Math.max(ends[last]!, end);
+      heaps[last] = Math.max(heaps[last]!, e.heapBefore);
+    } else {
+      ends.push(end);
+      heaps.push(e.heapBefore);
+    }
   }
-  return { pid, ends };
+  return { pid, ends, heaps };
 }

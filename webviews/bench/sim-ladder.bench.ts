@@ -22,7 +22,7 @@
 //                    ThreadPoolForeg 1137, while the least read flat). Tabs: over CPU_WINDOWS x WINDOW (45 s). Chats:
 //                    over whole collection cycles of their shared heap, from the end of one major collection to the end
 //                    of the GC_CYCLES-th after it (traced, ladderRatio.ts cycleRate), so no rung holds a collection
-//                    more or less by phase; a cycle the cap cuts off counts as open to the run's end (cycleBounds)
+//                    more or less by phase
 //   heap_mb          the renderers' JS heap after a full collection (the chats share one isolate), MB
 //   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s,
 //                    over the same span as cpu_window_ms_per_s
@@ -32,12 +32,12 @@
 // low), per axis and metric, with a per-item noise floor (FLOOR) under both: flat is 1.0, a per-item cost that grows
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
 // The CPU metrics carry each rung's standard error (whole cycles: their jackknife; else its windows' spread over
-// sqrt(n)), and chats script time its cycles' jackknife. Their ratio is the same
+// sqrt(n)), and chats script time its cycles' jackknife; under 3 closed cycles at a rung, none. Their ratio is the same
 // formula; beside it the bench prints FLOOR, each marginal +- 2 standard errors and the interval the ratio lies in
 // (ladderRatio.ts ratioInterval), and a row sim_ladder.AXIS.METRIC.ratio_ci (p50 its low end, p95 its high end).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
-//     [--window 5000] [--settle 20000] [--rate 20] [--gc-cycles 4] [--cycle-cap 170000] [--freeze] [--json out.json]
+//     [--window 5000] [--settle 20000] [--rate 20] [--gc-cycles 3] [--cycle-cap 300000] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
 // launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
@@ -54,7 +54,6 @@ import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
-  cycleBounds,
   cycleRate,
   FLOOR,
   interpolate,
@@ -131,10 +130,15 @@ const CPU_WINDOWS = Number(flag("--cpu-windows") ?? (PROFILE ? 3 : 9));
 // The chats axis reads CPU and script time over whole collection cycles of the shared heap instead (ladderRatio.ts
 // cycleRate): nine 5 s windows still read chats CPU to +- 13 ms/s, as whether the 45 s held a 1.3 s (x10) or 5.9 s
 // (x50) collection was phase. Each chats rung runs until GC_CYCLES major collections after its first have ended, at
-// most CYCLE_CAP_MS (x10 cycles every 8 s, x50 and x100 every 15-20 s), and its rates are over exactly those cycles.
-// The bound: three chats rungs at most 3 x (CYCLE_CAP_MS + SETTLE_MS) of measuring, 9.5 min at the defaults.
-const GC_CYCLES = Number(flag("--gc-cycles") ?? 4);
-const CYCLE_CAP_MS = Number(flag("--cycle-cap") ?? 170_000);
+// most CYCLE_CAP_MS, and its rates are over exactly those closed cycles: a cycle the cap cuts off has not paid its
+// collection yet and is never counted. Cycles run 8-30 s at x10 and 20-100 s at x50 and x100 (x100 traced 35 s, then
+// 89 s with none before a 170 s cap), so the cap is 300 s. Under MIN_CYCLES closed cycles a rung's rate stands with no
+// error (the ladder prints its interval as "?" and the cycle counts beside it).
+// The bound: three chats rungs at most 3 x (CYCLE_CAP_MS + SETTLE_MS) of measuring, 16 min at the defaults; with the
+// tabs axis and the loads, under the suite's 1,700 s (web-ui-suite.ts).
+const GC_CYCLES = Number(flag("--gc-cycles") ?? 3);
+const MIN_CYCLES = 3;
+const CYCLE_CAP_MS = Number(flag("--cycle-cap") ?? 300_000);
 // The awake pages' ScriptDuration is read every 10 s: each reading is a CDP call per page (100 at x100) and costs the
 // renderer time of its own, in step with the pages.
 const SCRIPT_SAMPLE_MS = 10_000;
@@ -590,7 +594,7 @@ async function measure(
     printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, (performance.now() - t0) / 1000);
   // The chats axis runs until GC_CYCLES whole cycles of the shared heap have ended (at most CYCLE_CAP_MS); the rest
   // run CPU_WINDOWS windows.
-  let gc: { pid: number | null; ends: number[] } = { pid: null, ends: [] };
+  let gc: { pid: number | null; ends: number[]; heaps: number[] } = { pid: null, ends: [], heaps: [] };
   if (cycles) gc = await traceMajorGcs(browserCdp, t0 + CYCLE_CAP_MS);
   else await focused.waitForTimeout(Math.max(0, CPU_WINDOWS * WINDOW_MS - (performance.now() - t0)));
   scriptOn = false;
@@ -641,25 +645,28 @@ async function measure(
   if (cycles) {
     // Whole cycles: from the end of the first major collection seen to the end of the last, every collection between
     // counted once. Under one whole cycle in the cap, the whole run's mean stands, with its windows' error.
-    // When the cap ends the trace before GC_CYCLES cycles close, the cycles that did close are the short ones (x100's
-    // collections came 35 s apart, then none in the next 112 s: closed cycles alone read 353 ms/s against 143 at x10),
-    // so the open tail from the last collection to the run's end counts as one more cycle whose collection has not come
-    // yet. Both rates print: closed cycles only (short-biased, high) and with the open tail (one collection short, low).
-    const { bounds, capped } = cycleBounds(gc.ends, end, GC_CYCLES);
-    const closed = capped ? cycleRate(gc.ends, cpuT, cpuV) : null;
-    const cpu = cycleRate(bounds, cpuT, cpuV);
-    const scr = cycleRate(bounds, scriptT, scriptV);
+    const cpu = cycleRate(gc.ends, cpuT, cpuV);
+    const scr = cycleRate(gc.ends, scriptT, scriptV);
     lastCycles = cpu?.cycles ?? 0;
     if (cpu && scr) {
       cpuRate = cpu.rate * 1e6;
       scriptRate = scr.rate * 1e6;
+      // Under MIN_CYCLES closed cycles the rate has no error worth the name: none is reported, not the windows'.
+      const enough = cpu.cycles >= MIN_CYCLES;
       lastSe = {
-        ...lastSe,
-        cpu_window_ms_per_s: cpu.se === null ? windowSe : cpu.se * 1e6,
-        ...(scr.se === null ? {} : { script_ms_per_s: scr.se * 1e6 }),
+        cpu_ms_per_s: windowSe,
+        ...(enough && cpu.se !== null ? { cpu_window_ms_per_s: cpu.se * 1e6 } : {}),
+        ...(enough && scr.se !== null ? { script_ms_per_s: scr.se * 1e6 } : {}),
       };
       console.log(
-        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s${capped ? `, the last ${((end - gc.ends[gc.ends.length - 1]!) / 1e6).toFixed(1)} s open at the cap` : ""}): cpu ${cpuRate.toFixed(1)} +- ${(cpu.se === null ? windowSe : cpu.se * 1e6).toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}${closed ? `; closed cycles only ${(closed.rate * 1e6).toFixed(1)}` : ""}), script ${scriptRate.toFixed(1)} +- ${scr.se === null ? "?" : (scr.se * 1e6).toFixed(1)} ms/s`,
+        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s): cpu ${cpuRate.toFixed(1)} +- ${lastSe.cpu_window_ms_per_s === undefined ? "?" : lastSe.cpu_window_ms_per_s.toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}), script ${scriptRate.toFixed(1)} +- ${lastSe.script_ms_per_s === undefined ? "?" : lastSe.script_ms_per_s.toFixed(1)} ms/s`,
+      );
+      // Each closed cycle's CPU against the heap its closing collection started from: a cost per cycle that grows faster
+      // than the heap is the collector's own superlinearity, not the measure's.
+      console.log(
+        `SIM-LADDER   cycle cpu ms vs heap MB: ${cpu.perCycle
+          .map((r, i) => `${Math.round(r * (gc.ends[i + 1]! - gc.ends[i]!))}/${Math.round(gc.heaps[i + 1]! / 1048576)}`)
+          .join(" ")}`,
       );
     } else
       console.log(
@@ -973,7 +980,9 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)} | ratio ${ratio}` +
         (ci
           ? ` | per item +-${SIGMAS} se ${ci.low.toFixed(2)} +- ${(SIGMAS * ci.lowSe).toFixed(2)} then ${ci.high.toFixed(2)} +- ${(SIGMAS * ci.highSe).toFixed(2)}, floor ${ci.floor}, ratio in ${r2(ci.lo)} .. ${r2(ci.hi)}`
-          : ""),
+          : axis === "chats" && (metric === "cpu_window_ms_per_s" || metric === "script_ms_per_s")
+            ? ` | ratio in ? (whole gc cycles ${RUNGS.map((rung) => cycleCounts[rung] ?? 0).join(" / ")}, under ${MIN_CYCLES} at a rung)`
+            : ""),
     );
     if (ci)
       perfRow({
