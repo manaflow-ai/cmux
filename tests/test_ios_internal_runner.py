@@ -16,9 +16,9 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
-import sys
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -253,7 +253,7 @@ class ArchiveSource(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             def git(cwd, *args, input=None):
-                return subprocess.check_output(["git", "-c", "uploadpack.allowFilter=true", *args],
+                return subprocess.check_output(["git", *args],
                                                cwd=cwd, text=True, input=input).strip()
 
             git(root, "init", "-q", "seed")
@@ -261,7 +261,10 @@ class ArchiveSource(unittest.TestCase):
             input_file = "cmux-next-ios/App/Info.plist"
             catalog = "cmux-next-ios/verify/nested/example.xcstrings"
             media = "cmux-next-ios/verify/nested/recording.mp4"
-            for name in (input_file, catalog, media, "web/unrelated.bin", ".gitmodules"):
+            build_dirs = ("Packages", "vendor/stack-auth-swift-sdk-prerelease", "AppIcon.icon", "cmux-tui",
+                          "schemas", "backend/catalog", "backend/packages", "plans/cmux-next", "skills", "mux", "samples")
+            build_inputs = [f"{directory}/input" for directory in build_dirs]
+            for name in [input_file, catalog, media, "web/unrelated.bin", ".gitmodules", *build_inputs]:
                 path = seed / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(os.urandom(2**20) if name.endswith((".bin", ".mp4")) else b"")
@@ -298,6 +301,7 @@ class ArchiveSource(unittest.TestCase):
                     src = root / mode
                     git(root, "init", "-q", mode)
                     git(src, "remote", "add", "origin", mirror.as_uri())
+                    git(src, "config", "remote.origin.uploadpack", "git -c uploadpack.allowFilter=true upload-pack")
                     args = []
                     if mode == "sparse":
                         git(src, "sparse-checkout", "set", "--no-cone", "--stdin", input=patterns)
@@ -310,8 +314,25 @@ class ArchiveSource(unittest.TestCase):
                 self.assertTrue((src / catalog).is_file())
                 self.assertEqual((src / media).exists(), mode == "full")
                 self.assertEqual((src / "web/unrelated.bin").exists(), mode == "full")
-                size = sum(p.stat().st_size for p in (src / ".git/objects/pack").glob("*.pack"))
-                print(f"archive fixture {sha} {mode}: {elapsed:.3f}s, {size} pack bytes")
+                if mode != "full":
+                    # The archive step must work even when neither origin nor the mirror
+                    # is accessible. Exercise the build script's exclusion of verification media.
+                    git(src, "remote", "set-url", "origin", str(root / "offline.git"))
+                    build_script = (ROOT / "cmux-next-ios/scripts/testflight-build.sh").read_text()
+                    source_step = build_script.split("# --- Source (the commit only)", 1)[1].split("\n", 1)[1]
+                    source_step = source_step.split("# --- CmuxMobileLinkFFI", 1)[0]
+                    work = root / (mode + "-build")
+                    (work / "src").mkdir(parents=True)
+                    (src / input_file).write_text("local edit")
+                    subprocess.run(["bash", "-euo", "pipefail", "-c", source_step], cwd=src, check=True,
+                                   env=dict(os.environ, repo=str(src), sha=sha, private=str(work), work=str(work),
+                                            CMUX_INTERNAL_SPARSE_ARCHIVE=steps["Archive"]["env"]["CMUX_INTERNAL_SPARSE_ARCHIVE"]))
+                    self.assertEqual((work / "src" / input_file).read_bytes(), b"")
+                    for name in build_inputs:
+                        self.assertTrue((work / "src" / name).is_file(), name)
+                    self.assertFalse((work / "src" / media).exists())
+                size = sum(p.stat().st_size for p in (src / ".git/objects").rglob("*") if p.is_file())
+                print(f"archive fixture {sha} {mode}: {elapsed:.3f}s, {size} object bytes")
                 if mode != "full":
                     self.assertLess(size, 2**20)
 
@@ -353,6 +374,7 @@ class StoreSdk(unittest.TestCase):
             broken = install("Xcode_broken.app", "27", "27")
             (broken / "Contents/Developer/version").unlink()
             beta = install("Xcode_27.8_Beta.app", "27.8", "27.8")
+            install("Xcode_new.app", "27.9 beta 1", "27.9")
             (root / "Xcode.app").symlink_to(beta)
             release = install("Xcode_27.3.app", "27.3", "27.3")
             env = dict(os.environ, CMUX_XCODE_APPLICATIONS_DIR=tmp, PICK=str(root / "pick"),

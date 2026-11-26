@@ -133,7 +133,7 @@ jobs:
       build_number: ${{ steps.stamp.outputs.build_number }}
     env:
       SHA: ${{ inputs.sha }}
-      # Keep these paths in step with testflight-build.sh's git archive. The
+      # Keep these paths in step with testflight-build.sh's source inputs. The
       # source review also reads string catalogs anywhere under the iOS tree.
       ARCHIVE_PATHS: &archive-paths |
         /.gitmodules
@@ -192,17 +192,18 @@ jobs:
             exit 0
           fi
           src=$(mktemp -d "$RUNNER_TEMP/ios-archive.XXXXXX")
-          git init -q --template= "$src"
+          git init -q "$src"
           cd "$src"
-          git config core.hooksPath /dev/null
-          git remote add origin "file://$mirror"
+          git remote add origin "$mirror"
+          git config remote.origin.uploadpack "git -c uploadpack.allowFilter=true -c uploadpack.allowAnySHA1InWant=true upload-pack"
           git config remote.origin.promisor true
           git config remote.origin.partialclonefilter blob:none
           git sparse-checkout set --no-cone --stdin <<< "$ARCHIVE_PATHS"
-          git -c uploadpack.allowFilter=true -c uploadpack.allowAnySHA1InWant=true fetch \
+          git fetch \
             --no-tags --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"
-          git -c uploadpack.allowFilter=true -c uploadpack.allowAnySHA1InWant=true checkout -q --detach "$SHA"
+          git checkout -q --detach "$SHA"
           [[ "$(git rev-parse HEAD)" == "$SHA" && ! -e "$mirror/glaeda-repair-pending" ]]
+          git config --unset remote.origin.uploadpack
           git remote set-url origin "$REPO_URL"
           echo "directory=$src" >> "$GITHUB_OUTPUT"
 
@@ -285,6 +286,7 @@ jobs:
       - name: Archive
         working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
         env:
+          CMUX_INTERNAL_SPARSE_ARCHIVE: '1'
           MARKETING: ${{ steps.stamp.outputs.marketing }}
           BUILD_NUMBER: ${{ steps.stamp.outputs.build_number }}
         run: |
