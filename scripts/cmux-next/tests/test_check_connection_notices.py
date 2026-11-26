@@ -391,6 +391,26 @@ class WebShapes(unittest.TestCase):
                 self.assertEqual(code, 1, out)
                 self.assertIn("StateWord shows a connection state", out)
 
+    def test_relative_action_does_not_cover_unresolved_alias_consumer(self):
+        for declaration, tag in [
+            ('import { StateWord as Badge } from "@/other/component";', "Badge"),
+            ('import Badge from "@/other/StateWord";', "Badge"),
+            ('import * as labels from "@/other/StateWord";', "labels.StateWord"),
+        ]:
+            with self.subTest(declaration=declaration):
+                tree = Tree(self)
+                tree.write(f"{WEB}/StateWord.tsx", """
+                    export function StateWord() { return <span>Offline</span>; }
+                """)
+                tree.write(f"{WEB}/ActionRow.tsx", """
+                    import { StateWord } from "./StateWord";
+                    export function ActionRow() { return <button onClick={connect}><StateWord /></button>; }
+                """)
+                tree.write(f"{WEB}/BareRow.tsx", declaration + f"\nexport function BareRow() {{ return <{tag} />; }}")
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("StateWord shows a connection state", out)
+
     def test_live_region_keeps_its_own_finding(self):
         tree = Tree(self)
         tree.write(f"{WEB}/Notice.tsx", """
