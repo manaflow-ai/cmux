@@ -301,6 +301,10 @@ path = "tests/test_nightly_owned_minis_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_pr_list_publish.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -392,6 +396,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_app_token.py"
 lane = "linux-guard"
 
 [[test]]
