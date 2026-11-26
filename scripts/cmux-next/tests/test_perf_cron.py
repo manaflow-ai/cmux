@@ -1922,6 +1922,17 @@ class WebUiTests(unittest.TestCase):
             "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
         self.assertEqual(cron.webui_wakeup_lines(None), [])
 
+    def test_the_ladder_lines_carry_each_rung_value(self):
+        stdout = ("web-ui-suite: sim-ladder\n"
+                  "  sim-ladder| SIM-LADDER chats x50 {\"cpu_ms_per_s\":55} renderers 56\n"
+                  "  sim-ladder| SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item 0.53 then -0.58 | ratio -1.1\n"
+                  "  sim-ladder| SIM-LADDER-SUMMARY tabs x100 cpu_window 106 cpu 78 pss 1825 heap 300 load_collection 2010 ms\n"
+                  "PERF_ROW {\"name\": \"sim_ladder.ratio_max\"}\n")
+        self.assertEqual(cron.webui_ladder_lines(stdout), [
+            "sim-ladder| SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item 0.53 then -0.58 | ratio -1.1",
+            "sim-ladder| SIM-LADDER-SUMMARY tabs x100 cpu_window 106 cpu 78 pss 1825 heap 300 load_collection 2010 ms"])
+        self.assertEqual(cron.webui_ladder_lines(None), [])
+
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
         names = [line.split(" | ")[0].lstrip("| ") for line in lines[2:] if line.startswith("|")]
