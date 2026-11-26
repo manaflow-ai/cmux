@@ -105,8 +105,10 @@ restore_pool() {
   local root slot here="$repo/$workspace/target" previous
   root="$(pool_root)"; slot="$(slot_dir)/tree-$(toolchain_hash)"
   mkdir -p "$root" "$(dirname "$slot")"
-  # The old layout (a tree per runner name), other workspaces' slots stay; this slot's other toolchains go.
-  for previous in "$root"/*/rust-* "$(dirname "$slot")"/tree-*; do
+  # This slot's other toolchains go (a slot tree is never in use: a job's tree is in its workspace).
+  # The old layout (a tree per runner name, used in place through CARGO_TARGET_DIR) goes once no job
+  # has touched it for 6 hours, so a job still on the old script keeps its tree. Other slots stay.
+  for previous in "$(dirname "$slot")"/tree-* $(find "$root" -mindepth 2 -maxdepth 2 -name 'rust-*' -type d -mmin +360 2>/dev/null); do
     [[ "$previous" != "$slot" && -d "$previous" && ! -L "$previous" ]] || continue
     echo "pool warm target: moving out $previous"
     discard "$previous"

@@ -52,10 +52,11 @@ checkout_again() { sleep 1.1; find "$repo/ws" -path "$repo/ws/target" -prune -o 
 
 # The old layout: a tree per runner name, which no other runner found.
 old="$TMP/home/.cache/cmux-next-ci/pool-cargo/fast-tier-cargo/0123456789abcdef/rust-0123456789abcdef"
-mkdir -p "$old/debug"
+mkdir -p "$old/debug" "${old%/*}/rust-fedcba9876543210"; touch -d '7 hours ago' "$old"
 restore
 [[ -z "$TARGET" ]] || fail "the pool sets no CARGO_TARGET_DIR, got $TARGET"
 [[ ! -e "$old" ]] && compgen -G "$TMP/home/.cmux-job-trash/pool-warm-*" > /dev/null || fail "the old layout goes to the trash"
+[[ -d "${old%/*}/rust-fedcba9876543210" ]] || fail "an old-layout tree touched in the last 6 hours stays (a job on the old script may use it)"
 grep -q "miss (nothing kept" "$TMP/restore.log" || fail "an empty slot is a miss"
 ! grep -q "linked=true" "$TMP/out" || fail "a miss links nothing, so the R2 restore runs"
 grep -qx "keep=true" "$TMP/out" || fail "a miss still keeps this job's tree"
