@@ -296,6 +296,63 @@ ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-}"
 # never edited. An empty ZIG_FLEET_TOOLS_DIR turns this off (tests).
 ZIG_FLEET_TOOLS_DIR="${ZIG_FLEET_TOOLS_DIR-${CMUX_FLEET_DIR:-/Users/Shared/cmux-build-fleet}/tools}"
 ZIG_FROM_FLEET_TREE=0
+# The unpacked, std-fixed Zig tree, kept in the CI cache bucket (scripts/ci/r2-cache.sh, a tar.zst) under
+# zig_tree_key: the tarball's pinned SHA-256 and the fixed std file's SHA-256. A runner with no Zig restores
+# it instead of downloading and unpacking the .tar.xz. Why: on 2026-11-25 the fast tier (cargo) job of
+# cmux#55016 (Freestyle runner fsr-1795642087-817423) spent 37 min in this script: 90 s downloading, 31 min
+# in `tar xf` of the xz tarball and 5 min in `sudo cp -R` of the tree, and its 30-min job timeout cancelled
+# it; a healthy Freestyle runner takes 14 s. zig-tarball-r2.sh seed saves the tree from feat-cmux-next. A
+# restored tree is used only when its zig reports ZIG_REQUIRED and its std is the reviewed one
+# (zig_std_is_reviewed); anything else is a miss and the verified download runs. ZIG_TREE_R2_URL is the
+# bucket's public URL (default https://ci-cache-next.cmux.com under GitHub Actions; empty turns it off).
+if [ -z "${ZIG_TREE_R2_URL+set}" ] && [ "${GITHUB_ACTIONS:-}" = true ]; then
+  ZIG_TREE_R2_URL=https://ci-cache-next.cmux.com
+fi
+ZIG_TREE_R2_URL="${ZIG_TREE_R2_URL:-}"
+ZIG_TREE_NAMESPACE="${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+
+# The cache key of the patched tree; fails when the tarball has no pinned SHA-256.
+zig_tree_key() {
+  local pinned
+  pinned="$(awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' \
+    "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true)"
+  [ -n "$pinned" ] || return 1
+  printf 'zig-tree-v1-%s-%s-%s\n' "$ZIG_NAME" "$(printf '%s' "$pinned" | cut -c1-16)" \
+    "$(printf '%s' "${ZIG_STD_PATCH_TO:-unpatched}" | cut -c1-16)"
+}
+
+if [ "${ZIG_PRINT_TREE_KEY:-0}" = 1 ]; then
+  zig_tree_key
+  exit 0
+fi
+
+# Restore the patched tree from the bucket into ZIG_DIR. Returns 1, saying why, on any miss.
+restore_zig_tree_from_bucket() {
+  [ -n "$ZIG_TREE_R2_URL" ] || return 1
+  [ -f "$SCRIPT_DIR/ci/r2-cache.sh" ] || return 1
+  local key
+  key="$(zig_tree_key)" || return 1
+  local dest="${ZIG_WORK_ROOT}/tree-cache"
+  local started="$SECONDS"
+  CI_CACHE_R2_PUBLIC_URL="$ZIG_TREE_R2_URL" CI_CACHE_R2_NAMESPACE="$ZIG_TREE_NAMESPACE" GITHUB_OUTPUT='' \
+    bash "$SCRIPT_DIR/ci/r2-cache.sh" restore "$dest" "$key" >/dev/null 2>&1 || true
+  local tree="$dest/$ZIG_NAME"
+  if [ ! -x "$tree/zig" ]; then
+    echo "no cached zig tree ${key}; downloading the tarball" >&2
+    rm -rf "$dest"
+    return 1
+  fi
+  if [ "$("$tree/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] || [ ! -f "$tree/lib/std/std.zig" ] \
+      || ! zig_std_is_reviewed "$tree/lib"; then
+    echo "the cached zig tree ${key} is not a reviewed zig ${ZIG_REQUIRED}; downloading the tarball" >&2
+    rm -rf "$dest"
+    return 1
+  fi
+  rm -rf "$ZIG_DIR"
+  mv "$tree" "$ZIG_DIR"
+  rm -rf "$dest"
+  echo "zig ${ZIG_REQUIRED}: restored the patched tree ${key} from the CI cache in $((SECONDS - started)) s (no download, no unpack of the .tar.xz)"
+}
 
 # Use the fleet's prebaked tree of ZIG_REQUIRED when there is one. Publishes it
 # and exits when its std is already the reviewed one; else clones it to
@@ -584,7 +641,14 @@ install_zig_with_sudo() {
   esac
   sudo mkdir -p "$bin_dir" "$lib_dir"
   sudo rm -rf "${lib_dir}/zig" "$install_root"
-  sudo cp -R "$ZIG_DIR" "$install_root"
+  # ZIG_DIR is this run's own scratch copy: move it (a rename on one filesystem) rather than copy it file by
+  # file (`sudo cp -R` took 5 min on a slow Freestyle disk, 2026-11-25), then make it root's as a copy was.
+  if ! sudo mv "$ZIG_DIR" "$install_root"; then
+    sudo rm -rf "$install_root"
+    sudo cp -R "$ZIG_DIR" "$install_root"
+  fi
+  # Owned by whoever sudo runs as (root on a runner), as `sudo cp -R` left it.
+  sudo chown -R "$(sudo id -u):$(sudo id -g)" "$install_root"
   sudo ln -s "${install_root}/lib" "${lib_dir}/zig"
   # Zig 0.16 on Linux can derive lib_dir from the invoked /usr/local/bin/zig
   # symlink instead of the target executable. A wrapper pins the library root
@@ -669,7 +733,7 @@ install_downloaded_zig_tree() {
 }
 
 use_fleet_zig_tree || true
-if [ "$ZIG_FROM_FLEET_TREE" -eq 0 ]; then
+if [ "$ZIG_FROM_FLEET_TREE" -eq 0 ] && ! restore_zig_tree_from_bucket; then
   install_downloaded_zig_tree
 fi
 patch_zig_std "$ZIG_DIR/lib"

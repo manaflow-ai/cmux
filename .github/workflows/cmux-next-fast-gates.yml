@@ -40,9 +40,11 @@ name: cmux-next fast gates
 # the status from resolve's outputs and those jobs' results, never from anything
 # they wrote.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  # A feat-cmux-next pull request runs this from pr-router.yml (scripts/ci/pr_router.json, the same types): a head
+  # the router starts nothing for (an idle or green-head base merge, head_tier's "none") starts none of these jobs,
+  # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
+  # that finds none dispatches this workflow as before.
+  workflow_call:
   workflow_dispatch:
     inputs:
       pr:
@@ -54,7 +56,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -65,7 +67,7 @@ jobs:
   resolve:
     name: resolve head and base
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.
@@ -110,6 +112,9 @@ jobs:
             /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
+            /scripts/ci/detect_linux_guard_changes.py
+            /scripts/ci/workflow_guard_groups.py
+            /scripts/ci/workload_entrypoints.py
             /scripts/ci/fast-check-inputs.json
 
       - name: "Pool mirror: checkout the merge ref"
@@ -290,7 +295,7 @@ jobs:
       # the verifier adds only its own directory.
       - name: Verify the local test receipt
         id: receipt-verify
-        if: ${{ (github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+        if: ${{ (github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
         continue-on-error: true
         timeout-minutes: 3
         env:
@@ -348,7 +353,7 @@ jobs:
     # Skipped before it takes a runner when the change touches no gate input (resolve's route), or when a valid
     # local test receipt covers it and resolve's receipt steps posted its status (a receipt step that failed, the
     # status post included, runs everything), unless audited.
-    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -372,7 +377,7 @@ jobs:
       # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -402,6 +407,11 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
+            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
+            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            /tests/test_egress_gate.py
+            /tests/test_outbound_hosts.py
+            /tests/test_classic_cloud_routes.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
@@ -410,7 +420,7 @@ jobs:
 
       - name: "Pool mirror: checkout"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         env:
           SHA: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -452,6 +462,21 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
@@ -466,7 +491,7 @@ jobs:
       # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
       - name: Restore the Bun package cache from R2
         id: bun-r2
-        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -484,7 +509,7 @@ jobs:
       # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
       - name: Restore the Bun package cache
         id: bun-cache
-        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' && steps.bun-warm.outputs.warm != 'true' }}
         timeout-minutes: 2
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -572,7 +597,7 @@ jobs:
   panic-ratchet:
     name: panic ratchet (lowered baseline)
     needs: [resolve, fast-gates]
-    if: ${{ (!cancelled() && needs.fast-gates.outputs.ratchet == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.fast-gates.outputs.ratchet == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
@@ -596,8 +621,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         run: bash scripts/ci/init-submodule.sh ghostty-next
@@ -630,17 +660,43 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
-    if: ${{ (always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
     # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 15 (the light jobs' limit): the post may wait up to POST_WAIT_SECONDS (14 min) for a spent budget's reset, only
+    # when every token is spent.
+    timeout-minutes: 15
     permissions:
       statuses: write
     steps:
+      # The cmux-bot App's own REST budget, as pr-router.yml's cmux/land-tier and cmux-next.yml's same-tree statuses
+      # post with. The job's GITHUB_TOKEN draws on the repository's budget, which every workflow drains: on
+      # 2026-11-25 run 45554419892 judged cmux#46179 green, its post was refused for that budget and ended green,
+      # and the land waited 5.3 h on "cmux-next/fast-gates: not posted yet" until a human merged past it.
+      - name: Mint the status token
+        id: status-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
       - name: Post the cmux-next/fast-gates status
         env:
           GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.status-token.outputs.token }}
+          # The CI pool's quota-goblin tokens (scripts/ci/ci_pool_tokens.py), each its own installation hour. A pool
+          # token that cannot post (expired, or no statuses grant) is passed over, never a red.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          # 2026-11-26 12:39Z and 12:43Z (jobs 139914769975, 139917024944): both tokens spent, the reset 457 s away
+          # and past the 8-minute bound once the first gap was spent, so the job failed and a rerun posted green; a
+          # false red. The pool tokens make a spent budget rarer, and 14 min covers such a reset.
+          POST_WAIT_SECONDS: '840'
           CONTEXT: cmux-next/fast-gates
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
@@ -689,27 +745,60 @@ jobs:
             description="base $BASE; receipt audit: gates red, receipt run ${RECEIPT_RUN##*/} by $RECEIPT_PRODUCER"
             description=${description:0:140}
           fi
-          # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
-          # run green with a named warning; a missing status is never treated as a pass by the
-          # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
-          response=""
-          if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
-            if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
-              echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
-              echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
+          # A rate-limit refusal is status-posting infrastructure, not a gate verdict, but a missing status is no
+          # verdict either: nothing dispatched a fresh gate for it (cmux#46179 waited 5.3 h on one). So the post
+          # goes out on the cmux-bot App's token, then the CI pool's tokens, then GITHUB_TOKEN, each its own budget;
+          # when all refuse for the rate limit it waits for the soonest reset (a refused request spends nothing, and
+          # reading rate_limit is free), within POST_WAIT_SECONDS. Past that the job fails, named, so a re-run of the
+          # failed job posts it instead of a green run that posted nothing. Other API failures stay red at once,
+          # except on a pool token, which is passed over.
+          throttled='rate limit exceeded|secondary rate limit|too many requests|HTTP 429'
+          deadline=$((SECONDS + ${POST_WAIT_SECONDS:-480}))
+          tries=0
+          while :; do
+            tries=$((tries + 1))
+            soonest=""
+            read -r -a pool <<<"${POOL_TOKENS:-}"
+            for token in "${APP_TOKEN:-}" "${pool[@]}" "$GH_TOKEN"; do
+              [[ -n "$token" ]] || continue
+              if response="$(GH_TOKEN="$token" gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+                -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
+                echo "$CONTEXT: $state on $HEAD_SHA (base $BASE), try $tries"
+                exit 0
+              fi
+              if ! grep -qiE "$throttled" <<<"$response"; then
+                is_pool=false
+                for t in "${pool[@]}"; do [[ "$t" == "$token" ]] && is_pool=true; done
+                if [[ "$is_pool" == true ]]; then
+                  echo "::warning title=GitHub API budget::a CI pool token could not post $CONTEXT ($(head -c 160 <<<"$response" | tr '\n' ' ')); passing it over"
+                  continue
+                fi
+                printf '%s\n' "$response" >&2
+                exit 1
+              fi
+              # A spent primary budget names its reset; a secondary limit (budget left) waits the minimum gap.
+              reset="$(GH_TOKEN="$token" gh api rate_limit --jq 'if .resources.core.remaining == 0 then .resources.core.reset else 0 end' 2>/dev/null || true)"
+              [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+              wait=$(( reset > 0 ? reset - $(date +%s) + 2 : 0 ))
+              [[ -z "$soonest" ]] || (( wait >= soonest )) || soonest=$wait
+              [[ -n "$soonest" ]] || soonest=$wait
+            done
+            gap=${POST_MIN_GAP_SECONDS:-30}
+            (( soonest >= gap )) || soonest=$gap
+            if (( SECONDS + soonest > deadline )); then
+              echo "::error title=GitHub API budget::$CONTEXT ($state) was not posted on $HEAD_SHA: every token was refused for the rate limit after $tries tries and the next reset is ${soonest}s away; re-run this failed job to post it"
+              echo "- $CONTEXT ($state) was not posted: the GitHub API budget was spent on every token; re-run the failed post job (a missing status is not a pass)." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
-            printf '%s\n' "$response" >&2
-            exit 1
-          fi
-          echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
+            echo "::warning title=GitHub API budget::$CONTEXT ($state) refused for the rate limit on every token (try $tries); posting again in ${soonest}s"
+            sleep "$soonest"
+          done
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   fast-gates-fail-fast:
     name: head fail-fast after fast gates
     needs: fast-gates
-    if: ${{ failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next-fast-gates.yml

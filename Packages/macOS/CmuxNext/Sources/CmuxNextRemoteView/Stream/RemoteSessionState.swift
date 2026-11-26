@@ -9,7 +9,8 @@ public nonisolated enum RemoteSessionState: Sendable, Hashable {
     case ended(RemoteSessionEnd)
 }
 
-/// Why a session ended. The pane keeps the last frame and offers Reconnect.
+/// Why a session ended. The pane keeps the last frame; a lost path reconnects by itself, and an
+/// end someone chose (Stop, the host's) offers Reconnect.
 public nonisolated enum RemoteSessionEnd: Sendable, Hashable {
     /// A person at the host (or its owner) ended this viewer's session.
     case disconnectedBy(name: String)

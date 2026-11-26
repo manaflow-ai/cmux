@@ -1,4 +1,5 @@
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
@@ -67,14 +68,28 @@ function FoldedThought({
   // A row that opens is a button and one that does not is not: the line is a new node when that
   // flips, so the watch follows it.
   const opens = head.rest !== "" || cut || open;
+  // Read by the ResizeObserver only, never in the commit (Leo, 2026-11-26: "Why should non visible
+  // thing even affect the renderer thread anyways?"): a read here forced style and layout on the
+  // main thread for every folded row the commit mounted, off-screen ones too (208 ms in a traced
+  // replay under load). The observer reports each line once after the frame's own layout, before
+  // its paint, where the read costs nothing more; a change it finds renders at once (flushSync),
+  // so a cut line draws its chevron in that same first frame. A page with no ResizeObserver reads
+  // in the commit, as before.
   useLayoutEffect(() => {
     const node = line.current;
     if (!node || open) return;
-    const read = () => setCut(thoughtLayout.cut(node));
-    read();
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
-    if (!Observer) return;
-    const observer = new Observer(read);
+    if (!Observer) {
+      setCut(thoughtLayout.cut(node));
+      return;
+    }
+    let was: boolean | undefined;
+    const observer = new Observer(() => {
+      const now = thoughtLayout.cut(node);
+      if (now === was) return;
+      was = now;
+      flushSync(() => setCut(now));
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, [head.line, open, opens]);
