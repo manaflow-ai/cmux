@@ -547,6 +547,76 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    # The iOS terminal's stalled cover (TerminalLoadStalledPanel, cmux#57933): failure copy with the shared
+    # `RetryButton(action: retry)` beside it, the Button inside RetryButton, in another module.
+    RETRY_BUTTON = ("public struct RetryButton: View {\n"
+                    "    let action: @MainActor () async -> Void\n"
+                    "    public var body: some View { Button { Task { await action() } } label: { Text(\"Retry\") } }\n}\n")
+    DESIGN = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign"
+
+    @staticmethod
+    def stalled_panel(control: str) -> str:
+        return ("struct TerminalLoadStalledPanel: View {\n"
+                "    let retry: @MainActor () async -> Void\n"
+                "    var body: some View {\n"
+                "        VStack {\n"
+                "            Text(verbatim: \"Can't reach this terminal\")\n"
+                f"            {control}\n"
+                "        }\n    }\n}\n")
+
+    def test_a_swift_view_composing_an_action_view_carries_its_action(self):
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("RetryButton(action: retry)"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        # A trailing closure draws it too, and a button wrapping the shared one lends it on.
+        tree.write(f"{IOS}/Screen/PanelRetryButton.swift",
+                   "struct PanelRetryButton: View {\n    let retry: @MainActor () async -> Void\n"
+                   "    var body: some View { RetryButton(style: .inline, action: retry) }\n}\n")
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("PanelRetryButton { await retry() }"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_swift_view_composing_no_action_keeps_its_finding(self):
+        """Each shape fails at the panel: a *Button with no action of its own, one declared out of sight (a system
+        or kit view the scan cannot read), a component not named for an action, a static member or a type
+        annotation (no drawing), and a namesake declared only on another surface."""
+        cases = {
+            "no action": ("StatusButton(action: retry)",
+                          {f"{self.DESIGN}/StatusButton.swift":
+                           "public struct StatusButton: View {\n    let action: () async -> Void\n"
+                           "    public var body: some View { Image(systemName: \"bolt\") }\n}\n"}),
+            "out of sight": ("KitRetryButton(action: retry)", {}),
+            "not an action's name": ("RetryRow(action: retry)",
+                                     {f"{self.DESIGN}/RetryRow.swift":
+                                      self.RETRY_BUTTON.replace("RetryButton", "RetryRow")}),
+            "a static member": ("Text(RetryButton.defaultTitle)", {f"{self.DESIGN}/RetryButton.swift": self.RETRY_BUTTON}),
+            "another surface": ("RetryButton(action: retry)",
+                                {f"{MAC}/RetryButton.swift": self.RETRY_BUTTON}),
+        }
+        for label, (control, files) in cases.items():
+            with self.subTest(label):
+                tree = Tree(self)
+                for path, text in files.items():
+                    tree.write(path, text)
+                tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel(control))
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("TerminalLoadStalledPanel shows a connection state (\"Can't reach this terminal\") with "
+                              "no action and no time bound", out)
+
+    def test_a_swift_declaration_of_an_action_view_is_not_a_drawing(self):
+        """`extension RetryButton {` and `-> RetryButton {` name the type; they draw nothing beside the words."""
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift",
+                   "struct TerminalLoadStalledPanel: View {\n"
+                   "    var body: some View { Text(verbatim: \"Can't reach this terminal\") }\n"
+                   "    func make() -> RetryButton { fatalError() }\n}\n")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_a_model_that_names_its_action_type_is_an_action_and_a_text_field_is_not(self):
         """A row model's `var action: Action?` (Mac Home chief connections) carries the person's action; a field
         that only holds words (`var action: String?`, a subagent's description) does not."""
