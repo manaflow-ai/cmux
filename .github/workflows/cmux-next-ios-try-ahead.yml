@@ -9,9 +9,12 @@ name: cmux Dev try build (ahead)
 #
 # Lowest priority (--background): it queues after every foreground step and a foreground step may take its host,
 # never ahead of a nightly. A newer head cancels this run (concurrency), and a cancelled run cancels its fleet step
-# (ci-client.py: SIGINT cancels the step), so only the newest head builds. Advisory: never a required check. Its
-# conclusion is what the picker reads: success is "built ahead", failure "the device build failed"; no verdict
-# from the fleet (no client, the queue) ends green with a warning, and try.sh then builds it on the tap.
+# (ci-client.py: SIGINT cancels the step), so only the newest head builds. Advisory: never a required check.
+# Two checks: "cmux Dev try build (fleet)" asks the fleet; "cmux Dev try build (ahead)" is the verdict the picker
+# reads (try.sh list): success only when the fleet built this head, failure when its device app did not build.
+# No verdict from the fleet (no client, the queue, a host that could not set up: exit 3) leaves the fleet job green
+# with a warning and the verdict skipped, so the picker shows "none" and try.sh builds it on the tap.
+# (2026-11-26: the step failed at setup on ultra2 with exit 3, and the one check concluded success: built ahead.)
 
 on:
   pull_request:
@@ -33,7 +36,7 @@ concurrency:
 
 jobs:
   build-ahead:
-    name: cmux Dev try build (ahead)
+    name: cmux Dev try build (fleet)
     # The fleet takes same-repository pull requests only; with the gateway unset nothing runs.
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
@@ -42,8 +45,11 @@ jobs:
     # it still builds, and a later try.sh attaches to it.
     timeout-minutes: 300
     permissions: {}
+    outputs:
+      outcome: ${{ steps.fleet.outputs.outcome }}
     steps:
       - name: Ask the fleet for this head's cmux Dev device app
+        id: fleet
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
@@ -71,15 +77,32 @@ jobs:
               echo "No build ahead (exit $status, step \`${step:-none}\`); try.sh builds it on request."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$status" -eq 0 ]]; then exit 0; fi
+          if [[ "$status" -eq 0 ]]; then echo "outcome=built" >> "$GITHUB_OUTPUT"; exit 0; fi
           if grep -q 'is not the reviewed version' "$log"; then
             echo "::warning title=cmux Dev ahead::this head changes scripts/ci/cmux-next-ios-sim.sh, which the fleet runs only once reviewed on feat-cmux-next; not built ahead"
             exit 0
           fi
           # Exit 1 is the step's own failure: the device app does not build at this head.
           if [[ "$status" -eq 1 ]]; then
+            echo "outcome=failed" >> "$GITHUB_OUTPUT"
             echo "::error title=cmux Dev ahead::the cmux Dev device app did not build at ${HEAD_SHA:0:12} (fleet step ${step:-?}; cmux-ci log ${step:-ID})"
             exit 1
           fi
           echo "::warning title=cmux Dev ahead::no verdict from the fleet (exit $status); try.sh builds it on request"
           exit 0
+
+  verdict:
+    name: cmux Dev try build (ahead)
+    needs: build-ahead
+    if: ${{ !cancelled() && (needs.build-ahead.outputs.outcome == 'built' || needs.build-ahead.outputs.outcome == 'failed') }}
+    # The gateway that just ran the fleet job: no second runner pool to wait on.
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Built ahead, or the device app failed to build
+        env:
+          OUTCOME: ${{ needs.build-ahead.outputs.outcome }}
+        run: |
+          echo "fleet outcome: $OUTCOME"
+          [[ "$OUTCOME" == built ]]

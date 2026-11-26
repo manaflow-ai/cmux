@@ -2206,7 +2206,7 @@ class TryScriptTests(unittest.TestCase):
             self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
 
     def test_list_shows_the_iphone_prs_and_their_build_state(self):
-        check = 'cmux Dev try build (ahead)'
+        check, fleet = 'cmux Dev try build (ahead)', 'cmux Dev try build (fleet)'
         prs = [
             {'number': 1, 'title': 'ios ahead', 'author': {'login': 'a'}, 'headRefOid': '1' * 40, 'updatedAt': '2026-11-22T01:00:00Z',
              'isDraft': False, 'files': [{'path': 'cmux-next-ios/x.swift'}],
@@ -2215,11 +2215,16 @@ class TryScriptTests(unittest.TestCase):
              'isDraft': False, 'files': [{'path': 'webviews/x.ts'}], 'statusCheckRollup': []},
             {'number': 3, 'title': 'ios building', 'author': {'login': 'c'}, 'headRefOid': '3' * 40, 'updatedAt': '2026-11-22T03:00:00Z',
              'isDraft': True, 'files': [{'path': 'Packages/iOS/y.swift'}],
-             'statusCheckRollup': [{'name': check, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
+             'statusCheckRollup': [{'name': fleet, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
             {'number': 4, 'title': 'ios cached', 'author': {'login': 'd'}, 'headRefOid': '4' * 40, 'updatedAt': '2026-11-22T00:00:00Z',
              'isDraft': False, 'files': [{'path': 'cmux-next-ios/z.swift'}], 'statusCheckRollup': []},
             {'number': 5, 'title': 'ios failed', 'author': {'login': 'e'}, 'headRefOid': '5' * 40, 'updatedAt': '2026-11-21T00:00:00Z',
              'isDraft': False, 'files': [], 'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]},
+            # The fleet gave no verdict (a host that could not set up): the fleet job is green, no verdict check.
+            {'number': 6, 'title': 'ios no verdict', 'author': {'login': 'f'}, 'headRefOid': '6' * 40, 'updatedAt': '2026-11-20T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/w.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
         ]
         with tempfile.TemporaryDirectory() as temp:
             Path(temp, 'prs.json').write_text(json.dumps(prs))
@@ -2232,7 +2237,7 @@ class TryScriptTests(unittest.TestCase):
             out = json.loads(r.stdout)
             self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
             self.assertEqual([(p['number'], p['build']) for p in out['prs']],
-                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed')])
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none')])
             self.assertTrue(out['prs'][0]['draft'])
             self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
             gh.write_text('#!/bin/sh\nexit 1\n')
@@ -2251,7 +2256,19 @@ class TryScriptTests(unittest.TestCase):
         self.assertIn('--key "cnx-ios-try-$mode-${SHA:0:12}', text)
         self.assertIn('--background', flow)
         self.assertIn('name: cmux Dev try build (ahead)', flow)
+        self.assertIn('name: cmux Dev try build (fleet)', flow)
         self.assertIn('TRY_AHEAD_CHECK="cmux Dev try build (ahead)"', text)
+        self.assertIn('TRY_FLEET_CHECK="cmux Dev try build (fleet)"', text)
+
+    def test_the_ahead_verdict_is_success_only_when_the_fleet_built_it(self):
+        # 2026-11-26: the step failed at setup (exit 3) and the one check said success, so the picker said "ahead".
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        verdict = flow[flow.index('  verdict:'):]
+        self.assertIn("needs.build-ahead.outputs.outcome == 'built'", verdict)
+        self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
+        fleet = flow[:flow.index('  verdict:')]
+        self.assertEqual(fleet.count('outcome=built'), 1)
+        self.assertIn('if [[ "$status" -eq 0 ]]; then echo "outcome=built"', fleet)
 
 if __name__ == '__main__':
     unittest.main()
