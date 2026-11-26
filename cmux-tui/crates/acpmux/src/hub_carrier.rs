@@ -1140,6 +1140,9 @@ impl HubCarrier {
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
+                                if kept.held {
+                                    mux.hold();
+                                }
                                 kept.live = Some(mux.clone());
                                 kept.path = Some(path);
                                 kept.reopen_at = None;
@@ -1355,6 +1358,9 @@ impl HubCarrier {
                     self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                     self.stats.kept_reopens.fetch_add(1, Ordering::Relaxed);
                     tracing::info!(daemon, ?path, "hub carrier: opened a kept circuit again");
+                    if kept.held {
+                        mux.hold();
+                    }
                     kept.live = Some(mux);
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
@@ -2614,6 +2620,8 @@ pub async fn start_configured(
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     carrier.keep_reopening();
+    // Off unless `ACPMUX_HUB_HOLD_CIRCUITS` names machines (`hub_carrier_hold.rs`).
+    carrier.hold_configured();
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -2723,6 +2731,10 @@ pub mod broker;
 
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;
+
+#[path = "hub_carrier_hold.rs"]
+mod hold;
+pub use hold::{HOLD_CIRCUITS_ENV, held_machines};
 
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
