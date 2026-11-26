@@ -29,7 +29,7 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/settings/source/general.json"
       - "schemas/type-scale/scene-type.json"
       - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
@@ -89,6 +89,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
@@ -131,6 +132,13 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:

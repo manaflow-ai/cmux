@@ -259,6 +259,7 @@ export function SourceMenu({
                           <div
                             ref={submenuRef}
                             // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
                             className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
