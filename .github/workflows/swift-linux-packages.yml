@@ -37,6 +37,10 @@ on:
       - scripts/ci/swift-test-debug-info.sh
       - scripts/ci/swiftpm-binary-module-guard.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/app_ffi_linux.py
+      - scripts/cmux-next/build-app-ffi.sh
+      - cmux-tui/crates/**
+      - cmux-tui/Cargo.lock
       - .github/workflows/swift-linux-packages.yml
   workflow_dispatch:
 
@@ -61,7 +65,7 @@ jobs:
   # plan that fails runs every group (`*`).
   plan:
     name: Swift packages on Linux plan
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       groups: ${{ steps.reach.outputs.groups || '*' }}
@@ -163,7 +167,9 @@ jobs:
 
       # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
       # zlib, and the image ships only their runtimes. CmuxNext's ChromiumRuntime tests pack and unpack
-      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils.
+      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils. CmuxNext's
+      # Linux shape links CCmuxAppFFI as libcmux_app_ffi.a, which the lane builds with scripts/ci/app_ffi_linux.py
+      # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
       - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
@@ -416,12 +422,13 @@ jobs:
 
   # The Mac fallback: reruns, on a Mac of the owned pool, exactly the packages that failed on Linux. A
   # package green here and red on Linux is a Linux-specific failure: logged, and the run stays green. Red
-  # here too is a real failure, and this job fails the run.
+  # here too is a real failure, and this job fails the run. A fork's run never gets here (fallback-plan
+  # runs only in manaflow-ai and a fork pull request hands nothing over); its hosted branches only say so.
   mac-fallback:
     name: Swift packages Mac fallback
     needs: fallback-plan
     if: ${{ !cancelled() && needs.fallback-plan.outputs.needed == '1' }}
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 40
     defaults:
       run:
