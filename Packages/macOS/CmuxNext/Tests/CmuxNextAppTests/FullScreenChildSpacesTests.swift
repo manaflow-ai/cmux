@@ -1,0 +1,97 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesign
+import CmuxNextTestSupport
+import Testing
+
+/// Empty cmux window over a full screen transition (user, 2026-11-25): a background cmux window drew over another
+/// window's full screen enter and exit, about 0.6 s each. It was parked in ANOTHER app's full screen Space (Chrome's, on
+/// the same display), where it had followed a child panel declared `.fullScreenAuxiliary`: AppKit keeps a child on its
+/// parent's Space, and the child may join a full screen Space. A main window's child panels now carry that behavior
+/// only while the window itself is in full screen, across AppKit's will/did enter and exit notifications. Real
+/// ShellWindow and panel classes; the notifications are the ones AppKit posts around a transition.
+@MainActor @Suite(.serialized, .closesItsWindows) struct FullScreenChildSpacesTests {
+    private func shellWindow() -> ShellWindow {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: CGRect(x: -3000, y: -3000, width: 800, height: 500), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
+        window.orderFrontRegardless()
+        return window
+    }
+
+    private func post(_ name: Notification.Name, _ window: NSWindow) {
+        NotificationCenter.default.post(name: name, object: window)
+    }
+
+    private func auxiliary(_ child: NSWindow) -> Bool { child.collectionBehavior.contains(.fullScreenAuxiliary) }
+
+    /// The overlay host panel and a divider-catcher-like panel under a window that is not in full screen cannot join a
+    /// full screen Space, so they cannot take their window into one. Their other behaviors stay.
+    @Test func aChildPanelOfAWindowedWindowCannotJoinAFullScreenSpace() {
+        let window = shellWindow()
+        let host = WindowOverlayHost.host(for: window)
+        _ = host.present(NSView(frame: CGRect(x: 0, y: 0, width: 40, height: 20)),
+                         options: OverlayOptions(kind: .toast, anchor: CGRect(x: 10, y: 10, width: 10, height: 10), passesThroughClicks: true))
+        #expect(host.panel.parent === window)
+        #expect(!auxiliary(host.panel), "a windowed cmux window's overlay panel may join another app's full screen Space")
+        #expect(host.panel.collectionBehavior.isSuperset(of: [.transient, .ignoresCycle]))
+        window.close()
+    }
+
+    private func panel(_ behavior: NSWindow.CollectionBehavior) -> NSPanel {
+        let panel = NSPanel(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = behavior
+        return panel
+    }
+
+    /// Across a full screen enter and exit: auxiliary from willEnter (before AppKit moves the window to its new Space)
+    /// until didExit. (didEnter is not posted here: no real transition sets `.fullScreen` in the style mask, which
+    /// keeps the children auxiliary from then on in the app.)
+    @Test func aChildPanelFollowsItsWindowAcrossTheTransitions() {
+        let window = shellWindow()
+        let child = panel([.fullScreenAuxiliary, .transient, .ignoresCycle])
+        window.addChildWindow(child, ordered: .above)
+        #expect(!auxiliary(child))
+
+        post(NSWindow.willEnterFullScreenNotification, window)
+        #expect(auxiliary(child), "the child must be auxiliary before AppKit moves its window into the new full screen Space")
+        post(NSWindow.didFailToEnterFullScreenNotification, window)
+        #expect(!auxiliary(child), "a failed enter leaves the window windowed")
+
+        post(NSWindow.willEnterFullScreenNotification, window)
+        #expect(auxiliary(child))
+        post(NSWindow.willExitFullScreenNotification, window)
+        #expect(auxiliary(child), "the child stays with its window while it leaves")
+        post(NSWindow.didExitFullScreenNotification, window)
+        #expect(!auxiliary(child))
+        #expect(child.collectionBehavior.isSuperset(of: [.transient, .ignoresCycle]))
+        child.close()
+        window.close()
+    }
+
+    /// A child added while the window enters full screen is auxiliary at once; one that never declared the behavior (a
+    /// Chromium page's input window) never gets it.
+    @Test func aChildAddedWhileEnteringJoinsAndAnUndeclaredChildIsLeftAlone() {
+        let window = shellWindow()
+        let first = panel([.fullScreenAuxiliary, .transient])
+        window.addChildWindow(first, ordered: .above)
+        post(NSWindow.willEnterFullScreenNotification, window)
+        let late = panel([.fullScreenAuxiliary, .transient])
+        let page = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        window.addChildWindow(late, ordered: .above)
+        window.addChildWindow(page, ordered: .above)
+        #expect(auxiliary(first) && auxiliary(late))
+        #expect(!auxiliary(page))
+        post(NSWindow.willExitFullScreenNotification, window)
+        post(NSWindow.didExitFullScreenNotification, window)
+        #expect(!auxiliary(first) && !auxiliary(late))
+        #expect(!auxiliary(page))
+        for child in [first, late, page] { child.close() }
+        window.close()
+    }
+}
