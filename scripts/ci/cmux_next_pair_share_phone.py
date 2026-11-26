@@ -6,6 +6,7 @@ captures and probe events stay in the rig's private work directory.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -104,8 +105,95 @@ class PairInputProbe:
 
 
 
+# The viewer's own session lines (ScreenSharingViewer's `screen-sharing` log): a transport switch,
+# an rd/1 close and the end reason, the phone's half of the share-host log.
+VIEWER_LOG_LINE = re.compile(r"(host serves \S+: reattaching for it|rd closed: .*|viewer ended: .*)$")
+
+
+def viewer_log(lines, limit=6):
+    """The phone's last session lines, cut to 160 characters each, joined with ` | `."""
+    found = [m.group(1)[:160] for m in map(VIEWER_LOG_LINE.search, (l.rstrip() for l in lines)) if m]
+    return " | ".join(found[-limit:]) or "no viewer session lines"
+
+
 # rd/1's meter line: "30 fps · 812 kbps · 1280×800 · lan".
 RD_METER_LINE = re.compile(r"[0-9]+(?:\.[0-9]+)? fps · [0-9]+ kbps")
+
+
+def _digest(text):
+    return hashlib.sha256(text.lower().encode()).hexdigest()[:8]
+
+
+def screen_sharing_page_state(nodes, name=None, device_id=None):
+    """What the Screen Sharing list showed: its state row (finding, failed, empty) and each Mac
+    row as a short id digest, whether its name is the rig Mac's, and its status line. No ids or
+    other Macs' names are printed."""
+    identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
+    states = [state for state in ("finding", "failed", "empty") if f"screenSharing.{state}" in identifiers]
+    prefix = "screenSharing.device."
+    rows = []
+    for node in nodes:
+        identifier = str(node.get("AXIdentifier") or node.get("AXUniqueId") or "")
+        if not identifier.startswith(prefix):
+            continue
+        label = str(node.get("AXLabel", ""))
+        named = bool(name) and label.startswith(name)
+        status = next((word for word in ("Offline", "Not shared", "Blocked", "Sharing") if word in label), "?")
+        rows.append(f"{_digest(identifier[len(prefix):])}{' (rig name)' if named else ''} {status}")
+    text = f"page state: {', '.join(states) or 'none'}; Mac rows: {len(rows)}"
+    if rows:
+        text += " [" + "; ".join(rows) + "]"
+    if device_id:
+        text += f"; wanted {_digest(device_id)}"
+    return text
+
+
+# The viewer's cards and alerts, by title, as fixed words (cmux-next-ios ScreenSharingPage).
+_VIEWER_TITLES = (
+    ("Connecting to {}…", "connecting"),
+    ("Waiting for {}", "waiting for approval"),
+    ("Starting the screen…", "starting the screen"),
+    ("Reconnecting to {}…", "reconnecting"),
+    ("{} declined", "declined"),
+    ("{} doesn't allow this iPhone", "refused: no permission"),
+    ("{} allows View Only", "refused: view only"),
+    ("{} is offline", "refused: offline"),
+    ("{} isn't sharing its screen", "refused: not shared"),
+    ("{} isn't one of your devices", "refused: not found"),
+    ("Couldn't reach {}", "refused: other"),
+    ("Sharing ended", "ended"),
+    ("Couldn't share {}", "share problem"),
+)
+_VIEWER_DETAILS = (
+    ("didn't turn on sharing", "no sharing before the deadline"),
+    ("isn't available yet", "no share carrier"),
+    ("The device hub could not start the session", "hub refused the session"),
+    ("stopped sharing", "host stopped"),
+    ("turned off Share This Mac", "sharing off"),
+    ("went offline", "peer offline"),
+    ("Nobody answered", "expired"),
+    ("connection to", "connection dropped"),
+    ("is over", "session over, reason not one the phone names"),
+    ("changed this iPhone's access", "permission revoked"),
+    ("signed out", "signed out"),
+    ("was removed from your devices", "viewer removed"),
+)
+
+
+def viewer_state(nodes, name=""):
+    """What the phone showed instead of a frame: the viewer card or alert, the views present, the
+    rd/1 status capsule and meter line, all as fixed words or numbers, never free text."""
+    labels = [str(node.get("AXLabel", "")) for node in nodes]
+    identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
+    cards = [word for title, word in _VIEWER_TITLES if title.format(name) in labels]
+    details = [word for text, word in _VIEWER_DETAILS if any(text in label for label in labels)]
+    views = [view for view in ("screen.view", "screen.stats", "browser.stream", "browser.meter", "macScreen.status",
+                               "macScreen.close", "screenSharing.page") if view in identifiers]
+    meter = next((RD_METER_LINE.search(label).group(0) for label in labels if RD_METER_LINE.search(label)), "none")
+    text = f"viewer: {', '.join(cards) or 'no card'}"
+    if details:
+        text += f" ({', '.join(details)})"
+    return text + f"; views: {', '.join(views) or 'none'}; meter: {meter}"
 
 
 class PairSharePhone(ScreenProofPhone):
@@ -125,21 +213,30 @@ class PairSharePhone(ScreenProofPhone):
                         "-cmux-mobile-browser-meter"])
 
     def request_share(self, name, device_id):
-        exact_id = "screenSharing.device." + device_id
+        # The hub and the share host may spell the same id in different case; the phone itself
+        # compares ids lowercased (ScreenSharingService).
+        exact_id = ("screenSharing.device." + device_id).lower()
         deadline = time.monotonic() + 90
         row = None
+        nodes = []
+        attempt = 0
         while time.monotonic() < deadline:
-            matches = self.ui.find(lambda node: (node.get("AXIdentifier") == exact_id
-                                                 or node.get("AXUniqueId") == exact_id))
+            nodes = self.ui.find(lambda node: True)
+            matches = [node for node in nodes if exact_id in (str(node.get("AXIdentifier", "")).lower(),
+                                                              str(node.get("AXUniqueId", "")).lower())]
             if len(matches) > 1:
                 raise PairShareFailure("ambiguous Mac row")
             if matches:
                 row = matches[0]
                 break
-            self.ui.run(["axe", "gesture", "scroll-up", "--udid", self.ui.udid], check=False)
+            # Alternate a pull to refresh (the page rereads the hub's list) with a scroll the other way.
+            gesture = "scroll-down" if attempt % 2 == 0 else "scroll-up"
+            attempt += 1
+            self.ui.run(["axe", "gesture", gesture, "--udid", self.ui.udid], check=False)
             time.sleep(1)
         if row is None:
-            raise PairShareFailure("the rig Mac row was not visible")
+            raise PairShareFailure("the rig Mac row was not visible "
+                                   f"({screen_sharing_page_state(nodes, name, device_id)})")
         self.ui.tap(row)
         title = f"{name} isn't sharing its screen"
         self.ui.control(lambda node: node.get("type") == "StaticText"
@@ -161,13 +258,18 @@ class PairSharePhone(ScreenProofPhone):
         meter = self.ui.find(lambda node: RD_METER_LINE.search(str(node.get("AXLabel", ""))) is not None)
         return str(meter[0].get("AXLabel", "")) if meter else ""
 
-    def wait_frame(self, timeout=60):
+    def wait_frame(self, timeout=60, name=""):
         deadline = time.monotonic() + timeout
+        fps_seen = False
         while time.monotonic() < deadline:
-            if positive_fps(self.stats()) and self.live_frame("share-frame"):
+            fps = positive_fps(self.stats())
+            fps_seen = fps_seen or bool(fps)
+            if fps and self.live_frame("share-frame"):
                 return self.screenshots / "share-frame.png"
             time.sleep(1)
-        raise PairShareFailure("phone did not receive a decoded Mac frame")
+        state = viewer_state(self.ui.find(lambda node: True), name)
+        raise PairShareFailure("phone did not receive a decoded Mac frame ("
+                               f"{state}; frame rate above zero seen: {fps_seen})")
 
     def screen_view(self):
         """WebRTC draws into screen.view; rd/1 (the Mac app closed) into browser.stream."""

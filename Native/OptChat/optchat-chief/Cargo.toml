@@ -101,8 +101,8 @@ codegen-units = 1
 # against 0.398 ms. "z" was -31% for +31% append time. Nothing in Chief runs per frame.
 opt-level = "s"
 
-# optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
-# scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as
+# optchat-wasm's release build for the hosted placement (--profile wasm-release,
+# see backend/apps/api/src/chief-brain/optchat-wasm/SOURCE.md): the settings it had as
 # its own workspace (opt-level "s", lto, the default codegen units). A member's
 # own [profile] is ignored, so they live here.
 [profile.wasm-release]

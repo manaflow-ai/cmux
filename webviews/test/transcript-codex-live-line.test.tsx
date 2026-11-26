@@ -72,7 +72,7 @@ test("a call in flight is the live line at the bottom, under the folded runs, wi
   ]);
   expect(kinds(shaped)).toEqual(["user", "assistant", "activity", THINKING]);
   const line = shaped.at(-1)!;
-  expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true });
+  expect(line).toMatchObject({ id: "thinking-live", doing: "Testing net", doingShell: false });
   // The run holds only the finished call, folded.
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
@@ -114,7 +114,7 @@ test("the live line keeps the turn clock without token amounts, beside a call to
     drawn(
       <Thinking since={start} doing="cargo test" doingShell doingAt={start + 350_000} now={() => start + 354_000} />,
     ),
-  ).toBe("Running cargo test 5m 54s");
+  ).toBe("cargo test 5m 54s");
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
     "Ran cargo test 6m",
   );
@@ -142,7 +142,7 @@ test("a command Claude is still writing reads Writing a command, with no Ctrl-B"
     row("u", "user"),
     row("run", "activity", { items: [call("Bash", "in_progress", { command: "cargo test" })] }),
   ]).at(-1)!;
-  expect(running).toMatchObject({ doing: "cargo test", doingShell: true, doingCommand: true });
+  expect(running).toMatchObject({ doing: "Running tests", doingShell: false, doingCommand: true });
   expect(running.doingDraft).toBeUndefined();
 });
 
@@ -158,7 +158,7 @@ test("each step replaces the line in place: Thinking, Running, Thinking, one id 
   const lines = [thinking, running, after].map((shaped) => shaped.filter((entry) => entry.kind === THINKING));
   expect(lines.map((line) => line.length)).toEqual([1, 1, 1]);
   expect(lines.map((line) => line[0]!.id)).toEqual(["thinking-live", "thinking-live", "thinking-live"]);
-  expect(lines.map((line) => line[0]!.doing)).toEqual([undefined, "bun test", undefined]);
+  expect(lines.map((line) => line[0]!.doing)).toEqual([undefined, "Running tests", undefined]);
   expect(lines.map((line) => line[0]!.doingDone)).toEqual([undefined, undefined, undefined]);
   // A finished call stays in its run; only the call in flight leaves it for the line.
   expect(callIds(thinking)).toEqual(["git log"]);
@@ -167,15 +167,14 @@ test("each step replaces the line in place: Thinking, Running, Thinking, one id 
   expect(running.find((entry) => entry.id === "run")!.items).toHaveLength(1);
 });
 
-test("a command reads its short command line without the setup, never its description", () => {
+test("a running command uses its description, then its short command without setup", () => {
   const described = codex([
     row("u", "user"),
     row("run", "activity", {
       items: [call('export PATH="/a:$PATH"; gh run list', "in_progress", { description: "List the runs" })],
     }),
   ]).at(-1)!;
-  // Codex parity: the command itself, as Codex draws it, never Bash's description.
-  expect(described).toMatchObject({ doing: "gh run list" });
+  expect(described).toMatchObject({ doing: "List the runs", doingCommand: true });
   const raw = codex([
     row("u", "user"),
     row("run", "activity", { items: [call('export PATH="/a:$PATH"; B=~/x; gh run list -L 5', "in_progress")] }),
@@ -192,13 +191,13 @@ test("while text streams the line waits behind it, keyed by the text's version",
   expect(shaped.at(-1)).toMatchObject({ kind: THINKING, quietKey: "a:7" });
 });
 
-test("the live line draws Running or Ran with the turn's time, or Thinking alone; all shimmer", () => {
+test("the live line draws the command or Ran with the turn's time, or Thinking alone; all shimmer", () => {
   const start = 1_000_000;
   // The call started 5s after the prompt: the line still counts from the prompt, never from 0.
   const running = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} now={() => start + 13_000} />,
   );
-  expect(words(running)).toBe("Running bun test 13s");
+  expect(words(running)).toBe("bun test 13s");
   expect(running).toContain("is-shimmer");
   const ran = renderToStaticMarkup(
     <Thinking since={start} doing="grep -n x" doingShell done now={() => start + 15_000} />,
@@ -211,7 +210,7 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   expect(words(described)).toBe("Run the web tests 2s");
   expect(
     words(renderToStaticMarkup(<Thinking since={start} doing="" doingShell doingAt={start} now={() => start} />)),
-  ).toBe("Running a command 0s");
+  ).toBe("Thinking 0s");
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
@@ -330,15 +329,11 @@ test("a command with no line yet reads its title, or Running a command for the b
   expect(bare).toMatchObject({ doing: "", doingShell: true });
 });
 
-test("with a todo list the activity line under it is the live line", () => {
-  const plan = row("p", "plan", { plan: [{ content: "Fix the grid", status: "in_progress" }] });
-  const shaped = turnView(
-    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("bun test", "in_progress")] })],
-    new Set(),
-    { working: true, sessionStatus: true },
+test("a running single-file shell read names its file on the collapsed live line", () => {
+  const live = codex([row("u", "user"), row("run", "activity", { items: [call("cat src/foo.ts", "in_progress")] })]).at(
+    -1,
   );
-  expect(kinds(shaped).slice(-2)).toEqual(["plan", "activityLine"]);
-  expect(shaped.at(-1)!.text).toContain("bun test");
+  expect(live).toMatchObject({ doing: "Read foo.ts", doingShell: false });
 });
 
 // Leo 2026-10-21 (ask-650c3502bd): calls in flight with nothing to show yet stacked as rows of
@@ -378,7 +373,7 @@ test("work after the turn's summary (a task notification's) is one live line, no
     row("late", "activity", { items: [call("cat build.log"), call("bun test", "in_progress")] }),
   ]);
   expect(callIds(running)).toEqual(["cat build.log"]);
-  expect(running.at(-1)).toMatchObject({ kind: THINKING, doing: "bun test", doingShell: true });
+  expect(running.at(-1)).toMatchObject({ kind: THINKING, doing: "Running tests", doingShell: false });
 });
 
 test("an ended turn draws no row for a call that never got its input", () => {
@@ -418,17 +413,4 @@ test("runs separated by short commentary retain their finished calls; the line r
   expect(shaped.at(-1)!.doing).toBeUndefined();
   expect(shaped.find((entry) => entry.id === "n")?.text).toBe("Now the diff.");
   expect(callIds(shaped).filter(Boolean)).toEqual(["git log", "git diff"]);
-});
-
-test("with a todo list the activity line names the plan's step and no call leaves its run", () => {
-  const shaped = turnView(
-    [
-      row("u", "user"),
-      row("p", "plan", { plan: [{ content: "Step one", status: "in_progress" }] }),
-      row("run", "activity", { items: [call("a"), call("b")] }),
-    ],
-    new Set(),
-    { working: true, sessionStatus: true },
-  );
-  expect(callIds(shaped)).toEqual(["a", "b"]);
 });

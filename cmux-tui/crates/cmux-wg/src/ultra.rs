@@ -87,6 +87,9 @@ const PARITY_HEADER: usize = 16;
 /// Type, receiver index and counter in front of a WireGuard data message's
 /// ciphertext.
 const WG_DATA_HEADER: usize = 16;
+/// A WireGuard keepalive: a data message with an empty payload, so its
+/// ciphertext is only the 16-byte Poly1305 tag.
+const WG_KEEPALIVE_LEN: usize = WG_DATA_HEADER + 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
@@ -114,12 +117,31 @@ const MAX_COPIES: u8 = 4;
 /// bytes of each group (its datagrams and their repair) stay within this
 /// multiple of its data bytes ([`rs_parity_datagrams`]).
 const MAX_AGREED_OVERHEAD: u32 = 4;
+/// Auto's floor under its first loss. Auto starts with repair off, so the
+/// first loss of a keystroke's echo (and any after Auto turned itself off)
+/// waits for TCP: a round trip when later segments draw a SACK, a 200 ms or
+/// longer timeout when none does. At 1 % loss that is a stall every second or
+/// two on a cellular path. While repair is off, each interactive datagram of at
+/// most [`FLOOR_MAX_DATAGRAM`] bytes (a keystroke, its echo, an ACK) is
+/// grouped with the ones sent in the same pass and followed by one
+/// Reed-Solomon parity, which rebuilds one lost member of the group a one-way
+/// delay after the loss. Bulk datagrams and anything bigger send nothing
+/// extra, so a clean download still sends the bytes it sends with repair off.
+/// The wire is unchanged: the receiver rebuilds from trusted parity
+/// whatever its own mode (a build without ultra mode refuses the parity).
+pub(crate) const FLOOR_MODE: UltraMode = UltraMode::Rs { group: FLOOR_GROUP, parity: 1 };
+const FLOOR_GROUP: u8 = 4;
+/// Longest datagram (header included) the floor protects.
+const FLOOR_MAX_DATAGRAM: usize = 256;
 /// The environment variable that turns the mode on.
 pub const ENV: &str = "CMUX_WG_ULTRA";
-/// `none` turns the tunnel's TCP congestion control off, so loss never
-/// shrinks a window and each stream runs at what its window and the pacer
-/// allow (Hysteria's "Brutal" idea, bounded by the 256 KiB window). For
-/// benches: it is unfair to other traffic on a congested link.
+/// The tunnel's TCP congestion control. Unset or `bbr`: the model-based
+/// controller (RFD 0142 O1), whose window follows the measured bottleneck
+/// rate and minimum RTT, so random loss does not shrink it. `cubic`: the
+/// loss-based controller cmux-wg used before. `none`: no congestion control,
+/// so each stream runs at what its window and the pacer allow (bounded by the
+/// stream window); for benches, as it is unfair to other traffic on a
+/// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
@@ -129,9 +151,26 @@ pub fn is_parity(datagram: &[u8]) -> bool {
     datagram.first() == Some(&TAG)
 }
 
-/// Whether [`CC_ENV`] asks for no congestion control.
-pub(crate) fn loss_blind_from_env() -> bool {
-    std::env::var(CC_ENV).is_ok_and(|value| value.trim().eq_ignore_ascii_case("none"))
+/// A process-wide pin set by [`crate::testing::pin_loss_based_congestion`]:
+/// it wins over [`CC_ENV`], and setting it needs no environment write.
+pub(crate) static CUBIC_PINNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The congestion control [`CC_ENV`] asks for; BBR when unset or unknown.
+pub(crate) fn congestion_from_env() -> smoltcp::socket::tcp::CongestionControl {
+    if CUBIC_PINNED.load(Ordering::Relaxed) {
+        return smoltcp::socket::tcp::CongestionControl::Cubic;
+    }
+    congestion_from(std::env::var(CC_ENV).ok().as_deref())
+}
+
+pub(crate) fn congestion_from(value: Option<&str>) -> smoltcp::socket::tcp::CongestionControl {
+    use smoltcp::socket::tcp::CongestionControl;
+    match value.map(|value| value.trim().to_ascii_lowercase()).as_deref() {
+        Some("none") => CongestionControl::None,
+        Some("cubic") => CongestionControl::Cubic,
+        _ => CongestionControl::Bbr,
+    }
 }
 
 /// How much repair data a tunnel sends.
@@ -377,6 +416,17 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     let index: [u8; 4] = datagram.get(4..8)?.try_into().ok()?;
     let counter: [u8; 8] = datagram.get(8..16)?.try_into().ok()?;
     Some((index, u64::from_le_bytes(counter)))
+}
+
+/// A WireGuard keepalive past a session's first message: it carries nothing,
+/// and a lost one is replaced by the next (the air floor sends one every few
+/// seconds on an idle link), so it gets no copies, parity or group. Before,
+/// Auto's floor or repair made each idle keepalive its own group with one or
+/// two 32-byte parities: two or three datagrams per keepalive on the radio.
+/// Counter 0 keeps its repair: an initiator's first keepalive confirms a new
+/// handshake, and the responder cannot send until it arrives.
+fn is_idle_keepalive(datagram: &[u8]) -> bool {
+    datagram.len() == WG_KEEPALIVE_LEN && data_id(datagram).is_some_and(|(_, counter)| counter > 0)
 }
 
 /// Datagrams the loss window spans before it halves.
@@ -717,6 +767,9 @@ pub(crate) struct UltraUnderlay {
     /// The network is metered (or the peer's is): repair bytes stay within
     /// `ultra_auto::METERED_OVERHEAD` times the data.
     metered: bool,
+    /// Auto's floor: while repair data is off, a tiny interactive datagram
+    /// still gets one parity ([`FLOOR_MODE`]). See [`UltraUnderlay::set_floor`].
+    floor: bool,
     /// Loss on the way in, for Auto.
     meter: LossMeter,
     /// Loss on the way in over about the last 1000 datagrams: what the
@@ -727,6 +780,7 @@ pub(crate) struct UltraUnderlay {
     group: Option<Group>,
     received: Kept,
     /// Rebuild from parity: on when this side sends FEC or the peer does.
+    /// While off, only datagrams Auto's floor protects are kept.
     decoding: bool,
     /// Parities still waiting for a member, with where they came from.
     pending: VecDeque<(Vec<u8>, Origin)>,
@@ -744,6 +798,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
+    /// Measurement only (`testing::set_receive_tap`): the wire size of each
+    /// parity datagram consumed here since the driver last took them.
+    tapped_parity: Vec<usize>,
 }
 
 impl UltraUnderlay {
@@ -759,6 +816,7 @@ impl UltraUnderlay {
             mode,
             configured: mode,
             metered: false,
+            floor: false,
             meter: LossMeter::default(),
             window: LossWindow::default(),
             unread: LossSample::default(),
@@ -771,7 +829,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
+            tapped_parity: Vec::new(),
         }
+    }
+
+    /// Measurement only: the parity datagrams `poll_recv` consumed since the
+    /// last call, by wire size (empty unless a receive tap is set).
+    pub(crate) fn take_tapped_parity(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.tapped_parity)
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -812,25 +877,35 @@ impl UltraUnderlay {
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss: its loss behaviour under
+            // the 1 % rule has not been measured (RFD 0164 B6).
+            None | Some(Priority::Media) => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
-        if !self.repairs(priority) {
+        if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
         }
         // Repaired screen state groups with input.
         let priority =
             priority.map(|p| if p == Priority::Screen { Priority::Interactive } else { p });
         match self.mode {
-            UltraMode::Off => {}
+            UltraMode::Off => {
+                if self.floor
+                    && priority == Some(Priority::Interactive)
+                    && datagram.len() <= FLOOR_MAX_DATAGRAM
+                    && let Some((index, counter)) = data_id(datagram)
+                {
+                    self.add_member(index, counter, datagram, priority, FLOOR_GROUP);
+                }
+            }
             UltraMode::Duplicate { copies } => {
                 for _ in 1..copies {
                     self.forward(datagram, priority);
@@ -891,7 +966,8 @@ impl UltraUnderlay {
 
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
-        let parities = match self.mode {
+        let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {
                 let cap = if self.metered {
@@ -943,6 +1019,14 @@ impl UltraUnderlay {
         turned_on
     }
 
+    /// Auto's floor on or off (see [`FLOOR_MODE`]): set for a tunnel in Auto.
+    pub(crate) fn set_floor(&mut self, floor: bool) {
+        if floor != self.floor {
+            self.close_group();
+            self.floor = floor;
+        }
+    }
+
     /// Keep repair bytes within the metered cap, or stop keeping them.
     pub(crate) fn set_metered(&mut self, metered: bool) {
         if metered != self.metered {
@@ -979,8 +1063,8 @@ impl UltraUnderlay {
         }
         let Some(parity) = parse_parity(datagram) else { return };
         UltraCounters::add(&self.counters.parity_received, 1);
-        // Kept datagrams start with the first trusted parity; that group is
-        // not rebuilt.
+        // Every datagram is kept from the first trusted parity on; before
+        // it only small ones were, so a first group of those is rebuilt.
         self.decoding = true;
         if parity.code == Code::ReedSolomon {
             let key = parity.group_key();
@@ -1121,6 +1205,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
@@ -1174,6 +1262,9 @@ impl Underlay for UltraUnderlay {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
                 }
+                if crate::testing::tapping() {
+                    self.tapped_parity.push(received.len);
+                }
                 parities += 1;
                 if parities >= PARITY_PER_POLL {
                     cx.waker().wake_by_ref();
@@ -1193,8 +1284,13 @@ impl Underlay for UltraUnderlay {
         if let Some((index, counter)) = staged {
             self.meter.observe(index, counter, self.staged_rebuilt);
         }
+        // Before the first trusted parity, small datagrams are kept anyway:
+        // they are what Auto's floor protects, and a sender whose first
+        // protected keystroke is lost sends that parity right behind it, so
+        // its group (often of one) must already be kept to be rebuilt. Bulk
+        // datagrams are not copied until parity shows the peer sends it.
         if let Some((index, counter)) = staged
-            && self.decoding
+            && (self.decoding || WG_DATA_HEADER + self.staged_bytes.len() <= FLOOR_MAX_DATAGRAM)
         {
             let ciphertext = std::mem::take(&mut self.staged_bytes);
             self.on_data(index, counter, &ciphertext);

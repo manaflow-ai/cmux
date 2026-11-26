@@ -3,8 +3,32 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
+
+
+def share_without_asking_off(reply):
+    """Whether the Mac's `settings.get macScreen.shareWithoutAsking` reply says off.
+
+    An explicit `false` is off. So is a key the settings file does not set (`exists: false`, `value: null`),
+    since the setting's default is off. Anything else (`true`, an error, a reply with no `exists`) is not.
+    """
+    if not isinstance(reply, dict) or "error" in reply:
+        return False
+    if reply.get("value") is False:
+        return True
+    return reply.get("exists") is False and reply.get("value") is None
+
+
+_URL = re.compile(r"\b\w+://\S+")
+_TOKEN = re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")
+
+
+def share_log_line(line):
+    """One daemon log line, its URLs and token-like runs cut, at most 240 characters."""
+    line = _TOKEN.sub("<cut>", _URL.sub("<url>", line.strip()))
+    return line if len(line) <= 240 else line[:239] + "…"
 
 
 class TaggedShareHost:
@@ -14,6 +38,8 @@ class TaggedShareHost:
         self.home = Path(env["ACPMUX_HOME"])
         self.credential = self.home / "machine-credential.json"
         self.audit = self.home / "share-host/audit.jsonl"
+        self.log = self.home / "daemon.log"
+        self.log_cursor = 0
         self.target = None
 
     def _command(self, *args, timeout):
@@ -35,6 +61,31 @@ class TaggedShareHost:
         if not isinstance(status, dict) or status.get("schema") != "acpmux.share-host.status/1":
             raise RuntimeError("acpmux share-host status has no share-host status record")
         return status
+
+    def summary(self):
+        """The share host's state as booleans and a count, for a failed share check's note."""
+        try:
+            status = self._status()
+        except RuntimeError as error:
+            return f"share host: {error}"
+        sessions = status.get("sessions")
+        count = len(sessions) if isinstance(sessions, (list, dict)) else sessions if isinstance(sessions, int) else "?"
+        return (f"share host: sharing {status.get('sharing')}, app attached {status.get('appAttached')}, "
+                f"sessions {count}")
+
+    def share_log(self, limit=12):
+        """The daemon log's share-host lines since the detached baseline (the share host and its
+        session processes write there), URLs and tokens cut, for a failed share check's note."""
+        try:
+            with self.log.open("rb") as log:
+                log.seek(self.log_cursor)
+                text = log.read(4 << 20).decode("utf-8", "replace")
+        except OSError as error:
+            return f"share-host log: {type(error).__name__}"
+        lines = [share_log_line(line) for line in text.splitlines() if "share-host" in line]
+        if not lines:
+            return "share-host log: no share-host lines"
+        return "share-host log: " + " | ".join(lines[-limit:])
 
     def prepare(self):
         """Before quitting the app, wait for its normal signed-in machine enrollment."""
@@ -75,6 +126,10 @@ class TaggedShareHost:
                 or status.get("sessions") != []
                 or any(status.get(field) != self.target[field] for field in ("deviceId", "userId", "hub"))):
             raise RuntimeError("the tagged Mac must be online with the same owner, sharing off and no sessions")
+        try:
+            self.log_cursor = self.log.stat().st_size
+        except OSError:
+            self.log_cursor = 0
         try:
             return self.audit.stat().st_size
         except FileNotFoundError:

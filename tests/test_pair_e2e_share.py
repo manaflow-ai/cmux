@@ -8,8 +8,9 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
-from cmux_next_pair_share_host import TaggedShareHost
-from cmux_next_pair_share_phone import PairSharePhone
+from cmux_next_pair_share_host import TaggedShareHost, share_log_line, share_without_asking_off
+from cmux_next_pair_share_phone import (PairShareFailure, PairSharePhone, screen_sharing_page_state, viewer_log,
+                                        viewer_state)
 from cmux_next_screen_sharing_proof import positive_fps
 
 
@@ -91,3 +92,116 @@ class RdViewerTests(unittest.TestCase):
         self.assertTrue(positive_fps(phone.stats()))
         self.assertIs(phone.screen_view(), view)
 
+
+class ShareWithoutAskingOffTests(unittest.TestCase):
+    def test_an_unset_key_reads_as_the_default_off(self):
+        self.assertTrue(share_without_asking_off({"path": ["macScreen", "shareWithoutAsking"], "exists": False,
+                                                  "value": None, "file": "/rig/cmux.json"}))
+
+    def test_an_explicit_false_is_off(self):
+        self.assertTrue(share_without_asking_off({"exists": True, "value": False}))
+
+    def test_on_an_error_or_an_unknown_reply_is_not_off(self):
+        for reply in ({"exists": True, "value": True}, {"error": "settings are not available"},
+                      {"value": None}, {"exists": True, "value": None}, None):
+            with self.subTest(reply=reply):
+                self.assertFalse(share_without_asking_off(reply))
+
+
+class MacRowTests(unittest.TestCase):
+    """The phone's row for the rig Mac, whatever case the hub spells its id in."""
+
+    def test_the_page_state_names_only_fixed_words_and_a_count(self):
+        nodes = [{"AXIdentifier": "screenSharing.empty"}, {"AXIdentifier": "screenSharing.device.ABC", "AXLabel": "Mac"}]
+        self.assertEqual(screen_sharing_page_state(nodes), "page state: empty; Mac rows: 1 [ba7816bf ?]")
+
+    def test_each_row_says_its_digest_name_match_and_status(self):
+        nodes = [{"AXIdentifier": "screenSharing.device.abc", "AXLabel": "rig, Not shared"},
+                 {"AXIdentifier": "screenSharing.device.def", "AXLabel": "Old Mac, Offline"}]
+        text = screen_sharing_page_state(nodes, "rig", "ABC")
+        self.assertEqual(text, "page state: none; Mac rows: 2 [ba7816bf (rig name) Not shared; cb8379ac Offline]; "
+                               "wanted ba7816bf")
+        self.assertNotIn("Old Mac", text)
+        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0")
+
+    def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
+        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}
+        alert = {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"}
+        button = {"type": "Button", "AXLabel": "Share rig"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, alert, button])
+        taps = []
+        phone.ui.tap = taps.append
+        phone.request_share("rig", "abc-1")
+        self.assertEqual(taps, [row, button])
+
+    def test_a_missing_row_says_what_the_page_showed(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"AXIdentifier": "screenSharing.failed"}])
+        phone.ui.run = lambda *args, **kwargs: None
+        phone.ui.udid = "sim"
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
+                phone.request_share("rig", "abc-1")
+
+
+class ShareLogTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.host = TaggedShareHost("/rig/Mac.app", {"ACPMUX_HOME": folder.name})
+
+    def test_only_share_host_lines_after_the_cursor_with_urls_and_tokens_cut(self):
+        self.host.log.write_text("share-host: before the baseline\n")
+        self.host.log_cursor = self.host.log.stat().st_size
+        with self.host.log.open("a") as log:
+            log.write("other: unrelated\n")
+            log.write("share-host: session s1: no helper: none at https://x.example/a?t=1\n")
+            log.write("share-host: end not sent: " + "a" * 40 + "\n")
+        self.assertEqual(self.host.share_log(),
+                         "share-host log: share-host: session s1: no helper: none at <url> | "
+                         "share-host: end not sent: <cut>")
+
+    def test_a_missing_log_says_so(self):
+        self.assertEqual(self.host.share_log(), "share-host log: FileNotFoundError")
+
+    def test_a_long_line_is_cut(self):
+        self.assertEqual(len(share_log_line("share-host: " + "word " * 100)), 240)
+
+
+class ViewerStateTests(unittest.TestCase):
+    def test_a_session_over_card_names_that_no_known_reason_came(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"}, {"AXLabel": "Sharing ended"},
+                 {"AXLabel": "The session with Rig Mac is over."}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: ended (session over, reason not one the phone names); views: screenSharing.page; "
+                         "meter: none")
+
+    def test_a_share_problem_alert_names_its_fixed_reason(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"},
+                 {"AXLabel": "Couldn't share Rig Mac"},
+                 {"AXLabel": "Rig Mac didn't turn on sharing. Check that cmux is open on it and signed in to your account."}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: share problem (no sharing before the deadline); views: screenSharing.page; meter: none")
+
+    def test_an_rd_viewer_reports_its_views_and_meter_without_free_text(self):
+        nodes = [{"AXIdentifier": "browser.stream"}, {"AXIdentifier": "macScreen.status", "AXLabel": "secret words"},
+                 {"AXLabel": "0 fps · 0 kbps · 0×0 · lan"}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: no card; views: browser.stream, macScreen.status; meter: 0 fps · 0 kbps")
+
+
+class ViewerLogTests(unittest.TestCase):
+    def test_the_phone_says_why_its_session_ended(self):
+        lines = [
+            "2026-11-26 00:01:02.000 I cmux[1:2] [dev.cmux.mobile:screen-sharing] host serves cmux.rd/1: reattaching for it\n",
+            "2026-11-26 00:01:02.100 I cmux[1:2] [dev.cmux.mobile:links] live data on\n",
+            "2026-11-26 00:01:04.000 I cmux[1:2] [dev.cmux.mobile:screen-sharing] rd closed: ended \n",
+            "2026-11-26 00:01:04.001 I cmux[1:2] [dev.cmux.mobile:screen-sharing] viewer ended: ended\n",
+        ]
+        self.assertEqual(viewer_log(lines),
+                         "host serves cmux.rd/1: reattaching for it | rd closed: ended | viewer ended: ended")
+
+    def test_no_lines_says_so(self):
+        self.assertEqual(viewer_log(["live data on\n"]), "no viewer session lines")
