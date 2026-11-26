@@ -280,7 +280,17 @@ class WorkflowTests(unittest.TestCase):
     def test_token_scope_and_serialized_sweeps(self):
         self.assertEqual(self.doc["permissions"], {})
         self.assertEqual(self.job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(self.job["environment"], {"name": "ci-bot", "deployment": False})
         self.assertEqual(self.doc["concurrency"]["cancel-in-progress"], False)
+
+    def test_shed_uses_app_token_with_workflow_fallback(self):
+        mint = next(step for step in self.job["steps"] if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+        self.assertEqual(mint["with"]["permission-contents"], "read")
+        cancel = next(step for step in self.job["steps"] if step.get("name") == "Cancel queued runs nobody will read")
+        self.assertEqual(cancel["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 if __name__ == "__main__":

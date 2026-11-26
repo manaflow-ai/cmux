@@ -72,7 +72,12 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
 
     private static func constant(_ value: Any?) -> Constant? {
         // JSONSerialization gives a JSON bool as an NSNumber that also casts to Int: test it first.
+        #if canImport(Darwin)
         if let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
+        #else
+        // Linux's Foundation has no CFBoolean: its JSON bools are the NSNumbers of objCType "c".
+        if let number = value as? NSNumber, String(cString: number.objCType) == "c" { return .bool(number.boolValue) }
+        #endif
         if let int = value as? Int { return .int(int) }
         if let text = value as? String { return .string(text) }
         return nil

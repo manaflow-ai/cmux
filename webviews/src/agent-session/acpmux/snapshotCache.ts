@@ -55,7 +55,8 @@ function savedCopy(snapshot: AcpmuxSnapshot, count: number): string {
   const cut = snapshot.rows.length > count;
   return JSON.stringify({
     ...snapshot,
-    rows: cut ? snapshot.rows.slice(-count) : snapshot.rows,
+    // slice(-0) is the whole array: the smallest copy keeps no rows.
+    rows: count === 0 ? [] : cut ? snapshot.rows.slice(-count) : snapshot.rows,
     earlierPrompts: undefined,
     sessions: savedSessions(snapshot),
     ...(cut ? { canLoadOlder: true, historyFrom: undefined } : {}),
@@ -76,7 +77,10 @@ function writeOne(key: string, next: AcpmuxSnapshot): void {
   for (let count = SAVED_ROWS; ; count = Math.floor(count / 4)) {
     try {
       const value = savedCopy(next, count);
-      if (value.length > SAVED_BYTES && count > 0) continue;
+      if (value.length > SAVED_BYTES) {
+        if (count === 0) break;
+        continue;
+      }
       sessionStorage.setItem(key, value);
       return;
     } catch {

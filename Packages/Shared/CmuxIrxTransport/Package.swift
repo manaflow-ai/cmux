@@ -1,5 +1,6 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
 
 let package = Package(
@@ -62,3 +63,26 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// The Linux package jobs (swift-linux-packages.yml) set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple
+// platform, or for one on a Linux host (the fleet), keeps the manifest above. iroh-ffi's IrohLib is an
+// Apple xcframework, so this shape drops it: the files over the native endpoint and connection
+// (`#if canImport(IrohLib)`) compile out, and the control plane, V2 wire, judges, caches and tunnel
+// policy build and test alone. CryptoKit is Apple-only; swift-crypto (`import Crypto`) gives the same API.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.dependencies.removeAll { dependency in
+        if case .sourceControl(_, let location, _) = dependency.kind { return location.contains("iroh-ffi") }
+        return false
+    }
+    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
+    for target in package.targets {
+        target.dependencies.removeAll { dependency in
+            if case .productItem(let name, _, _, _) = dependency { return name == "IrohLib" }
+            return false
+        }
+        target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+        target.linkerSettings = nil
+    }
+}
+#endif

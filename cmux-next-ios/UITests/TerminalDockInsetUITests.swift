@@ -9,10 +9,9 @@ import XCTest
 /// Two geometry rules, read from the app's own keyboard pin probe
 /// (`-cmux-mobile-kbd-pin-trace`, verify/keyboard-pin.md):
 /// - no keyboard drawn means no keyboard inset: the dock's guide (`dg`) is
-///   at the window's bottom edge, so the key row and composer rest on the
-///   toolbar line;
-/// - a reattach adds no row: the key row to composer distance is the same
-///   while the link is down as while it is up (the state is in the title
+///   at the window's bottom edge, so the composer rests on the toolbar line;
+/// - a reattach adds no row: the resting composer's top and bottom stay put
+///   while the link is down and when it comes back up (the state is in the title
 ///   pill's subtitle; Reconnect is in the page menu).
 ///
 /// Each step attaches a screenshot (load, keyboard up and down, return from
@@ -69,7 +68,8 @@ final class TerminalDockInsetUITests: XCTestCase {
         attach(app, "6-landscape-keyboard-up")
         XCUIDevice.shared.orientation = .portrait
         _ = reading(probe)
-        if keyboardKey.exists, keyboardKey.isHittable { keyboardKey.tap() }
+        // The key row reopens with the keyboard after the rotation: tap its key once it can be.
+        if keyboardKey.waitForHittable(timeout: 3) { keyboardKey.tap() }
         let settled = assertNoInset(probe, "keyboard down after a rotation")
         XCTAssertEqual(settled.fieldBottom, rest.fieldBottom, accuracy: 1, "(\(settled.line))")
         attach(app, "7-rotated-keyboard-down")
@@ -118,20 +118,24 @@ final class TerminalDockInsetUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let (app, probe) = launch(demo: "ws-terminal-reattach")
         let field = app.textViews["terminal.composer.field"]
-        let control = app.buttons["terminal.key.control"]
-        XCTAssertTrue(control.waitForExistence(timeout: 10))
+        let keyboardKey = app.buttons["terminal.key.keyboard"]
         // Within the quiet bound (10 s) nothing has changed on screen yet.
-        let attachedGap = field.frame.minY - control.frame.maxY
-        let attachedBottom = field.frame.maxY
+        _ = assertNoInset(probe, "attached")
+        XCTAssertFalse(keyboardKey.exists)
+        let attachedFrame = field.frame
+        func assertFieldStayedPut() {
+            let frame = field.frame
+            XCTAssertEqual(frame.minY, attachedFrame.minY, accuracy: 1, "the top of the resting composer stays put")
+            XCTAssertEqual(frame.maxY, attachedFrame.maxY, accuracy: 1, "the bottom of the resting composer stays put")
+            XCTAssertFalse(keyboardKey.exists, "the key row stays hidden")
+        }
         attach(app, "1-attached")
 
         // On purpose (Leo's item 3): past the quiet bound the pill still says no waiting word.
         let waiting = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "Reattaching", "Connecting")).firstMatch
         XCTAssertFalse(waiting.waitForExistence(timeout: 14), "the title pill says a waiting word past the quiet bound\n\(app.debugDescription)")
         attach(app, "2-reattaching")
-        let gap = field.frame.minY - control.frame.maxY
-        XCTAssertEqual(gap, attachedGap, accuracy: 1, "a reattach adds no row between the key row and the composer")
-        XCTAssertEqual(field.frame.maxY, attachedBottom, accuracy: 1, "nor moves the composer")
+        assertFieldStayedPut()
         XCTAssertFalse(app.otherElements["terminal.connectionLine"].exists, "no connection line by the composer")
         _ = assertNoInset(probe, "reattaching")
 
@@ -145,6 +149,8 @@ final class TerminalDockInsetUITests: XCTestCase {
         attach(app, "3-page-menu-reconnect")
         reconnect.tap()
         XCTAssertTrue(reconnect.waitForNonExistence(timeout: 5), "attached again: the menu closes")
+        _ = assertNoInset(probe, "reconnected")
+        assertFieldStayedPut()
         attach(app, "4-reconnected")
     }
 

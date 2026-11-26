@@ -231,12 +231,12 @@ class DropJob(unittest.TestCase):
         self.assertEqual(set(drop["needs"]), set(jobs) - {"drop-build-artifacts"})
         # Every reader of a dropped name is among them: a reader added later is covered by the rule above.
         readers = {name for name, job in jobs.items() if reads_dropped_artifacts(job)}
-        self.assertTrue({"publish", "publish-tree", "sentry-dsyms", "point-machine-channel-early",
+        self.assertTrue({"publish", "publish-tree", "sentry-dsyms",
                          "point-machine-channel", "darwin-fallback-plan"} <= readers, readers)
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
         # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
-        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
+        for clause in ("!cancelled()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
                        "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)
         self.assertTrue(drop.get("continue-on-error"))
@@ -252,14 +252,18 @@ class DropJob(unittest.TestCase):
         self.assertIn("--delete", step["run"])
         self.assertEqual(step["env"]["GITHUB_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
 
-    def test_only_the_early_channel_point_reads_a_machine_channel_artifact(self):
-        # MACHINE_CHANNEL_THIN: build-machine-channel uploads machine-channel-* (about 230 MB a target) for
-        # point-machine-channel-early alone; no shipped download reads them.
-        jobs = artifacts_jobs()
-        self.assertIn("build-machine-channel", jobs)
-        readers = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
-                           + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
-        self.assertEqual(readers, ["point-machine-channel-early"])
+    def test_only_the_machine_channel_points_read_a_machine_channel_artifact(self):
+        # MACHINE_CHANNEL_THIN: cmux-machine-channel.yml's two thin legs upload machine-channel-* (about 230 MB
+        # a target) for its points alone (LINUX_X86_64_FIRST); no shipped download in cmux-tui-artifacts.yml
+        # reads them.
+        def readers(jobs):
+            return [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
+                    + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
+        self.assertEqual(readers(artifacts_jobs()), [])
+        channel = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
+        self.assertEqual(readers(channel), ["point-x86_64", "point-linux"])
+        for leg in ("build-x86_64", "build-aarch64"):
+            self.assertEqual(channel[leg]["uses"], "./.github/workflows/cmux-tui-build-package.yml")
 
 
 class Workflow(unittest.TestCase):

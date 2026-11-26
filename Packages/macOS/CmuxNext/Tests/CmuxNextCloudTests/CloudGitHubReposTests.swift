@@ -244,8 +244,20 @@ struct CloudGitHubReposTests {
         let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
         #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
         #expect(completion.team == "team_0123456789abcdef0123")
-        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
+        // The console's key for the same redirect (dashboard integration-callback.test.ts pins 9f146c4dbeb30218 too).
+        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)) + ":9f146c4dbeb30218")
         #expect(completion.error == nil)
+        // #55104: another redirect of the same state (the code-less update, a new installation) is its own completion,
+        // never `idempotency.conflict`; the same redirect again is the same completion.
+        // One #require per line: a #require nested in another's argument is a recursive macro expansion,
+        // which fails the test build.
+        let updateURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update"))
+        let update = try #require(CloudGitHubCompletion(url: updateURL, scheme: "cmux-dev-x"))
+        let otherInstallURL = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install"))
+        let otherInstall = try #require(CloudGitHubCompletion(url: otherInstallURL, scheme: "cmux-dev-x"))
+        #expect(Set([completion.idempotencyKey, update.idempotencyKey, otherInstall.idempotencyKey]).count == 3)
+        #expect(try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x")).idempotencyKey == completion.idempotencyKey)
+        #expect(completion.idempotencyKey.count <= 128)
         // Another build's scheme, another path, no signed state: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
         let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
@@ -265,10 +277,36 @@ struct CloudGitHubReposTests {
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
         #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#)) == .connected)
-        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused)
-        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused(message: nil))
+        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused(message: nil))
         #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    /// A refused completion carries the API's words for the person (an expired state, another person's state).
+    @Test func aRefusedCompletionCarriesTheAPIsMessage() {
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"integration state expired"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: Self.body(#"{"ok":false,"error":{"code":"x","message":"  "}}"#)) == .refused(message: nil))
+    }
+
+    /// An organization member's install comes back as `setup_action=request` with no installation: the API's refusal
+    /// of it reads as an owner's approval pending, not as an error; a request that did bring an installation does not.
+    @Test func anOwnerRequestReadsAsPendingApproval() throws {
+        let state = "h.\(Self.statePayload).s"
+        let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
+        let requestURL = try #require(URL(string: "\(link)?state=\(state)&setup_action=request"))
+        let request = try #require(CloudGitHubCompletion(url: requestURL, scheme: "cmux-dev-x"))
+        #expect(request.isOwnerRequest)
+        let installedURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=7&setup_action=request"))
+        let installed = try #require(CloudGitHubCompletion(url: installedURL, scheme: "cmux-dev-x"))
+        #expect(!installed.isOwnerRequest)
+        let said = "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again"
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"\#(said)"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused, ownerRequest: true) == .pendingApproval(message: said))
+        #expect(CloudOwnerAPIClient.completion(status: 503, body: Data(), ownerRequest: true) == .noAnswer)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#), ownerRequest: true) == .connected)
     }
 
     @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
@@ -281,17 +319,17 @@ struct CloudGitHubReposTests {
 
     @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
         let changes = CloudGitHubChanges()
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
         #expect(changes.count == 1)
-        changes.record(.refused, reason: "Only an owner can connect.")
+        changes.record(.refused(message: nil), reason: "Only an owner can connect.")
         #expect(changes.refusal?.reason == "Only an owner can connect.")
         changes.forgetRefusal()
         #expect(changes.refusal == nil)
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         changes.record(.connected, reason: nil)
         #expect(changes.refusal == nil, "a connection clears the last refusal")
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         changes.record(.noAnswer, reason: nil)
         #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
         #expect(changes.count == 6)

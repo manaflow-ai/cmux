@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -225,3 +226,4 @@ private final class AttemptOnlyEndpoint: Endpoint, @unchecked Sendable {
         )
     }
 }
+#endif

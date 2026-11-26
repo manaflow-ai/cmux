@@ -28,7 +28,7 @@ public nonisolated struct AcpmuxInstallCanary {
         "protocolVersion": 1,
         "clientInfo": ["name": "cmux-react-agent-pane", "version": "1"],
         "clientCapabilities": [String: any Sendable](),
-        "_meta": ["acpmux": ["peerRowBatches": true]],
+        "_meta": ["acpmux": ["peerRowBatches": true, "chunkDeltas": true, "sessionChangedDelta": true]],
     ]
 
     /// The page's first frame, as text.

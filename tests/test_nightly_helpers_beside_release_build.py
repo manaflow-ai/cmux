@@ -11,6 +11,8 @@ up to 9). Now:
   - the Chief and the iPhone host build in the background (scripts/ci/
     background_build.py) while xcodebuild runs, and a step right after it joins
     them and runs the Xcode phases' own bundle scripts on the app;
+  - the in-tree acpmux build starts before those helpers and joins immediately
+    before xcodebuild, so Cargo overlaps the remaining setup work;
   - the notices replace the committed copy the Release build bundled, before
     the app is stripped, archived or uploaded.
 This pins that structure and runs both scripts on fixtures.
@@ -64,6 +66,8 @@ NOTICES = "Generate third-party notices (cmux-next)"
 STOP = "Stop the helper builds still running"
 CEF = "Fetch the Chromium engine"
 CEF_JOIN = "Finish fetching the Chromium engine"
+ACPMUX_START = "Start building in-tree acpmux for the compilation cache"
+ACPMUX_JOIN = "Finish building in-tree acpmux for the compilation cache"
 # The only step allowed between the engine join and the Release build: it ends the
 # run before the compile once a job publish needs has failed.
 PUBLISH_CHECK = "Stop when the run can no longer publish (before the compile)"
@@ -122,7 +126,8 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
         self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
-        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(ACPMUX_JOIN))
+        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)
@@ -200,6 +205,17 @@ class WorkflowStructureTests(unittest.TestCase):
                 self.assertNotIn(f"CMUX_NEXT_{env}_BIN=", run.replace(f"CMUX_NEXT_{env}_PENDING_BIN=", ""))
                 self.assertNotIn(f"CMUX_NEXT_REQUIRE_{env}", run)
         self.assertNotIn("CMUX_NEXT_OPTCHAT_CHIEF_BIN", self.step(RELEASE)["run"])
+
+    def test_acpmux_build_starts_before_setup_and_joins_before_release(self):
+        self.assertLess(self.index(ACPMUX_START), self.index(CHIEF))
+        self.assertLess(self.index(ACPMUX_START), self.index(WEB_BUILD))
+        self.assertLess(self.index(ACPMUX_START), self.index(ACPMUX_JOIN))
+        self.assertEqual(self.step(ACPMUX_START)["if"], self.step(ACPMUX_JOIN)["if"])
+        self.assertIn("app-build-in-tree-acpmux.sh start", self.step(ACPMUX_START)["run"])
+        self.assertIn("app-build-in-tree-acpmux.sh join", self.step(ACPMUX_JOIN)["run"])
+        script = (ROOT / "scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh").read_text()
+        self.assertIn('background_build.py start --state "$state" acpmux', script)
+        self.assertIn('background_build.py join --state "$state" acpmux', script)
 
     def test_helpers_are_joined_and_bundled_right_after_the_release_build(self):
         self.assertEqual(self.index(RELEASE) + 1, self.index(BUNDLE))
@@ -398,6 +414,38 @@ class NightlyInputsTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             nightly_inputs.bundle_notices(app)
 
+
+FALLBACK = ROOT / "scripts/ci/nightly-steps/mobile-host-fallback.sh"
+
+
+class MobileHostFallbackTests(unittest.TestCase):
+    """An iOS change that breaks cmux-mobile-host must not stop the Mac NIGHTLY (Leo, 11-25: "build broke
+    on an iOS change that left a field out of the phone link code are we able to decouple"; runs
+    45551813915 and 45556730650)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.out = self.base / "out/cmux-mobile-host"
+
+    def fallback(self, appcast):
+        env = {**os.environ, "RUNNER_TEMP": str(self.base),
+               "CMUX_MOBILE_HOST_FALLBACK_APPCAST": appcast}
+        return subprocess.run(["bash", str(FALLBACK), "arm64", str(self.out)], env=env, capture_output=True, text=True)
+
+    def test_no_published_dmg_fails(self):
+        appcast = self.base / "appcast.xml"
+        appcast.write_text("<rss><channel><item></item></channel></rss>")
+        result = self.fallback(appcast.as_uri())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no DMG", result.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_the_published_host_is_tried_only_after_this_macs_last_good_one(self):
+        script = (ROOT / "scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh").read_text()
+        self.assertLess(script.index("last-good-mobile-host.sh"), script.index("mobile-host-fallback.sh"))
+        self.assertIn('[ "${NIGHTLY_COMPONENT_GATES:-}" != block ] || exit 1', script)
 
 if __name__ == "__main__":
     unittest.main()

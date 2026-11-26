@@ -174,6 +174,7 @@ extension TabContentCache {
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
+        onConceal?(key)
         if let entry = terminals[key] {
             // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true

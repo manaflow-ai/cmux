@@ -233,7 +233,7 @@ pub(super) fn upgrade_with(
         });
     }
     let _ = fs::remove_file(store.root.join(UNDONE));
-    store.append_history(&receipt)?;
+    let receipt = with_history(store, receipt);
     Ok(receipt)
 }
 
@@ -274,8 +274,19 @@ pub(super) fn undo_with(store: &Store, host: &dyn Host, dry_run: bool) -> Result
     receipt.insert("worker".into(), worker_field(before.as_ref(), host.worker()));
     let receipt = Value::Object(receipt);
     fs::rename(&path, store.root.join(UNDONE)).map_err(|e| format!("{}: {e}", path.display()))?;
-    store.append_history(&receipt)?;
-    Ok(receipt)
+    Ok(with_history(store, receipt))
+}
+
+/// Appends a finished swap or undo to the store's history. The change is already made and its
+/// receipt saved, so a history line that can't be written is noted in the answer, not reported
+/// as a failed upgrade.
+fn with_history(store: &Store, mut receipt: Value) -> Value {
+    if let Err(error) = store.append_history(&receipt)
+        && let Value::Object(fields) = &mut receipt
+    {
+        fields.insert("history_not_saved".into(), json!(error));
+    }
+    receipt
 }
 
 /// The commit `source` names, and how it was found.

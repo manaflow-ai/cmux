@@ -13,12 +13,13 @@ import Testing
     }
 
     @Test func anEagerListBreaksTheContractAndIsNotBuiltLarge() async throws {
-        var measured: [VisibleRowsContract.Measurement] = []
-        await withKnownIssue("an eager list mounts every row") {
-            do { measured = try await VisibleRowsContract.check(ModelRows<Eager>.self) } catch { Issue.record(error) }
+        let measured: [VisibleRowsContract.Measurement] = await VisibleRowsContract.knownIssue(
+            "an eager list mounts every row", sourceLocation: #_sourceLocation
+        ) { () async -> [VisibleRowsContract.Measurement] in
+            do { return try await VisibleRowsContract.check(ModelRows<Eager>.self) } catch { Issue.record(error); return [] }
         } matching: { issue in
             issue.comments.contains { $0.rawValue.contains("row views") || $0.rawValue.contains("configured") }
-        }
+        } ?? []
         #expect(measured.map(\.rows) == [100], "the eager list was built past the size where it failed")
         #expect(measured.first?.alive == 100)
         #expect(measured.first?.change.rowsConfigured == 100)

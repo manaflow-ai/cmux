@@ -661,7 +661,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         #if DEBUG
         if let probe = LoadFrameProbe.shared {
-            probe.watch(collectionView) { [weak self] in self?.probeRows() ?? [] }
+            probe.watch(collectionView, rows: { [weak self] in self?.probeRows() ?? [] },
+                        role: { [weak self] id in self?.probeRole(id) ?? "other" })
             probe.report { ChatRowHeightMemory.shared?.stats ?? [:] }
         }
         #endif
@@ -1336,6 +1337,20 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             return (id, cell.frame.offsetBy(dx: -offset.x, dy: -offset.y))
         }
     }
+
+    /// A row's part in its turn, for the send trace (`LoadFrameProbe`, `CMUX_MOBILE_SEND_TRACE`).
+    private func probeRole(_ id: String) -> String {
+        guard let kind = rows[id]?.kind else { return "other" }
+        return switch kind {
+        case .prompt, .steer, .incoming: "user"
+        case .working: "work"
+        case .block: "answer"
+        case .thought: "thought"
+        case .tool, .toolGroup, .edit: "tool"
+        case .actions: "actions"
+        default: "other"
+        }
+    }
     #endif
 
     // MARK: Warm-up
@@ -1682,7 +1697,6 @@ extension ChatRow {
         case .tool: "tool"
         case .toolGroup: "toolGroup"
         case .edit: "edit"
-        case .plan: "plan"
         case .permission: "permission"
         case .question: "question"
         case .subagents: "subagents"
@@ -1759,7 +1773,6 @@ extension ChatRow {
         case .tool(let call) where call.hasImages: return 32 + 6 + CGFloat(min(call.images.count, ToolOutputImages.maxShown)) * (ToolOutputImages.maxHeight + 6)
         case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
-        case .plan(let entries): return 56 + CGFloat(entries.count) * 30
         case .permission: return 120
         case .question: return 220
         case .subagents(let ids): return 45 + CGFloat(ids.count) * 52

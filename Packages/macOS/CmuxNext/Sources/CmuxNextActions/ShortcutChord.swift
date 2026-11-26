@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// A two-key shortcut (`["ctrl+b", "c"]` in cmux.json), as the old app's
 /// Prefix-chord bindings: the first key arms it, the next key runs the action.
@@ -27,6 +30,7 @@ public nonisolated struct ChordBinding: Hashable, Sendable {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// `id`'s chord: from cmux.json (it replaces the single key), else its
     /// default chord (it adds to it; `LeaderLayer.defaultChord(for:)`).
@@ -94,3 +98,4 @@ extension ActionRegistry {
         return keys.map { Shortcut($0, modifiers: flags) }
     }
 }
+#endif

@@ -80,8 +80,8 @@ const on = { [FOLD_COUNTS_SWITCH]: true };
 const variant = (rows: AcpmuxRow[], note: string, counts: boolean, family = "claude"): AgentPaneVariant => ({
   note,
   snapshot: snapshot(rows, family),
-  // The worked-line experiment's default arm (outcome, #49934) already names the work; this switch
-  // is what its Time only arm says, so every variant pins that arm.
+  // The worked-line experiment's default arm is `time`; its `outcome` arm names the work. Every
+  // variant pins the time arm, so this switch is what it compares.
   experiments: { "worked-line": "time" },
   ...(counts && { experimentSwitches: on }),
 });

@@ -50,6 +50,26 @@
       "source": "Apple Network Link Conditioner preset 'Very Bad Network': 1 Mbps each way, 500 ms delay each way, 10% loss; plus 0-300 ms jitter per the lane brief."
     },
     {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 20,
+      "loss_percent": 0.5,
+      "source": "A geostationary satellite link (the scoreboard's 'satellite 600 ms' row; hq docs/design/ultra-connectivity.md section 8 names 600 ms, 20 ms jitter, 0.5 % loss). RTT: four hops of 35,786 km at c is 477 ms of propagation before any modem or gateway time, so 600 ms is a typical measured GEO round trip. Rates: the 25 Mbit/s down, 3 Mbit/s up tier consumer GEO plans advertise (HughesNet Gen5); an advertised tier, not a measurement. The shaper plays one rate per direction; the UDP model in cmux-mobile-link testing/shaped.rs uses the lower, 3 Mbit/s, for both."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 100,
+      "loss_percent": 2,
+      "source": "In-flight Wi-Fi (the scoreboard's 'airplane Wi-Fi' row; hq docs/design/ultra-connectivity.md section 8 names 700 ms and 2 % loss, section 3 '600+ ms, 1-5 % loss'): a cabin access point behind a shared GEO or air-to-ground backhaul. RTT and loss: the design's numbers. Rates: assumed, 5 Mbit/s down and 1 Mbit/s up for one passenger of a shared bearer (the order airlines quote per device); jitter 0-100 ms assumed for the shared queue. The 443-only and captive-portal parts of an airplane network are not in a shaper profile: see the scoreboard's captive-portal and proxy rows."
+    },
+    {
       "name": "elevator-30s",
       "version": 1,
       "down_kbit": 12000,
@@ -107,6 +127,26 @@
       "up_kbit": 40000,
       "rtt_ms": 80,
       "source": "The 'relay-30' hop for a Mac a continent away from its Cloud machine (a machine lives in one region). RTT: assumed, a transcontinental round trip; rate as 'relay-30'."
+    },
+    {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 50,
+      "loss_percent": 0.5,
+      "source": "Geostationary satellite broadband: 35,786 km each way puts the round trip at 480 ms of propagation alone; consumer GEO service measures about 600 ms (FCC Measuring Broadband America, satellite results). Rates and loss [assumed]. Used by scoreboard_rows.rs's satellite row (RFD 0142 T4)."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 200,
+      "loss_percent": 1,
+      "source": "In-flight Wi-Fi over a GEO satellite backhaul: the satellite round trip plus the cabin's shared, congested hop [assumed]. Used by scoreboard_rows.rs's airplane row."
     }
   ]
 }

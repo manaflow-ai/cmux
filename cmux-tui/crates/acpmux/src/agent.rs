@@ -887,12 +887,19 @@ pub struct ChildAgent {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its harness was put in `run_class` (once).
     run_class_entered: std::sync::atomic::AtomicBool,
+    /// Whether its harness's tree is in background class now, and for how long it was
+    /// (`cpu_class/pressure.rs`): what `session info` shows as `cpuClass`.
+    demotion: crate::cpu_class::pressure::Demotion,
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    /// Unix: for an agent in the unattended folder, the watchdog that ends its process group
+    /// when this daemon dies by any means (`Spawned::child`).
+    #[cfg(unix)]
+    _tether: Option<cmux_process::GroupTether>,
     /// The simulation's in-process agent (`sim_agent.rs`): true while it runs, in place of a
     /// child's `try_wait`.
     #[cfg(feature = "sim")]
@@ -928,6 +935,8 @@ struct Spawned {
     plugin_hook_home: Option<std::path::PathBuf>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    #[cfg(unix)]
+    tether: Option<cmux_process::GroupTether>,
     #[cfg(feature = "sim")]
     sim_alive: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -991,6 +1000,32 @@ impl Spawned {
             }
         };
         let pid = child.id();
+        // An agent no person works with (a model probe, model list or titler, `unattended_cwd`)
+        // ends with this daemon, however it ends: a restart under systemd's `KillMode=process`,
+        // a crash, the stop watchdog's exit. Its daemon ends it only while it runs, and an ACP
+        // harness such as `cursor-agent acp` waits on its stdin forever (image roll 45732114266:
+        // two cursor-agent probes outlived the bake's restart of acpmux by minutes). A person's
+        // agent is left alone: its harness's work outlives a daemon restart on purpose. The
+        // agent keeps leading its own group (every kill here signals it by its pid).
+        #[cfg(unix)]
+        let tether = match pid {
+            Some(pid) if cwd.starts_with(crate::protected_folders::unattended_cwd()) => {
+                match i32::try_from(pid)
+                    .map_err(std::io::Error::other)
+                    .and_then(cmux_process::GroupTether::join)
+                {
+                    Ok(tether) => Some(tether),
+                    Err(e) => {
+                        tracing::warn!(
+                            agent = name,
+                            "unattended agent: no watchdog for its group: {e}"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
         let exit = pid.and_then(leader_exit::LeaderExit::open);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
@@ -1009,6 +1044,8 @@ impl Spawned {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive: None,
         })
@@ -1031,6 +1068,8 @@ impl Spawned {
             plugin_hook_home: None,
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            tether: None,
             sim_alive: Some(pipes.alive),
         }
     }
@@ -1123,6 +1162,8 @@ impl ChildAgent {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
@@ -1158,11 +1199,14 @@ impl ChildAgent {
             preview_format,
             run_class,
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
+            demotion: Default::default(),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            _tether: tether,
             #[cfg(feature = "sim")]
             sim_alive,
         });
@@ -2252,11 +2296,63 @@ impl ChildAgent {
         // A harness adopted from another daemon has no class here: one whose start that daemon
         // did not see end (a restart mid-start) would keep the start's priority for good, so it
         // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
-        let class = self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal);
+        let class = self.run_class();
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
-        self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
+        let lowered = self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false);
+        if lowered && class == crate::cpu_class::CpuClass::Background {
+            self.demotion.mark(true, crate::cpu_class::pressure::mono_ms());
+        }
+        lowered
+    }
+
+    /// The class its harness runs at once its start is over: its start's, else (a harness
+    /// another daemon started) `normal`.
+    pub fn run_class(&self) -> crate::cpu_class::CpuClass {
+        self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal)
+    }
+
+    /// Its session's start is over and its harness went to its run class.
+    pub fn run_class_entered(&self) -> bool {
+        self.run_class_entered.load(Ordering::SeqCst)
+    }
+
+    /// Puts its harness's whole tree in background class (`on`) or takes it out
+    /// (`cpu_class::set_tree_background`), for the dynamic class (`hub/cpu_pressure.rs`). While
+    /// on, every call walks the tree again (a process forked during the last walk); once off,
+    /// one more walk follows the change, then none. Some(true) when the class changed, None when
+    /// its harness is gone.
+    pub async fn apply_background(&self, on: bool, now_ms: u64) -> Option<bool> {
+        let changed = self.demotion.is_background() != on;
+        let recheck = !changed && !on && self.demotion.take_recheck();
+        if !changed && !on && !recheck {
+            return Some(false);
+        }
+        let walked =
+            self.with_live_harness(|pid| crate::cpu_class::set_tree_background(pid, on)).await?;
+        if changed && (walked > 0 || !on) {
+            self.demotion.mark(on, now_ms);
+        }
+        Some(changed && walked > 0)
+    }
+
+    /// `session info`'s `cpuClass` (`cpu_class::pressure::Demotion::view`).
+    pub fn cpu_class_view(&self, now_ms: u64) -> Value {
+        self.demotion.view(self.run_class(), now_ms)
+    }
+
+    /// A person's own turn runs (`on`) or ended: a `background` harness leaves background class
+    /// for the turn and goes back after it (`cpu_class.rs`, item 6), so the tools it starts while
+    /// a person waits run at the agent tier, still below the app, not at background class. Only a
+    /// harness this daemon put in background class moves. True when its class changed.
+    pub async fn person_turn(&self, on: bool) -> bool {
+        let background =
+            self.run_class.get().copied() == Some(crate::cpu_class::CpuClass::Background);
+        if !background || !self.run_class_entered.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.with_live_harness(|pid| crate::cpu_class::person_turn(pid, on)).await.unwrap_or(false)
     }
 
     /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
@@ -2597,7 +2693,13 @@ impl ChildAgent {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                logged: tokio::sync::watch::channel(resume_after).0,
+                // Through the host's `acked_h` too: an owner acknowledged those entries once it
+                // handled them, and the host dropped them, so none replays. Not every entry leaves
+                // a `hostSeq` in the log (a stderr line, an Exit, a tap the live path keeps), so
+                // the log's last one can trail it, and an adoption waiting for the hello's
+                // `last_h` waited out `REPLAY_STALL` (10 s of every carrier restart fault,
+                // 2026-11-24: "adopt agent hosts 10012ms", "replay incomplete").
+                logged: tokio::sync::watch::channel(resume_after.max(adopted.acked_h)).0,
                 log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
                 broken_retry: std::sync::atomic::AtomicBool::new(false),
@@ -2622,11 +2724,14 @@ impl ChildAgent {
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
+            demotion: Default::default(),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            _tether: None,
             #[cfg(feature = "sim")]
             sim_alive: None,
         });

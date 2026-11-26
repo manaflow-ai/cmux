@@ -59,6 +59,8 @@ pub mod github_connect {
     pub const CONNECT_GITHUB: &str = "in cmux choose Connect GitHub (Settings > Accounts > GitHub, \
 or the command palette), or run `cmux accounts github-connect` on your Mac";
 }
+#[cfg(target_os = "linux")]
+pub mod git_cache;
 #[cfg(unix)]
 pub mod github_cli_identity;
 /// `cmux github` on a joined (non-Cloud) machine: the hub's machine token route.

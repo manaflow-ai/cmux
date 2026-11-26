@@ -116,6 +116,7 @@ fn config(dir: &Path, acpmux_url: String) -> Arc<ServiceConfig> {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     })
 }
 
@@ -143,6 +144,7 @@ async fn catch_up(config: Arc<ServiceConfig>, state: SessionExposure, request: V
             video: None,
             session_exposure: Some(rx),
             path: None,
+            viewport: None,
             route: None,
         };
         serve(config, peer, Arc::new(LinkAuth::default()), incoming).await;

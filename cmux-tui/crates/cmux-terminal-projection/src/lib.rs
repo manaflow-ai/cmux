@@ -27,7 +27,9 @@
 pub mod fit_policy;
 pub mod held;
 pub mod project;
+pub mod relayout;
 pub mod style;
+pub mod sync;
 pub mod terminal;
 pub mod unicode;
 pub mod zoom;

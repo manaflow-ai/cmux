@@ -1,5 +1,21 @@
 # Network-conditions baseline
 
+## Conversation connection benchmark
+
+The generalized simulator receipt is `cmux.connection-bench.v1`. It records
+forced disconnect recovery, replay lag, duplicate delivery, and idempotent
+send behavior so a reconnect row cannot be mistaken for a missing measurement.
+The command and goal definitions live in
+`services/conversation-sim/README.md` and
+`docs/findings/2026-11-25-connections-generalized-tooling.md`.
+
+| surface | command | goal | result |
+|---|---|---|---|
+| conversation WebSocket | `bun run services/conversation-sim/connection-bench.ts --drops 5 --latency-scale 3 --fail-rate 0.2 --history-fail-rate 0.1 --duplicate-rate 0` | every drop observed, end-to-end forced-drop-to-replay reconnect p95 ≤ 3 s, no lagged replay, idempotent send, history retry recovery | dropsObserved=5; reconnectLatencyP95Ms=519.17 ms; laggedReconnects=0; replayedEvents=5; duplicateEvents=0; idempotentSend=true; historyRecovered=true; pass=true |
+
+Latest receipt: commit `b863409076b3`, measured on the clean
+`feat-cmux-next`-based worktree.
+
 The baseline of record for the cmux NEXT phone surfaces under bad links, from
 `scripts/measure/ios-network-conditions.sh` (the cmux-fault link shaper, seeded and deterministic).
 Every fix that claims a mobile speed-up compares against these rows, from the same script.

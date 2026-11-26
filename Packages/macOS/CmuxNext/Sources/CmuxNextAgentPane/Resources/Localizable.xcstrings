@@ -1,6 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.github.requested": {"comment":"The new chat folder picker after the person asked their GitHub organization's owners to install the cmux App (GitHub sent the request to the owners).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the organization's owners to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي المؤسسة الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika organizacije da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Organisationens ejere er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber der Organisation wurden gebeten, cmux zu genehmigen. Ihre Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de la organización que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de l'organisation ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari dell'organizzazione di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"組織のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ស្ថាប័នឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"조직 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Organisasjonens eiere er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli organizacji o zatwierdzenie cmux. Jej repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários da organização que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам организации отправлен запрос на одобрение cmux. Её репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าขององค์กรอนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Kuruluş sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам організації надіслано запит на схвалення cmux. Її репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu tổ chức phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请组织所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請組織擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.github.requestedOwner": {"comment":"The new chat folder picker after the person asked a GitHub organization's owners to install the cmux App; %@ is the organization's name.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the owners of %@ to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي %@ الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika %@ da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Ejerne af %@ er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber von %@ wurden gebeten, cmux zu genehmigen. Die Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de %@ que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de %@ ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari di %@ di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"%@ のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ %@ ឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"%@ 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Eierne av %@ er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli %@ o zatwierdzenie cmux. Repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários de %@ que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам %@ отправлен запрос на одобрение cmux. Репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าของ %@ อนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"%@ sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам %@ надіслано запит на схвалення cmux. Репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu %@ phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请 %@ 的所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請 %@ 的擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.insertPhoto.prompt": {"comment":"Insert Photo: the open panel's button that inserts the chosen pictures into the focused pane.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert"}}}},
+    "agentPane.insertPhoto.noTarget": {"comment":"Insert Photo: refusal when the focused pane is neither an agent chat nor a terminal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo puts a picture into an agent chat or a terminal; focus one first."}}}},
+    "agentPane.insertPhoto.localOnly": {"comment":"Insert Photo: refusal in a remote (Cloud or SSH) terminal without a path argument.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo picks files on this Mac; a remote terminal can't read them. Pass a path on that machine with --arg path=<file>."}}}},
     "agentPane.cloudChatEnded.titleOn": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended; %@ is the Cloud machine's name (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud على %@."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat na %@ je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat auf %@ wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat on %@ ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud de %@ terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud sur %@ s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud su %@ è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"%@ の Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud នៅលើ %@ បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"%@의 Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud na %@ się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud em %@ terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud на %@ завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud บน %@ จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ üzerindeki Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud на %@ завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud trên %@ đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已結束。"}}}},
     "agentPane.cloudChatEnded.title": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已結束。"}}}},
     "agentPane.cloudChatEnded.promptBack": {"comment":"Agent pane: the line under the Cloud-chat-ended notice when the message went back into the composer (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت بعد وقت قصير من بدئها: ربما نفد استخدام وكيلها، أو توقّف الجهاز. رسالتك عادت إلى مربع الكتابة: أرسلها مجددًا، أو اختر وكيلًا أو جهازًا آخر أولًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Završio je ubrzo nakon početka: agent je možda potrošio korištenje ili je mašina stala. Tvoja poruka je ponovo u polju za pisanje: pošalji je ponovo ili prvo izaberi drugog agenta ili mašinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Den sluttede kort efter start: agenten kan være løbet tør for forbrug, eller maskinen stoppede. Din besked er tilbage i skrivefeltet: send den igen, eller vælg først en anden agent eller maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Er endete kurz nach dem Start: Der Agent hat vielleicht kein Nutzungskontingent mehr, oder die Maschine hat angehalten. Deine Nachricht ist wieder im Eingabefeld: Sende sie erneut oder wähle zuerst einen anderen Agenten oder eine andere Maschine."}},"en":{"stringUnit":{"state":"translated","value":"It ended soon after it started: its agent may be out of usage, or the machine stopped. Your message is back in the composer: send it again, or pick another agent or machine first."}},"es":{"stringUnit":{"state":"needs_review","value":"Terminó poco después de empezar: puede que su agente se haya quedado sin uso o que la máquina se haya detenido. Tu mensaje volvió al editor: envíalo de nuevo o elige antes otro agente o máquina."}},"fr":{"stringUnit":{"state":"needs_review","value":"Il s’est terminé peu après son début : son agent n’a peut-être plus d’utilisation, ou la machine s’est arrêtée. Votre message est revenu dans la zone de saisie : renvoyez-le, ou choisissez d’abord un autre agent ou une autre machine."}},"it":{"stringUnit":{"state":"needs_review","value":"È terminata poco dopo l’avvio: il suo agente potrebbe aver esaurito l’utilizzo, o la macchina si è fermata. Il tuo messaggio è tornato nel compositore: invialo di nuovo o scegli prima un altro agente o un’altra macchina."}},"ja":{"stringUnit":{"state":"needs_review","value":"開始直後に終了しました。エージェントの使用量が上限に達したか、マシンが停止した可能性があります。メッセージは入力欄に戻っています。もう一度送るか、先に別のエージェントやマシンを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"វាបានបញ្ចប់ភ្លាមៗបន្ទាប់ពីចាប់ផ្តើម៖ ភ្នាក់ងាររបស់វាប្រហែលអស់ការប្រើប្រាស់ ឬម៉ាស៊ីនបានឈប់។ សាររបស់អ្នកបានត្រឡប់ទៅប្រអប់សរសេរវិញ៖ ផ្ញើវាម្តងទៀត ឬជ្រើសភ្នាក់ងារ ឬម៉ាស៊ីនផ្សេងជាមុនសិន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작 직후 종료되었습니다. 에이전트의 사용량이 소진되었거나 머신이 멈췄을 수 있습니다. 메시지가 입력창으로 돌아왔습니다. 다시 보내거나 먼저 다른 에이전트나 머신을 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Den avsluttet kort etter start: agenten kan ha brukt opp kvoten, eller maskinen stoppet. Meldingen din er tilbake i skrivefeltet: send den igjen, eller velg først en annen agent eller maskin."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończył się wkrótce po starcie: agentowi mógł skończyć się limit albo maszyna się zatrzymała. Twoja wiadomość wróciła do pola tekstu: wyślij ją ponownie albo najpierw wybierz innego agenta lub maszynę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Terminou logo depois de começar: o agente pode ter ficado sem uso, ou a máquina parou. Sua mensagem voltou para o campo de texto: envie de novo ou escolha antes outro agente ou máquina."}},"ru":{"stringUnit":{"state":"needs_review","value":"Он завершился вскоре после начала: возможно, у агента закончился лимит или машина остановилась. Ваше сообщение снова в поле ввода: отправьте его ещё раз или сначала выберите другого агента или машину."}},"th":{"stringUnit":{"state":"needs_review","value":"แชตจบลงไม่นานหลังเริ่ม เอเจนต์อาจใช้งานถึงขีดจำกัดแล้ว หรือเครื่องหยุดทำงาน ข้อความของคุณกลับมาอยู่ในช่องพิมพ์แล้ว ส่งอีกครั้ง หรือเลือกเอเจนต์หรือเครื่องอื่นก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başladıktan kısa süre sonra sona erdi: ajanın kullanımı bitmiş veya makine durmuş olabilir. Mesajınız yazma alanına geri döndü: yeniden gönderin ya da önce başka bir ajan veya makine seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Він завершився невдовзі після початку: можливо, в агента закінчився ліміт або машина зупинилася. Ваше повідомлення знову в полі введення: надішліть його ще раз або спершу виберіть іншого агента чи машину."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện kết thúc ngay sau khi bắt đầu: agent có thể đã hết lượt dùng, hoặc máy đã dừng. Tin nhắn của bạn đã trở lại ô soạn: gửi lại, hoặc chọn agent hay máy khác trước."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"它在开始后不久就结束了：智能体可能已用尽用量，或机器已停止。你的消息已放回输入框：再次发送，或先选择其他智能体或机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"它在開始後不久就結束了：智慧代理可能已用盡用量，或機器已停止。你的訊息已放回輸入框：再次傳送，或先選擇其他智慧代理或機器。"}}}},
@@ -23144,6 +23149,138 @@
       }
     }
   },
+    "agentPane.error.folderMissing": {
+     "comment": "Agent pane: a folder picked for a chat no longer exists (a reboot wiped it, it was removed). %@ is its path.",
+     "extractionState": "manual",
+     "localizations": {
+      "ar": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "لم يعد المجلد %@ موجودًا. اختر مجلدًا آخر."
+       }
+      },
+      "bs": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ više ne postoji. Odaberi drugi folder."
+       }
+      },
+      "da": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ findes ikke længere. Vælg en anden mappe."
+       }
+      },
+      "de": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Der Ordner %@ existiert nicht mehr. Wähle einen anderen Ordner."
+       }
+      },
+      "en": {
+       "stringUnit": {
+        "state": "translated",
+        "value": "The folder %@ no longer exists. Pick another folder."
+       }
+      },
+      "es": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La carpeta %@ ya no existe. Elige otra carpeta."
+       }
+      },
+      "fr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Le dossier %@ n’existe plus. Choisissez un autre dossier."
+       }
+      },
+      "it": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La cartella %@ non esiste più. Scegli un’altra cartella."
+       }
+      },
+      "ja": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "フォルダー %@ はもう存在しません。別のフォルダーを選んでください。"
+       }
+      },
+      "km": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "ថត %@ លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+       }
+      },
+      "ko": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+       }
+      },
+      "nb": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ finnes ikke lenger. Velg en annen mappe."
+       }
+      },
+      "pl": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ już nie istnieje. Wybierz inny folder."
+       }
+      },
+      "pt-BR": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "A pasta %@ não existe mais. Escolha outra pasta."
+       }
+      },
+      "ru": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папки %@ больше нет. Выберите другую папку."
+       }
+      },
+      "th": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "โฟลเดอร์ %@ ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+       }
+      },
+      "tr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ klasörü artık yok. Başka bir klasör seç."
+       }
+      },
+      "uk": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папка %@ більше не існує. Виберіт іншу папку."
+       }
+      },
+      "vi": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Thư mục %@ không còn tồn tại. Hãy chọn thư mục khác."
+       }
+      },
+      "zh-Hans": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "文件夹 %@ 已不存在。请选择其他文件夹。"
+       }
+      },
+      "zh-Hant": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "資料夾 %@ 已不存在。請選擇其他資料夾。"
+       }
+      }
+     }
+    },
     "agentPane.error.transport": {
     "extractionState": "manual",
     "localizations": {

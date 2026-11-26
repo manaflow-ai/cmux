@@ -52,6 +52,7 @@ import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scal
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import type { PinCarry } from "./pinnedLiveLine";
+import { SINCE_DIVIDER } from "../model";
 import { LIVE_THINKING } from "./turns";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
@@ -432,7 +433,9 @@ export function createTailGlide(): TailGlide {
       for (const { first, last: end } of now.placed.mounted)
         for (let index = Math.max(first, toIndex); index < end; index++) {
           const id = now.placed.idAt(index)!;
-          if (id === pinned) continue;
+          // The New line never glides: placed again (a return, a turn's end), it shows where it now is,
+          // never sliding down from where it was (Leo, 2026-11-25: "falls from the top of the screen down").
+          if (id === pinned || id === SINCE_DIVIDER) continue;
           const was = index === toIndex ? -1 : indexBefore(id, index);
           const shift =
             was < 0 || !isMounted(before.placed, was) ? 0 : topIn(now, index) - topIn(before, was) - anchorMoved;

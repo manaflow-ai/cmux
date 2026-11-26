@@ -291,6 +291,7 @@ impl Hub {
             },
             &cwd,
             &std::env::temp_dir(),
+            dirs::home_dir().as_deref(),
         )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
@@ -452,7 +453,7 @@ impl Hub {
                 None => match self
                     .pool_claimed_name(&id)
                     .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
-                    .filter(|n| !self.evicted.any_meta(|m| m.name == *n))
+                    .filter(|n| !self.evicted.any_keys(|m| m.name == *n))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, &self.evicted.names(), agent),
@@ -789,6 +790,9 @@ impl Hub {
                 return Err(e);
             }
         }
+        // A transcript a cloud offload removed comes back before the agent resumes from it
+        // (`transcript_offload.rs`): one `stat` when none ever was.
+        self.restore_transcripts(session).await;
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
@@ -1596,6 +1600,17 @@ impl Hub {
                 return Err(e);
             }
         };
+        // An agent signed in by its key says so before its session (`acp_key_auth.rs`); one
+        // that refuses it names the sign-in as `initialize`'s failure does.
+        let family = crate::config::derive_family(&meta.harness, profile);
+        if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+            crate::acp_key_auth::launch_var(&profile.env, &family, k)
+        }) && let Err(e) = child.request(method::AUTHENTICATE, params).await
+        {
+            let mut e = Self::explain_start_failure(session, e).await;
+            crate::recovery::start_sign_in(&mut e, &meta.harness);
+            return Err(e);
+        }
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))
@@ -1725,6 +1740,7 @@ impl Hub {
                             Some(&sid),
                             &child,
                             &codex_answer,
+                            &init,
                         ),
                     )
                     .await;
@@ -1768,7 +1784,15 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer),
+                    self.acp_params(
+                        &session.id,
+                        &meta,
+                        profile,
+                        None,
+                        &child,
+                        &codex_answer,
+                        &init,
+                    ),
                 )
                 .await
             {
