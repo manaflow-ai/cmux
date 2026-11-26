@@ -1,8 +1,12 @@
 // Settings > Integrations > Connections: the remote MCP servers a person connects once in cmux, whose tools every
 // agent chat then gets through cmux's hosted MCP server (SettingsConnections in the app; cmux-tui
-// cli/mcp_servers.rs writes every label this card shows). The catalog is a grid in rank order: each
-// tile has the server's title, one line, and one button (Connect, Reconnect, Turn on, Disconnect),
-// or one line saying why it is not available. Connect opens the provider's sign-in page in the
+// cli/mcp_servers.rs writes every label this card shows). On top, All connections lists every
+// connection the person has (AllConnections.tsx). The catalog is a grid in rank order: each tile is the
+// shared connect card (agent-session/acpmux/ConnectCard.tsx, the one Claude and Codex use) with the
+// server's mark, title, one line, a status pill (shared/connect/ConnectPill.tsx) and one button
+// (Connect, Reconnect, Turn on; Disconnect behind a confirm), or one line saying why it is not
+// available. A connected tile whose sign-in lapses within days (the catalog's `expiresAt`) says when
+// and offers Reconnect. Connect opens the provider's sign-in page in the
 // system browser with a link back here; the card reads the catalog again when the window comes
 // back, on that link, and every few seconds for a minute after Connect. A key-auth server takes one
 // pasted key, sent once to the host and cleared here. With a team, Connect asks whose it is.
@@ -13,9 +17,16 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
-import { useRowState, useSettingsState, useStore } from "../context";
+import { useSettingsState, useStore, useRowState } from "../context";
 import type { ConnectionEntry, ConnectionsRun, ConnectionsState } from "../ops";
 import { t } from "../strings";
+import { ConnectCard } from "../../../agent-session/acpmux/ConnectCard";
+import { CONNECT_IDLE } from "../../../agent-session/acpmux/claudeConnect";
+import "../paneStrings";
+import { ConnectPill } from "../../shared/connect/ConnectPill";
+import { CONNECT_STATUS_KEY, expiryText } from "../../shared/connect/connectStatus";
+import { useConnectStrings } from "../../shared/connect/strings";
+import { AllConnections, tileStatus } from "./AllConnections";
 
 /** The Labs toggle that lists the servers which cannot be connected yet (Slack, Google). */
 export const UPCOMING_KEY = "labs.connectionsUpcoming";
@@ -31,14 +42,8 @@ type Gesture = Exclude<ConnectionsRun, { action: "refresh" }>;
 type Run = (run: Gesture) => Promise<void>;
 /** Whose a new connection is: the person's, or their active team's. */
 type Owner = { owner: "me" | "team"; team?: string };
-
-const TONE: Record<ConnectionEntry["state"], "success" | "attention" | "neutral"> = {
-  connected: "success",
-  reconnect: "attention",
-  enable: "attention",
-  connect: "neutral",
-  unavailable: "neutral",
-};
+/** A tile's one button: its words, its `data-connect-action` name, and what it runs. */
+type Primary = { button: string; action: string; run: () => Promise<void> };
 
 function KeyForm({
   entry,
@@ -83,6 +88,58 @@ function KeyForm({
   );
 }
 
+/** The mark of a server without one of its own: the first letter of its title. */
+function Monogram({ title }: { title: string }) {
+  return (
+    <span className="connections-monogram" aria-hidden="true">
+      {(title.trim()[0] ?? "?").toUpperCase()}
+    </span>
+  );
+}
+
+/** Disconnect: the first click asks inline, naming what the agents lose; the second removes it. */
+function Disconnect({ entry, id, busy, onRun }: { entry: ConnectionEntry; id: string; busy: boolean; onRun: Run }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming)
+    return (
+      <Button
+        danger
+        variant="ghost"
+        className="button"
+        data-connections-action="remove"
+        disabled={busy}
+        onClick={() => setConfirming(true)}
+      >
+        {t("settingsWindow.connections.disconnect")}
+      </Button>
+    );
+  return (
+    <div className="connections-confirm" data-connections-confirm="">
+      <div className="row-help">{t("settingsWindow.connections.disconnectBody", entry.title)}</div>
+      <div className="accounts-buttons">
+        <Button
+          danger
+          variant="ghost"
+          className="button"
+          data-connections-action="confirmRemove"
+          disabled={busy}
+          onClick={() => {
+            setConfirming(false);
+            void onRun({ action: "remove", id });
+          }}
+        >
+          {t("settingsWindow.connections.disconnect")}
+        </Button>
+        <Button className="button" data-connections-action="cancel" onClick={() => setConfirming(false)}>
+          {t("settingsWindow.hub.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** One server as the shared connect card (agent-session/acpmux/ConnectCard.tsx `provider`), its pill
+ * from the catalog's state (AllConnections.tsx `tileStatus`). */
 function Tile({
   entry,
   busy,
@@ -96,124 +153,100 @@ function Tile({
   owner: Owner;
   onRun: Run;
 }) {
-  const titleId = useId();
-  const [confirming, setConfirming] = useState(false);
+  const connectStrings = useConnectStrings();
   const id = entry.connectionId;
-  const connect = (key?: string) =>
-    void onRun({ action: "connect", name: entry.name, ...owner, ...(key ? { key } : {}) });
+  const connect = (key?: string) => onRun({ action: "connect", name: entry.name, ...owner, ...(key ? { key } : {}) });
   const detail = [entry.ownerLabel, entry.state === "connected" ? null : entry.toolsLabel].filter(
     (part): part is string => !!part,
   );
-  return (
-    <div
-      className="connections-tile"
-      data-connections-entry={entry.name}
-      data-connections-state={entry.state}
-      data-connections-loopback={entry.loopback ? "" : undefined}
-      data-connections-upcoming={entry.upcoming ? "" : undefined}
-      aria-labelledby={titleId}
-      role="group"
-    >
-      <div className="connections-head">
-        <div className="row-title" id={titleId}>
-          {entry.title}
-        </div>
-        {entry.statusLabel && entry.state !== "connect" && (
-          <span className="accounts-status devices-status" data-tone={TONE[entry.state]} data-connections-status="">
-            {entry.state !== "unavailable" && <span className="accounts-dot" aria-hidden="true" />}
-            {entry.state === "unavailable" ? t("settingsWindow.connections.unavailable") : entry.statusLabel}
-          </span>
-        )}
-      </div>
-      <div className="row-help selectable connections-line">{entry.line}</div>
+  const status = tileStatus(entry, pending);
+  // A lapsing sign-in says when, and its one action is Reconnect before it stops working.
+  const lapsing = entry.state === "connected" && (status === "expiring" || status === "reauth") && entry.expiresAt;
+  const reconnect = (label: string): Primary | null =>
+    id ? { button: label, action: "reconnect", run: () => onRun({ action: "reconnect", id }) } : null;
+  const primary: Primary | null =
+    entry.state === "connect" && !entry.keyField
+      ? { button: t("settingsWindow.connections.connect"), action: "connect", run: () => connect() }
+      : entry.state === "reconnect"
+        ? reconnect(entry.buttonLabel ?? t("settingsWindow.connections.reconnect"))
+        : entry.state === "enable" && id
+          ? {
+              button: entry.buttonLabel ?? t("settingsWindow.connections.enable"),
+              action: "enable",
+              run: () => onRun({ action: "enable", id }),
+            }
+          : lapsing
+            ? reconnect(t("settingsWindow.connections.reconnect"))
+            : null;
+  const pill = (
+    <ConnectPill
+      status={status}
+      label={
+        entry.state === "unavailable"
+          ? t("settingsWindow.connections.unavailable")
+          : lapsing || pending || entry.state === "connect"
+            ? connectStrings.t(CONNECT_STATUS_KEY[status])
+            : entry.statusLabel || connectStrings.t(CONNECT_STATUS_KEY[status])
+      }
+      hint={lapsing ? expiryText(lapsing, navigator.language) : undefined}
+      dataPrefix="connections"
+    />
+  );
+  const details = (
+    <>
       {entry.state === "unavailable" && entry.statusLabel && (
         <div className="row-help connections-why" data-connections-why="">
           {entry.statusLabel}
         </div>
       )}
       {detail.length > 0 && <div className="row-help connections-detail">{detail.join(" · ")}</div>}
+      {lapsing && (
+        <div className="row-help" data-connections-expiry={status}>
+          {connectStrings.format(
+            status === "reauth" ? "connect.expired.detail" : "connect.expiring.detail",
+            expiryText(lapsing, navigator.language),
+          )}
+        </div>
+      )}
       {pending && (
         <div className="row-help" data-connections-pending="">
           {t("settingsWindow.connections.waiting")}
         </div>
       )}
-      <div className="connections-actions">
-        {entry.state === "connect" && entry.keyField && (
-          <KeyForm entry={entry} busy={busy} onConnect={(key) => connect(key)} />
-        )}
-        {entry.state === "connect" && !entry.keyField && (
-          <Button
-            variant="solid"
-            className="button"
-            data-connections-action="connect"
-            aria-describedby={titleId}
-            disabled={busy}
-            onClick={() => connect()}
-          >
-            {t("settingsWindow.connections.connect")}
-          </Button>
-        )}
-        {id && entry.state === "reconnect" && (
-          <Button
-            variant="solid"
-            className="button"
-            data-connections-action="reconnect"
-            aria-describedby={titleId}
-            disabled={busy}
-            onClick={() => void onRun({ action: "reconnect", id })}
-          >
-            {entry.buttonLabel ?? t("settingsWindow.connections.reconnect")}
-          </Button>
-        )}
-        {id && entry.state === "enable" && (
-          <Button
-            variant="solid"
-            className="button"
-            data-connections-action="enable"
-            aria-describedby={titleId}
-            disabled={busy}
-            onClick={() => void onRun({ action: "enable", id })}
-          >
-            {entry.buttonLabel ?? t("settingsWindow.connections.enable")}
-          </Button>
-        )}
-        {id && !confirming && (
-          <Button
-            danger
-            variant="ghost"
-            className="button"
-            data-connections-action="remove"
-            aria-describedby={titleId}
-            disabled={busy}
-            onClick={() => setConfirming(true)}
-          >
-            {t("settingsWindow.connections.disconnect")}
-          </Button>
-        )}
-      </div>
-      {id && confirming && (
-        <div className="connections-confirm" data-connections-confirm="">
-          <div className="row-help">{t("settingsWindow.connections.disconnectBody", entry.title)}</div>
-          <div className="accounts-buttons">
-            <Button
-              danger
-              variant="ghost"
-              className="button"
-              data-connections-action="confirmRemove"
-              disabled={busy}
-              onClick={() => {
-                setConfirming(false);
-                void onRun({ action: "remove", id });
-              }}
-            >
-              {t("settingsWindow.connections.disconnect")}
-            </Button>
-            <Button className="button" data-connections-action="cancel" onClick={() => setConfirming(false)}>
-              {t("settingsWindow.hub.cancel")}
-            </Button>
-          </div>
-        </div>
-      )}
+    </>
+  );
+  return (
+    <div
+      className="connections-tile"
+      data-connections-entry={entry.name}
+      data-connections-state={entry.state}
+      data-connections-tone={status}
+      data-connections-loopback={entry.loopback ? "" : undefined}
+      data-connections-upcoming={entry.upcoming ? "" : undefined}
+    >
+      <ConnectCard
+        look="card"
+        progress={CONNECT_IDLE}
+        provider={{
+          mark: <Monogram title={entry.title} />,
+          title: entry.title,
+          line: entry.line,
+          button: primary?.button ?? "",
+          action: primary?.action,
+          disabled: busy,
+        }}
+        onBegin={primary?.run}
+        pill={pill}
+        details={details}
+        extra={
+          <>
+            {entry.state === "connect" && entry.keyField && (
+              <KeyForm entry={entry} busy={busy} onConnect={(key) => void connect(key)} />
+            )}
+            {id && <Disconnect entry={entry} id={id} busy={busy} onRun={onRun} />}
+          </>
+        }
+      />
     </div>
   );
 }
@@ -296,6 +329,7 @@ export function ConnectionsPanel({ refreshSignal = 0 }: { refreshSignal?: number
   const whose: Owner = owner === "team" && team ? { owner: "team", team: team.id } : { owner: "me" };
   return (
     <div className="connections-panel" data-connections="">
+      <AllConnections entries={entries} pending={pending} busy={busy} onRun={run} />
       <section className="group" data-connections-group="header">
         <div className="row-help">{t("settingsWindow.connections.help")}</div>
         {team && (

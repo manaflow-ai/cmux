@@ -96,6 +96,10 @@ impl Schema {
         );
         root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
         root.insert(
+            crate::theme_file::motion::KEY.into(),
+            crate::theme_file::motion::json_schema(),
+        );
+        root.insert(
             "fonts".into(),
             json!({
                 "type": "array",
@@ -168,6 +172,9 @@ fn kind_schema(row: &Row) -> Value {
             return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
+        Validation::Domain(DomainKind::BackdropPictures) => {
+            return json!({ "type": "array", "items": picture() });
+        }
         Validation::Domain(DomainKind::BackdropSchedule) => {
             return json!({
                 "type": "object",

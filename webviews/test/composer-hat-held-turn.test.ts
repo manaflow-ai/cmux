@@ -3,14 +3,12 @@
 // seems to be getting a lot of flickers recently. it needs to stay tight like the composer".
 //
 // The hat reads the turn through the composer's Stop hysteresis (App.tsx `hatWorking`,
-// composer/turnPresence.ts): its running lines (trayItems), the plan it carries (hatPlanOf) and
-// whether the plan sits in the hat or in the transcript all follow that held state, not the raw one.
+// composer/turnPresence.ts): its running lines (trayItems) follow that held state, not the raw one.
 // Each burst runs through the chat simulator; the raw running state is checked to flicker, and the
 // hat drawn from the held state never shows or hides, nor moves its plan, for under HOLD_MS.
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { hatPlanOf } from "../src/agent-session/acpmux/chatTaskList";
 import { HOLD_MS, TurnPresence } from "../src/agent-session/acpmux/composer/turnPresence";
 import type { BackgroundCommand } from "../src/agent-session/acpmux/session-info/processes";
 import { runSimulation } from "../src/agent-session/acpmux/sim/run";
@@ -18,7 +16,6 @@ import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, sim, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { trayItems } from "../src/agent-session/acpmux/subagents/runningTray";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import type { AcpmuxPlanEntry } from "../src/agent-session/acpmux/model";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 
@@ -56,17 +53,12 @@ function held(running: Change[]): Change[] {
 }
 
 // What the hat holds through the burst: a foreground subagent and a transcript command (both drawn
-// only while the turn runs), and the turn's own list with every step done (carried only while it runs).
+// only while the turn runs).
 const AGENT: Subagent = { id: "a1", parent: null, name: "Explore", state: "running", startedAt: 0 };
 const COMMAND: BackgroundCommand = { id: "c1", command: "bun test", state: "running", startedAt: 0 };
-const PLAN: readonly AcpmuxPlanEntry[] = [{ content: "Land the stack", status: "completed" }];
 
-/** What the hat draws for `working`: its line count and whether it carries the plan. */
-const hatFace = (working: boolean): string => {
-  const lines = trayItems([AGENT], [COMMAND], [], working).length;
-  const plan = hatPlanOf({ working, live: working ? PLAN : undefined })?.plan.length ?? 0;
-  return `${lines}/${plan}`;
-};
+/** What the hat draws for `working`: its line count. */
+const hatFace = (working: boolean): string => `${trayItems([AGENT], [COMMAND], [], working).length}`;
 
 /** Each face that stood less than HOLD_MS between two changes (the first is the chat's own). */
 function short(changes: Change[]): string[] {
@@ -100,9 +92,9 @@ const BURSTS: Record<string, () => SimScenario> = {
     burst("hat-burst-mixed", [200, 5, 900, 30, 350, 2_000, 15], [500, 120, 800]),
 };
 
-test("the hat's face follows the turn: lines and plan while it runs, neither between", () => {
-  expect(hatFace(true)).toBe("2/1");
-  expect(hatFace(false)).toBe("0/0");
+test("the hat's face follows the turn: lines while it runs, none between", () => {
+  expect(hatFace(true)).toBe("2");
+  expect(hatFace(false)).toBe("0");
 });
 
 for (const [about, make] of Object.entries(BURSTS))
@@ -116,7 +108,7 @@ for (const [about, make] of Object.entries(BURSTS))
 test("chat simulator: a burst of quick restarts keeps the hat up through it", () => {
   const faces = held(runningChanges(BURSTS["turns ending and starting within 5-60 ms"]!())).map((c) => hatFace(c.on));
   // Up from the first turn through the burst, gone once after the last.
-  expect(faces.filter((face) => face === "0/0").length).toBeLessThanOrEqual(2);
+  expect(faces.filter((face) => face === "0").length).toBeLessThanOrEqual(2);
 });
 
 for (const file of readdirSync(FIXTURES).filter((name) => name.endsWith(".ndjson")))
