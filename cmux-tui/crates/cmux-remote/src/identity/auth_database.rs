@@ -194,6 +194,7 @@ impl AuthDatabase {
             route_hints,
             relay_access,
             approval_required: bound_device.is_none(),
+            via_machine: None,
         };
         invitation.to_uri()?;
         let mut state = self.state.lock().await;
@@ -712,7 +713,7 @@ impl ServerAuthenticator for AuthDatabase {
                     ),
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: *self.revocation_tx.borrow(),
-                    authority: crate::crypto::ServiceAuthority::legacy_full(),
+                    authority: crate::crypto::ServiceAuthority::legacy_full().same_owner(),
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),

@@ -1,0 +1,19 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-composer",
+  "name": "Reference composer",
+  "tagline": "The reference chat app's round composer: the prompt on its own line over a row of controls, and every icon button highlighting as a circle.",
+  "description": "Opt-in, for the ChatGPT replica only. A round composer is taller than one line at baseline: the prompt gets its own line and the model, effort, access, attach and Send sit in a row under it. Its + (the attach paperclip) highlights as a circle on hover, like the round mic and Send beside it. cmux's own composers are not changed: remove it and the one-line composer you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": [],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Taller than one line at baseline: the in-box composer, the prompt on its own line over the
+    // controls row. Studio is the in-box look a setting can pick today (Codex's own is staged only
+    // by gallery previews, composerLook.ts).
+    "agentPane.composerLook": "studio"
+  }
+}

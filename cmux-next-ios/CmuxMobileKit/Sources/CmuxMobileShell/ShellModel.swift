@@ -60,12 +60,24 @@ final class ShellModel {
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            if let workspace = workspacesPath.last {
+                let id = store.resolvedWorkspaceID(workspace.id)
+                lastWorkspace.save(id)
+                if lastWorkspaceID != id { lastWorkspaceID = id }
+            }
             updateInteractiveOpen()
             updateShownMacs()
         }
     }
+    /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
+    var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
+    /// its top (`TabRetapScroll`; the Feed takes its own).
+    private(set) var topRequests: [RootTab: Int] = [:]
+    /// Every tap on the selected tab (the selection haptic's trigger, as a tab change is).
+    private(set) var tabRetaps = 0
 
     var toast: CmuxMobileToast?
     var editingTeam: Team?
@@ -73,6 +85,7 @@ final class ShellModel {
     /// The same load is retried from Workspaces; mock recovery reloads its fixture.
     func retryWorkspaces() async {
         if let live { live.retry(); return }
+        if reviewDemo { store.loadReviewDemo(); return }
         #if DEBUG
         if mockMode {
             let loaded = AppStore.mock()
@@ -94,6 +107,9 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// The App Review demo account (server-flagged, any build): demo terminals
+    /// and pages on its demo Mac, no live link (`AppStore.loadReviewDemo`).
+    let reviewDemo: Bool
     /// Send Message… on a workspace or a tab: the message to the Chief being written.
     var messagingChief: ChiefMessageAbout?
     /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
@@ -102,6 +118,13 @@ final class ShellModel {
     var sendingToChief = false
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
+    /// The email invite alert's address: kept until the invitation is sent, so a refusal or a
+    /// dropped connection never loses what was typed.
+    var inviteEmailDraft = ""
+    /// The team `inviteEmailDraft` was typed for: inviting to another team starts empty.
+    private var inviteEmailDraftTeamID: String?
+    /// The pasted invite link (Join with invite link): kept until the join succeeds.
+    var inviteLinkDraft = ""
     var isFetchingInvite = false
     var shareURL: ShareItem?
     /// Connected Devices for the terminal on screen (its title menu).
@@ -115,10 +138,24 @@ final class ShellModel {
         let id = UUID()
         let attention: CloudChatAttention?
     }
+    /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
+    var macScreenLink: MacScreenLinkPresentation?
+    /// The ``macScreenLink`` Screen Sharing already opened: the sheet's page appears again when
+    /// the viewer's full-screen cover closes, and that must not ask the Mac again.
+    @ObservationIgnored var macScreenLinkOpened: UUID?
+
+    struct MacScreenLinkPresentation: Identifiable {
+        let id = UUID()
+        let link: CmuxLink.MacScreenLink
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
     @ObservationIgnored let lastOpen: LastOpenMemory
+    /// The workspace last visited, kept when the user backs out to the list.
+    @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
+    /// The same id, observed: the list's mark follows it the moment a visit saves it.
+    private(set) var lastWorkspaceID: String?
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
@@ -139,8 +176,11 @@ final class ShellModel {
         let surface: Int
     }
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel,
+         lastOpen: LastOpenMemory = .standard, lastWorkspace: LastWorkspaceMemory = .standard) {
         self.lastOpen = lastOpen
+        self.lastWorkspace = lastWorkspace
+        self.lastWorkspaceID = lastWorkspace.load()
         self.store = store
         self.auth = auth
         // New Message names this account and its team by the Cloud's own ids, derived from the project.
@@ -148,10 +188,14 @@ final class ShellModel {
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
+        // Every tab card's last-known picture is this account's alone.
+        TabCardSnapshots.shared.accountID = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
-        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        // The review demo (a DEBUG test forces it on the mock account too) has its own content.
+        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock && !auth.isReviewDemo
         self.mockMode = mockMode
+        reviewDemo = auth.isReviewDemo
         #if DEBUG
         // `-cmux-mobile-mock-create-delay <seconds>` holds mock creations open, so
         // the list's pending row can be seen (verify/record-wsdesign.sh).
@@ -237,7 +281,8 @@ final class ShellModel {
         // New Task's drafts: on disk for a signed-in account, in memory on sample data.
         creator = WorkspaceCreator(store: store, backend: offlineCreation,
                                    taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
-        terminalTabs.mockDataEnabled = mockMode
+        terminalTabs.mockDataEnabled = mockMode || reviewDemo
+        terminalTabs.reviewDemo = reviewDemo
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
@@ -473,6 +518,13 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
@@ -481,6 +533,8 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -671,6 +725,10 @@ final class ShellModel {
         // The user left the restored workspace: no late link for it.
         if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
         lastOpen.save(location)
+        // The Rust last place (`LastPlaceMemory`): the same move, with the reading place kept
+        // for the tab it names.
+        let tab = location.workspaceID.flatMap { store.workspace(id: $0) }?.tabs.first { $0.id == location.tabID }
+        LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
     /// How many screens are pushed on `tab`'s stack.
@@ -697,6 +755,22 @@ final class ShellModel {
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
         tab == .settings || depth(of: tab) == 0
+    }
+
+    /// A tap on the tab that is already selected (the iOS Mail pattern): a pushed screen pops
+    /// back to the tab's root; at the root, the tab's list scrolls to its top.
+    func retapped(_ tab: RootTab) {
+        tabRetaps += 1
+        guard depth(of: tab) > 0 else {
+            topRequests[tab, default: 0] += 1
+            return
+        }
+        switch tab {
+        case .home: homePath = NavigationPath()
+        case .workspaces: workspacesPath = []
+        case .feed: feedPath = []
+        case .settings: settingsPath = []
+        }
     }
 
     /// The drawer pan only opens from a tab root (stack depth 1).
@@ -733,11 +807,10 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        // Layout captures only: `-cmux-mobile-banner-demo offline|pairing|pairing-reset|signed-out`.
         switch Self.bannerDemo {
-        case "connected"?: return .connected
-        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
+        case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         case "signed-out"?: return .signedOut
@@ -798,15 +871,21 @@ final class ShellModel {
     func sendInvite(email: String, to team: Team) {
         let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let live, !address.isEmpty else { return }
+        guard InviteEmail.isPlausible(address) else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: InviteEmail.invalidMessage)
+            theme.haptics.error()
+            return
+        }
         isFetchingInvite = true
         Task {
             defer { isFetchingInvite = false }
             do {
                 try await live.invite(email: address, teamID: team.id)
+                if inviteEmailDraft.trimmingCharacters(in: .whitespacesAndNewlines) == address { inviteEmailDraft = "" }
                 toast = CmuxMobileToast(symbol: "envelope", text: "Invitation sent to \(address)")
                 theme.haptics.success()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't send the invitation")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: Self.sendInviteFailureText(error))
                 theme.haptics.error()
             }
         }
@@ -879,6 +958,8 @@ final class ShellModel {
             if team.id.hasPrefix("personal-") {
                 toast = CmuxMobileToast(symbol: "person.2", text: "Create a team to invite people")
             } else {
+                if inviteEmailDraftTeamID != team.id { inviteEmailDraft = "" }
+                inviteEmailDraftTeamID = team.id
                 invitingTeam = team
             }
             return
@@ -891,9 +972,10 @@ final class ShellModel {
                 let url = try await auth.inviteLink(teamID: team.id)
                 shareURL = ShareItem(url: url)
             } catch CmuxMobileAuthModel.InviteError.serviceUnavailable {
-                toast = CmuxMobileToast(symbol: "link", text: "Invite links need the cmux service")
+                toast = CmuxMobileToast(symbol: "link", text: "Invite links aren't available right now.")
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create an invite link")
+                let text = TeamInviteFailure(error).message(fallback: "Couldn't create an invite link")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
                 theme.haptics.error()
             }
         }
@@ -905,15 +987,8 @@ final class ShellModel {
         Task {
             do {
                 let team = try await auth.createTeam(named: trimmed)
-                var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
-                if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
-                if let live {
-                    live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
-                } else {
-                    store.applyAccountTeams(teams, selectedID: store.activeTeamID)
-                }
                 theme.haptics.success()
-                switchTeam(to: team.id)
+                adopt(team)
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
@@ -927,17 +1002,73 @@ final class ShellModel {
         }
     }
 
+    /// A team this account just gained (created or joined): into the team list now, before
+    /// the account's list publishes it, then shown.
+    private func adopt(_ team: AppStore.AccountTeam) {
+        var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
+        if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
+        if let live {
+            live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
+        } else {
+            store.applyAccountTeams(teams, selectedID: store.activeTeamID)
+        }
+        switchTeam(to: team.id)
+    }
+
+    /// Joins from a pasted invite link; the pasted text stays in ``inviteLinkDraft`` unless it worked.
     func joinTeam(inviteLink: String) {
         Task {
             do {
-                try await auth.joinTeam(inviteLink: inviteLink)
-                toast = CmuxMobileToast(symbol: "checkmark", text: "Joined the team")
+                let joined = try await auth.joinTeam(inviteLink: inviteLink)
+                if inviteLinkDraft == inviteLink { inviteLinkDraft = "" }
+                toast = CmuxMobileToast(symbol: "checkmark", text: Self.joinedText(joined))
                 theme.haptics.success()
+                if let joined { adopt(joined) }
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "That invite link didn't work")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: Self.joinFailureText(error))
                 theme.haptics.error()
             }
         }
+    }
+
+    static func joinedText(_ team: AppStore.AccountTeam?) -> String {
+        guard let name = team?.name, !name.isEmpty else { return "Joined the team" }
+        return "Joined \(name)"
+    }
+
+    /// What a failed join says: Stack's reason when it named one (TeamInviteFailure).
+    static func joinFailureText(_ error: any Error) -> String {
+        TeamInviteFailure(error).message(fallback: "That invite link didn't work")
+    }
+
+    /// What a failed email invite says. The service answers `rate_limited` (429) past its
+    /// per-account limit and `bad_request` (400) for an address it rejects.
+    static func sendInviteFailureText(_ error: any Error) -> String {
+        if let failure = error as? LiveAPI.Failure {
+            switch failure.code {
+            case "rate_limited": return "Too many invitations. Try again in a minute."
+            case "bad_request": return InviteEmail.invalidMessage
+            default: break
+            }
+        }
+        return TeamInviteFailure(error).message(fallback: "Couldn't send the invitation")
+    }
+}
+
+/// The shape an invite address must have before Send: the service's own check
+/// (`EMAIL` in cmux-next-ios/backend/src/index.ts), plus a dotted domain.
+enum InviteEmail {
+    static let invalidMessage = "Enter an email address like name@example.com."
+
+    static func isPlausible(_ text: String) -> Bool {
+        let address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = address.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        let local = parts[0], domain = parts[1]
+        guard (1...64).contains(local.count), (1...255).contains(domain.count),
+              !address.contains(where: \.isWhitespace) else { return false }
+        let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty }
     }
 }
 
@@ -972,20 +1103,40 @@ extension ShellModel {
         let stackHub: URL? = nil
         #endif
         let auth = auth
+        // The build's cloud data space, as every other cloud client of this build sends it: a tagged Debug build is a
+        // device of its tag's space on the hub; one with no usable tag makes no hub calls.
+        let space = auth.buildSpace
+        let hubSpace: DeviceHubBuildSpace = if space.refusal != nil { .unusable } else if let dev = space.space { .dev(dev.headerValue) } else { .nightly }
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },
-            accountID: auth.user?.id
+            accountID: auth.user?.id,
+            buildSpace: hubSpace
         )
         let service = ScreenSharingService(configuration: configuration)
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
         }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
+        }
         #if DEBUG
-        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        if let demo = ScreenSharingService.demoMode() {
+            service.useDemo(demo)
+        } else if live == nil, mockMode {
+            // Mock mode has no account token for the hub: list the mock account's Macs, the ones
+            // Settings › Devices shows (`MockDeviceDirectory`), so both pages say the same.
+            service.useMock { [weak store] in MockDeviceDirectory.hubDevices(store?.teams.flatMap(\.macs) ?? []) }
+        }
         #endif
         screenSharing = service
         ScreenSharingService.current = service

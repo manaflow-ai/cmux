@@ -102,18 +102,17 @@ final class CloudChatsFlowUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         started = Date()
-        let wait = app.descendants(matching: .any)["cloudChats.connecting"].firstMatch
-        guard wait.waitForExistence(timeout: 30) else {
-            // Before: the gallery has no Cloud scene; the screen reads "Connecting…" alone.
-            ergo("wait", "Connecting… (CloudMachineChatsScreen)", reason: false, eta: false)
+        let failed = app.descendants(matching: .any)["cloudChats.connectFailed"].firstMatch
+        guard failed.waitForExistence(timeout: 30) else {
             shot(app, "04-no-cloud-gallery")
             throw XCTSkip("this build's gallery has no Cloud connect scene")
         }
         shot(app, "04-cloud-connect-gallery")
-        // The wait reads as one element: what it waits on, then its bound.
-        ergo("wait", wait.label, reason: wait.label.contains("through"), eta: wait.label.contains("up to"))
-        XCTAssertTrue(wait.label.contains("through") && wait.label.contains("up to"), "reason and ETA: \(wait.label)")
-        let failed = app.descendants(matching: .any)["cloudChats.connectFailed"].firstMatch
+        // The wait draws no words: no "Connecting to <machine> through <Mac>…", no seconds (Leo,
+        // 2026-11-24: "all the connecting... indicators ... nah let's not do that").
+        let words = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Connecting to atlas-dev through'"))
+        ergo("wait", "nothing drawn", reason: true, eta: true)
+        XCTAssertEqual(words.count, 0, "the Cloud wait still says it is connecting\n\(app.debugDescription)")
         XCTAssertTrue(failed.exists, "the timeout state\n\(app.debugDescription)")
         ergo("state", "Couldn't connect, with its cause and Retry", reason: true)
     }

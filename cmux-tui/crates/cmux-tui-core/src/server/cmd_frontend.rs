@@ -76,6 +76,10 @@ pub(super) fn put_frontend_projection(
         expected_projection_revision,
         &projection,
     )?;
+    // The launch snapshot carries every native projection (all but `resource-api`).
+    if frontend != "resource-api" {
+        mux.launch_snapshot_projection_writer(client);
+    }
     let mut value = serde_json::to_value(commit.projection)?;
     value.insert("replayed", json!(commit.replayed));
     Ok(value)
@@ -177,9 +181,13 @@ pub(super) fn report_agent(
     }))
 }
 
-pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow::Result<Value> {
+pub(super) fn list_notifications(
+    mux: &Arc<Mux>,
+    limit: Option<usize>,
+    stats: bool,
+) -> anyhow::Result<Value> {
     let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-    Ok(json!({
+    let mut listed = json!({
         "notifications": rows
             .iter()
             .map(|(row, acknowledged)| {
@@ -220,7 +228,11 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                 })
             })
             .collect::<Vec<_>>(),
-    }))
+    });
+    if stats && let Some(fields) = listed.as_object_mut() {
+        fields.insert("agent_notice_stats".to_owned(), mux.agent_notice_stats()?);
+    }
+    Ok(listed)
 }
 
 /// One `list-agents` row. `state` is the roster state (`done` there is an

@@ -203,6 +203,12 @@ import PackageDescription
 // (Contents.framePlan), so a new surface shows its plain background, never
 // cells of another buffer. No C API change.
 //
+// Since b37a94dfe..a84a1c7e4 (release/cmux-gi-land-1-cell-guard, fork PR
+// #93): two config keys, background-cells-opacity (an alpha for every
+// explicit cell background) and background-cells-neutral-fade (a near-grey
+// explicit background fades to clear by its Oklab lightness distance from the
+// theme background). Both unset = the old rule. No C API change.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -226,8 +232,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "d5085be1f0af3145bbb45e7b9d5dbdeeab13693ef954a9d00d04c984714814ed"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a84a1c7e4f95edf682920a0782ee914531fd2a15-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "12d5f79c78c8d7286b15bbb7a9ba6a23712a9d9a7df5cb59846e2e8e603be46b"
         ),
     ]
 )

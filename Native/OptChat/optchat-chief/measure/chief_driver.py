@@ -40,7 +40,7 @@ sys.path.insert(0, HERE)
 import scenario  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator", "mcp", "responsive", "brain"])
+ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "latency", "coordinator", "mcp", "responsive", "brain"])
 ap.add_argument("--engine-harness", default="", help="brain scenario: engine.json's turn harness (hermes, openclaw); empty: the default harness (--harness)")
 ap.add_argument("--engine-model", default="", help="brain scenario: engine.json's turn model")
 ap.add_argument("--keep-brain-logs", default="", help="brain scenario: on a failed check, copy the brain homes' logs here")
