@@ -60,7 +60,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         cells = workflow_jobs.runs_on_cells(detect)
         self.assertTrue(cells, "detect-ios-changes: runs-on reads a matrix value nothing resolves, or is missing")
         for runs_on in cells:
-            self.assertIn("LINUX_RUNNER", runs_on)
+            # A Linux label by literal (#56554 dropped vars.CI_FORK_LINUX_RUNNER): the pool, or hosted for forks.
+            self.assertIn("cmux-linux", runs_on)
+            self.assertNotIn("macos", runs_on)
         selector = next(step for step in detect["steps"] if step.get("id") == "families")
         self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
         self.assertEqual(
