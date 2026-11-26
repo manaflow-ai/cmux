@@ -377,7 +377,7 @@ jobs:
       # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -415,7 +415,7 @@ jobs:
 
       - name: "Pool mirror: checkout"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 6
         env:
           SHA: ${{ github.sha }}
           TOKEN: ${{ github.token }}
