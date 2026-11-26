@@ -107,10 +107,10 @@ const DISK: Thread = {
   messages: [
     {
       from: "cmux-cp-1",
-      text: RELAYED("[notice from now on cmux-cp-1 · WARN] Disk 91% full on studio-mac\n/ has 38 GB free."),
+      text: RELAYED("[notice from now on cmux-cp-1 · WARN] Disk 91% full on air-blue\n/ has 38 GB free."),
     },
   ],
-  notice: { sender: "now", severity: "warn", title: "Disk 91% full on studio-mac", host: "cmux-cp-1", repeats: 1 },
+  notice: { sender: "now", severity: "warn", title: "Disk 91% full on air-blue", host: "cmux-cp-1", repeats: 1 },
 };
 const NOTICES = [RUNNER, DISK];
 
