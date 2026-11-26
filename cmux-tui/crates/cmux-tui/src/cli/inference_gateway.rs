@@ -632,6 +632,10 @@ async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
+    // Open the provider's connection now, while the backend socket dials, so the first model call reuses it.
+    // Its owner lives as long as serve(): a gateway that stops first cancels the warm-up.
+    let warming = cmux_scope::Scope::new("inference gateway warm-up");
+    drop(start_warm(&warming, &upstream));
     // One count for the process: a call aborted with its old socket gives its slot back when its task drops.
     let slots = Arc::new(Slots::default());
     let has_login = match upstream.check().await {
@@ -1215,6 +1219,19 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
 }
 
+/// How long a warm-up waits for the provider; it never holds up a call or the start.
+const WARM_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Warms the provider's connection in the background ([`Provider::warm`]); the start does not wait for it.
+/// `None` when `scope` was cancelled first.
+fn start_warm(
+    scope: &cmux_scope::Scope,
+    upstream: &Arc<Provider>,
+) -> tokio::task::JoinHandle<Option<usize>> {
+    let upstream = upstream.clone();
+    scope.spawn_until_cancelled("inference gateway warm-up", async move { upstream.warm().await })
+}
+
 /// The login this gateway holds, and how a call reaches the provider with it.
 struct Provider {
     upstream: Upstream,
@@ -1277,6 +1294,41 @@ impl Provider {
                 Ok(true)
             }
         }
+    }
+
+    /// The origins this gateway's model calls go to.
+    fn warm_urls(&self) -> Vec<String> {
+        match &self.upstream {
+            Upstream::Proxy { base, .. } => vec![base.clone()],
+            Upstream::MacLogins(logins) => {
+                vec![logins.claude_base.clone(), CODEX_BACKEND.to_owned()]
+            }
+            Upstream::Codex { .. } => vec![CODEX_BACKEND.to_owned()],
+        }
+    }
+
+    /// Opens a connection (DNS, TCP, TLS on https, and the tailnet path on a tailnet host) to each origin with one
+    /// HEAD and leaves it in the client's pool, so the first model call does not pay for it. Any answer counts; a
+    /// failure is logged and changes nothing (the call dials as before). How many origins answered.
+    async fn warm(&self) -> usize {
+        let mut warmed = 0;
+        for url in self.warm_urls() {
+            let started = Instant::now();
+            let head = self.http.head(&url).timeout(WARM_TIMEOUT).send();
+            match head.await {
+                Ok(response) => {
+                    warmed += 1;
+                    log(&format!(
+                        "warmed {} ({} in {} ms)",
+                        log_path(&url),
+                        response.status().as_u16(),
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(error) => log(&format!("could not warm {}: {error}", log_path(&url))),
+            }
+        }
+        warmed
     }
 
     async fn call(&self, call: &Pending) -> Result<reqwest::Response, CallError> {
