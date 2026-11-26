@@ -16,7 +16,8 @@ import os
 /// Agent from Any App only while `app.startAgentGlobalHotKey` is on
 /// (cx-hkat), and Capture Screenshot to Chat only while
 /// `app.captureScreenshotGlobalHotKey` is on; turning a setting off releases
-/// its key. Each gate's default is off, as each setting's is; the App's
+/// its key. Show/Hide All Windows and Capture Screenshot to Chat default off,
+/// while Start Agent from Any App defaults on; the App's
 /// `GlobalHotKeyService.app(_:)` reads the live settings.
 @Observable
 package final class GlobalHotKeyService {

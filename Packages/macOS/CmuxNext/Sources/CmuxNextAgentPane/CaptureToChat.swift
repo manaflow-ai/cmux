@@ -60,6 +60,12 @@ public struct CaptureToChat: Sendable {
     /// `attach` synchronously, before this method's caller can interleave another route operation.
     @MainActor private func runAndReport(_ pick: ScreenshotToChat.Pick) async -> (ScreenshotToChat.Outcome, String?) {
         let outcome = await take(pick)
+        // A control deadline cancels the capture task. If the picker finished at the same time,
+        // do not attach a late result after the socket has already answered timeout.
+        guard !Task.isCancelled else {
+            if case .taken(let file, _) = outcome { try? FileManager.checked.removeItem(at: file) }
+            return (.cancelled, nil)
+        }
         guard case .taken(let file, _) = outcome else { return (outcome, nil) }
         attach([file], source)
         return (outcome, session(file))
