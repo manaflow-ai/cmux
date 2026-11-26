@@ -331,6 +331,10 @@ def main():
     parser.add_argument("--sign", default=os.environ.get("CMUX_LIVE_CODE_SIGN_IDENTITY", "-"),
                         help="codesign identity (default: CMUX_LIVE_CODE_SIGN_IDENTITY, else - for ad hoc); outside Debug "
                              "and bench an app signed by a team loads only a patch signed by that team")
+    parser.add_argument("--unsigned", action="store_true",
+                        help="leave the patch unsigned, for a Mac that signs it later (ios-device.sh with "
+                             "IOS_DEVICE_COMPILE_HOST: the fleet Mac compiles, the phone's own Mac signs); --live is then a "
+                             "staging folder no app watches")
     parser.add_argument("--optimize", action="store_true", help="compile at -O instead of the build's -Onone")
     parser.add_argument("--all", action="store_true", help="every file of the module, not only FILE")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4, help="compiles at once")
@@ -423,7 +427,7 @@ def main():
             sys.exit(f"patch.py: every file of {next(iter(modules))} holds state; nothing to patch")
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
-    refusal = device_sign_refusal(target, opts.sign)
+    refusal = None if opts.unsigned else device_sign_refusal(target, opts.sign)
     if refusal:
         sys.exit(refusal)
     name = f"patch-{time.time_ns()}-{os.getpid()}.dylib"  # unique and in order, even for two saves in a second
@@ -438,11 +442,16 @@ def main():
     if link_run.returncode != 0:
         sys.stderr.write(link_run.stderr[-6000:])
         sys.exit("patch.py: the link failed")
-    sign = subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", opts.sign, dylib], capture_output=True, text=True)
-    if sign.returncode != 0:
-        sys.stderr.write(sign.stderr[-2000:])
-        sys.exit(f"patch.py: codesign --sign {opts.sign} failed")
-    if opts.sign == "-":
+    if not opts.unsigned:
+        sign = subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", opts.sign, dylib],
+                              capture_output=True, text=True)
+        if sign.returncode != 0:
+            sys.stderr.write(sign.stderr[-2000:])
+            sys.exit(f"patch.py: codesign --sign {opts.sign} failed")
+    if opts.unsigned:
+        print("patch.py: left unsigned: sign it with the app's team identity before it goes in a live folder",
+              file=sys.stderr)
+    elif opts.sign == "-":
         print("patch.py: signed ad hoc: only a Debug or bench build loads it (a live code NIGHTLY needs "
               "--sign with the app's team identity)", file=sys.stderr)
     linked = time.time()
