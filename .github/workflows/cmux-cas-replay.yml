@@ -3,14 +3,14 @@ name: cmux-cas replay (RFD 0166 W1)
 # The RFD 0166 scoreboard's W1 row: what cas/1 would move per web OTA update against today's
 # whole archive, replayed over the last 100 published bundles (scripts/cmux-next/cas-replay-web.py).
 # It reads artifacts only; it publishes nothing.
+# No schedule: a schedule runs main's copy of a workflow, and main has neither this file nor
+# cmux-cas, so a cron here would never fire. Dispatch it, or let a crate PR run it.
 on:
   workflow_dispatch:
     inputs:
       count:
         description: How many published bundles to replay, newest last
         default: "100"
-  schedule:
-    - cron: "17 7 * * *"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
