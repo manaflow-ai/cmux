@@ -98,8 +98,8 @@ def lint_args(flags: list[str]) -> list[str]:
     """The clippy step's arguments: --all-targets with the panic ratchet's lint flags. The ratchet's own run is
     `--lib --bins` with the same flags, so on the same target directory its units are fresh and cargo replays their
     cached diagnostics: the ratchet reads them instead of checking every crate again (clippy-driver tracks its
-    arguments, so different flags rechecked each crate: about 245 s on 90% of ~4,780 runs a day,
-    goal ci-min-per-pr-30). The ratchet's lints are warnings like every other, and its own judge reports them."""
+    arguments, so different flags rechecked each crate: on acpmux, cmux-tui-core and cmux-config the ratchet's run
+    took 22 s over 72 units before and 6 s over 15 after, goal ci-min-per-pr-30). The ratchet's lints are warnings like every other, and its own judge reports them."""
     return ["--all-targets", "--message-format=json", "--", *flags, *CAP_LINTS]
 
 
