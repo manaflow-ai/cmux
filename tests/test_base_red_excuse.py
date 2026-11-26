@@ -7976,6 +7976,89 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
 
+    def test_a_read_that_never_happened_exits_3_not_a_red(self):
+        # A GitHub read that timed out, was cut at its size cap or that gh failed outright is no verdict on the
+        # PR's red: nothing was compared. It used to come out as `not excused: GitHub evidence request exceeded
+        # 90 seconds` (exit 1), which land-judge records as red_not_excused -- a strike no rerun clears, and one
+        # the ws-check gate never excuses. leo-workspace#9276 sat unlandable on exactly that line (2026-11-24)
+        # while its reds were the base's. Exit 3 is what land-judge reads as "not judged, retry".
+        class Unread(excuse.Refused):
+            pass
+
+        class Unreadable:
+            def json(self, route, *, paginate=False):
+                raise Unread("GitHub evidence request exceeded 90 seconds")
+
+            def blob(self, repo, ref, path):
+                raise Unread("GitHub evidence request exceeded 90 seconds")
+
+            def log(self, repo, job):
+                raise AssertionError("no log is read once a read has failed")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "Unread", Unread), \
+                unittest.mock.patch.object(excuse, "GitHub", Unreadable), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_the_unread_classes_are_read_at_call_time_like_the_rate_limited_ones(self):
+        # Same shape as rate_limited_classes: a reader without Unread leaves the empty tuple, and an ordinary
+        # refusal must still exit 1 rather than raise TypeError out of the handler.
+        self.assertIn(excuse.UnreadRead, excuse.unread_classes())
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_the_evidence_reader_raises_unread_when_gh_passes_its_deadline(self):
+        # The reader's own half: GitHub.run's three read failures (the 90 s deadline, the size cap, a gh that
+        # exited non-zero) are Unread, a Refused subclass, so gh-merge-green still refuses to merge on them
+        # while base_red_excuse can tell a read that never happened from a verdict.
+        evidence = excuse._evidence
+        self.assertTrue(issubclass(evidence.Unread, evidence.Refused))
+
+        class Process:
+            returncode = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def wait(self, timeout=None):
+                if timeout is None:  # the reap after kill(), as GitHub.run does it
+                    return 0
+                raise subprocess.TimeoutExpired(cmd="gh", timeout=timeout)
+
+            def kill(self):
+                pass
+
+        with unittest.mock.patch.object(evidence.subprocess, "Popen", Process):
+            with self.assertRaises(evidence.Unread) as caught:
+                evidence.GitHub().run(["api", "repos/x/y"])
+        self.assertIn("90 seconds", str(caught.exception))
+        # And it names the read, so the next timeout says which of the ~60 reads spent the 90 s.
+        self.assertIn("gh api repos/x/y", str(caught.exception))
+
+    def test_an_unread_names_the_read_that_never_happened(self):
+        # The job log read is the one most likely to pass the deadline (a leo-workspace ws-check job's log is
+        # tens of MB; glaeda-gh's own log read of manaflow-ai/cmux run 45518999614 answered "timed out after
+        # 90s", 2026-11-25), so the message has to tell it apart from a cheap route read.
+        evidence = excuse._evidence
+        self.assertEqual(evidence.read_name(["api", "repos/o/r/actions/runs/1/jobs?per_page=100"]),
+                         "gh api repos/o/r/actions/runs/1/jobs?per_page=100")
+        self.assertEqual(evidence.read_name(["run", "view", "45516453123", "--repo", "o/r", "--job", "7", "--log"]),
+                         "gh run view 45516453123 --repo o/r --job 7 --log")
+        # A GraphQL body is thousands of characters; its operation name identifies it.
+        named = evidence.read_name(["api", "graphql", "-f", "query=query PullFiles($owner: String!) { x }",
+                                    "-f", "owner=manaflow-ai"])
+        self.assertIn("query=PullFiles", named)
+        self.assertNotIn("String!", named)
+        self.assertIn("owner=manaflow-ai", named)
+        # Never unbounded, whatever a caller passes.
+        self.assertLessEqual(len(evidence.read_name(["run", "view", "x" * 5000])), 200)
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
@@ -17694,7 +17777,16 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "repro-capsule-journey.yml", "rfd0135-gates.yml", "runnable-link.yml", "tailnet-stable-node-move.yml",
             "vm-hassle.yml", "zero-to-going.yml",
             # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
-            "cas-replay.yml"),
+            "cas-replay.yml",
+            # The degenerate lab (#57434): one job per daemon part, scale and load; a red is the product's panic.
+            "cmux-next-degenerate-lab.yml",
+            # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.
+            "cmux-rd-windows-host-build.yml",
+            # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
+            "shotdiff.yml",
+            # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
+            # (#57443) and the pause-policy A/B on staging (#54833).
+            "ios-launch-tti-hosted.yml", "pause-ab.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
