@@ -756,6 +756,7 @@ sidebar.sections.order
 sidebar.sessionTree
 sidebar.settleFinished
 sidebar.showAgentSessions
+sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors
 sidebar.showCounts
