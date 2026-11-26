@@ -597,6 +597,10 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_suite.py"
 lane = "linux-guard"
 

@@ -77,7 +77,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
-pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.log probe.txt 2>/dev/null); }
+pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.log probe.txt rig.log 2>/dev/null); }
 
 {
   echo "SSVP self $self ip=${self_ip:-?} user=$(id -un)"
@@ -172,6 +172,25 @@ if [[ "$host" == nightly ]]; then
   echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
 fi
 
+# source=screen over the peer route: the rig (it starts the host and posts the input) runs in the launcher app's
+# grants, which a step's own processes lack (screen-stream-eval.sh rig=); the legs reach it at --root.
+rig_pid=""
+if [[ "$source" == screen && -n "$rig_root" ]]; then
+  mkdir -p "$rig_root" && chmod 700 "$rig_root"
+  bash scripts/measure/screen-stream-eval.sh "rig=$rig_root" >"$work/rig.log" 2>&1 &
+  rig_pid=$!
+  up=0
+  for _ in $(seq 1 600); do  # up to 2 min: the first run on a Mac installs the launcher
+    python3 -I "$vs" rig-call --root "$rig_root" '{"cmd": "ping"}' 2>/dev/null | grep -q '"ok": *true' && { up=1; break; }
+    kill -0 "$rig_pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  echo "SSVP rig up=$up $(grep -m1 SCREEN-STREAM-EVAL-RIG "$work/rig.log")" | tee -a "$work/probe.txt"
+  if [[ "$up" != 1 ]]; then
+    tail -20 "$work/rig.log" | tee -a "$work/probe.txt"
+    kill "$rig_pid" 2>/dev/null; rm -rf "$rig_root"; pack; exit 3
+  fi
+fi
 link=wired loss_args=() profile_args=() suffix=
 [[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
 if [[ "$loss" != 0 ]]; then
@@ -193,6 +212,11 @@ for kind in ${inputs//,/ }; do
   cat "$work/run-$kind.jsonl" >>"$work/run.jsonl" 2>/dev/null
   [[ "$leg" == 0 ]] || rc=$leg
 done
+if [[ -n "$rig_pid" ]]; then
+  python3 -I "$vs" rig-call --root "$rig_root" '{"cmd": "quit"}' >/dev/null 2>&1
+  for _ in $(seq 1 50); do kill -0 "$rig_pid" 2>/dev/null || break; sleep 0.2; done
+  kill "$rig_pid" 2>/dev/null; wait "$rig_pid" 2>/dev/null
+fi
 [[ -n "$rig_root" ]] && rm -rf "$rig_root"
 if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
   python3 -I -c 'import sys, urllib.request
