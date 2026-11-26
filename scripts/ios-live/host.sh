@@ -173,10 +173,7 @@ ensure_xcodegen() {
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
   rm -rf "$d"; mkdir -p "$d"
-  curl -fsSL --retry 3 -o "$d/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$d/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || die "xcodegen checksum mismatch"
-  unzip -q "$d/xcodegen.zip" -d "$d"
+  bash "$src/scripts/ci/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$d" >/dev/null || die "xcodegen fetch failed"
 }
 
 # checkout BASE [PATCH]: src at BASE (fetched when absent) plus PATCH; prints the full base sha.

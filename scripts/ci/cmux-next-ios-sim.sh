@@ -793,16 +793,9 @@ sim_boot_reduce_motion() {
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
-curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
-  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
-got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
-[[ "$got" == "$xcodegen_sha256" ]] ||
-  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
-unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
-# The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
-xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
-[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary in the $xcodegen_version zip" >&2; exit 3; }
+# The helper caches per host, authenticates when a token or gh is there, and verifies the sha256.
+xcodegen="$(bash "$(dirname "${BASH_SOURCE[0]}")/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$xcodegen_dir")" || exit 3
+[[ -x "$xcodegen" ]] || exit 3
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
