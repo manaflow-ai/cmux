@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45883186922",
+  "recorded_at": "2026-11-26T19:46:14Z",
+  "reason": "cmux-tui 0b1122981216 changes the image's cmux-tui (pinned 97bd05277cff)",
+  "dry_run": false,
+  "cmux_tui": "0b1122981216572dd0afad8fd5042b17892d72e2",
+  "fixes": [
+    {
+      "sha": "0b1122981216572dd0afad8fd5042b17892d72e2",
+      "mergedAt": "2026-11-26T10:45:13-08:00",
+      "subject": "Merge origin/feat-cmux-next (a949dc0c1732) into feat-cmux-next"
+    },
+    {
+      "sha": "26e24f0031e5b39267431820a288c680151fb962",
+      "mergedAt": "2026-11-26T18:13:34Z",
+      "subject": "cloud chat: a read or send on a paused machine resumes it, never \"start it first\" (#56084)"
+    },
+    {
+      "sha": "f4dc66b23b527c6585cb88d5d8f4da354a031d31",
+      "mergedAt": "2026-11-26T18:08:51Z",
+      "subject": "acpmux: build the usage prices once per catalog and each fan-out row once (#57002)"
+    },
+    {
+      "sha": "3ce7e0182efab067e0ca6f07734300a2723fa31c",
+      "mergedAt": "2026-11-26T18:00:43Z",
+      "subject": "Remote daemon: name the busy port, how to find its holder, and --remote-ws (#48995)"
+    },
+    {
+      "sha": "de9c41cf1f3de95f31fc4cfb0a61d35ecef8b8eb",
+      "mergedAt": "2026-11-26T17:59:42Z",
+      "subject": "cmux-rd-host: vtdecode declares CoreFoundation's CFIndex as isize, matching webrtc_child (base red fix) (#59040)"
+    },
+    {
+      "sha": "da5c3b951b16958852927f6e1448d6236e11806c",
+      "mergedAt": "2026-11-26T17:58:43Z",
+      "subject": "cmux-window-rules: agent pane placement rules in Rust (step A) (#57642)"
+    },
+    {
+      "sha": "ea52ccabf40ccb0eda0140440067b0c0794833d7",
+      "mergedAt": "2026-11-26T17:49:57Z",
+      "subject": "acpmux hub carrier: kept circuits outlive a daemon restart (#57281)"
+    },
+    {
+      "sha": "4409e114d4b0a6fde13d0ba6cf4fbe555ce95123",
+      "mergedAt": "2026-11-26T17:40:19Z",
+      "subject": "LinkRelay: tagged-datagrams frame and R5 coalescing (RFD 0142) (#54189)"
+    },
+    {
+      "sha": "3ede9a93e431a8762b45b5b6a2abc8b56b3cdccc",
+      "mergedAt": "2026-11-26T17:35:33Z",
+      "subject": "sign-in: say plainly when a build's sign-in address isn't allowed; test dev builds' sign-in addresses against the auth allowlist (#46924)"
+    },
+    {
+      "sha": "093092cb7c5268b09eaa389af7649aa09615e142",
+      "mergedAt": "2026-11-26T17:32:06Z",
+      "subject": "acpmux: permissions.rs's inbound loop and on_update to their own module (pure move) (#57039)"
+    },
+    {
+      "sha": "42608c77670580f108f9e9f81270c88439407540",
+      "mergedAt": "2026-11-26T17:27:57Z",
+      "subject": "cmux-tui-core: scroll_stress test boxes its UnixStream as a LocalReader (base red) (#58983)"
+    },
+    {
+      "sha": "b86b5b8c84cc23fd4b7daa13201ecd2523edc41d",
+      "mergedAt": "2026-11-26T17:22:24Z",
+      "subject": "cmux NEXT: Appearance: Light, Dark or Match System from the palette and the CLI (#58014)"
+    },
+    {
+      "sha": "de2fa717909ad90f772e0abdcb7e9ab10908ee03",
+      "mergedAt": "2026-11-26T17:14:44Z",
+      "subject": "acpmux: attribute published PRs and meter hourly cache reads (#55406)"
+    },
+    {
+      "sha": "2f1bbabb113fefee264902c5c715c91287318e94",
+      "mergedAt": "2026-11-26T17:08:46Z",
+      "subject": "tailnet move check: mint VM B's key once B answers, not before a 10 min boot (RFD 0169) (#58635)"
+    },
+    {
+      "sha": "a087d20fb58d0f560591ecc9ca5be1fbdf7d37c9",
+      "mergedAt": "2026-11-26T17:04:34Z",
+      "subject": "cmux-home-rules: chief_home ops (swift-out-home-chief A) (#57652)"
+    },
+    {
+      "sha": "4fe05a90c38f49a197cd2ac8688d6a6760b005bb",
+      "mergedAt": "2026-11-26T17:04:10Z",
+      "subject": "Settings: worktree folder location and branch prefix (matrix row worktree-settings) (#51459)"
+    },
+    {
+      "sha": "a50dda7b1a71be61683646d524ba9a6482236613",
+      "mergedAt": "2026-11-26T17:01:24Z",
+      "subject": "Remote follow-ups: a retrying peer isn't parked, a parked peer keeps its error, the sign-in card follows the chat's machine (#43370)"
+    },
+    {
+      "sha": "64d2ad2ff21242fd1fe7e81aba12efc5b240d5cc",
+      "mergedAt": "2026-11-26T16:58:29Z",
+      "subject": "CmuxNextMacScreen: actions, card, home sharing and viewer look rules in Rust (step A) (#57684)"
+    },
+    {
+      "sha": "024ef043a4c5c2c2714dfa60064d1e27ba78b100",
+      "mergedAt": "2026-11-26T16:56:08Z",
+      "subject": "cmux-projection: replay prefetch of the last start's access list, and the Mac answers asks in parallel (RFD 0065 pieces 8, 9) (#54932)"
+    },
+    {
+      "sha": "83b008576922eb1b8def405231d9c592fea5c4d7",
+      "mergedAt": "2026-11-26T16:52:30Z",
+      "subject": "Cut 3: health is link age plus a 1-RTT echo, service.off refused locally (RFD 0127) (#53865)"
+    },
+    {
+      "sha": "c01d30211fc7467480cee1425abd01c3f3dcc1be",
+      "mergedAt": "2026-11-26T16:48:07Z",
+      "subject": "acpmux: the model picker's lists move onto the tagged cache (stale-while-revalidate) (#47030)"
+    },
+    {
+      "sha": "0f7164527d86d96c36616ae3d4a8720436ae65b9",
+      "mergedAt": "2026-11-26T16:47:44Z",
+      "subject": "cmux-tui: the remote tree refresh sends known and holds its tree in cmux-tag-cache (#47026)"
+    },
+    {
+      "sha": "aff540c0e3fd5e381e7345ad646813f9c21b09a9",
+      "mergedAt": "2026-11-26T16:43:07Z",
+      "subject": "Cloud create: approve a held create in one call that carries the machine (#44357)"
+    },
+    {
+      "sha": "e604db593929a73e15bf21fae3bb7606ad13b614",
+      "mergedAt": "2026-11-26T16:42:40Z",
+      "subject": "cmux-braid-path: last good route per network fingerprint (RFD 0164 B2) (#58482)"
+    },
+    {
+      "sha": "1fc0d1de272b8624885a2947d0e9efd704b0da6b",
+      "mergedAt": "2026-11-26T16:41:25Z",
+      "subject": "cmux-rd bench --help names every bench option, --marker-scale included (#58632)"
+    },
+    {
+      "sha": "a2906179a09be07f5067b7545c1ffcdfb2cdf90c",
+      "mergedAt": "2026-11-26T16:35:54Z",
+      "subject": "iOS: catch up from the relay's delta log in the background (relay.deltaCatchup, off) (#56007)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T19:46:14Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
