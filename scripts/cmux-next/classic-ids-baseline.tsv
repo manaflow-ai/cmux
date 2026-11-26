@@ -56,6 +56,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier.swift	com.
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsCustomizeLibrary.swift	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineSecrets.swift	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ClassicShortcutImport.swift	com.cmuxterm.app"	1	move	lane B: reads Classic's data; waits for the import consent (lane/classic-reads-behind-consent)
+Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	.config/cmux"	1	keep	the Classic import's source, read only after the import's consent
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ComputerUseSettings.swift	com.cmuxterm.app"	1	move	lane B: reads Classic's data; waits for the import consent (lane/classic-reads-behind-consent)
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferences.swift	com.cmuxterm.app 	2	keep	MDM forced prefs from the legacy domain, which admins set for Classic and NEXT alike
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferences.swift	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain, which admins set for Classic and NEXT alike
@@ -106,6 +107,8 @@ cmux-tui/crates/cmux-browser-host/src/engines.rs	.cache/cmux/	1	move	lane A: Cla
 cmux-tui/crates/cmux-browser-host/src/server.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-classic-import/src/decode.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/decode.rs	join("cmux")	1	keep	the Classic importer's own reads
+cmux-tui/crates/cmux-classic-import/src/ghostty.rs	.local/state/cmux"	1	keep	the Classic import's source, read only after the import's consent
+cmux-tui/crates/cmux-classic-import/src/ghostty.rs	join("cmux")	1	keep	the Classic import's source, read only after the import's consent
 cmux-tui/crates/cmux-classic-import/src/ledger.rs	com.cmuxterm.app"	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	.local/state/cmux"	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
@@ -148,6 +151,7 @@ cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.appx	1
 cmux-tui/crates/cmux-tui-core/src/mux/unowned_hosts.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/remote_host/linux_screen.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/state/agent_start.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-tui-core/src/state/classic_import_router.rs	join("cmux")	2	keep	the Classic import's source, read only after the import's consent
 cmux-tui/crates/cmux-tui-core/src/tool_packs.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/workspace_registry/synth.rs	/tmp/cmux-synth-{session}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-platform/src/platform.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -177,11 +181,11 @@ cmux-tui/crates/cmux-tui/src/cli/key_broker.rs	.config/cmux/	1	move	lane A: Clas
 cmux-tui/crates/cmux-tui/src/cli/mcp/transport.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/mcp/upstream_listing.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/link/access_cli.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/localization/app_control.rs	.config/cmux/	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/localization/remote_client.rs	/tmp/cmux-debug-<tag>.sock	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-tui/src/machine_identity.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/plugin_manager.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/remote_host/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 scripts/cmux-next/acpmux-app-approvals-t2-gui.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
@@ -514,7 +518,3 @@ webviews/src/pages/settings/mockDoctor.ts	.config/cmux/	9	move	lane A: Classic-n
 webviews/src/pages/settings/mockDoctor.ts	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/mockProvider.ts	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/settings.gallery.ts	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	.config/cmux"	1	keep	the Classic import's source, read only after the import's consent
-cmux-tui/crates/cmux-classic-import/src/ghostty.rs	.local/state/cmux"	1	keep	the Classic import's source, read only after the import's consent
-cmux-tui/crates/cmux-classic-import/src/ghostty.rs	join("cmux")	1	keep	the Classic import's source, read only after the import's consent
-cmux-tui/crates/cmux-tui-core/src/state/classic_import_router.rs	join("cmux")	2	keep	the Classic import's source, read only after the import's consent
