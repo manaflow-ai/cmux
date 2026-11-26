@@ -255,6 +255,7 @@ DATA_SUFFIXES = (".tsv", ".json")
 # manifest-only push).
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
+SPAWN_OWNER_CHECK = "Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)"
 DEPS_CHECK = "Package dependency lists sorted"
 VISIBLE_ONLY_CHECK = "Lists draw only visible rows (check-visible-only.py, visible-only-baseline.tsv)"
 # The ast-grep rules whose hits that scanner counts per file against its baseline: the ast-grep layer leaves them out,
@@ -316,7 +317,7 @@ SCANNERS = (
       "scripts/cmux-next/check-keychain-no-prompt.py", "scripts/cmux-next/keychain-no-prompt-baseline.tsv")),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
-    ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
+    (SPAWN_OWNER_CHECK,
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
     # Lawrence 2026-11-16: "think of root cause fixes ... that make focus stealers easier to audit in central place".
     ("Keyboard moves go through the focus route (plans/cmux-next/focus-loss-AUDIT.md)",
@@ -3790,6 +3791,20 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
                 base_code, base_out, base_s = futures[(name, 0)].result()
                 head_code, head_out, head_s = futures[(name, 1)].result()
+                if name == SPAWN_OWNER_CHECK and head_code == 1 and crates:
+                    # A sparse tree can omit the unchanged #[cfg(test)] declaration of a reported
+                    # spawn, including a #[path] in a sibling module. Confirm the finding with each
+                    # affected crate's actual module declarations on both sides.
+                    roots = sorted({"/".join(path.split("/", 3)[:3]) for path in crates})
+                    sources = sorted({path for rev in (base, head) for root in roots
+                                      for path in ls_tree(repo, rev, root) if path.endswith(".rs")})
+                    name_base, name_head = build_trees(repo, base, head, sources, absolute(Path(tmp)) / "spawn-owner",
+                                                       trusted_scripts, index=False)
+                    sides = [pool.submit(side, jobs[name], tree) for tree in (name_base, name_head)]
+                    base_code, base_out, base_elapsed = sides[0].result()
+                    head_code, head_out, head_elapsed = sides[1].result()
+                    base_s += base_elapsed
+                    head_s += head_elapsed
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
                 if BROKEN.search(head_out):
