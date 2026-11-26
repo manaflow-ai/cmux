@@ -5219,6 +5219,9 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
     if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
     runs-on: ${{ needs.route-visual-gate-nightly.outputs.runs_on }}
+    # The GhosttyKit download below reads the CI cache bucket with the R2 credentials: only main enters
+    # ci-cache-writer (tests/test_ci_pull_request_caches_are_read_only.py), as the other nightly cache readers do.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # A warm tour slot builds the DEV app in ~6-10 min; a cold one took 35 min.
     timeout-minutes: 75
     permissions:

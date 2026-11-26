@@ -45,6 +45,8 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # A shell test the registry does not take (it lists .py tests). Exit: wire it into ci-guards.yml or a nightly step.
+    "tests/test_ci_nightly_warm_checkout_mirror.sh",
     # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
     # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
     # wrong, then wire it into ci-guards.yml's ci group.

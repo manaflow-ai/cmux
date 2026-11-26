@@ -1051,6 +1051,11 @@ path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tui_tree_checkout_retry.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_tui_tree_checkout_retry.py"
+
+[[test]]
 path = "tests/test_ci_upload_artifact_retention.py"
 lane = "linux-guard"
 
