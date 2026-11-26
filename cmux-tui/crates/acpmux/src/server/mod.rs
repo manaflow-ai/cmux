@@ -168,8 +168,10 @@ pub(crate) mod outbox;
 mod pairing;
 mod paused_files;
 pub mod peer_auth;
+mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
+mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
