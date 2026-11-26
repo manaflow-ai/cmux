@@ -97,3 +97,105 @@ fn a_prompt_never_written_names_no_agent_times() {
     assert!(!turns[0].contains_key("firstModelMs"));
     assert!(!turns[0].contains_key("agentStart"));
 }
+
+/// A cold chat's first turn splits `firstModelMs` (cmuxterm-hq
+/// `docs/findings/2026-11-24-first-model.md`): Claude Code answered its `initialize` 405 ms after
+/// it was sent, named `system/init` 81 ms later once both MCP servers connected, and the model's
+/// `message_start` came 2,100 ms after that with its request's cache counts.
+#[test]
+fn a_cold_turn_splits_claude_boot_mcp_and_the_request() {
+    let init = json!({"type": "system", "subtype": "init", "mcp_servers": [
+        {"name": "cmux", "status": "connected"},
+        {"name": "computer-use", "status": "failed"},
+    ]});
+    let start = json!({"type": "stream_event", "event": {"type": "message_start", "message": {
+        "usage": {"input_tokens": 3, "cache_read_input_tokens": 18_000,
+                  "cache_creation_input_tokens": 1_500, "output_tokens": 1}}}});
+    let records = [
+        rec(1, 0, "mux", "created", json!({"harness": "claude"})),
+        rec(2, 10, "out", "initialize", json!({"id": 1, "method": "initialize"})),
+        rec(3, 12, "in", "response", json!({"id": 1, "result": {}})),
+        rec(4, 20, "mux", "user_message", json!({"text": "hi"})),
+        rec(5, 25, "out", "session/prompt", json!({"id": 2})),
+        rec(
+            6,
+            30,
+            "in",
+            "claude.control_response",
+            json!({"type": "control_response", "response": {"request_id": "boot-1"}}),
+        ),
+        rec(
+            7,
+            415,
+            "in",
+            "claude.control_response",
+            json!({"type": "control_response", "response": {"request_id": "init-1"}}),
+        ),
+        rec(8, 496, "in", "claude.system.init", init.clone()),
+        rec(9, 2_596, "in", "claude.stream_event", start.clone()),
+        rec(
+            10,
+            2_626,
+            "in",
+            "claude.stream_event",
+            json!({"event": {"type": "content_block_delta"}}),
+        ),
+        // A later turn on the same Claude Code: no start of its own, its own init and counts.
+        rec(11, 9_000, "mux", "user_message", json!({"text": "again"})),
+        rec(12, 9_002, "out", "session/prompt", json!({"id": 3})),
+        rec(13, 9_050, "in", "claude.system.init", json!({"type": "system", "subtype": "init"})),
+        rec(
+            14,
+            10_650,
+            "in",
+            "claude.stream_event",
+            json!({"event": {"type": "message_start",
+            "message": {"usage": {"input_tokens": 5, "cache_read_input_tokens": 19_600}}}}),
+        ),
+        rec(15, 12_000, "in", "claude.stream_event", start),
+    ];
+    let turns = fold(&records);
+    assert_eq!(turns.len(), 2);
+    let t = &turns[0];
+    assert_eq!(t["firstModelMs"], json!(2_571));
+    assert_eq!(t["claudeBootMs"], json!(405));
+    assert_eq!(t["systemInitMs"], json!(486));
+    assert_eq!(t["promptToInitMs"], json!(471));
+    assert_eq!(t["initToModelMs"], json!(2_100));
+    assert_eq!(
+        t["mcpServers"],
+        json!([{"name": "cmux", "status": "connected"}, {"name": "computer-use", "status": "failed"}])
+    );
+    assert_eq!(
+        t["firstCallUsage"],
+        json!({"inputTokens": 3, "cacheReadInputTokens": 18_000, "cacheCreationInputTokens": 1_500})
+    );
+    let later = &turns[1];
+    assert!(!later.contains_key("claudeBootMs"));
+    assert!(!later.contains_key("systemInitMs"));
+    assert!(!later.contains_key("mcpServers"));
+    assert_eq!(later["promptToInitMs"], json!(48));
+    assert_eq!(later["initToModelMs"], json!(1_600));
+    assert_eq!(later["firstCallUsage"], json!({"inputTokens": 5, "cacheReadInputTokens": 19_600}));
+}
+
+/// A spare that booted before the chat was claimed: its `initialize` and answer are in the log
+/// before the prompt, and the start still ends at the turn's `system/init`.
+#[test]
+fn a_booted_agent_names_its_start_at_the_turns_init() {
+    let records = [
+        rec(1, 0, "out", "initialize", json!({"id": 1})),
+        rec(2, 700, "in", "claude.control_response", json!({"response": {"request_id": "init-1"}})),
+        rec(3, 5_000, "mux", "user_message", json!({"text": "hi"})),
+        rec(4, 5_001, "out", "session/prompt", json!({"id": 2})),
+        rec(5, 5_060, "in", "claude.system.init", json!({"type": "system", "subtype": "init"})),
+        rec(6, 6_860, "in", "claude.stream_event", json!({"event": {"type": "message_start"}})),
+    ];
+    let turns = fold(&records);
+    let t = &turns[0];
+    assert_eq!(t["claudeBootMs"], json!(700));
+    assert_eq!(t["systemInitMs"], json!(5_060));
+    assert_eq!(t["promptToInitMs"], json!(59));
+    assert_eq!(t["initToModelMs"], json!(1_800));
+    assert!(!t.contains_key("firstCallUsage"));
+}

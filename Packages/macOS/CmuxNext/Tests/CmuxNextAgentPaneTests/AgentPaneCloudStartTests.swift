@@ -283,6 +283,17 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
+    @Test func onlyAnAutoStartSeedsItsKeyEvenWhenAnExplicitRetryReusesThePromptAndKey() async throws {
+        var params = Self.good
+        let explicit = try #require(AgentPaneCloudStart(params: params))
+        #expect(explicit.seed(cwd: nil).autoCloudStartKey == nil)
+        params["autoPlaced"] = true
+        let auto = try #require(AgentPaneCloudStart(params: params))
+        let source = AgentPaneSeedSource(auto.seed(cwd: nil))
+        #expect(await source.take()?.autoCloudStartKey == explicit.key)
+        #expect(await source.take()?.autoCloudStartKey == nil)
+    }
+
     /// What the sending tab's composer held while the start ran (its unsent text) is the started chat's
     /// draft, shown and never sent, beside the prompt that goes by itself; an attachment-only start too.
     @Test func theStartedChatsDraftIsWhatTheSendingTabTypedMeanwhile() throws {
@@ -325,9 +336,9 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
-    @Test func noGestureAStartedOrRemoteChatOrABadRequestStartsNothing() async {
+    /// (Where a gesture is still needed: ``aSendWithNoGestureStillPicksNoOutsideFolderAndSendsNoSeededPrompt``.)
+    @Test func aStartedOrRemoteChatOrABadRequestStartsNothing() async {
         let starts = Starts()
-        _ = await Self.pane(starts).respond(to: Self.start(Self.good))
         let started = Self.pane(starts, sessionId: "chat")
         started.transport.gestures.record()
         _ = await started.respond(to: Self.start(Self.good))

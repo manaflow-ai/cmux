@@ -82,6 +82,22 @@ import Testing
         #expect(changes.count == 1, "one store change for 50 chunks, got \(changes.count)")
     }
 
+    @Test func equalReplayBatchDoesNotBumpRevision() {
+        let store = AgentChatStore(source: Silent())
+        let history = Self.turn(0)
+        store.apply(.batch(history))
+        let revision = store.revision
+        let turns = store.turns
+        store.apply(.batch(history))
+        print("SILENT_DELTA transcript_equal before=1 after=\(store.revision == revision ? 0 : 1)")
+        #expect(store.revision == revision)
+        #expect(store.turns == turns)
+
+        store.apply(.batch(Self.turn(1)))
+        #expect(store.revision > revision)
+        #expect(store.turns.count == turns.count + 1)
+    }
+
     @Test func otherEventsKeepTheirOrderAfterWaitingChunks() async {
         let store = AgentChatStore(source: Silent())
         let frames = Frames()
@@ -115,7 +131,7 @@ import Testing
         let changes = Changes()
         changes.watch {
             _ = (store.hasTurns, store.isRunning, store.pendingPermission, store.pendingQuestion, store.firstPrompt,
-                 store.hasAgentEdits, store.runningPlanEntries)
+                 store.hasAgentEdits)
         }
         store.apply(.update(.agentMessageChunk(text: "more", messageId: "m0")))
         await Task.yield()
@@ -145,7 +161,7 @@ import Testing
         let store = AgentChatStore(source: Silent())
         store.apply(.batch((0..<5).flatMap { Self.turn($0, edit: $0 == 4) }))
         let builder = ChatTranscriptBuilder(diffs: ChatDiffCache())
-        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.map(\.id) }
+        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.unfolded.map(\.id) }
         #expect(Set(ids).count == ids.count)
         #expect(ids.first == "session-start")
         #expect(ids.contains("u-t0") && ids.contains("a-t4") && ids.contains("e-c4"))
@@ -199,7 +215,7 @@ import Testing
             _ = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)
         }
         #expect(cache.computations == 2)
-        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows ?? []
+        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows.unfolded ?? []
         let card = rows.first { $0.id == "f-t2" }
         let snippet = rows.first { $0.id == "e-c2" }
         guard case .editedFiles(let changes)? = card?.kind, case .edit(_, let files)? = snippet?.kind else {

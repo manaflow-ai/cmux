@@ -47,7 +47,7 @@ public final class BrowserFitFrameView: NSView {
             field.font = .systemFont(ofSize: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
-        label.themedToolTip = Strings.explain
+        label.setAccessibilityHelp(Strings.explain) // a label: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
@@ -222,33 +222,33 @@ public final class BrowserFitFrameView: NSView {
     nonisolated enum Strings {
         static func status(width: Int, height: Int, percent: Int) -> String {
             String(localized: "browserDevices.fit.status", defaultValue: "Desktop \(width) × \(height) at \(percent)%",
-                   table: "BrowserDevices", bundle: .module)
+                   table: "BrowserDevices", bundle: .localizedModule)
         }
 
         static var explain: String {
             String(localized: "browserDevices.fit.explain", defaultValue: "The page lays out as a desktop and is scaled to fit this pane.",
-                   table: "BrowserDevices", bundle: .module)
+                   table: "BrowserDevices", bundle: .localizedModule)
         }
 
-        static var turnOff: String { String(localized: "browserDevices.fit.turnOff", defaultValue: "Turn Off", table: "BrowserDevices", bundle: .module) }
+        static var turnOff: String { String(localized: "browserDevices.fit.turnOff", defaultValue: "Turn Off", table: "BrowserDevices", bundle: .localizedModule) }
         static var aspectRatio: String {
-            String(localized: "browserDevices.fit.aspectRatio", defaultValue: "Aspect Ratio", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.fit.aspectRatio", defaultValue: "Aspect Ratio", table: "BrowserDevices", bundle: .localizedModule)
         }
-        static var width: String { String(localized: "browserDevices.fit.width", defaultValue: "Width", table: "BrowserDevices", bundle: .module) }
-        static var custom: String { String(localized: "browserDevices.fit.custom", defaultValue: "Custom…", table: "BrowserDevices", bundle: .module) }
+        static var width: String { String(localized: "browserDevices.fit.width", defaultValue: "Width", table: "BrowserDevices", bundle: .localizedModule) }
+        static var custom: String { String(localized: "browserDevices.fit.custom", defaultValue: "Custom…", table: "BrowserDevices", bundle: .localizedModule) }
         static func customCurrent(_ value: String) -> String {
-            String(localized: "browserDevices.fit.customCurrent", defaultValue: "Custom (\(value))…", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.fit.customCurrent", defaultValue: "Custom (\(value))…", table: "BrowserDevices", bundle: .localizedModule)
         }
-        static var zoomIn: String { String(localized: "browserDevices.fit.zoomIn", defaultValue: "Zoom In", table: "BrowserDevices", bundle: .module) }
-        static var zoomOut: String { String(localized: "browserDevices.fit.zoomOut", defaultValue: "Zoom Out", table: "BrowserDevices", bundle: .module) }
+        static var zoomIn: String { String(localized: "browserDevices.fit.zoomIn", defaultValue: "Zoom In", table: "BrowserDevices", bundle: .localizedModule) }
+        static var zoomOut: String { String(localized: "browserDevices.fit.zoomOut", defaultValue: "Zoom Out", table: "BrowserDevices", bundle: .localizedModule) }
         static var actualSize: String {
-            String(localized: "browserDevices.fit.actualSize", defaultValue: "Actual Size", table: "BrowserDevices", bundle: .module)
+            String(localized: "browserDevices.fit.actualSize", defaultValue: "Actual Size", table: "BrowserDevices", bundle: .localizedModule)
         }
 
         /// A fit as the bar names it: an aspect ratio as is ("16:10"), a width with its unit ("1440 px").
         static func title(_ value: String) -> String {
             guard let width = Int(value) else { return value }
-            return String(localized: "browserDevices.fit.widthValue", defaultValue: "\(width) px", table: "BrowserDevices", bundle: .module)
+            return String(localized: "browserDevices.fit.widthValue", defaultValue: "\(width) px", table: "BrowserDevices", bundle: .localizedModule)
         }
     }
 }

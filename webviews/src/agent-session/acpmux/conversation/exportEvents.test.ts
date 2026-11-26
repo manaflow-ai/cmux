@@ -1,6 +1,6 @@
 // l10n-allow-file: synthetic recorded conversation fixtures, not shipped UI.
 import { describe, expect, test } from "bun:test";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { recordedConversationEvents, type ConversationExportSource } from "./exportEvents";
 
 const event = (seq: number, sessionId = "chat-1"): EventRecord => ({

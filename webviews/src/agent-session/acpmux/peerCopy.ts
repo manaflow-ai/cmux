@@ -8,7 +8,7 @@
 //
 // Lawrence: "start new VMs from acp chat - decouple persistence of acp trajectories from the VM
 // itself, in case the VM is resuming" (cmuxterm-hq#4381, "Persistence, pause and resume").
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import type { KeptTail } from "./tailCache";
 
 /// The longest an open waits on the Mac's daemon for its copy. It answers from its own disk, so
@@ -65,7 +65,7 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
   const tail: KeptTail = {
     events,
     summary: { ...summary, peer, createdAt: r.generation, stale: r.stale === true },
-    turnOpener: undefined,
+    turnOpener: whole ? undefined : snapshotTurnOpener(r.turnOpener, events[0]!, r.sessionId, sessionId),
     historyExhausted: whole,
     queue: [],
     configSeq: 0,
@@ -83,6 +83,35 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
   };
   tail.peerCopy = copy;
   return { tail, copy };
+}
+
+/// The prompt before this exact page, kept by the daemon with the snapshot. Old snapshots have
+/// none. An opener is never a steer or a record of another session; it must precede the page.
+function snapshotTurnOpener(
+  value: unknown,
+  first: EventRecord,
+  replySessionId: unknown,
+  sessionId: string,
+): EventRecord | undefined {
+  const opener = value as EventRecord | undefined;
+  const pageSessionId = first.sessionId ?? (typeof replySessionId === "string" ? replySessionId : sessionId);
+  if (
+    !opener ||
+    typeof opener !== "object" ||
+    !Number.isSafeInteger(opener.seq) ||
+    opener.seq <= 0 ||
+    opener.seq >= first.seq ||
+    opener.dir !== "mux" ||
+    opener.kind !== "user_message" ||
+    !opener.msg ||
+    typeof opener.msg !== "object" ||
+    Array.isArray(opener.msg) ||
+    opener.msg.steer === true ||
+    (opener.sessionId !== undefined && opener.sessionId !== pageSessionId) ||
+    (first.dir === "mux" && first.kind === "user_message" && first.msg?.steer !== true)
+  )
+    return undefined;
+  return { ...opener, sessionId: opener.sessionId ?? pageSessionId };
 }
 
 /// The attach failed because the chat's machine is down (acpmux `peer_unreachable`), not because

@@ -37,6 +37,11 @@ public final class ActionRegistry {
     /// does not depend on what the person focuses. Published by the App.
     @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
+    /// `app.shortcutLayout` is Keep QWERTY Positions: Command and Control shortcuts
+    /// match by US QWERTY key position (``shortcuts(for:)``). Observable so
+    /// global hot keys re-register. `SettingsApplier` sets it.
+    public var matchesQwertyPositions = false
+
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
     public internal(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
@@ -63,6 +68,9 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// `experiments.menuStyleV2` (prototype; off is today's menus): `makeContextMenu` applies the v2
+    /// content rules (ActionRegistry+ContextMenuStyle). The NSMenu stays a real NSMenu.
+    @ObservationIgnored public var contextMenuStyleV2 = false
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
@@ -82,6 +90,9 @@ public final class ActionRegistry {
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -125,6 +136,9 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument's choices submenu items when the App lists them live (the installed editors of
+    /// Open In ▸) instead of the catalog's `pinned`; nil for a source it does not list, which keeps `pinned`.
+    @ObservationIgnored public var menuChoices: (@MainActor (String) -> [ActionEnumCase]?)?
     /// A suggested argument whose values are not read yet (a list the daemon has not answered):
     /// the load that answers them, which the palette's step awaits under its loading state instead
     /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
@@ -134,10 +148,10 @@ public final class ActionRegistry {
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]

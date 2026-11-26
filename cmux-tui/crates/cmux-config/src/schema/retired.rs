@@ -10,7 +10,12 @@
 //! row's default). While the row is unset its effective value reads the old
 //! key through that table, and every write or reset of the row, and Reset
 //! All, removes the old key, so it never applies behind the row (Swift
-//! `RenamedSettingKeys`, from the same file).
+//! `RenamedSettingKeys`, from the same file). An entry with `replaced_by`
+//! and no `values` is a plain rename: the old key's value reads as is.
+//!
+//! The same table rewrites a setup, a profile or a theme file written for an
+//! older cmux ([`crate::migrations`]); `since` and `until` bound the window in
+//! which an old name installs without the author being told to change it.
 
 use std::sync::OnceLock;
 
@@ -27,10 +32,13 @@ struct RetiredFile {
 #[derive(Deserialize)]
 struct RetiredEntry {
     key: String,
+    #[serde(default)]
+    migrated_by_app: bool,
     reason: String,
     replaced_by: Option<String>,
-    #[serde(default)]
-    values: Vec<ValueMap>,
+    values: Option<Vec<ValueMap>>,
+    since: Option<String>,
+    until: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -46,16 +54,56 @@ pub struct Replaced {
     pub old: Vec<String>,
     /// The row's path.
     pub row: Vec<String>,
-    /// What the old key's values read as in the row.
-    pub values: Vec<(Value, Value)>,
+    /// What the old key's values read as in the row; `None` for a plain
+    /// rename, where every value reads as is.
+    pub values: Option<Vec<(Value, Value)>>,
 }
 
 impl Replaced {
     /// The row's value for the old key's `value`; `None` reads as the row's
     /// default.
-    pub fn read(&self, value: &Value) -> Option<&Value> {
-        self.values.iter().find(|(from, _)| from == value).map(|(_, to)| to)
+    pub fn read<'a>(&'a self, value: &'a Value) -> Option<&'a Value> {
+        match &self.values {
+            None => Some(value),
+            Some(values) => values.iter().find(|(from, _)| from == value).map(|(_, to)| to),
+        }
     }
+}
+
+/// One entry of the table, as [`crate::migrations`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retired {
+    /// The old dotted key.
+    pub key: String,
+    /// Why it went, for a person.
+    pub reason: String,
+    /// The row that took its place (`None`: removed outright).
+    pub replaced_by: Option<String>,
+    /// The app owns a value transform on its settings file. Leave the source for it.
+    pub migrated_by_app: bool,
+    /// When the old name stopped being the setting (`YYYY-MM-DD` or a cmux version).
+    pub since: Option<String>,
+    /// The end of the deprecation window (`YYYY-MM-DD` or a cmux version).
+    pub until: Option<String>,
+}
+
+/// Every entry, in the file's order.
+pub fn retired_entries() -> &'static [Retired] {
+    static TABLE: OnceLock<Vec<Retired>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        parse()
+            .retired
+            .into_iter()
+            .map(|entry| Retired {
+                key: entry.key,
+                migrated_by_app: entry.migrated_by_app,
+                reason: entry.reason,
+                replaced_by: entry.replaced_by,
+                since: entry.since,
+                until: entry.until,
+            })
+            .collect()
+    })
 }
 
 fn parse() -> RetiredFile {
@@ -79,7 +127,9 @@ pub fn replaced_keys() -> &'static [Replaced] {
                 Some(Replaced {
                     old: path(&entry.key),
                     row: path(&entry.replaced_by?),
-                    values: entry.values.into_iter().map(|map| (map.from, map.to)).collect(),
+                    values: entry
+                        .values
+                        .map(|values| values.into_iter().map(|map| (map.from, map.to)).collect()),
                 })
             })
             .collect()

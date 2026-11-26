@@ -154,10 +154,12 @@ fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&st
     serde_json::to_string(&envelope).unwrap()
 }
 
+/// A newer client's param this daemon does not know never refuses the request: it is dropped
+/// before any handler, fingerprint or result sees it.
 #[test]
-fn catalog_validation_rejects_extra_and_malformed_parameters() {
+fn catalog_validation_ignores_unknown_parameters() {
     let mux = test_mux();
-    let extra = handle_resource_message(
+    handle_resource_message(
         &mux,
         &request(
             "extra",
@@ -166,8 +168,55 @@ fn catalog_validation_rejects_extra_and_malformed_parameters() {
             None,
         ),
     )
-    .unwrap_err();
-    assert_eq!(extra.code, "validation.invalid");
+    .expect("an unknown param is ignored");
+
+    let parsed = parse_resource_request(&request(
+        "extra-renamed",
+        "workspace.rename",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":"current",
+            "name":"renamed",
+            "from_a_newer_client":{"secret":"never logged"},
+        }),
+        Some("rename-with-unknown"),
+    ))
+    .expect("an unknown param is ignored");
+    assert_eq!(parsed.fields.get("name"), Some(&json!("renamed")));
+    assert!(!parsed.fields.contains_key("from_a_newer_client"), "{:?}", parsed.fields);
+    assert!(
+        parsed.envelope.params.get("from_a_newer_client").is_none(),
+        "the handler never sees it: {}",
+        parsed.envelope.params
+    );
+}
+
+/// An operation whose catalog params opt in (`"unknown_params": "refuse"`) still refuses one:
+/// `terminal.close` takes guards (`if_unplaced`), and ending a terminal because a newer guard
+/// went unread would end what the caller meant to keep.
+#[test]
+fn catalog_validation_refuses_unknown_parameters_where_the_catalog_opts_in() {
+    let refused = parse_resource_request(&request(
+        "close-unknown",
+        "terminal.close",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":"current",
+            "if_some_future_guard":true,
+        }),
+        Some("close-with-unknown"),
+    ))
+    .err()
+    .expect("terminal.close refuses an unknown param");
+    assert_eq!(refused.code, "validation.invalid", "{refused:?}");
+    assert_eq!(refused.message, "request contains unknown parameters", "{refused:?}");
+}
+
+#[test]
+fn catalog_validation_rejects_malformed_parameters() {
+    let mux = test_mux();
 
     let bad_decimal = handle_resource_message(
         &mux,

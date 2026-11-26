@@ -283,3 +283,37 @@ fn a_mark_from_before_a_compaction_is_not_used_after_it() {
         .unwrap();
     assert_eq!(out, fresh);
 }
+
+/// The grow hook counts the whole log, not the open segment: with log segments smaller than a
+/// mark, or no multiple of one, it is still called once per `GROWN_EVERY` bytes of log.
+#[test]
+fn the_grow_hook_is_called_at_every_mark_of_the_whole_log() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    for segment in [1_u64 << 20, 3 << 20, 8 << 20] {
+        let path = std::env::temp_dir().join(format!("acpmux-grow-hook-{}", uuid::Uuid::now_v7()));
+        let home = Home(path);
+        let store = LocalStore::new(home.0.join("sessions"), segment).unwrap();
+        let calls = std::sync::Arc::new(AtomicU64::new(0));
+        let counted = calls.clone();
+        Store::on_log_grown(
+            &store,
+            std::sync::Arc::new(move |_: &str| {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        crate::god_fixture::append_log(&store, "c", 400, 13 << 20).unwrap();
+        let bytes: u64 = store
+            .segments("c")
+            .unwrap()
+            .into_iter()
+            .map(|(_, path)| std::fs::metadata(path).unwrap().len())
+            .sum();
+        let (marks, calls) = (bytes / GROWN_EVERY, calls.load(Ordering::SeqCst));
+        assert!(marks >= 3, "the log is {bytes} bytes");
+        // A segment closes a line past its size, so the count runs a little behind the bytes.
+        assert!(
+            calls == marks || calls + 1 == marks,
+            "{segment}-byte segments: {calls} calls for {marks} marks in {bytes} bytes"
+        );
+    }
+}

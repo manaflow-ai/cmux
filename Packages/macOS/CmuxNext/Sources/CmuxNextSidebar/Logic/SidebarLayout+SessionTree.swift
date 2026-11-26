@@ -15,18 +15,23 @@ nonisolated extension SidebarLayout {
     /// the same list draws right after it, one level deeper, before the parent's next sibling, at
     /// any depth (who started whom). Siblings keep the list's order. A parent in another list leaves
     /// the row a root, and so does a cycle. The descendants of a `collapsed` parent do not draw (the
-    /// parent shows their roll-up). `ids` are the entries' workspaces (nil: a group or an item).
+    /// parent shows their roll-up), nor those of one `folded` says folds at its depth.
+    /// `ids` are the entries' workspaces (nil: a group or an item).
     /// Without `parents` the order is the model's. `children`: `treeChildren`, when the caller has it.
+    /// `skipped`: entries that draw no row at all, nor any of their descendants (the agent-started sessions
+    /// `SidebarSessionTreeState.hiddenStarted` leaves out).
     static func treeOrder(_ ids: [WorkspaceID?], parents: [WorkspaceID: WorkspaceID]?,
-                          collapsed: Set<WorkspaceID> = [], children known: [WorkspaceID: [Int]]? = nil) -> [(index: Int, depth: Int)] {
+                          collapsed: Set<WorkspaceID> = [], folded: ((WorkspaceID, Int) -> Bool)? = nil,
+                          children known: [WorkspaceID: [Int]]? = nil, skipped: Set<Int> = []) -> [(index: Int, depth: Int)] {
         guard let parents, !parents.isEmpty else { return ids.indices.map { ($0, 0) } }
         let children = known ?? treeChildren(ids, parents: parents)
-        let nested = Set(children.values.joined())
+        let nested = Set(children.values.joined()).union(skipped)
+        let folds = folded ?? { id, _ in collapsed.contains(id) }
         var order: [(index: Int, depth: Int)] = []
         order.reserveCapacity(ids.count)
         func visit(_ index: Int, _ depth: Int) {
             order.append((index, depth))
-            guard let id = ids[index], !collapsed.contains(id) else { return }
+            guard let id = ids[index], !folds(id, depth) else { return }
             for child in children[id] ?? [] { visit(child, depth + 1) }
         }
         for index in ids.indices where !nested.contains(index) { visit(index, 0) }
@@ -72,14 +77,14 @@ nonisolated extension SidebarLayout {
         return found
     }
 
-    /// The fold and roll-up of the workspace at `index` drawn by `tree`, whose list's `children`
+    /// The fold and roll-up of the workspace at `index`, drawn at `depth` by `tree`, whose list's `children`
     /// (`treeChildren`) the caller computed once: nil without children; a folded parent counts the
     /// states of everything under it (`states` by model index).
-    static func treeFold(_ index: Int, _ ids: [WorkspaceID?], tree: SidebarSessionTreeState?, children: [WorkspaceID: [Int]],
+    static func treeFold(_ index: Int, depth: Int, _ ids: [WorkspaceID?], tree: SidebarSessionTreeState?, children: [WorkspaceID: [Int]],
                          states: (Int) -> SidebarAgentState) -> (fold: SidebarTreeFold?, rollUp: SidebarTreeRollUp?) {
         guard let tree, let id = ids[index] else { return (nil, nil) }
         guard children[id]?.isEmpty == false else { return (nil, nil) }
-        guard tree.collapsed.contains(id) else { return (.expanded, nil) }
+        guard tree.isFolded(id, depth: depth) else { return (.expanded, nil) }
         let rollUp = SidebarTreeRollUp(treeDescendants(of: id, ids, children: children).map(states))
         return (.collapsed, rollUp.isEmpty ? nil : rollUp)
     }
@@ -95,19 +100,37 @@ nonisolated extension SidebarLayout {
     /// on a parent, its fold and roll-up. A filter opens every fold: the order and the chevrons both
     /// draw it open. Without `tree` the order is the model's, flat.
     static func treeRows(_ nodes: [SidebarNode], tree live: SidebarSessionTreeState?, filtering: Bool) -> [TreeRow] {
-        let ids = workspaceIDs(nodes)
+        treeRows(workspaceIDs(nodes), workspace: { if case let .workspace(ws) = nodes[$0] { ws } else { nil } },
+                 tree: live, filtering: filtering)
+    }
+
+    /// `treeRows` of one list, a section's loose rows or a group's members: `ids` its workspaces, `workspace` by index.
+    static func treeRows(_ ids: [WorkspaceID?], workspace: @escaping (Int) -> SidebarWorkspace?, tree live: SidebarSessionTreeState?,
+                         filtering: Bool) -> [TreeRow] {
+        let state: (Int) -> SidebarAgentState = { i in
+            guard let ws = workspace(i) else { return .idle }
+            return SidebarAgentState.of(ws, lane: live?.laneStates[ws.id] ?? live?.states[ws.id])
+        }
+        // Agent-started sessions hide (`hidesStarted`) but for the ones that need the person or are selected; a filter
+        // finds them all. The rows that stay draw under their parents, open: no fold, no roll-up of hidden rows.
+        let skipped = filtering ? [] : live?.hiddenStarted(ids, state: state) ?? []
         let tree = live.map { shown in
             var tree = shown
-            if filtering { tree.collapsed = [] }
+            if filtering || shown.hidesStarted { (tree.collapsed, tree.foldsDeep) = ([], false) }
             return tree
         }
-        let children = tree.map { treeChildren(ids, parents: $0.parents) } ?? [:]
-        let state: (Int) -> SidebarAgentState = { i in
-            guard case let .workspace(ws) = nodes[i] else { return .idle }
-            return SidebarAgentState.of(ws, lane: live?.states[ws.id])
+        var children = tree.map { treeChildren(ids, parents: $0.parents) } ?? [:]
+        if !skipped.isEmpty {
+            children = children.compactMapValues { kids in
+                let shown = kids.filter { !skipped.contains($0) }
+                return shown.isEmpty ? nil : shown
+            }
         }
-        return treeOrder(ids, parents: tree?.parents, collapsed: tree?.collapsed ?? [], children: children).map { entry in
-            let (fold, rollUp) = treeFold(entry.index, ids, tree: tree, children: children, states: state)
+        let folded: ((WorkspaceID, Int) -> Bool)? = tree.map { shown in { id, depth in shown.isFolded(id, depth: depth) } }
+        return treeOrder(ids, parents: tree?.parents, folded: folded, children: children, skipped: skipped).map { entry in
+            // While agent-started rows hide, a parent draws no chevron: nothing under it folds.
+            guard tree?.hidesStarted != true else { return TreeRow(index: entry.index, depth: entry.depth) }
+            let (fold, rollUp) = treeFold(entry.index, depth: entry.depth, ids, tree: tree, children: children, states: state)
             return TreeRow(index: entry.index, depth: entry.depth, fold: fold, rollUp: rollUp)
         }
     }

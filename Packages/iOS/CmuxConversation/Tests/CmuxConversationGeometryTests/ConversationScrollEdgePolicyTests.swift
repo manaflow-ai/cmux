@@ -1,5 +1,9 @@
 import CmuxConversationGeometry
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// The bottom soft scroll edge shows only while transcript content lies

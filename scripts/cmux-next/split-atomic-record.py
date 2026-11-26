@@ -20,6 +20,9 @@ landed; 1 otherwise.
 """
 import argparse, json, os, socket, sys, threading, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--out", required=True)
@@ -75,11 +78,11 @@ if not wait(panes, 60):
     sys.exit("no window answered debug.pane_chrome")
 action("workspace.newAtBottom")
 wait(lambda: (p := panes()) and len(p) == 1 and p, 10)
-time.sleep(1.0)  # test harness: the workspace settles
+wait_stable(panes, "the new workspace's pane layout", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
 action("newTab.page")
 # The pane shows the terminal and the New Tab page.
 before = wait(lambda: (p := panes()) and len(p) == 1 and p[0][1] >= 2 and p, 10)
-time.sleep(1.0)  # test harness: the page settles and takes focus
+wait_stable(panes, "the pane with the New Tab page", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
 before = panes()
 print("before:", before, flush=True)
 if not before or len(before) != 1:
@@ -104,11 +107,19 @@ started = rpc("debug.window_record", {"dir": frames, "seconds": opts.seconds})
 print("record:", started, flush=True)
 poller = threading.Thread(target=probe)
 poller.start()
-time.sleep(0.15)  # test harness: still frames before the key
+time.sleep(0.15)  # sleep-ok: the recording's still frames before the key (a baseline of fixed length)
 key_at = time.time()
 reply = rpc("debug.key", {"key": "d", "modifiers": ["cmd"]})
 print("cmd-d:", json.dumps(reply)[:300], flush=True)
-time.sleep(opts.seconds + 0.6)  # test harness: the recording stops by itself
+time.sleep(opts.seconds)  # sleep-ok: the recording window (debug.window_record stops by itself after it)
+
+
+def frame_count():
+    return len([f for f in os.listdir(frames) if f.endswith(".jpg")]) if os.path.isdir(frames) else 0
+
+
+# The recorder wrote its last frame: the frame count stops growing.
+wait_stable(frame_count, "the recorded frames", timeout=10, interval=0.2, reads=3, raise_on_timeout=False)
 stop.set()
 poller.join()
 after = panes()

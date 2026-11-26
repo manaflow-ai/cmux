@@ -19,6 +19,8 @@ const keys = [
   "document",
   "navigator",
   "HTMLElement",
+  // A Markdown code block's renderer defines a custom element when it loads.
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
@@ -46,6 +48,7 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
     Node: window.Node,
     Element: window.Element,
@@ -348,7 +351,7 @@ test("Find reads a legacy prompt's pick as its chip draws it: the report, not it
   const rows = [
     { id: "legacy-pick", version: 1, at: 0, kind: "user", text: promptText("Why is this span cut off?", [pick!]) },
   ];
-  const count = (query: string) => findMatchesIncremental(rows as never, query).matches.length;
+  const count = (query: string) => findMatchesIncremental(rows as never, query, undefined, "strip").matches.length;
   // The name line and the fence draw nowhere (the chip's face is outside Find).
   expect(count("UI: span")).toBe(0);
   expect(count("```")).toBe(0);

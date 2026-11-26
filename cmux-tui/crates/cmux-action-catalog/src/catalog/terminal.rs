@@ -130,6 +130,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal keep",
         ..Action::DEFAULT
     },
+    // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
+    // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
+    // In the workspace category, where the line shows: a row in a terminal category needs its App
+    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Show Last Line in Sidebar"),
+        keywords: &["pin", "tail", "last line", "output", "status", "sidebar"],
+        category: "workspace",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ON.optional()],
+        targets: &["tab"],
+        cli_name: "terminal pin-tail",
+        ..Action::DEFAULT
+    },
     // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
     // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
     // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a
@@ -192,6 +209,25 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "terminal find-in-directory",
         main_menu: Some("edit"),
+        ..Action::DEFAULT
+    },
+    // Go to Directory: the focused terminal's shell changes to a typed directory (`cd`), as
+    // Finder's Go to Folder (Shift-Cmd-G). Shift-Cmd-G's other owners (Group Selected Workspaces,
+    // the browser's Find Previous) keep it outside a focused terminal.
+    Action {
+        id: "terminal.goToDirectory",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.goToDirectory", "Go to Directory…"),
+        keywords: &["cd", "folder", "path", "change directory", "jump"],
+        default_shortcut: Some(Shortcut { key: "g", modifiers: SHIFT | CMD }),
+        category: "terminal",
+        symbol: "arrow.right.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH],
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal go-to-directory",
         ..Action::DEFAULT
     },
     Action {
@@ -420,7 +456,8 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "arrow.up.forward.app",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "inspect", 0).folder("tools")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::APP],
+        // `app`: an editor id (listed, the default first), `finder`, `terminal`, or any app by name, bundle id or path.
+        arguments: &[args::EDITOR],
         targets: &["pane"],
         cli_name: "terminal open-current-directory-in",
         ..Action::DEFAULT

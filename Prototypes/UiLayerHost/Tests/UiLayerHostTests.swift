@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -64,5 +65,41 @@ import Testing
         #expect(!options.followsAppLook)
         #expect(UiLayerHostOptions.parse(arguments: ["host", "--sizes", "all"]).sizes == UiLayerHostOptions.allSizes)
         #expect(UiLayerHostOptions.parse(arguments: ["host"]) == UiLayerHostOptions())
+    }
+}
+
+// The UI shell's shoot mode end to end: every scene opens a window and draws a PNG. Run on a display worker
+// (`cmux-ci run --class light --script scripts/ci/run-swift-testing-suites.sh --arg Prototypes/UiLayerHost --display`);
+// it writes Prototypes/UiLayerHost/.build/ui-shell (the step's --artifact is that folder's shots.tar).
+@MainActor
+@Suite struct UiShellShootTests {
+    @Test func optionsParse() {
+        let options = UiShellShootOptions.parse(arguments: ["host", "--shoot", "/tmp/out", "--scene", "tabs, keycaps"],
+                                                defaultThemes: URL(fileURLWithPath: "/themes"))
+        #expect(options == UiShellShootOptions(output: URL(fileURLWithPath: "/tmp/out"), scenes: ["tabs", "keycaps"],
+                                               themes: URL(fileURLWithPath: "/themes")))
+        #expect(UiShellShootOptions.parse(arguments: ["host", "--sizes", "all"]) == nil)
+    }
+
+    @Test func shootsEveryScene() throws {
+        guard !NSScreen.screens.isEmpty else { return } // no window server: nothing to draw into
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let output = package.appending(path: ".build/ui-shell")
+        try? FileManager.default.removeItem(at: output)
+        _ = NSApplication.shared
+        #expect(!UiShellShoot.themeColors(in: UiShellShoot.repoThemes).isEmpty)
+        let receipt = try UiShellShoot.run(UiShellShootOptions(output: output, themes: UiShellShoot.repoThemes))
+        for shot in receipt.shots {
+            print("ui-shell: \(shot.scene) \(Int(shot.ms)) ms \(shot.files) \(shot.error ?? "")")
+            #expect(shot.error == nil, "\(shot.scene): \(shot.error ?? "")")
+            #expect(!shot.files.isEmpty, "\(shot.scene) wrote no PNG")
+        }
+        print("ui-shell: \(receipt.shots.count) scenes in \(Int(receipt.totalMs)) ms")
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-cf", package.appending(path: ".build/ui-shell-shots.tar").path, "-C", output.path, "."]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
     }
 }

@@ -10,15 +10,28 @@ use std::path::Path;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{Flags, refused, reservations, valid_account};
+use super::{Flags, ledger, refused, reservations, valid_account};
 use crate::cli::{Platform, PlatformCallError};
 
 /// A warm asked again within this long of the last one, for the same account and team, while
 /// that warm still runs for longer than this, is answered from the record with `fresh: false`:
 /// no platform call and no second login copy. Every composer keystroke and app activation can ask.
-/// A warm that found no spare, or failed, is an attempt: within the gap its answer is replayed
-/// with no platform call, so a route that is down is not asked on every activation.
+/// A warm that failed is an attempt: within the gap its answer is replayed with no platform call,
+/// so a route that is down is not asked on every activation.
 pub(super) const WARM_GAP_MS: u64 = 120_000;
+
+/// A warm that found no spare is replayed only this long ([`NONE_GAP_MS`] < [`WARM_GAP_MS`]): a
+/// refill turns ready at a moment the client cannot see, and the claim reads the pool fresh. Burst
+/// 43951741299 replayed "none" for 120 s at a time, so its 290 s waits asked the platform about
+/// three times while 7 of 9 claims took a ready spare. Still one platform call per burst of
+/// keystrokes and activations.
+pub(super) const NONE_GAP_MS: u64 = 10_000;
+
+/// How long an attempt's answer is replayed: a "no spare" (an `ok` answer) for [`NONE_GAP_MS`], a
+/// failure for [`WARM_GAP_MS`].
+fn attempt_gap(attempt: &Attempt) -> u64 {
+    if attempt.answer.get("ok") == Some(&json!(true)) { NONE_GAP_MS } else { WARM_GAP_MS }
+}
 
 /// The answer's code when the team cannot be read from the install token: no warm, no copy.
 pub(super) const TEAM_UNRESOLVED: &str = "team_unresolved";
@@ -78,6 +91,10 @@ pub(super) struct Request {
     /// already covers it ([`ready::ready`]). No platform call.
     #[serde(default)]
     pub(super) ready: Option<String>,
+    /// The App's question instead of a warm: which teams its Cloud wire subscribes in ([`wire::wire_teams`]), the
+    /// install token on stdin. No platform call.
+    #[serde(default)]
+    pub(super) wire_teams: Option<wire::WireTeams>,
 }
 
 /// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
@@ -151,8 +168,10 @@ struct Record {
     /// The copy was handed to the App and not abandoned since.
     #[serde(default)]
     copy_given: bool,
-    /// A reserve or a claim took this machine for a chat: a warm in the gap no longer answers it,
-    /// so the next compose warms the next spare (the throttle is per machine, not per team).
+    /// A reserve or a claim took this machine for a chat (a `claimed: M` request, or a start the
+    /// start-chat ledger pins to it, [`ledger::pinned_machines`]): a warm in the gap no longer
+    /// answers it, so the next compose warms the next spare (the throttle is per machine, not per
+    /// team).
     #[serde(default)]
     claimed: bool,
     /// A spare-ready event gave this machine's copy ([`ready::ready`]): it coalesces later copies onto the machine,
@@ -307,7 +326,7 @@ pub(super) fn run_reporting(
     file.installed.retain(|receipt| now_ms < receipt.at.saturating_add(RECEIPT_MS));
     // A record past its warm, or an attempt past the gap, is dropped: the file stays small.
     file.warms.retain(|record| record.warm_until > now_ms);
-    file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(WARM_GAP_MS));
+    file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(attempt_gap(attempt)));
     let pair = |account: &str, other: Option<&str>| {
         account == request.account && other == Some(team.as_str())
     };
@@ -379,6 +398,12 @@ pub(super) fn run_reporting(
         return Some(answer);
     }
     if let Some(machine) = request.ready.as_deref() {
+        // A spare the platform says is ready ends any "no spare" being replayed for this pair: the
+        // next warm asks the platform, which names it (an error's replay stays: the route is down).
+        file.attempts.retain(|attempt| {
+            !(pair(&attempt.account, Some(attempt.team.as_str()))
+                && attempt.answer.get("ok") == Some(&json!(true)))
+        });
         let answer = ready::ready(
             &mut file,
             &request,
@@ -390,6 +415,24 @@ pub(super) fn run_reporting(
         );
         write(&path, &file);
         return Some(answer);
+    }
+    // A machine a start took is claimed, whoever's warm named it: the start-chat ledger beside this
+    // file pins every machine a start took (a reservation's bind, the platform's ensure, the App's
+    // create pinned with `pin`), so the claim is read where Rust recorded it. No caller sends
+    // `claimed: M` any more (the claim-time login copy was retired), and without this a warm
+    // within the gap replayed the machine the previous chat had just claimed: the App keyed and
+    // linked that busy machine, and the next chat's real spare was claimed with neither ahead
+    // (production probe, 2026-11-19: 5 of 13 claimed starts paid `approvals.key` of about 4.5 s).
+    let taken = ledger::pinned_machines(&state.join(ledger::FILE));
+    let mut marked = false;
+    for record in file.warms.iter_mut().filter(|record| !record.claimed) {
+        if taken.contains(&record.machine) {
+            record.claimed = true;
+            marked = true;
+        }
+    }
+    if marked {
+        write(&path, &file);
     }
     let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
@@ -754,6 +797,12 @@ pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     }
     if let Some(request) =
         flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
+        && let Some(asked) = request.wire_teams.as_ref()
+    {
+        return Some(wire::answer(asked, &mut std::io::stdin().lock()));
+    }
+    if let Some(request) =
+        flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
         && let Some(asked) = request.login_receipt
     {
         return Some(receipt_scoped(
@@ -804,3 +853,8 @@ mod tests;
 
 #[cfg(test)]
 mod ready_tests;
+
+mod wire;
+
+#[cfg(test)]
+mod wire_tests;

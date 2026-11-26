@@ -1,0 +1,65 @@
+{
+  "family": "settings",
+  "ops": {
+    "settings.edit": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "b29d28904e832f82"
+    },
+    "settings.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "1b78c919c9f3fe17"
+    },
+    "settings.history": {
+      "source": "local",
+      "class": "read",
+      "digest": "860c5edc95b29119"
+    },
+    "settings.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "c8a8e0f64805d224"
+    },
+    "settings.reset": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e2b821eac3351ae2"
+    },
+    "settings.reset_all": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "caba58196b72989c"
+    },
+    "settings.reset_group": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "022b9386043a2bd1"
+    },
+    "settings.restore": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "9fb79f52253fd38c"
+    },
+    "settings.schema": {
+      "source": "local",
+      "class": "read",
+      "digest": "329fe7dfaf32a887"
+    },
+    "settings.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "809a517d2e4d13f8"
+    },
+    "settings.snapshot": {
+      "source": "local",
+      "class": "read",
+      "digest": "cb9a73d053ff0a41"
+    },
+    "settings.undo": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a2d231acbcf47733"
+    }
+  }
+}

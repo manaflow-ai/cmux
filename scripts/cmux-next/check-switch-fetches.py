@@ -37,12 +37,23 @@ ACPMUX = "webviews/src/agent-session/acpmux"
 # (file, event): why this file listens. Each is a review decision; the exit plan is in
 # shared-projections.md section 6.
 ALLOWED_LISTENERS = {
+    (f"{ACPMUX}/launchSettle.ts", "visibilitychange"): "ends the launch settle watch when the page hides "
+    "(no report: a hidden page draws no frames); it reads nothing",
     (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "visibilitychange"): "only while a Connect "
+    "GitHub card waits on GitHub's page: coming back sends the chat's Continue once; reads no data",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "focus"): "the Connect GitHub card's return, "
+    "as above",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "blur"): "the Connect GitHub card's leave, "
+    "as above",
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/newtab/NewTabClock.tsx", "visibilitychange"): "the New Tab clock re-reads only `Date.now()` when shown again, so the time is not a minute stale after a hide; no server or projection read",
+    (f"{ACPMUX}/focusVisibleMark.ts", "focus"): "re-checks whether focus-visible is inside the "
+    "composer or dock as the window regains focus (`data-focused`); it reads the DOM's focus, no data",
     (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
     "`git.status` as the page shows only when a read came due while it was hidden (its chat started "
     "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "
@@ -52,6 +63,10 @@ ALLOWED_LISTENERS = {
     "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
     "(sessionStorage, a write, not a read)",
+    (f"{ACPMUX}/conversation/SinceDivider.tsx", "focus"): "the New line's dwell clock: whether a reader "
+    "is at the pane (window focus) while the line is on screen; reads no data (#49657)",
+    (f"{ACPMUX}/conversation/SinceDivider.tsx", "visibilitychange"): "the New line's dwell clock, as "
+    "above (the page shows); reads no data",
     (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "

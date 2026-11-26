@@ -43,6 +43,8 @@ pub(in crate::cli) enum Answer {
         opened: Option<Result<(), String>>,
     },
     Paths(Roots),
+    /// `checklist`: the customizations checklist and how far along it is.
+    Checklist(cmux_customize::checklist::Checklist),
     TriedOn(TriedOn),
     /// How try-ons ended, and the verb that asked (`keep`, `revert`,
     /// `settle`).
@@ -122,13 +124,14 @@ impl Answer {
                 "source": cmux_customize::schema::rust(schema),
             }),
             Answer::Library { json, .. } | Answer::Recovery { json, .. } => json.clone(),
+            Answer::Checklist(checklist) => json!({ "checklist": checklist }),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
                 "themes": roots.config_dir.join("themes"),
                 "views": roots.customize_dir,
                 "styles": roots.config_dir.join("agent-pane/theme.css"),
-                "automations": roots.config_dir.join("automations"),
+                "automations": roots.automations_dir.clone(),
                 "profiles": roots.profiles_dir(),
                 "generations": roots.state_dir,
             }),
@@ -302,6 +305,7 @@ impl Answer {
                 schema_lines(&mut out, schema, *section);
             }
             Answer::Library { human, .. } | Answer::Recovery { human, .. } => out.push_str(human),
+            Answer::Checklist(checklist) => checklist_lines(&mut out, checklist),
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
                     for (name, path) in paths {
@@ -311,6 +315,21 @@ impl Answer {
             }
         }
         out
+    }
+}
+
+/// The checklist as a person reads it: n of m, a box per step, where to go next.
+fn checklist_lines(out: &mut String, checklist: &cmux_customize::checklist::Checklist) {
+    out.push_str(&format!("Customize cmux: {} of {} done\n", checklist.done, checklist.total));
+    for step in &checklist.steps {
+        let mark = if step.done { "x" } else { " " };
+        out.push_str(&format!("  [{mark}] {:32} {}\n", step.title.text, step.detail.text));
+    }
+    if let Some(next) = checklist.steps.iter().find(|step| Some(step.id) == checklist.next) {
+        out.push_str(&format!("next: {} (Settings: #{})\n", next.title.text, next.route));
+    }
+    if !checklist.enabled {
+        out.push_str("dismissed in Settings: `cmux settings set customize.checklist.enabled true` shows it again\n");
     }
 }
 

@@ -41,6 +41,22 @@ fn client_session_commands_pass_through_to_cmux_vm() {
 }
 
 #[test]
+fn saved_file_commands_use_the_vm_api_without_the_app_carrier() {
+    for verb in ["read", "ls", "stat"] {
+        let words = args(&["vm", "file", verb, "vm_1", "/workspace"]);
+        assert!(cloud_alias(&words).is_none());
+        assert_eq!(
+            planned(&["vm", "file", verb, "vm_1", "/workspace"]).unwrap(),
+            args(&["file", verb, "vm_1", "/workspace"])
+        );
+    }
+    assert_eq!(
+        planned(&["vm", "file", "read", "vm_1", "/log", "--range", "bytes=4-"]).unwrap(),
+        args(&["file", "read", "vm_1", "/log", "--range", "bytes=4-"])
+    );
+}
+
+#[test]
 fn exec_keeps_everything_after_the_double_dash() {
     assert_eq!(
         planned(&["vm", "exec", "vm_1", "--", "acpmux", "run", "-m", "claude", "hi"]).unwrap(),
@@ -557,7 +573,7 @@ fn route(words: &[&str], app: bool) -> NewRoute {
 fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["machine", "new"], true), NewRoute::App);
     assert_eq!(route(&["machine", "create", "--name", "a"], true), NewRoute::App);
-    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::App);
+    assert_eq!(route(&["machine", "new", "--size=medium"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--persistent"], true), NewRoute::App);
     assert_eq!(route(&["machine", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["machine", "new", "--snapshot", "snap_1"], true), NewRoute::VmApi);
@@ -566,6 +582,32 @@ fn machine_new_goes_to_the_app_unless_the_vm_api_is_asked_for() {
     assert_eq!(route(&["vm", "new"], true), NewRoute::App);
     assert_eq!(route(&["vm", "new"], false), NewRoute::VmApi);
     assert_eq!(route(&["vm", "new", "--image", "img_1"], true), NewRoute::VmApi);
+    assert_eq!(route(&["vm", "new", "--label", "fleet=lanes"], true), NewRoute::VmApi);
+}
+
+/// Headless (no app), `vm new` takes `--size`, `--persistent`, `--bootstrap lane
+/// --bootstrap-script`, `--machine-config` and `--wait` on the VM API route, so an agent makes a
+/// lane VM with no app (Leo: "we want to be able to do with GCP what we can do with Freestyle").
+/// They used to send it to the app, which was not there. With the app they still go to the app;
+/// `--repo` (the app's GitHub link) always does.
+#[test]
+fn headless_vm_new_takes_size_persistent_bootstrap_and_machine_config() {
+    for flags in [
+        &["--size", "large"][..],
+        &["--persistent"],
+        &["--bootstrap", "lane", "--bootstrap-script", "b.sh", "--name", "lane-1"],
+        &["--bootstrap-script=b.sh"],
+        &["--machine-config", "m.toml", "--wait"],
+    ] {
+        let words: Vec<&str> = ["vm", "new"].into_iter().chain(flags.iter().copied()).collect();
+        assert_eq!(route(&words, false), NewRoute::VmApi, "{words:?}");
+        assert_eq!(route(&words, true), NewRoute::App, "{words:?}");
+    }
+    assert_eq!(route(&["vm", "new", "--repo", "o/n"], false), NewRoute::App);
+    assert_eq!(
+        route(&["vm", "new", "--bootstrap-script", "b.sh", "--snapshot", "snap_1"], true),
+        NewRoute::VmApi
+    );
 }
 
 #[test]
@@ -717,6 +759,8 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
         &["vm", "new", "--size", "small"],
         &["vm", "exec", "vm_1", "--", "uname"],
         &["vm", "add", "box"],
+        &["vm", "runner", "new", "--wait"],
+        &["vm", "pool", "status"],
         &["vm", "--help"],
         &["vm"],
         &["cloud", "list-machines"],
@@ -872,4 +916,49 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
     assert!(!super::super::surface::VM_VERBS_HELP.contains("cmux machine new ("));
     assert!(super::super::surface::VM_POINTER.contains("cmux vm --help"));
     assert!(super::super::surface::MACHINE_CATALOG_HELP.contains("cmux device"));
+}
+
+/// A DEV build names its own `vm.json` (`CMUX_VM_DEFAULT_CONFIG`, BuildStatePaths): the person's
+/// `~/.config/cmux/vm.json` is NIGHTLY's and stable's, never a DEV build's credential.
+#[test]
+fn dev_build_own_vm_config_is_the_one_counted() {
+    let base = std::env::temp_dir().join(format!("cmux-vm-dev-config-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+    std::fs::create_dir_all(base.join("build")).unwrap();
+    std::fs::write(base.join("home/.config/cmux/vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#)
+        .unwrap();
+    let own = base.join("build/vm.json");
+    let home = base.join("home").to_string_lossy().into_owned();
+    let own_text = own.to_string_lossy().into_owned();
+    let env = |name: &str| match name {
+        "HOME" => Some(home.clone()),
+        "CMUX_VM_DEFAULT_CONFIG" => Some(own_text.clone()),
+        _ => None,
+    };
+    assert!(!has_own_credential(&env), "the person's vm.json counted in a DEV build");
+    std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
+    assert!(has_own_credential(&env), "the DEV build's own vm.json did not count");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// `cmux vm resize --help` is `resize-machine`'s help (exit 0), and an alias's help names the
+/// alias before the VM API's help of the verb it runs (the Cloud and remote command matrix).
+#[test]
+fn alias_and_redirect_verbs_have_their_own_help() {
+    let Some(HelpNote::Whole(resize)) = verb_help_note("resize", false) else {
+        panic!("resize redirects")
+    };
+    assert!(resize.contains("cmux vm resize"), "{resize}");
+    assert!(resize.contains("resize-machine"), "{resize}");
+    for (alias, long) in
+        [("ls", "list"), ("show", "get"), ("key", "token"), ("access", "client-session")]
+    {
+        assert_eq!(
+            verb_help_note(alias, false),
+            Some(HelpNote::Before(format!("`cmux vm {alias}` is `cmux vm {long}`.\n\n")))
+        );
+    }
+    assert_eq!(verb_help_note("list", false), None);
+    assert!(verb_asks_help(&args(&["--help"])));
+    assert!(!verb_asks_help(&args(&["--", "--help"])));
 }

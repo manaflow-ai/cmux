@@ -387,6 +387,7 @@ pub const RESERVED_IDS: &[&str] = &[
     "grok",
     "cursor",
     "hermes",
+    "openclaw",
     "aider",
 ];
 
@@ -617,7 +618,7 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
 /// One HTTPS GET of the registry: no redirects, 30 s, body cap.
 pub async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(30))

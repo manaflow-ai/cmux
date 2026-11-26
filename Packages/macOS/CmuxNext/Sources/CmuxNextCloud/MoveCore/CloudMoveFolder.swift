@@ -97,11 +97,34 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         return (reply?.folder ?? workRoot, reply?.chat ?? workRoot)
     }
 
-    /// ``remote(under:)`` with the synced folder's name ending in `suffix` (Move to Cloud's and Bring Back's copy).
+    /// ``remote(under:)`` with its folder name ending in `suffix` (Move to Another Machine's ``targetSuffix(machineID:session:)``).
     public func remote(under workRoot: String, suffix: String) -> (folder: String, chat: String) {
-        let base = remote(under: workRoot)
-        guard !suffix.isEmpty else { return base }
-        return (base.folder + suffix, base.folder + suffix + String(base.chat.dropFirst(base.folder.count)))
+        let plain = remote(under: workRoot)
+        guard !suffix.isEmpty else { return plain }
+        return (plain.folder + suffix, plain.folder + suffix + String(plain.chat.dropFirst(plain.folder.count)))
+    }
+
+    /// A move to another machine's folder suffix: a folder of its own per machine and per chat, so two chats of one folder never
+    /// seed over each other there. Whole ids: time-ordered ids share their first characters for hours.
+    public static func targetSuffix(machineID: String, session: String) -> String { "-" + machineID + "-" + session }
+
+    /// Copies this folder under the first of `roots` the machine lets the copy write (`fs.permission_denied` tries the
+    /// next), its folder name ending in `suffix`; `each` hears the copy's progress. `remote` is where it landed, nil
+    /// with `last` the refusal. Throws when the copy timed out or didn't launch: nothing moved yet.
+    @MainActor
+    public func push(with cli: CloudMoveCLI, roots: [String], socket: String, suffix: String,
+                     each: (SeedProgress) -> Void) async throws -> (remote: (folder: String, chat: String)?, last: CloudMoveCLI.Answer) {
+        var last = CloudMoveCLI.Answer(ok: false)
+        for workRoot in roots {
+            let remote = remote(under: workRoot, suffix: suffix)
+            last = try await SeedProgress.feed({ [root, to = remote.folder] in
+                try await cli.seedPush(socket: socket, local: root, remote: to, stderrLine: $0)
+            }, each: each)
+            if last.ok { return (remote, last) }
+            // Not this machine's home (an image without the work user): the next root.
+            guard last.errorCode == "fs.permission_denied" else { break }
+        }
+        return (nil, last)
     }
 }
 

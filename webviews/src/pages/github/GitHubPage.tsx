@@ -19,6 +19,7 @@ import {
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
+  useId,
 } from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
@@ -36,6 +37,7 @@ import {
 } from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import { ReviewBox, ThreadActions } from "./ReviewBox";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
@@ -132,10 +134,15 @@ export function GitHubPage({
   readinessLayout = "list",
   readinessShown,
   conversationFilter = "all",
+  reviewDraft,
+  replyOpen,
+  onIssues,
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
+  /** Opens the repository's issues in this page (its Issues button); no button without it. */
+  onIssues?: (repo: string) => void;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
@@ -144,6 +151,9 @@ export function GitHubPage({
   /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
   readinessShown?: Blocker["kind"];
   conversationFilter?: ConversationFilter;
+  /** The review box's starting words, and the thread whose reply box starts open (gallery states). */
+  reviewDraft?: string;
+  replyOpen?: string;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
@@ -179,6 +189,10 @@ export function GitHubPage({
   const conversation = pr && (
     <Conversation
       details={details}
+      snapshot={snapshot}
+      store={store}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
       strings={strings}
       now={now}
       open={open}
@@ -205,7 +219,14 @@ export function GitHubPage({
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
     <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
-      <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      <Header
+        snapshot={snapshot}
+        store={store}
+        strings={strings}
+        now={now}
+        waitingFirst={waitingFirst}
+        onIssues={onIssues}
+      />
       {pr && (
         <ReadinessBlock
           pr={pr}
@@ -243,12 +264,14 @@ function Header({
   strings,
   now,
   waitingFirst,
+  onIssues,
 }: {
   snapshot: GitHubSnapshot;
   store: GitHubStore;
   strings: Strings;
   now: () => number;
   waitingFirst: boolean;
+  onIssues?: (repo: string) => void;
 }) {
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
@@ -271,6 +294,11 @@ function Header({
           <button type="button" className="gh-button" disabled={!pr} onClick={() => void store.openDiff()}>
             {t("github.viewAllChanges")}
           </button>
+          {onIssues && (
+            <button type="button" className="gh-button" onClick={() => onIssues(target!.repo)}>
+              {t("github.issues")}
+            </button>
+          )}
           <button type="button" className="gh-button" onClick={() => store.openOnGitHub()}>
             {t("github.openOnGitHub")}
           </button>
@@ -337,6 +365,7 @@ function Header({
 /** Merge through GitHub's normal path: a first click names the method, the second merges the shown head. */
 function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; store: GitHubStore; strings: Strings }) {
   const { t } = strings;
+  const why = useId();
   const { pullRequest: pr, details, merge } = snapshot;
   if (!pr || pr.state !== "open") return null;
   if (merge.phase === "merged") {
@@ -354,7 +383,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
           type="button"
           className="gh-button gh-button--primary"
           disabled={merge.phase === "merging"}
-          title={strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+          aria-describedby={why}
           onClick={() => void store.merge()}
         >
           {merge.phase === "merging"
@@ -369,6 +398,10 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         >
           {t("github.merge.cancel")}
         </button>
+        {/* Which commit it merges, as text (Chief, 2026-11-21: what a tooltip said shows on the page). */}
+        <span className="gh-merge-note gh-merge-pinned" id={why}>
+          {strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+        </span>
       </span>
     );
   }
@@ -378,11 +411,17 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         type="button"
         className="gh-button gh-button--primary"
         disabled={!ready}
-        title={details && !ready ? t("github.merge.notReady") : undefined}
+        aria-describedby={details && !ready ? why : undefined}
         onClick={() => void store.merge()}
       >
         {t("github.merge")}
       </button>
+      {/* Why it cannot merge yet, as text: a disabled button gets no hover. A refused merge says it below. */}
+      {details && !ready && merge.phase !== "failed" && (
+        <span className="gh-merge-note gh-merge-why" id={why}>
+          {t("github.merge.notReady")}
+        </span>
+      )}
       {merge.phase === "failed" && merge.message && (
         <span className="gh-failure gh-merge-failure" role="alert">
           {merge.refused ? t("github.merge.notReady") : merge.message}
@@ -405,9 +444,10 @@ function CheckTally({ pr, strings }: { pr: LinkedPullRequest; strings: Strings }
       {rows
         .filter(([, count]) => count > 0)
         .map(([state, count, label]) => (
-          <span key={state} className="gh-tally-item" data-check={state} title={strings.t(label)}>
+          <span key={state} className="gh-tally-item" data-check={state}>
             <span className="gh-dot" aria-hidden="true" />
-            <span className="gh-count">{count}</span>
+            {/* The outcome in words, not only the dot's colour (Chief, 2026-11-21). */}
+            <span className="gh-count">{count}</span> <span className="gh-tally-word">{strings.t(label)}</span>
           </span>
         ))}
     </span>
@@ -438,6 +478,10 @@ function Description({
 
 function Conversation({
   details,
+  snapshot,
+  store,
+  reviewDraft,
+  replyOpen,
   strings,
   now,
   open,
@@ -445,6 +489,10 @@ function Conversation({
   initialFilter,
 }: {
   details?: PullRequestDetails;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  reviewDraft?: string;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -505,21 +553,37 @@ function Conversation({
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
-            <Entry key={entry.url ?? index} entry={entry} strings={strings} now={now} open={open} />
+            <Entry
+              key={entry.url ?? index}
+              entry={entry}
+              snapshot={snapshot}
+              store={store}
+              replyOpen={replyOpen}
+              strings={strings}
+              now={now}
+              open={open}
+            />
           ))}
         </ol>
       )}
+      <ReviewBox snapshot={snapshot} store={store} strings={strings} initialBody={reviewDraft} />
     </Section>
   );
 }
 
 function Entry({
   entry,
+  snapshot,
+  store,
+  replyOpen,
   strings,
   now,
   open,
 }: {
   entry: ConversationEntry;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -550,6 +614,16 @@ function Entry({
                 {comment.line != null && `:${comment.line}`}
               </span>
               <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
+              {comment.thread && snapshot.pullRequest?.state === "open" && (
+                <ThreadActions
+                  thread={comment.thread}
+                  resolved={comment.resolved === true}
+                  snapshot={snapshot}
+                  store={store}
+                  strings={strings}
+                  initialReplying={replyOpen === comment.thread}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -567,7 +641,7 @@ function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings
     <li key={check.name} className="gh-row" data-check={check.state}>
       <span className="gh-dot" aria-hidden="true" />
       {check.url ? (
-        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
+        <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>
           {check.name}
         </button>
       ) : (
@@ -676,7 +750,6 @@ function Files({
                 type="button"
                 className="gh-file-row"
                 aria-expanded={patch !== undefined}
-                title={file.path}
                 onClick={() => store.toggleFile(file.path)}
               >
                 <Chevron open={patch !== undefined} />
@@ -779,7 +852,7 @@ function Linked({
         {details.linked.map((item) => (
           <li key={item.url} className="gh-row" data-issue={item.state}>
             <span className="gh-dot" aria-hidden="true" />
-            <button type="button" className="gh-row-link" title={item.title} onClick={() => open(item.url)}>
+            <button type="button" className="gh-row-link" onClick={() => open(item.url)}>
               <span className="gh-count">#{item.number}</span> {item.title}
             </button>
           </li>

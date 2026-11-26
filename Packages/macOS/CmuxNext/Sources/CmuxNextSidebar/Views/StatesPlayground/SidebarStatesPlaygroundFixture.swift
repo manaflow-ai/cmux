@@ -3,7 +3,7 @@ import CoreGraphics
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): the mock sidebar each playground column draws, one row
 /// per ``SidebarStatesPlaygroundState``: Home and a pinned workspace in the top bands, then This Mac's rows and groups
-/// (the archived row under the open Archive section), then one row on an SSH machine. ``ref(for:)`` says which real
+/// (the archived row dimmed in place), then one row on an SSH machine. ``ref(for:)`` says which real
 /// row view draws each state.
 struct SidebarStatesPlaygroundFixture {
     /// Where a state's row view lives: a list row, or an item of a band block (Home, a pin).
@@ -135,6 +135,7 @@ struct SidebarStatesPlaygroundFixture {
         model.itemInfo = [Self.home: home, Self.pin: pin]
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
         model.expanded = expanded
+        model.listsArchived = true // the archived row draws dimmed in place: the sidebar itself lists none
         model.colorIndicator = .leftRail // a colored row's color is its leading bar
         return model
     }

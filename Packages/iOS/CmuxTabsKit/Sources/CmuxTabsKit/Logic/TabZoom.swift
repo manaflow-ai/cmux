@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 
 /// A damped spring in SwiftUI's `spring(response:dampingFraction:)` terms.
@@ -30,9 +34,9 @@ struct ZoomSpring: Equatable, Sendable {
     /// fits 0.375 / 0.98 from rest within 1.5 pt (`saf-last-page.csv`,
     /// tabs-parity-reaudit-2 D2).
     static let afterLastClose = ZoomSpring(response: 0.375, damping: 0.98)
-    /// After a reversal Safari follows the destination's spring from about
-    /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
-    /// 0.346–0.369 / 0.84–0.875).
+    /// After a reversal Safari follows the destination's spring (toward the
+    /// page 0.308–0.331 / 1.03–1.04, toward the grid 0.346–0.369 /
+    /// 0.84–0.875). Ours keeps the zoom's position and velocity there.
     static let reversalToPage = ZoomSpring(response: 0.32, damping: 1.03)
     static let reversalToOverview = ZoomSpring(response: 0.36, damping: 0.86)
     /// After a pinch is released (no reference recording).
@@ -79,13 +83,11 @@ struct TabZoomState: Equatable, Sendable {
         case interactive
     }
 
-    /// At a reversal Safari's frame jumps toward the new target in one frame
-    /// (card edges: about +20 pt toward the page, −3 to −17 pt toward the
-    /// grid), then starts from rest. In points of card width.
-    static let reversalJumpToPage = 20.0
-    static let reversalJumpToOverview = 10.0
     /// Settled when within this distance of the target, moving slower than `restVelocity`.
-    static let restDistance = 0.001
+    /// Settling snaps progress to the target: 0.0003 of the travel is under
+    /// a quarter point on a full-screen page, so the snap does not show
+    /// (0.001 left up to 0.7 pt for the settle frame to jump).
+    static let restDistance = 0.0003
     static let restVelocity = 0.01
 
     private(set) var progress: Double = 0
@@ -110,11 +112,14 @@ struct TabZoomState: Equatable, Sendable {
     /// full length put the swipe up 17 ms ahead of Safari at t50.
     private var curveWarmup = 0
     private(set) var phase: Phase = .page
+    /// The transition's springs and whether taps replay Safari's curves.
+    var motion: TabTransitionVariant = .safari
 
-    init(overview: Bool = false) {
+    init(overview: Bool = false, motion: TabTransitionVariant = .safari) {
         progress = overview ? 1 : 0
         target = progress
         phase = overview ? .overview : .page
+        self.motion = motion
     }
 
     /// The grid takes taps only when it is settled.
@@ -127,9 +132,14 @@ struct TabZoomState: Equatable, Sendable {
 
     /// Tabs button / Done: go to `overview`, reversing a running transition
     /// from where it is.
-    /// `span` is the card-width travel in points (screen width − card width),
-    /// to turn the reversal jump into progress.
-    mutating func go(toOverview: Bool, span: Double = 244) {
+    ///
+    /// A reversal retargets: the zoom keeps its position and its velocity
+    /// (a replayed curve's too) and the new target's spring carries it from
+    /// there, so the frame after the tap continues the frame before it. It
+    /// used to jump 10–20 pt toward the new target and restart from rest
+    /// (Safari's recording), a visible shift and a velocity step (Leo,
+    /// 2026-11-25: "things shift, things lag").
+    mutating func go(toOverview: Bool) {
         let newTarget: Double = toOverview ? 1 : 0
         switch phase {
         case .page where !toOverview, .overview where toOverview:
@@ -137,18 +147,13 @@ struct TabZoomState: Equatable, Sendable {
         case .animating where newTarget == target:
             return
         case .animating:
-            // Reversal: one-frame jump toward the new target, then the
-            // destination's spring from rest.
-            let jump = (toOverview ? Self.reversalJumpToOverview : Self.reversalJumpToPage) / max(1, span)
-            progress += toOverview ? jump : -jump
-            animate(to: newTarget, spring: toOverview ? .reversalToOverview : .reversalToPage, keepVelocity: 0)
+            animate(to: newTarget, spring: toOverview ? motion.retargetToOverview : motion.retargetToPage, keepVelocity: 1)
         case .interactive:
-            animate(to: newTarget, spring: .release, keepVelocity: 1)
+            animate(to: newTarget, spring: motion.release, keepVelocity: 1)
         case .page, .overview:
             // Safari's own zoom out (tabs button) and zoom in (a card, Done).
-            let spring: ZoomSpring = toOverview ? .toOverview : .toPage
-            animate(to: newTarget, spring: spring, keepVelocity: 0)
-            play(toOverview ? .zoomOut : .zoomIn)
+            animate(to: newTarget, spring: toOverview ? motion.toOverview : motion.toPage, keepVelocity: 0)
+            if motion.replaysSafariCurve { play(toOverview ? .zoomOut : .zoomIn) }
         }
     }
 
@@ -214,7 +219,7 @@ struct TabZoomState: Equatable, Sendable {
     /// (no discontinuity), and springs progress and translation from there.
     mutating func release(toOverview: Bool) {
         guard phase == .interactive else { return }
-        animate(to: toOverview ? 1 : 0, spring: .release, keepVelocity: 1)
+        animate(to: toOverview ? 1 : 0, spring: motion.release, keepVelocity: 1)
     }
 
     /// Completes toward the grid past half way or when moving toward it fast
@@ -227,7 +232,7 @@ struct TabZoomState: Equatable, Sendable {
         let toOverview: Bool
         if abs(velocity) > 1.2 { toOverview = velocity > 0 } else { toOverview = projected > 0.5 }
         _ = startedFromOverview
-        animate(to: toOverview ? 1 : 0, spring: .release, keepVelocity: 1)
+        animate(to: toOverview ? 1 : 0, spring: motion.release, keepVelocity: 1)
         return toOverview
     }
 

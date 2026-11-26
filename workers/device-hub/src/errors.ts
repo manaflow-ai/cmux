@@ -14,6 +14,7 @@ export type ErrorCode =
   | "not_host"
   | "session_not_pending"
   | "session_not_active"
+  | "needs_approval"
   | "ticket_invalid"
   | "role_taken"
   | "rate_limited"
@@ -23,6 +24,10 @@ export type ErrorCode =
   | "machine_auth_unavailable"
   | "machine_no_person"
   | "account_not_on_hub"
+  | "not_asker"
+  | "other_account"
+  | "build_space.invalid"
+  | "build_space.not_allowed"
   | "internal";
 
 export class ApiError extends Error {

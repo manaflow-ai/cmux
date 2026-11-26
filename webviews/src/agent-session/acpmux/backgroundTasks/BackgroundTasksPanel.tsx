@@ -28,6 +28,7 @@
 // second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
 // with the panel.
 import { Button } from "../../../ui/Button";
+import { LiveCount } from "../summary/LiveCount";
 import {
   createContext,
   Fragment,
@@ -94,6 +95,7 @@ export type Drill = { agentId: string; rowId?: string; workflow?: boolean };
 
 export function BackgroundTasksPanel({
   groups,
+  loading = false,
   views,
   look = "nested",
   expanded = false,
@@ -111,6 +113,8 @@ export function BackgroundTasksPanel({
   onOpenCommand,
 }: {
   groups: readonly BackgroundGroup[];
+  /// The chat's subagent list has not answered yet: an empty list says it loads, not that nothing runs.
+  loading?: boolean;
   /// The subagents' own rows (the snapshot's `subagentViews`), which a drill-in draws from.
   views?: Record<string, AcpmuxRow[]>;
   look?: PanelLook;
@@ -209,7 +213,9 @@ export function BackgroundTasksPanel({
           >
             <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
               {groups.length === 0 ? (
-                <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+                <p className="acpmux-bg__empty">
+                  {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
+                </p>
               ) : (
                 sections.map((section) => (
                   <Section
@@ -309,8 +315,15 @@ function Section({
         onClick={() => setOpen(!open)}
       >
         <Disclosure open={open} />
-        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
-        <span className="acpmux-bg__section-count">{count}</span>
+        {/* Running is its mark and its count, no word (Leo, 2026-11-23: ""running" doesn't need text"). */}
+        {id === "running" ? (
+          <LiveCount n={count} label={t("summary.subagents.running", { n: count })} />
+        ) : (
+          <>
+            <span>{t("backgroundTasks.section.finished")}</span>
+            <span className="acpmux-bg__section-count">{count}</span>
+          </>
+        )}
       </Button>
       {open && children}
     </div>
@@ -348,22 +361,10 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(
-    pane,
-    reads.sessionId,
-    true,
-    agent,
-    reads.chat,
-    reads.read,
-    reads.connection,
-  );
-  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
-  // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
+  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
+  // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(
-    () => (transcript.rows?.slice(1) ?? []).filter((row) => row.kind !== "notice"),
-    [transcript.rows],
-  );
+  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);

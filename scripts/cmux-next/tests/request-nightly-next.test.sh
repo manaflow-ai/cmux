@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
 # nightly-next only when that commit's cmux-tui tree is published and
-# verified. Its daemon tests are not awaited (2026-10-28) and neither is its
-# Release compile (2026-10-26): the nightly
-# build compiles the commit itself and publishes nothing when that fails.
+# verified. Its daemon tests are not awaited (2026-10-28). The build fleet's
+# existing Release verdict is prechecked before the nightly starts its Mac
+# build, signing and notarization.
 # cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
 # and nightly-next-tick after the publication, so nightly-next always points at
 # a commit the nightly can build with its own workflow and its own daemon.
@@ -58,23 +58,41 @@ publish() { # <commit>: publish its tree, built by that commit
   printf '{"commit": "%s", "binaries": {"%s": "%s"}}\n' "$1" "$bin" "$(sha "$cdn/tree/$k/$bin")" > "$cdn/$1/manifest.json"
 }
 
-mkdir -p "$TMP/bin"
+mkdir -p "$TMP/bin" "$TMP/precheck"
 # The CDN. With -w (tree-commit-marker.sh) it prints the HTTP status: 404 for a
 # missing object, 500 for a path listed in $cdn/FAIL (or, for -w reads only, $cdn/FAILW). A tree-commit marker is
 # served for every commit whose tree is published (the writer marks every ready
 # commit), unless $cdn/unmarked lists the commit or $cdn/NOAUTO exists (the writer's own test).
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
-out="" url="" fmt=""
+out="" url="" fmt="" ua="" failflag=0
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
     -w) fmt="\$2"; shift 2 ;;
+    -A|--user-agent) ua="\$2"; shift 2 ;;
+    -f*|--fail|--fail-with-body) failflag=1; shift ;;
     --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
 done
+# The build fleet's compile results service (the precheck): a passing record for every commit, unless
+# $TMP/precheck/<sha> names another state, 404 (no record) or down (no answer).
+if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
+  echo "\$url" >> "$TMP/precheck.log"
+  echo "\$ua" >> "$TMP/precheck-user-agents.log"
+  [[ "\$ua" == cmux-ci-fleet-compile-result/1 ]] || { printf 403; exit 0; }
+  c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
+  st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
+  case "\$st" in
+    down) printf 000; exit 7 ;;
+    404) printf 404; exit 0 ;;
+    429|503) printf "\$st"; exit 0 ;;
+  esac
+  printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
+  printf 200; exit 0
+fi
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 # A -w read of a path listed in $cdn/TRUNC transfers, reports its status, then
 # fails (curl exit 18, a truncated transfer).
@@ -96,7 +114,13 @@ if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO
   fi
 fi
 if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
-  [[ -n "\$fmt" ]] && { printf 404; exit 0; }
+  # curl --fail reports a 404 in -w output and exits 22. The downloader uses
+  # that combination to distinguish a missing object from a transport error.
+  if [[ -n "\$fmt" ]]; then
+    printf 404
+    (( failflag )) && exit 22
+    exit 0
+  fi
   exit 22
 fi
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
@@ -111,10 +135,42 @@ cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
 if [[ "\$1 \$2" == "run list" ]]; then
+  # \$TMP/gh-runs-json (a run list as JSON) is filtered by the call's own --jq.
+  if [[ -f "$TMP/gh-runs-json" && " \$* " == *" --json status,conclusion,event "* ]]; then
+    q=""; prev=""; for a in "\$@"; do [[ "\$prev" == --jq ]] && q="\$a"; prev="\$a"; done
+    jq -r "\$q" "$TMP/gh-runs-json"; exit 0
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
+# The starved-run read (queued runs of one event for one commit): the ids of the
+# "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
+# run's jobs: $TMP/gh-jobs-<id> (the first job's created_at when it waits with no
+# runner, as the --jq prints it), or a failed read when that file is missing.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?*"&event="* ]]; then
+  q="\$2"; want_sha="\${q#*head_sha=}"; want_sha="\${want_sha%%&*}"; want_event="\${q#*&event=}"; want_event="\${want_event%%&*}"
+  [[ -f "$TMP/gh-starved" ]] || exit 0
+  while read -r id s e; do [[ "\$s" == "\$want_sha" && "\$e" == "\$want_event" ]] && echo "\$id"; done < "$TMP/gh-starved"
+  exit 0
+fi
+if [[ "\$1" == api && "\$2" == repos/*/actions/runs/*/jobs\?* ]]; then
+  id="\${2#repos/*/actions/runs/}"; id="\${id%%/*}"
+  [[ -f "$TMP/gh-jobs-\$id" ]] || exit 1
+  cat "$TMP/gh-jobs-\$id"; exit 0
+fi
 if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
+  if [[ -f "$TMP/gh-active-runs" ]]; then
+    python3 - "\$2" "$TMP/gh-active-runs" <<'PY'
+import json, sys
+from urllib.parse import parse_qs, urlsplit
+query = parse_qs(urlsplit(sys.argv[1]).query)
+runs = json.load(open(sys.argv[2]))
+print(sum(run['status'] == query['status'][0]
+          and ('head_sha' not in query or run['head_sha'] == query['head_sha'][0])
+          for run in runs))
+PY
+    exit \$?
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   case "\$2" in
     *"&status=in_progress&"*) cat "$TMP/gh-runs" ;;
@@ -174,6 +230,69 @@ PROMOTE=0 request --sha "$head" --release-compile-green
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
+grep -q '^cmux-ci-fleet-compile-result/1$' "$TMP/precheck-user-agents.log" \
+  || fail "the precheck must identify its fleet compile client:" "$(cat "$TMP/precheck-user-agents.log")"
+
+# A red Release verdict refuses the candidate before the strings, tree marker
+# and promotion dispatch. Busy service answers are also deferred to a later
+# tick, while a confirmed outage keeps the cache from blocking promotion.
+echo fail > "$TMP/precheck/$head"
+RUN_ID=2 request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$head" || fail "a red fleet verdict must refuse promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck red" <<<"$out" || fail "the refusal must identify a red precheck:" "$out"
+run_id=3
+for busy in 429 503; do
+  echo "$busy" > "$TMP/precheck/$head"
+  RUN_ID=$run_id request --sha "$head" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$head" || fail "HTTP $busy must defer promotion:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "not prechecked yet" <<<"$out" || fail "HTTP $busy must be reported as pending:" "$out"
+  run_id=$((run_id + 1))
+done
+rm -f "$TMP/precheck/$head"
+
+# A notes-only child with no own record can reuse the nearest passing ancestor
+# because the nightly app and bundled cmux-tui tree are unchanged. An app
+# change cannot reuse that verdict, even though it has the same cmux-tui key.
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json
+import sys
+
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [path for path in paths if path == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no app input changed"}))
+PY
+echo notes > "$src/NOTES.md"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "notes-only precheck child"
+child=$(git -C "$src" rev-parse HEAD)
+publish "$child"
+echo 404 > "$TMP/precheck/$child"
+RUN_ID=5 request --sha "$child" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$child" || fail "a same-app ancestor pass must be reusable:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since" <<<"$out" && grep -q "compiled .* in Release" <<<"$out" \
+  || fail "the reused ancestor must be named in the precheck reason:" "$out"
+
+echo app-change > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change without own precheck"
+changed=$(git -C "$src" rev-parse HEAD)
+publish "$changed"
+echo 404 > "$TMP/precheck/$changed"
+RUN_ID=6 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$changed" || fail "an app change must not reuse an ancestor verdict:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not prechecked yet" <<<"$out" || fail "the changed app must remain pending:" "$out"
+
+echo down > "$TMP/precheck/$changed"
+RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+
+echo fail > "$TMP/precheck/$changed"
+RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "the explicit precheck opt-out must preserve promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck is off" <<<"$out" || fail "the opt-out reason must be visible:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
 # posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
@@ -341,7 +460,8 @@ git -C "$src" config uploadpack.allowAnySHA1InWant true
 git -C "$src" update-ref refs/heads/feat-cmux-next "$other"
 shallow="$TMP/shallow"
 git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 mkdir -p "$TMP/gitbin"
 cat > "$TMP/gitbin/git" <<STUB
 #!/usr/bin/env bash
@@ -479,6 +599,27 @@ echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
   || fail "no backfill while an artifacts run is active:" "$out" "$(cat "$TMP/gh.log")"
+# Recovery dispatches the current branch tip, even when this request checks an
+# older commit's marker. Only active runs of that dispatch source suppress it.
+backfill_tip=$(git -C "$src" rev-parse refs/heads/feat-cmux-next)
+branch "$other"
+printf '[{"head_sha":"%s","status":"in_progress"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=120 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "an unrelated active tree must not suppress marker backfill:" "$out" "$(cat "$TMP/gh.log")"
+for active_state in queued in_progress waiting pending requested; do
+  printf '[{"head_sha":"%s","status":"%s"}]\n' "$other" "$active_state" > "$TMP/gh-active-runs"
+  RUN_ID="121-$active_state" request --sha "$other" --release-compile-green
+  ! backfilled && grep -q "queued or running" <<<"$out" \
+    || fail "an active dispatch-source run ($active_state) must suppress backfill:" "$out" "$(cat "$TMP/gh.log")"
+done
+branch "$head"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=122 request --sha "$other" --release-compile-green
+! backfilled && grep -q "queued or running" <<<"$out" \
+  || fail "backfill must check the remote dispatch tip, not the older marker candidate:" "$out" "$(cat "$TMP/gh.log")"
+branch "$backfill_tip"
+rm -f "$TMP/gh-active-runs"
 rm -f "$TMP/gh-runs"
 RUN_ID=13 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "could not read the cmux-tui-artifacts runs" <<<"$out" \
@@ -724,6 +865,60 @@ echo 0 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
 grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$other" > "$TMP/gh-active-runs"
+RUN_ID=123 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "a tip with no publisher must backfill despite an unrelated queued tree:" "$out" "$(cat "$TMP/gh.log")"
+# The tip's own push run, queued with its first job waiting for a runner past
+# CMUX_TREE_RUN_STARVED_MIN (30 min), is no run: it builds no tree, so the tip
+# is not requested as building and the rescue dispatch goes (2026-11-19: 40+
+# feat-cmux-next preflights queued on cmux-gcp-lane-build-x64 since 04:21Z).
+ago() { python3 -c 'import sys, datetime as d; print((d.datetime.now(d.timezone.utc) - d.timedelta(minutes=int(sys.argv[1]))).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
+echo 1 > "$TMP/gh-runs"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$pending" > "$TMP/gh-active-runs"
+echo "777 $pending push" > "$TMP/gh-starved"
+ago 45 > "$TMP/gh-jobs-777"
+RUN_ID=124 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" && grep -q "waited 45 min with no runner; counted as no run" <<<"$out" \
+  || fail "a tip run starved of a runner past the limit must count as no run and be rescued:" "$out" "$(cat "$TMP/gh.log")"
+# Under the limit it is still the run that builds the tree: no rescue.
+ago 10 > "$TMP/gh-jobs-777"
+RUN_ID=125 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "a run queued under the limit must still count as building the tree:" "$out" "$(cat "$TMP/gh.log")"
+# The limit is the env's.
+RUN_ID=126 CMUX_TREE_RUN_STARVED_MIN=5 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "CMUX_TREE_RUN_STARVED_MIN must set the limit:" "$out" "$(cat "$TMP/gh.log")"
+# A starved rescue dispatch is not rescued again: only push runs count as starved.
+ago 45 > "$TMP/gh-jobs-777"
+echo "777 $pending workflow_dispatch" > "$TMP/gh-starved"
+RUN_ID=127 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled \
+  || fail "a starved rescue dispatch must not start another rescue:" "$out" "$(cat "$TMP/gh.log")"
+# A run whose jobs cannot be read is not starved (the careful answer).
+echo "777 $pending push" > "$TMP/gh-starved"; rm -f "$TMP/gh-jobs-777"
+RUN_ID=128 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "an unreadable job list must not count the run as starved:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-starved" "$TMP/gh-active-runs"
+# A coalesced tip: its only run succeeded and built nothing (its tree is still a
+# 404), so it counts as no run and the tip is backfilled (2026-11-23: the tick
+# walked past coalesced tips and cut commits 40-87 min old). A failed or running
+# run still counts.
+echo 0 > "$TMP/gh-runs"
+echo '[{"status":"completed","conclusion":"success","event":"push"}]' > "$TMP/gh-runs-json"
+RUN_ID=129 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "a tip whose only run succeeded without a tree must be backfilled:" "$out" "$(cat "$TMP/gh.log")"
+# A green backfill dispatch that published nothing is not re-dispatched every tick.
+for run in '{"status":"completed","conclusion":"failure","event":"push"}' '{"status":"in_progress","conclusion":null,"event":"push"}' \
+           '{"status":"completed","conclusion":"success","event":"workflow_dispatch"}'; do
+  echo "[$run]" > "$TMP/gh-runs-json"
+  RUN_ID=130 request --tree-ready "$pending"
+  [[ "$status" == 0 ]] && ! backfilled || fail "a tip run $run must still count (no backfill):" "$out" "$(cat "$TMP/gh.log")"
+done
+rm -f "$TMP/gh-runs-json"
 echo 1 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
@@ -816,4 +1011,4 @@ request --sha nothex --release-compile-green
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
 : "$other"
-echo "PASS: nightly-next promotion waits for the published tree, not its daemon tests or the Release compile"
+echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"

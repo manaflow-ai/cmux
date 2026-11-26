@@ -29,7 +29,7 @@ const call = (id: string, title: string, kind: string, rawInput?: Record<string,
 /// A person's turn that started a background command and ended on its reply, then the turn the
 /// command's end woke: it reads the command's output, then replies. As acpmux records it in Leo's
 /// chat, the woken turn has no prompt of its own: only its background_turn records bracket it.
-export function wokenTurnGapEvents() {
+export function wokenTurnGapEvents(running = false) {
   const steps: Step[] = [
     ["mux", "user_message", { text: "Clean up after the merged helpers", turnId: "t1" }],
     ["mux", "turn_started", { turnId: "t1" }],
@@ -61,7 +61,9 @@ export function wokenTurnGapEvents() {
     ),
     ["mux", "background_turn", { state: "ended", id: "bg-reclaim", trigger: "task_notification", quiet: false }],
   ];
-  const start = minutesAgo(20);
+  // Still running: the woken turn's read and a command in flight, no reply or end yet.
+  if (running) steps.splice(-2, 2, call("ls", "ls -la .wt", "execute", { command: "ls -la .wt" }));
+  const start = running ? minutesAgo(1) - steps.length * 6_000 : minutesAgo(20);
   return steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
     seq: index + 1,
@@ -72,12 +74,21 @@ export function wokenTurnGapEvents() {
   }));
 }
 
-const recording = {
+const recordingOf = (running: boolean) => ({
   events: async () =>
-    `${wokenTurnGapEvents()
+    `${wokenTurnGapEvents(running)
       .map((event) => JSON.stringify(event))
       .join("\n")}\n`,
   harness: "claude" as const,
+});
+const recording = recordingOf(false);
+const working = () => {
+  const base = chat([]);
+  return {
+    ...base,
+    isWorking: true,
+    sessions: base.sessions.map((session) => ({ ...session, status: "working" as const })),
+  };
 };
 
 export default agentPaneEntry({
@@ -103,6 +114,13 @@ export default agentPaneEntry({
       snapshot: chat([]),
       recording,
       documentAttributes: { "woken-gap": "tail" },
+    },
+    // Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc
+    // buttons and the next working for?" The woken turn still running under the footer.
+    working: {
+      note: "Shipped, while the woken turn runs: its first row stands the block gap under the footer (24), as its Worked for does once it ends. test/woken-turn-gap.test.ts holds it.",
+      snapshot: working(),
+      recording: recordingOf(true),
     },
   },
 });

@@ -1,0 +1,84 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-profile",
+  "name": "Reference desktop agent app (whole)",
+  "tagline": "The whole reference desktop coding agent app in one opt-in look: its colors and type, its wide calm sidebar, its round composer, its keys, its New Tab page and its motion.",
+  "description": "Opt-in. One look built from the codex-app recipe and the four codex feature looks (composer, send-parity, sidebar, threads): the reference app's theme, system type at 15 pt, a 1000 pt transcript column, the round studio composer with circular icon buttons, a 340 pt sidebar of one-line chats by project with a spinner or unread dot and Settled folding, a Chats section with New chat, Pinned, a sort and archive from a row, the thread hover card, cmux's priority view for chats that need you, the builder New Tab page (\"What should we build in {project}?\"), the app's keyboard shortcuts and fast, quiet motion. README.md lists every feature of the reference app and how this look matches it or which gap is left. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": [],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Colors and type (the codex-app recipe).
+    "appearance.themeFile": "codex-app",
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.width": 1000,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.attachmentView": "strip",
+    "diff.layout": "unified",
+    "notifications.attention.agentChats": "ring",
+
+    // Tabs: no tab strip for a lone chat; the diff viewer and chat search at the toolbar.
+    "tabs.hideLoneChatTab": true,
+    "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
+
+    // The composer (codex/composer): the prompt on its own line over the controls row.
+    "agentPane.composerLook": "studio",
+
+    // The sidebar (codex/sidebar): 340 pt, 36 pt rows, 14 pt text, one line per chat.
+    "appearance.metrics.sidebarWidth": 340,
+    "appearance.metrics.sidebarRowHeight": 36,
+    "appearance.metrics.chromeFontSize": 14,
+    "appearance.density": "comfortable",
+    // Pending (Rust): "appearance.metrics.sidebarWidthMin": 240, "appearance.metrics.sidebarWidthMax": 520,
+    // "appearance.metrics.sidebarRowCornerRadius": 10, "appearance.metrics.sidebarRowInset": 6,
+    // "appearance.metrics.sidebarRowPadding": 10. The Chats section draws its rows at those numbers now.
+    "sidebar.style": "standard",
+    "sidebar.density": "comfortable",
+    "sidebar.textSize": "default",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "appearance.statusIndicator.style": "arc",
+    "sidebar.controlsOnHover": true,
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.progress": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.settleFinished": true,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.layout": "compact",
+    // Pending (Rust): "sidebar.sortBy": "updated" and "sidebar.rowHoverAction": "archive" for the native list.
+
+    // Threads (codex/threads): cmux's own priority view lists the chats waiting on you first.
+    "sidebar.priorityView.enabled": true,
+    "sidebar.priorityView.shown": true,
+
+    // The New Tab page (codex/send-parity): the builder page from customize/.
+    "tabs.newTabApp": "local/customize",
+    "tabs.nativeNewTabPage": false,
+    // Pending: "agentPane.display.sendPop": "off" (cmux#50293) and "agentPane.sendPlacement": "top"
+    // (no pull request yet; the room-and-spring send in ../send-parity/README.md).
+
+    // Motion. The reference app moves little and fast; no public recording of it exists to time, so
+    // this look keeps cmux's fast speed and every animation on rather than invent durations. A look
+    // cannot set durations or easings yet (README.md, Gaps).
+    "ui.animationSpeed": "fast",
+    "ui.paneAnimations": true,
+    "ui.animations.enabled": true
+  }
+}

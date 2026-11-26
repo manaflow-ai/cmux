@@ -14,7 +14,7 @@ nonisolated enum RoomStrings {
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     /// The count line of the Delete Space question (none for no workspace).
     static func deleteClosesBody(_ count: Int) -> String {
-        String(localized: "rooms.deleteClosesBody", defaultValue: "Its \(count) workspaces close.", table: "Rooms", bundle: .module)
+        String(localized: "rooms.deleteClosesBody", defaultValue: "Its \(count) workspaces close.", table: "Rooms", bundle: .module.inAppLanguage)
     }
     /// The toast after Delete Space (RECOVERABLE-BY-DEFAULT).
     static func deletedToast(_ name: String) -> String { String(format: text("rooms.deletedToast", "Space “%@” deleted"), name) }
@@ -22,8 +22,9 @@ nonisolated enum RoomStrings {
     /// The name a New Incognito Space gets when none is given.
     static var incognitoName: String { text("rooms.incognitoName", "Incognito") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
-    static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
-    static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no space that way") }
+    static var roomAtEdge: String { text("rooms.refusal.atEdge", "The space is already at the edge.") }
+    static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "There is no space that way.") }
+    static var spacesOff: String { text("rooms.refusal.spacesOff", "Spaces is off. Turn on Show Spaces in Settings to use spaces.") }
     static var iconArgumentRequired: String { text("rooms.refusal.iconRequired", "an icon argument (SF Symbol name or one emoji) is required") }
     static var roomArgumentRequired: String { text("rooms.refusal.roomRequired", "a space argument is required") }
     static var alreadyInRoom: String { text("rooms.refusal.alreadyInRoom", "the workspace is already in that space") }
@@ -44,7 +45,7 @@ nonisolated enum RoomStrings {
     static var clearDefaults: String { text("rooms.clearDefaults", "Clear") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Rooms", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Rooms", bundle: .module.inAppLanguage)
     }
 }
 

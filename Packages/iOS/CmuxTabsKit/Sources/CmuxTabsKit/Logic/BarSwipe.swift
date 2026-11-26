@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// A drag on the bottom bar: sideways switches tabs, up opens the tab grid
 /// (Safari's Compact layout), following the finger.

@@ -747,10 +747,14 @@ fn the_bundle_copy_is_private_and_removed() {
     assert!(!snapshot.bundle.exists(), "the upload is removed");
 }
 
+mod borrow;
+mod carry;
+mod dogfood;
 mod export;
 mod head_first;
 mod hold;
 mod moves;
+mod play;
 
 #[test]
 fn clone_job_releases_only_successful_repository_sync() {

@@ -10,11 +10,19 @@ description = "Runtime NEXT Cloud backend allowlist, client-config cache and per
 [lints]
 workspace = true
 
+[features]
+default = ["fetch"]
+# The backend's client-config over HTTP (`Resolver::client_config`). The macOS app's launch read
+# (`Resolver::launch_read`, through cmux-daemon-launch-core's FFI) needs none of it: off there.
+fetch = ["dep:reqwest", "dep:rustls"]
+
 [dependencies]
+cmux-egress.workspace = true
+cmux-build-space.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
-rustls.workspace = true
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
 url.workspace = true
 
 [dev-dependencies]

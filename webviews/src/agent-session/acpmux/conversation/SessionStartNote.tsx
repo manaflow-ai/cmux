@@ -8,9 +8,10 @@
 import { useId } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { sessionStartLabels } from "./sessionStart";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 export function SessionStartNote({ start, id = "details" }: { start: AcpmuxSessionStart; id?: string }) {
   const t = useT();
@@ -32,7 +33,7 @@ export function SessionStartNote({ start, id = "details" }: { start: AcpmuxSessi
           <TerminalSquare />
         </span>
         <span className="cv-tool__text">{short}</span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       {open && (
         <div id={detailsId} className="cv-session-start__detail selectable">

@@ -1,4 +1,4 @@
-import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
+import { useContext, useId, useLayoutEffect, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
@@ -8,7 +8,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
 import { useFold } from "./fold";
@@ -31,11 +31,7 @@ const senderShortName = (name: string) => shortSender(name);
 export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; renderMessage(row: AcpmuxRow): ReactNode }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, row.id));
-  const show = (next: boolean) => {
-    setMessageOpened(session, row.id, next);
-    setOpen(next);
-  };
+  const { open, set: show } = useDisclosure({ message: row.id, sessionId: session });
   const bodyId = useId();
   // The messages open and close with the transcript's fold (fold.ts), as a tool group's steps do; at
   // the very bottom the text above glides up with it (App.tsx `beginBottomStackFold`). Leo,

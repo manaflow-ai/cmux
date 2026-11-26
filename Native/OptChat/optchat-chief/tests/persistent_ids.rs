@@ -13,6 +13,10 @@ use optchat_chief::state::StateFile;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 
 fn spawn_one(h: &mut Harness) -> String {
+    spawn_tasks(h, vec!["say hello".into()])
+}
+
+fn spawn_tasks(h: &mut Harness, tasks: Vec<String>) -> String {
     let spawner = Arc::new(Spawner::new(
         h.chat.clone(),
         h.agents.clone(),
@@ -34,7 +38,7 @@ fn spawn_one(h: &mut Harness) -> String {
         let spawner = spawner.clone();
         std::thread::spawn(move || {
             use optchat_chief::tools::Orchestrator;
-            spawner.spawn(vec!["say hello".into()], None)
+            spawner.spawn(tasks, None)
         })
     };
     while !worker.is_finished() {
@@ -90,6 +94,58 @@ fn persistent_ids_a_lost_counter_never_gives_an_id_twice() {
     let answer = spawn_one(&mut h);
     assert!(answer.contains("Started a3"), "{answer}");
     assert!(!answer.contains("Started a1"), "{answer}");
+}
+
+/// Deleted Chief memory restarts the counter at 1, but acpmux keeps the old
+/// subagents' sessions (`optchat-sub-<home>-a1`..): a spawn skips every id
+/// whose session name acpmux holds instead of failing with "is taken".
+#[test]
+fn persistent_ids_a_reset_counter_skips_names_acpmux_holds() {
+    let mut h = Harness::new(default_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        for n in 1..=14 {
+            inner.taken.insert(format!("optchat-sub-h0me-a{n}"));
+        }
+        // Another home's session of the same number is not ours.
+        inner.taken.insert("optchat-sub-0ther-a15".into());
+    }
+    let answer = spawn_one(&mut h);
+    assert!(answer.contains("Started a15"), "{answer}");
+    assert!(!answer.contains("is taken"), "{answer}");
+    // A hole in the old sessions is not filled when the run does not fit:
+    // two tasks with a17 held start as a18 and a19.
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .taken
+        .insert("optchat-sub-h0me-a17".into());
+    let answer = spawn_tasks(&mut h, vec!["first task".into(), "second task".into()]);
+    assert!(answer.contains("a18") && answer.contains("a19"), "{answer}");
+    assert!(!answer.contains("is taken"), "{answer}");
+    // Several tasks start their sessions on their own threads, so the mock
+    // records them in thread order: compare the set, not the order.
+    let mut names: Vec<String> = h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|s| s.name.clone())
+        .filter(|n| n.starts_with("optchat-sub-h0me-"))
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "optchat-sub-h0me-a15",
+            "optchat-sub-h0me-a18",
+            "optchat-sub-h0me-a19"
+        ],
+        "{names:?}"
+    );
 }
 
 /// `cmux chief move` copies the home to another folder or machine: the
