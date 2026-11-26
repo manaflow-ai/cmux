@@ -230,17 +230,18 @@ pub fn marks(facts: &MarkFacts) -> Vec<PaneMark> {
             continue;
         }
         let chat_look = tab.agent_chat && facts.policy.rings_chat;
-        if chat_look && facts.local {
-            if let Some(generation) = tab.finished {
-                marks.push(PaneMark {
-                    pane: shown.pane.clone(),
-                    generation,
-                    agent_chat: true,
-                    quiet: tab.quiet,
-                    color: MarkColor::Agent,
-                });
-                continue;
-            }
+        if chat_look
+            && facts.local
+            && let Some(generation) = tab.finished
+        {
+            marks.push(PaneMark {
+                pane: shown.pane.clone(),
+                generation,
+                agent_chat: true,
+                quiet: tab.quiet,
+                color: MarkColor::Agent,
+            });
+            continue;
         }
         let rings = if chat_look { facts.policy.rings_chat } else { facts.rings_terminal };
         if !rings {
@@ -652,10 +653,12 @@ pub struct MarkSend {
 /// dropped. Throttled, the same value sent within the echo window counts as
 /// still in flight.
 pub fn mark_needs_send(facts: &MarkSend) -> bool {
-    if let Some(last) = facts.last {
-        if facts.throttled && last.marked == facts.marked && last.ago_ms < ECHO_WINDOW_MS {
-            return false;
-        }
+    if facts.throttled
+        && let Some(last) = facts.last
+        && last.marked == facts.marked
+        && last.ago_ms < ECHO_WINDOW_MS
+    {
+        return false;
     }
     facts.current != facts.marked || facts.last.is_some_and(|last| last.marked != facts.marked)
 }
