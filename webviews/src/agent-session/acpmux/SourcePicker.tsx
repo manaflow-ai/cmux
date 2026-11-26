@@ -39,8 +39,11 @@ export function SourcePicker({
   onPick,
   onCloning,
   returnFocus,
+  startPage,
 }: {
   open: boolean;
+  /// The page it opens on (the GitHub page, opened again after Connect to GitHub); none: the sources.
+  startPage?: SourcePage;
   options: SourcePickerOptions;
   current?: string;
   currentPeer?: string;
@@ -52,7 +55,7 @@ export function SourcePicker({
 }) {
   const t = useT();
   const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
-  const [page, setPage] = useState<SourcePage>("add");
+  const [page, setPage] = useState<SourcePage>(startPage ?? "add");
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
   const clone = useGitURLClone(onClone, onCloning, pick);
