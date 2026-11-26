@@ -686,6 +686,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Frame { session, built } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_TURN_FRAMES, json!({"sessionId": id, "built": built}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if v["asked"] == true {
+                println!("frame asked for turn {}", v["turnId"].as_str().unwrap_or_default());
+            } else {
+                println!("no frame: {}", v["reason"].as_str().unwrap_or("the daemon took none"));
+            }
+            Ok(())
+        }
         Command::Icon { session, icon } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;

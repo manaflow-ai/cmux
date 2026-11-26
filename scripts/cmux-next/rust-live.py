@@ -71,6 +71,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+import live_frames  # noqa: E402  (a frame of each swapped build in the chat, RFD 0152)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -878,6 +879,8 @@ class Loop:
         (self.state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
         with open(self.state / "history.jsonl", "a") as history:
             history.write(json.dumps(entry) + "\n")
+        if entry.get("outcome") == "swapped" and not self.on_swap:
+            live_frames.built("rust")  # the chat's frames show the swapped daemon, not the save
         if self.on_swap:
             self.on_swap(entry)
 
