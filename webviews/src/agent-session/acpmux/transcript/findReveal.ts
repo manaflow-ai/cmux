@@ -1,5 +1,5 @@
-import { FIND_ACTIVE_HIGHLIGHT } from "../conversation/chatFind";
 import { writeScrollBy } from "../conversation/scrollController";
+import { FIND_ACTIVE_HIGHLIGHT } from "../conversation/chatFind";
 
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers. `by` moves it: the transcript's
@@ -19,11 +19,11 @@ export function scrollRangeIn(
 /// output scrolls on its own), innermost first; the transcript itself is left to the caller.
 export function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
   for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
-    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY)) {
-      const inner = box;
-      // scroll-writer-ok: a capped output inside a row, not the transcript.
-      scrollRangeIn(inner, range, 0, (delta) => (inner.scrollTop += delta));
-    }
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+      scrollRangeIn(box, range, 0, (delta) => {
+        // scroll-writer-ok: a capped output inside a row, not the transcript.
+        box.scrollTop += delta;
+      });
 }
 
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:

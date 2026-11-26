@@ -1,4 +1,5 @@
 import { flushSync } from "react-dom";
+import { writeScrollTop } from "../conversation/scrollController";
 import { type AcpmuxRow, type PlacedLayout } from "../model";
 import { pressJumpUp, type JumpBack, type IdleTracker, type jumpUpTarget } from "../jumpUp";
 import { isAgentMotionOff } from "../../shared/motion";
@@ -9,7 +10,6 @@ import { cssTimeMs } from "../conversation/fold";
 import { type FoldAnchor } from "../conversation/foldAnchor";
 import { userScrollIntent } from "../conversation/userScroll";
 import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
-import { writeScrollTop } from "../conversation/scrollController";
 import { indexOfRow } from "./rowIndex";
 import { restingAnchor } from "./scrollAnchors";
 
