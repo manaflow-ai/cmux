@@ -268,6 +268,7 @@ import Testing
         #expect(store.workspace(id: made[0].id) != nil)
     }
 
+    #if os(iOS)  // The pick rules are Rust's task_pick_toggle (cmux-mobile-link-ffi), linked on iOS only.
     /// A3: a task takes at most four agents, always keeps one, and never an agent a phone can't start;
     /// with no pick, the agent shown checked becomes the first real pick.
     @Test func pickingAgentsKeepsOneAndStopsAtTheLimit() {
@@ -285,6 +286,7 @@ import Testing
         #expect(draft.picks.count == TaskDraft.agentLimit)
         #expect(draft.toggle(agent("x", start: false), fallback: nil) == .unavailable)
     }
+    #endif
 
     /// A4: another Mac has its own agents, so its picks start over; the same Mac keeps them.
     @Test func choosingAnotherMacClearsThePicks() {
@@ -306,11 +308,13 @@ import Testing
         await creator.settle()
     }
 
+    #if os(iOS)  // Rust's task_image_mime_type.
     @Test func imageTypeIsReadFromItsBytes() {
         #expect(TaskImage(data: Data([0xFF, 0xD8, 0xFF] + Array(repeating: 0, count: 9))).mimeType == "image/jpeg")
         #expect(TaskImage(data: Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8))).mimeType == "image/webp")
         #expect(TaskImage(data: Data(Array("ftypheic0000".utf8))).mimeType == nil)
     }
+    #endif
 }
 
 /// The workspace page finds a creating workspace's opening tab by this id (WorkspaceTabsSource.placeholderTabID).
@@ -467,6 +471,7 @@ import Testing
 }
 
 
+#if os(iOS)  // The terminal line is Rust's task_terminal_line (cmux-mobile-link-ffi), linked on iOS only.
 /// A terminal launch (classic's tasks): the agent's CLI with its model and the task, typed into
 /// the new workspace's shell. Nothing in the prompt can run.
 @MainActor @Suite struct TerminalLaunchTests {
@@ -545,6 +550,7 @@ import Testing
         #expect(mock.typedLines.isEmpty)
     }
 }
+#endif
 
 /// Drafts keep files and where the task runs; a draft saved before those were kept still reads.
 @MainActor @Suite struct TaskDraftFilesTests {
