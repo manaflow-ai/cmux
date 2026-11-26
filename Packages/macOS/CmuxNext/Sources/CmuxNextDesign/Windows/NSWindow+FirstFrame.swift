@@ -1,9 +1,6 @@
 public import AppKit
 import os
 
-/// Counts the run loop passes ``NSWindow/commitFirstFrameNow(mark:)`` reports.
-private final class FirstFramePasses: Sendable { let count = OSAllocatedUnfairLock(initialState: 0) }
-
 extension NSWindow {
     /// Lays the window out, draws it and commits the frame now, in the caller's turn (CMUX-629). For the launch
     /// window's first frame only, once per process.
@@ -28,9 +25,9 @@ extension NSWindow {
     @discardableResult
     public func commitFirstFrameNow(mark: @escaping @Sendable (String) -> Void = { _ in }) -> Bool {
         guard isVisible else { return false }
-        let passes = FirstFramePasses()
+        let passes = OSAllocatedUnfairLock(initialState: 0)  // run loop passes reported so far
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) { observer, _ in
-            let pass = passes.count.withLock { count -> Int in count += 1; return count }
+            let pass = passes.withLock { count -> Int in count += 1; return count }
             mark("frame.loop_\(pass)")
             if pass >= 4, let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
         }
