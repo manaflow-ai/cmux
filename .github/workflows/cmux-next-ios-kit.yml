@@ -293,7 +293,7 @@ jobs:
     # A Linux runner: the controller's public route builds on the fleet and this job only waits for the answer, so no
     # Mac sits idle for the build (scripts/ci/fleet_ios_build.py). The hosted fallback never schedules: the job's if:
     # skips outside manaflow-ai.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 40  # the reader waits up to 600 s queued plus 1500 s running
     permissions:
       contents: read
