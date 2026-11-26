@@ -145,9 +145,62 @@ function silentTurn(id: string, startedAt: number, work: Work, background?: Acpm
   };
 }
 
+/// A row that changes no turn's reading while the chat's last turn runs: no prompt (every turn
+/// boundary is a `user` row, turnStart.ts), no background turn line and none of one's rows.
+const inertTail = (row: AcpmuxRow): boolean =>
+  row.kind !== "user" && row.kind !== BACKGROUND_TURN && row.inBackground === undefined;
+
+/// The last split, which the next reuses when only the running turn's tail changed.
+let lastSplit: { rows: readonly AcpmuxRow[]; split: SilentSplit } | undefined;
+
 /// `rows` without the silent turns' rows, and those turns oldest first. `working`: the chat's last
 /// turn still runs, so it stays. Without a silent turn, `rows` itself.
+///
+/// A streamed token, thought or call replaces or appends rows of the running last turn and keeps
+/// every other row object (direct.ts): such a split is the last one with its tail swapped, a
+/// pointer compare per row instead of reading every turn again. The running turn always stays
+/// (`working`), and a tail of inert rows (`inertTail`) moves no turn's bounds, so the split's
+/// drop set and silent turns are the same.
 export function splitSilentTurns(rows: AcpmuxRow[], working: boolean): SilentSplit {
+  const last = lastSplit;
+  if (working && last && rows.length >= last.rows.length && last.rows !== rows) {
+    const prev = last.rows;
+    let same = 0;
+    while (same < prev.length && prev[same] === rows[same]) same += 1;
+    // Rows past `same` hold no prompt, so they sit in the chat's last turn, which runs and stays:
+    // the last split kept them as its own last rows (checked, never assumed).
+    const tailReusable =
+      same > 0 &&
+      prev.slice(same).every(inertTail) &&
+      rows.slice(same).every(inertTail) &&
+      (last.split.rows === prev || tailKept(prev, same, last.split.rows));
+    if (tailReusable) {
+      const split: SilentSplit =
+        last.split.rows === prev
+          ? { rows, silent: last.split.silent }
+          : {
+              rows: [...last.split.rows.slice(0, last.split.rows.length - (prev.length - same)), ...rows.slice(same)],
+              silent: last.split.silent,
+            };
+      lastSplit = { rows, split };
+      return split;
+    }
+  }
+  const split = splitSilentTurnsFull(rows, working);
+  lastSplit = working ? { rows, split } : undefined;
+  return split;
+}
+
+/// Whether the last split kept `prev`'s rows from `from` on, as its own last rows.
+function tailKept(prev: readonly AcpmuxRow[], from: number, kept: readonly AcpmuxRow[]): boolean {
+  const offset = kept.length - (prev.length - from);
+  if (offset < 0) return false;
+  for (let at = from; at < prev.length; at += 1) if (kept[offset + at - from] !== prev[at]) return false;
+  return true;
+}
+
+/// The split read from every row, no reuse (tests compare the reused split with it).
+export function splitSilentTurnsFull(rows: AcpmuxRow[], working: boolean): SilentSplit {
   // Cheap first: a chat with no turn another agent or a task started has nothing to split.
   if (!rows.some((row) => row.kind === BACKGROUND_TURN || agentOpener(row))) return { rows, silent: NONE };
   const drop = new Set<string>();

@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -32,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTER = ROOT / ".github/workflows/pr-router.yml"
 CHANNEL = ROOT / ".github/workflows/cmux-machine-channel.yml"
 PLAN = "scripts/ci/cmux-machine-channel-pr-plan.sh"
-READS = (PLAN, "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/timeout.sh",
+READS = (PLAN, "scripts/ci/cmux_machine_channel_head_built.py", "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/timeout.sh",
          "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/cmux-next/cmux-tui-tree-inputs.txt")
 INPUTS = ("build", "x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix")
 
@@ -41,9 +42,13 @@ def load(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def git(repo: Path, *args: str) -> str:
+def git(repo: Path, *args: str, age_s: int = 7200) -> str:
+    # Commits are two hours old unless a test says otherwise: a base that took a commit in the last
+    # MACHINE_CHANNEL_PR_HEAD_QUIET_MIN minutes builds no PR head.
+    when = f"@{int(time.time()) - age_s} +0000"
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
                           env=env).stdout.strip()
 
@@ -112,17 +117,20 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "base")
 
-    def plan(self, head_repo: str = "manaflow-ai/cmux") -> dict[str, str]:
+    def plan(self, head_repo: str = "manaflow-ai/cmux", extra: dict[str, str] | None = None) -> dict[str, str]:
         out = self.tmp / "out"
         out.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next"}
+        for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"):
+            env.pop(k, None)
+        env.update(extra or {})
         subprocess.run([str(self.repo / PLAN)], cwd=self.repo, env=env, check=True, capture_output=True)
         return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
-    def commit(self, rel: str) -> None:
+    def commit(self, rel: str, age_s: int = 7200) -> None:
         (self.repo / rel).write_text("v1\n")
-        git(self.repo, "commit", "-qam", rel)
+        git(self.repo, "commit", "-qam", rel, age_s=age_s)
 
     def test_a_change_outside_the_tree_inputs_builds_nothing(self) -> None:
         self.commit("docs/readme.md")
@@ -136,23 +144,54 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.commit("webviews/app.ts")
         self.assertEqual(self.plan()["build"], "true")
 
-    def merge_ref(self, head_rel: str, base_rel: str) -> None:
+    def merge_ref(self, head_rel: str, base_rel: str, base_age_s: int = 7200) -> None:
         """A pull request merge ref: HEAD^1 the base, HEAD^2 the head, as the route checkout has it."""
         git(self.repo, "checkout", "-qb", "head")
         self.commit(head_rel)
         git(self.repo, "checkout", "-q", "feat-cmux-next")
         if base_rel:
-            self.commit(base_rel)
+            self.commit(base_rel, age_s=base_age_s)
         git(self.repo, "merge", "-q", "--no-ff", "--no-edit", "head")
 
     def test_an_up_to_date_head_that_changes_the_tree_builds(self) -> None:
         self.merge_ref("webviews/app.ts", "")
         self.assertEqual(self.plan()["build"], "true")
 
+    def test_a_base_that_just_took_a_commit_builds_nothing(self) -> None:
+        # Its push run coalesces this merge, so no push run would take the build (1,290 merges in 24 h, 27 push runs).
+        # The base's last commit (HEAD^1, outside the tree inputs) landed 5 min ago.
+        self.merge_ref("webviews/app.ts", "docs/readme.md", base_age_s=300)
+        self.assertEqual(self.plan()["build"], "false")
+        self.assertEqual(self.plan(extra={"MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "4"})["build"], "true")
+        # 0 turns the gate off.
+        self.assertEqual(self.plan(extra={"MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "0"})["build"], "true")
+
+    def test_the_router_passes_the_quiet_window(self) -> None:
+        step = next(s for s in load(ROUTER)["jobs"]["route"]["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"],
+                         "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}")
+
     def test_a_head_behind_the_base_builds_nothing(self) -> None:
         # The base moved a tree input after the head forked: the head's key is not the merge's.
         self.merge_ref("webviews/app.ts", "cmux-tui/src/main.rs")
         self.assertEqual(self.plan()["build"], "false")
+
+    def stub_head_built(self, answer: str) -> None:
+        stub = self.repo / "scripts/ci/cmux_machine_channel_head_built.py"
+        stub.write_text(f"import sys\nassert sys.argv[1:4] == ['{'a' * 40}', '--exclude-run', '7']\nprint('{answer}')\n")
+
+    def test_a_head_an_earlier_run_built_builds_nothing(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        self.stub_head_built("45871056565")
+        got = self.plan(extra={"HEAD_SHA": "a" * 40, "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})
+        self.assertEqual(got["build"], "false")
+
+    def test_a_head_no_run_built_yet_builds(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        self.stub_head_built("")
+        self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40, "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})["build"], "true")
+        # No token (the callee's own plan job on a pull request): no lookup, the build runs.
+        self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40})["build"], "true")
 
     def test_a_fork_head_builds_nothing(self) -> None:
         self.commit("webviews/app.ts")
@@ -166,6 +205,48 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         mod.ROOT = self.repo
         key = mod.tree_key(git(self.repo, "rev-parse", "HEAD"))
         self.assertRegex(key, r"^[0-9a-f]{40}$")
+
+
+class HeadBuilt(unittest.TestCase):
+    def load(self):
+        spec = importlib.util.spec_from_file_location("head_built", ROOT / "scripts/ci/cmux_machine_channel_head_built.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def api(self, artifacts: dict[int, list[dict]]):
+        calls: list[str] = []
+
+        def get(path: str) -> object:
+            calls.append(path)
+            if path.startswith("actions/workflows/"):
+                return {"workflow_runs": [{"id": i} for i in artifacts]}
+            run = int(path.split("/")[2])
+            return {"artifacts": artifacts[run]}
+
+        return get, calls
+
+    def both(self, expired: bool = False) -> list[dict]:
+        return [{"name": f"machine-channel-cmux-tui-{t}", "expired": expired}
+                for t in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")]
+
+    def test_an_earlier_run_with_both_artifacts_is_taken_and_this_run_is_left_out(self) -> None:
+        mod = self.load()
+        get, calls = self.api({10: self.both(), 11: [], 12: self.both()})
+        self.assertEqual(mod.built(get, "a" * 40, "machine-channel-", exclude=12), 10)
+        self.assertNotIn("actions/runs/12/artifacts?per_page=100", calls)
+
+    def test_one_leg_or_expired_artifacts_are_no_build(self) -> None:
+        mod = self.load()
+        get, _ = self.api({10: self.both()[:1], 11: self.both(expired=True)})
+        self.assertIsNone(mod.built(get, "a" * 40, "machine-channel-"))
+
+    def test_the_route_step_passes_the_head_and_the_token(self) -> None:
+        route = load(ROUTER)["jobs"]["route"]
+        step = next(s for s in route["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["HEAD_SHA"], "${{ github.event.pull_request.head.sha || '' }}")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(route["permissions"]["actions"], "read")
 
 
 if __name__ == "__main__":

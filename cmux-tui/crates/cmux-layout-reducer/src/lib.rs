@@ -956,9 +956,11 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
+pub mod chief_panel;
 pub mod closing_panes;
 pub mod divider_insert;
 pub mod drop_rules;
+pub mod dock_model;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
@@ -975,6 +977,7 @@ pub mod sidebar_bridge;
 pub mod sidebar_caps;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
+pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
