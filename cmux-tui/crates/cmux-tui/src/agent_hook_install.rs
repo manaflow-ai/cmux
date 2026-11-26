@@ -190,8 +190,7 @@ const GROK_EVENTS: &[&str] = &[
 
 const KIRO_EVENTS: &[&str] =
     &["agentSpawn", "userPromptSubmit", "stop", "preToolUse", "postToolUse"];
-const ANTIGRAVITY_EVENTS: &[&str] =
-    &["SessionStart", "PreInvocation", "Stop", "turn-completion", "Notification", "SessionEnd"];
+const ANTIGRAVITY_EVENTS: &[&str] = &["SessionStart", "PreInvocation", "Stop"];
 const ROVODEV_EVENTS: &[&str] = &["on_complete", "on_error", "on_tool_permission"];
 const COPILOT_EVENTS: &[&str] =
     &["SessionStart", "Stop", "Notification", "SessionEnd", "PreToolUse"];
