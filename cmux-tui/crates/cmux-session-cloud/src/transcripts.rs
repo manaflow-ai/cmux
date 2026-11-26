@@ -58,7 +58,10 @@ pub struct Policy {
 
 /// [`Policy::kept_now`]: None keeps only `keep`.
 #[derive(Clone, Default)]
-pub struct KeptNow(pub Option<std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>>);
+pub struct KeptNow(pub Option<KeptFn>);
+
+/// Whether a session id is kept, asked now.
+pub type KeptFn = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 impl KeptNow {
     fn kept(&self, sid: &str) -> bool {
@@ -343,8 +346,8 @@ pub fn pass(
         ..Report::default()
     };
     let cutoff = policy.now_ms.saturating_sub(policy.older_than_ms);
-    // The blobs the root names this pass, set before the first removal.
-    let mut rooted: HashSet<String> = HashSet::new();
+    // Files to remove once every copy of this pass is in the ledger and the GC root.
+    let mut to_remove: Vec<(Found, Entry, Option<String>)> = Vec::new();
     for found in scan(home) {
         report.files += 1;
         report.bytes += found.size;
@@ -428,6 +431,28 @@ pub fn pass(
             }
             continue;
         }
+        let sid = session_of(&found.rel);
+        to_remove.push((found, entry, sid));
+    }
+    if dry_run {
+        return Ok(report);
+    }
+    // Every copy of this pass goes into the ledger and the GC root before any file is removed,
+    // so a pass that stops or crashes never leaves a removed file whose only copy a GC could
+    // drop. Every pass sets the root, so it (90-day expiry) stays alive while the copies are
+    // wanted.
+    let ledger = Ledger::merge(state, &changes, &lock(state)?)?;
+    let Some(cloud) = cloud else { return Ok(report) };
+    if !ledger.files.is_empty() {
+        let blobs = ledger.blobs();
+        cloud.store.set_root(&root_pair(cloud), &blobs)?;
+        report.root_blobs = Some(blobs.len());
+    }
+    for (found, entry, sid) in to_remove {
+        if stop() {
+            report.skip("stopped");
+            continue;
+        }
         // Removal: read the copy back now, whatever an earlier pass checked.
         if let Err(e) = read_back(cloud, &entry.stub) {
             report.error(&found.rel, "read-back", &e);
@@ -444,31 +469,22 @@ pub fn pass(
                 continue;
             }
         };
-        // The copy is in the GC root before its file goes, so a pass that stops or crashes
-        // here never leaves a removed file whose only copy a GC could drop.
-        if !rooted.contains(&entry.stub.blob) {
-            let mut blobs = Ledger::load(state)?.blobs();
-            blobs.extend(changes.values().map(|e: &Entry| e.stub.blob.clone()));
-            blobs.push(entry.stub.blob.clone());
-            blobs.sort();
-            blobs.dedup();
-            if let Err(e) = cloud.store.set_root(&root_pair(cloud), &blobs) {
-                report.error(&found.rel, "root", &e);
-                report.skip("remove failed");
-                continue;
-            }
-            rooted = blobs.into_iter().collect();
+        // Asked again now: a chat opened since the pass began is kept.
+        if sid.as_deref().is_some_and(|sid| policy.kept_now.kept(sid)) {
+            report.skip("kept");
+            continue;
         }
         match crate::offload::commit(&found.path, &entry.stub) {
             Ok(Some(bytes)) => {
                 report.removed += 1;
                 report.removed_bytes += bytes;
                 report.list(&found.rel, bytes, "removed");
-                changes.insert(
+                // Only this file's row: a row a restore wrote since stays as it is.
+                let row = BTreeMap::from([(
                     found.rel.clone(),
                     Entry { removed_at_ms: Some(policy.now_ms), ..entry },
-                );
-                Ledger::merge(state, &changes, &held)?;
+                )]);
+                Ledger::merge(state, &row, &held)?;
             }
             Ok(None) => report.skip("changed"),
             Err(e) => {
@@ -476,18 +492,6 @@ pub fn pass(
                 report.skip("remove failed");
             }
         }
-    }
-    if dry_run {
-        return Ok(report);
-    }
-    let ledger = Ledger::merge(state, &changes, &lock(state)?)?;
-    if let Some(cloud) = cloud
-        && !ledger.files.is_empty()
-    {
-        // Every pass, so the root (90-day expiry) stays alive while the copies are wanted.
-        let blobs = ledger.blobs();
-        cloud.store.set_root(&root_pair(cloud), &blobs)?;
-        report.root_blobs = Some(blobs.len());
     }
     Ok(report)
 }
@@ -504,11 +508,14 @@ pub fn restore_all(home: &Path, state: &Path, cloud: &Cloud) -> anyhow::Result<u
 }
 
 /// Whether any removed transcript of `sid` waits in the cloud: one `stat` when transcripts were
-/// never offloaded here, else a ledger read; no store call.
+/// never offloaded here, else a ledger read under the lock; no store call. Under the lock, a
+/// removal either went before (and this sees it) or comes after and asks
+/// [`Policy::kept_now`] first.
 pub fn needs_restore(home: &Path, state: &Path, sid: &str) -> bool {
     if !state.join(LEDGER_FILE).exists() {
         return false;
     }
+    let _held = lock(state).ok();
     Ledger::load(state).is_ok_and(|ledger| {
         ledger.files.iter().any(|(rel, e)| belongs_to(rel, sid) && removed(home, rel, e))
     })
