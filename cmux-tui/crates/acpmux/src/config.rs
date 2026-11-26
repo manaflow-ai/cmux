@@ -1717,7 +1717,7 @@ pub struct Config {
     /// `capacityFallbackAfter`: after this many capacity attempts on one cut prompt (HTTP 529,
     /// "overloaded"), the next runs on a smaller model of the same harness, and the chat's own
     /// model comes back once a turn there ends well (`hub/auto_resume/capacity_failover.rs`).
-    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 1.
+    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 0 (off).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capacity_fallback_after: Option<u64>,
     /// `autoResumeDiskFreeBytes`: how much free space a chat a full disk cut waits for before
@@ -1897,6 +1897,10 @@ pub struct MachineWakeConfig {
 pub struct WriteJournalConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// RFD 0144 piece 2: also answer the app's and phone's file tree, file and search reads of a
+    /// paused machine from its replica and journal, with no wake. Needs `enabled`; off by default.
+    #[serde(default)]
+    pub serve_paused_reads: bool,
 }
 
 impl WriteJournalConfig {

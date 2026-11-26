@@ -27,6 +27,7 @@ cmux-mobile-link.workspace = true
 cmux-relay-snapshot.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.
 cmux-output-paint.workspace = true
+cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 # This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
 cmux-transport.workspace = true
@@ -77,6 +78,8 @@ required-features = ["fake-backend"]
 
 [dev-dependencies]
 cmux-fault.workspace = true
+# Seeded-secret test (tests/seeded_secret.rs): gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 # Paused time for the silence-bound tests (src/mailbox_apply.rs).
 tokio = { workspace = true, features = ["test-util"] }
 cmux-mobile-link = { workspace = true, features = ["testing"] }
