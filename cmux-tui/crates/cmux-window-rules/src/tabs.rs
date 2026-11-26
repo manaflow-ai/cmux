@@ -18,10 +18,10 @@ pub mod draft;
 pub mod group_drop;
 #[path = "tabs_groups.rs"]
 pub mod groups;
-#[path = "tabs_page_closes.rs"]
-pub mod page_closes;
 #[path = "tabs_layout.rs"]
 pub mod layout;
+#[path = "tabs_page_closes.rs"]
+pub mod page_closes;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]
