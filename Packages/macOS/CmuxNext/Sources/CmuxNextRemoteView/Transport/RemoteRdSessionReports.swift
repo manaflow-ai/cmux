@@ -5,7 +5,8 @@ import CmuxNextCompat
 /// `cmux.rd-session-report/1` JSON: connect to first frame, and the session's display-to-glass
 /// and Present p50/p95, numbers only. The app installs one sink (crash reporting, which sends only
 /// while anonymous telemetry is on); with none installed a report is dropped.
-public enum RemoteRdSessionReports {
+public struct RemoteRdSessionReports {
+    public init() {}
     private static let sink = Mutex<(@Sendable (String) -> Void)?>(nil)
 
     /// Installs the sink every later session end reports to (the newest call wins).
