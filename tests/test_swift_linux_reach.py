@@ -3,6 +3,7 @@
 change can fail, and every group when it cannot tell (fails open)."""
 
 import json
+import fnmatch
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,13 @@ class Reach(unittest.TestCase):
             out = reach.reach([f])
             self.assertEqual(out["groups"], self.all, f)
             self.assertEqual(out["listed"], "*", f)
+
+    def test_suite_helpers_route_the_workflow_and_every_group(self):
+        routing = json.loads((ROOT / 'scripts/ci/pr_router.json').read_text())['callees']['swift-linux-packages.yml']
+        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
+            self.assertEqual(reach.reach([helper])['groups'], self.all)
+            for selection in ('paths', 'affects'):
+                self.assertTrue(any(fnmatch.fnmatchcase(helper, pattern) for pattern in routing[selection]))
 
     def test_the_list_runs_every_row(self):
         out = reach.reach([reach.LIST])
