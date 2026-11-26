@@ -5,7 +5,7 @@ use crate::store::care_tests::scratch;
 const DAY_MS: u64 = 24 * HOUR_MS;
 
 fn families(home: &Path) -> Vec<Family> {
-    default_families(home)
+    default_families(home).into_iter().filter(|f| f.source == Source::Fixed).collect()
 }
 
 fn no_uses() -> Result<Vec<Process>, String> {
@@ -17,14 +17,26 @@ fn not_open(_: &Path) -> Result<Option<u32>, String> {
 }
 
 fn options<'a>(
-    home: &Path,
+    home: &'a Path,
     pressure: Pressure,
     now_ms: u64,
     apply: bool,
     uses: &'a Uses,
     open: &'a Open,
 ) -> Options<'a> {
-    Options { families: families(home), pressure, now_ms, apply, uses, open, measure: true }
+    Options {
+        families: families(home),
+        pressure,
+        now_ms,
+        apply,
+        uses,
+        open,
+        measure: true,
+        home,
+        never: &crate::never_delete::NONE,
+        store: None,
+        off: &[],
+    }
 }
 
 fn derived(home: &Path, name: &str) -> PathBuf {
