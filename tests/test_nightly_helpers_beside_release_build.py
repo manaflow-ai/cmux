@@ -91,7 +91,7 @@ class WorkflowStructureTests(unittest.TestCase):
     def test_inputs_job_builds_the_app_commit_holds_no_secret_and_runs_off_the_mac(self):
         job = self.jobs[INPUTS_JOB]
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"])
-        self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
+        self.assertEqual(next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         resolved = workflow_jobs.resolve(job)
         self.assertIsNone(resolved.environment)
         self.assertEqual(job["permissions"], {"contents": "read"})

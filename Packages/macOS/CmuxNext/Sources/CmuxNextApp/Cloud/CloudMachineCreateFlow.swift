@@ -72,9 +72,8 @@ struct CloudMachineCreateFlow {
     var run: CloudAppOp
     /// The native confirmation sheet; true only for a person's click.
     var confirm: @MainActor (Prompt) async -> Bool
-    /// Answers approval `request` as the person's own session, only when
-    /// it holds `op` (the op this flow sent) with exactly `params`.
-    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
+    /// Answers approval `request` as the person's own session, only when it holds `op` with exactly `params`; returns the run's answer when the answer call carried it.
+    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> JSONValue?
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
@@ -138,7 +137,7 @@ struct CloudMachineCreateFlow {
         let ensure = self.beside, origin = now()
         let nowMs = { [now] in Int((now() - origin) / .milliseconds(1)) }
         async let besideDone: Void = ensure()
-        var approval = CloudLaunchApproval(), answer: JSONValue?
+        var approval = CloudLaunchApproval(), answer: JSONValue?, carried: JSONValue?
         var effects = approval.next(.start(confirmed: confirmed, earlier: earlier, patienceMs: Int(patience / .milliseconds(1)), nowMs: nowMs())) ?? []
         while !effects.isEmpty {
             let event: CloudLaunchApproval.Event
@@ -158,9 +157,10 @@ struct CloudMachineCreateFlow {
                 onAnswering(request)
                 var outcome = "done"
                 let steps = Self.steps() // a measured start's `machine.ensure` and `machine.approve`
+                var runAnswer: JSONValue?
                 do {
                     await besideDone; steps?.done("machine.ensure")
-                    defer { steps?.done("machine.approve") }; try await approve(request, op, args)
+                    defer { steps?.done("machine.approve") }; runAnswer = try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
@@ -171,8 +171,12 @@ struct CloudMachineCreateFlow {
                     // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
                     outcome = "answered_elsewhere"
                 }
+                carried = runAnswer
                 event = .approved(outcome: outcome, nowMs: nowMs())
-            case .recordApproved(let request): onApproved(request); continue
+            case .recordApproved(let request):
+                onApproved(request)
+                if let carried { return carried } // carried by the one-call approve; else the next call is the first same-key retry
+                continue
             case .pause(let attempt): try await pause(attempt); event = .paused
             case .declined: throw Failure.declined
             case .noApprovalRequest: throw Failure.noApprovalRequest
