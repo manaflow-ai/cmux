@@ -363,12 +363,6 @@ pub fn require_consent(surface: &str) -> Result<()> {
     }
 }
 
-/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
-/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
-pub(crate) fn local_computer_use_kept() -> bool {
-    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
-}
-
 pub fn require_joined_consent(surface: &str) -> Result<()> {
     if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
 }

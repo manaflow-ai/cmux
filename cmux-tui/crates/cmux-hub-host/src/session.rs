@@ -100,12 +100,43 @@ pub struct ServeCommand {
 }
 
 /// How a session ended: the reason, whether the viewer had connected, and the reason to give
-/// the hub (`/end`) when this side ends it.
+/// the hub (`/end`) when this side ends it ([`failed_reason`] for a session it could not serve).
 #[derive(Debug, PartialEq)]
 pub struct Ended {
     pub reason: String,
     pub connected: bool,
-    pub tell_hub: Option<&'static str>,
+    pub tell_hub: Option<String>,
+}
+
+/// The longest `/end` reason the hub keeps, in UTF-16 units (it cuts a longer one there).
+pub const HUB_REASON_MAX: usize = 100;
+
+/// The `/end` reason for a session this side could not serve: `failed: <why>`, so the viewer's
+/// card says why (the Mac's `MacScreenEndReason` reads every `failed` prefix as a failure and
+/// shows the rest) instead of guessing that the host is asleep or offline. `why` is made
+/// printable on one line, a `failed:` that cmux-rd already put in front is not doubled, and the
+/// whole is cut to [`HUB_REASON_MAX`] on a character boundary.
+pub fn failed_reason(why: &str) -> String {
+    let why = crate::printable(&why.replace(['\n', '\r', '\t'], " "));
+    let mut why = why.trim();
+    while let Some(rest) = why.strip_prefix("failed:") {
+        why = rest.trim_start();
+    }
+    let mut out = String::from("failed");
+    if why.is_empty() {
+        return out;
+    }
+    out.push_str(": ");
+    let mut units = out.len();
+    for c in why.chars() {
+        units += c.len_utf16();
+        if units > HUB_REASON_MAX {
+            break;
+        }
+        out.push(c);
+    }
+    out.truncate(out.trim_end().len());
+    out
 }
 
 struct Serve {
@@ -182,11 +213,8 @@ pub fn serve(
     let mut ws = match hub.session_socket(&ticket.signal_url, &ticket.jws) {
         Ok(ws) => ws,
         Err(e) => {
-            return Ended {
-                reason: format!("signaling: {e}"),
-                connected: false,
-                tell_hub: Some("failed"),
-            }
+            let reason = format!("signaling: {e}");
+            return Ended { tell_hub: Some(failed_reason(&reason)), reason, connected: false };
         }
     };
     let mut serve: Option<Serve> = None;
@@ -271,7 +299,9 @@ pub fn serve(
                 }
             }
             if let Some(reason) = finished {
-                let tell_hub = if connected { None } else { Some("failed") };
+                // Before the link: the viewer learns why only from the hub. After it, the
+                // helper told the viewer itself over the link (cmux.rd/1 `ended`).
+                let tell_hub = (!connected).then(|| failed_reason(&reason));
                 break Ended { reason, connected, tell_hub };
             }
         }
@@ -319,10 +349,11 @@ pub fn serve(
                     &ticket.peer_key,
                 ) {
                     let _ = ws.send_text(r#"{"type":"bye"}"#);
+                    let reason = "the viewer's offer is not signed by its device key";
                     break Ended {
-                        reason: "the viewer's offer is not signed by its device key".into(),
+                        reason: reason.into(),
                         connected,
-                        tell_hub: Some("failed"),
+                        tell_hub: Some(failed_reason(reason)),
                     };
                 }
                 if serve.is_some() {
@@ -331,22 +362,18 @@ pub fn serve(
                 let Some(offer) = RdDocument::parse(sdp) else {
                     // A WebRTC viewer (the iPhone's, or an old Mac): this host serves cmux.rd/1 only.
                     let _ = ws.send_text(r#"{"type":"bye"}"#);
+                    let reason = "the viewer offered WebRTC; this host serves cmux.rd/1 viewers";
                     break Ended {
-                        reason:
-                            "the viewer offered WebRTC; this Linux host serves cmux.rd/1 viewers"
-                                .into(),
+                        reason: reason.into(),
                         connected,
-                        tell_hub: Some("failed"),
+                        tell_hub: Some(failed_reason(reason)),
                     };
                 };
                 let mut started = match Serve::start(command) {
                     Ok(s) => s,
                     Err(e) => {
-                        break Ended {
-                            reason: format!("the screen host could not start: {e}"),
-                            connected,
-                            tell_hub: Some("failed"),
-                        }
+                        let reason = format!("the screen host could not start: {e}");
+                        break Ended { tell_hub: Some(failed_reason(&reason)), reason, connected };
                     }
                 };
                 started.send(&setup_line(ticket, &offer, view_only));
@@ -448,6 +475,25 @@ mod tests {
         assert!(Ticket::from_push_as(&push("viewer", "s1", "KEY"), "viewer").is_ok());
         assert!(Ticket::from_push_as(&push("host", "s1", "KEY"), "viewer").is_err());
         assert!(Ticket::from_push_as(&push("viewer", "s1", "OTHER"), "viewer").is_err());
+    }
+
+    #[test]
+    fn a_failed_end_says_why_within_the_hubs_limit() {
+        assert_eq!(failed_reason(""), "failed");
+        assert_eq!(failed_reason("  "), "failed");
+        assert_eq!(failed_reason("the screen host stopped"), "failed: the screen host stopped");
+        // cmux-rd's own `failed: <error>` is not doubled; newlines and escapes go.
+        assert_eq!(
+            failed_reason("failed: capture: no display\n\u{1b}[31mred"),
+            "failed: capture: no display red"
+        );
+        let long = failed_reason(&"é".repeat(300));
+        assert!(long.encode_utf16().count() <= HUB_REASON_MAX, "{long}");
+        assert!(long.starts_with("failed: é"));
+        // A character of two UTF-16 units is never cut in half.
+        let wide = failed_reason(&"😀".repeat(100));
+        assert!(wide.encode_utf16().count() <= HUB_REASON_MAX);
+        assert!(wide.ends_with('😀'));
     }
 
     #[test]

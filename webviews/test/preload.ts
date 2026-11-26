@@ -54,6 +54,13 @@ export {};
   });
   await import("react-dom");
   await import("react-dom/client");
+  // Floating UI's React bindings (under every Base UI tooltip, menu and popover) make the same
+  // once-only check as Base UI above: loaded with no global `document`, their layout effects are a
+  // no-op, so a popup never positions and its positioner keeps Base UI's `opacity: 0` for the rest
+  // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
+  // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
+  // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
+  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

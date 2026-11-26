@@ -10,6 +10,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
+import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject } from "./newtab/startedProject";
@@ -132,8 +133,9 @@ export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | u
 }
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
+/// A context that comes as the page's own part is joined with its shared part first (newtab/sharedPart.ts).
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
-  const value = handshake.newTab;
+  const value = wholeNewTab(handshake.newTab);
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
@@ -256,4 +258,22 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
     },
     t,
   );
+}
+
+const AGE_MINUTE = 60_000;
+const AGE_DATE_AFTER_MINUTES = 7 * 24 * 60;
+
+/// The first shared wall-clock minute where `ageLabel(updatedAt, …)` says something else (clock.ts
+/// useLabelClock): a minute that keeps its "3h" wakes no label. Past a week the date never changes.
+export function nextAgeLabel(updatedAt: number, now: number): number {
+  if (!Number.isFinite(updatedAt) || !updatedAt) return Infinity;
+  const elapsed = Math.max(0, now - updatedAt);
+  if (Math.floor(elapsed / AGE_MINUTE) >= AGE_DATE_AFTER_MINUTES) return Infinity;
+  // ageLabel's rounded minutes, hours and days; `round(x / size) >= n` once x reaches (n - 0.5) * size.
+  const minutes = Math.round(elapsed / AGE_MINUTE);
+  const hours = Math.round(minutes / 60);
+  const nextMinutes =
+    minutes < 60 ? minutes + 1 : hours < 24 ? 60 * hours + 30 : 60 * (24 * Math.round(hours / 24) + 12) - 30;
+  const change = Math.min((nextMinutes - 0.5) * AGE_MINUTE, AGE_DATE_AFTER_MINUTES * AGE_MINUTE);
+  return Math.max(now + AGE_MINUTE, Math.ceil((updatedAt + change) / AGE_MINUTE) * AGE_MINUTE);
 }

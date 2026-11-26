@@ -34,15 +34,6 @@ export function formatBytes(count: number, language: string): string {
   }).format(value);
 }
 
-/** A region code's name in the page's language, or the code itself. */
-export function regionName(code: string, language: string): string {
-  try {
-    return new Intl.DisplayNames([language], { type: "region" }).of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
-
 const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["second", 60],
   ["minute", 60],

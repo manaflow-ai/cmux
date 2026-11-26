@@ -114,6 +114,9 @@ pub struct NewRequest {
     /// Folders the chat sees beside its own (`additional_dirs.rs`), already checked by the
     /// caller.
     pub additional_directories: Vec<PathBuf>,
+    /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `stop_condition.rs`),
+    /// already checked by the caller; None for none.
+    pub stop_condition: Option<String>,
     /// The person asks for this chat (`Session::person`): this host's app, or a connection that
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).

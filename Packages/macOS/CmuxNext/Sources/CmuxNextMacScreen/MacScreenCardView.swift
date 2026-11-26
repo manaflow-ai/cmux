@@ -73,7 +73,7 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private func render() {
         let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
+            Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model))
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
@@ -85,6 +85,16 @@ final class MacScreenCardView: MacScreenThemedView {
         paint(stack)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
+    }
+
+    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        switch card {
+        case .failed?: model.failedDetail
+        case .hubEnded(.failed)?, .hubRevoked(.failed)?: model.hubFailureDetail ?? ""
+        default: ""
+        }
     }
 
     // MARK: Pieces
@@ -144,6 +154,8 @@ final class MacScreenCardView: MacScreenThemedView {
     // MARK: Cards
 
     private var name: String { shown?.name ?? model.name }
+    /// A hub end's host reason, when the shown card has one (``failedDetail(_:_:)``).
+    private var hostReason: String? { shown?.failedDetail.isEmpty == false ? shown?.failedDetail : nil }
 
     private func content(_ card: MacScreenCard) {
         switch card {
@@ -161,7 +173,8 @@ final class MacScreenCardView: MacScreenThemedView {
             spinner()
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
         case .failed:
-            // The session's message can quote the signaling URL (with the room id): never shown.
+            // The session's free-form message can quote the signaling URL (with the room id): never
+            // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
             glyph("exclamationmark.triangle", ink: \.attention)
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
             detail(shown?.failedDetail ?? model.failedDetail)
@@ -205,7 +218,7 @@ final class MacScreenCardView: MacScreenThemedView {
             let removed = reason.removesAccess
             glyph(removed ? "lock" : "display", ink: removed ? \.danger : \.secondary)
             title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
@@ -219,7 +232,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubEnded(reason):
             glyph(reason.removesAccess ? "lock" : "display", ink: reason.removesAccess ? \.danger : \.secondary)
             title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })

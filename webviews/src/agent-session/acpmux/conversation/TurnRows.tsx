@@ -23,7 +23,7 @@ import { ToolRunSteps } from "./ToolRunSteps";
 import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
@@ -64,7 +64,7 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -228,26 +228,6 @@ function groupNode(
         />
       );
   }
-}
-
-/// How a folded stretch's line follows the group lines it grew from and splits back into
-/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
-/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
-/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
-/// ran, one by one, closes it (`closedBy`).
-function runLinks(stretch: RunStretch, rowId: string) {
-  const inherits: string[] = [];
-  const passesDown: string[] = [];
-  const closedBy: string[] = [];
-  stretch.groups.forEach((group, offset) => {
-    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
-    if (!key) return;
-    inherits.push(key);
-    if (group.type === "group" && group.kind === "edits") return;
-    passesDown.push(key);
-    if (group.type === "group") closedBy.push(key);
-  });
-  return { inherits, passesDown, closedBy };
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

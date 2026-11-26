@@ -34,6 +34,33 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         self.assertFalse(netem.recovered_after_drop(10, True, [50], "viewer silent for 3 s"))
         self.assertTrue(netem.recovered_after_drop(10, True, [50], None))
 
+    def test_stage_join_splits_a_key_press_on_one_clock(self):
+        # Viewer ns and host µs on one CLOCK_MONOTONIC: key sent at 1000 µs.
+        sample = {"sent_ns": 1_000_000, "capture_us": 3_000, "complete_ns": 9_000_000,
+                  "decoded_ns": 10_000_000}
+        log = [
+            {"inject_us": 1_200, "recv_us": 1_100},
+            {"inject_us": 1_210, "recv_us": 1_100},  # the key's release, same datagram
+            {"release_us": 3_000, "damage_us": 2_500, "encoded_us": 7_000, "sent_us": 7_500,
+             "encoded_bytes": 70, "idr": False},
+        ]
+        [row] = netem.stage_samples([sample], log)
+        self.assertEqual(row["up"], 0.1)
+        self.assertEqual(row["inject"], 0.1)
+        self.assertEqual(row["draw_damage"], 1.3)
+        self.assertEqual(row["gate"], 0.5)
+        self.assertEqual(row["encode"], 4.0)
+        self.assertEqual(row["send"], 0.5)
+        self.assertEqual(row["down"], 1.5)
+        self.assertEqual(row["decode"], 1.0)
+        self.assertEqual(row["total"], 9.0)
+        self.assertIn("| encode | 1 | 4.00 | 4.00 |", netem.stage_table([row]))
+
+    def test_stage_join_leaves_unknown_ends_out(self):
+        sample = {"sent_ns": 1_000_000, "capture_us": 5_000, "decoded_ns": 10_000_000}
+        [row] = netem.stage_samples([sample], [])
+        self.assertEqual(row, {"total": 9.0})
+
 
 if __name__ == "__main__":
     unittest.main()

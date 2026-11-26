@@ -123,10 +123,6 @@ path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_computer_use_helper.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_nightly_next_dev_ring.py"
 lane = "linux-guard"
 
@@ -389,3 +385,8 @@ lane = "linux-guard"
 path = "tests/test_nightly_xcodebuild_stall_watchdog.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Drives run-xcodebuild-with-diagnostics.sh and app-build-release.sh with a fake xcodebuild that hangs and a fake SWBBuildService that uses no CPU (run 43673773157's deadlock): the stall is sampled, only the build's own processes end, one retry, a second stall fails naming the samples; run python3 tests/test_nightly_xcodebuild_stall_watchdog.py yourself after changing either script (about 10 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_next_delta_check.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly_next_delta_check.py prunes deltas R2 does not serve, fails a nightly-next feed whose newest item offers no delta, and that republish-nightly-deltas runs it after the feed write; run python3 tests/test_nightly_next_delta_check.py after changing either (about 1 s, no Mac, no network)."

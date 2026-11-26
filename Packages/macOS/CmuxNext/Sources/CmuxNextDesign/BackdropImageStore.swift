@@ -20,6 +20,10 @@ public final class BackdropImageStore {
     /// The app's store, with snapshots in the app's caches folder.
     public static let shared = BackdropImageStore(snapshots: defaultSnapshots, desktop: .live())
 
+    /// Draws the living wallpapers of every window this store serves (``BackdropShaderView``); nil
+    /// without Metal.
+    public let shaders = BackdropShaderRenderer()
+
     /// The longest side, in pixels, of a decoded backdrop: by default the largest screen's.
     public let maxPixelSize: Int
     /// Where snapshots of the decoded, textured images live; nil keeps none.
@@ -216,6 +220,8 @@ public final class BackdropImageStore {
     /// a video's first frame, and a dynamic HEIC's `frame` when it has one, else its frame for light
     /// or `dark` (``BackdropAppearance``).
     nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false, frame pinned: Int? = nil) -> CGImage? {
+        // A living wallpaper's still is rendered the first time it is decoded.
+        BackdropShaderRenderer.preparePoster(at: url)
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [

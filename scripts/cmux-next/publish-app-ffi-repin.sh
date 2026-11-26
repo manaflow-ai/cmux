@@ -115,8 +115,17 @@ fi
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api "$@"; }
 pending_newer() {
-  local runs id head age jobs pin_time pin_age
+  local runs id head age jobs pin_time pin_age oldest
+  # The clock is the base's oldest unpinned FFI commit, not only this release's: a release run holds for the next one
+  # while every release's own commit is young, so with FFI pushes under REPIN_PENDING_MAX_MIN apart each run held for
+  # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
+  # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
+    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+        [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
+      pin_time="$oldest"
+    fi
     pin_age=$(( ($(date +%s) - pin_time) / 60 ))
     if (( pin_age > pending_max_min )); then
       echo "$TAG's commit is $pin_age min old (bound $pending_max_min min): no newer run holds its re-pin" >&2

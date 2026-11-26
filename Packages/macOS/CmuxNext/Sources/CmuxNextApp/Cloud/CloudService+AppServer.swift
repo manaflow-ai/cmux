@@ -52,14 +52,14 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now (the direct route sends it as
         // `x-cmux-team`). A Retry stays with the first send's team and route, and is refused if the token now bills another team.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned), route = pinned.createRoute(personsOwnCreate: ownCreate, team: team)
         let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
-            try await persistSent?(team)
+            try await persistSent?(team, route)
             creation?.markRequestSent(team: team, route: route)
             await onSent()
         }
@@ -82,8 +82,8 @@ extension CloudService {
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
             throw failure
-        } catch is CloudPersonCreate.Unavailable where !pinned.wasSent && creation?.request.answeringRequest == nil && !Task.isCancelled {
-            // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one.
+        } catch is CloudPersonCreate.Unavailable where !pinned.wasSent && creation?.request.answeringRequest == nil && !Task.isCancelled && persistSent == nil {
+            // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
                                              creation: creation, request: relay, onSent: onSent, persistSent: persistSent)
@@ -159,21 +159,14 @@ extension CloudService {
     /// (``CloudPersonCreate``). The session never goes to the daemon or the relay.
     private func sessionCall(team: String? = nil) -> CloudApprovalAnswer.Call {
         let base = FeedService.apiBaseURL(auth: auth)
-        let auth = auth, session = Self.sessionTransport
+        // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
+        let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
         return { path, body in
-            try await CloudConnectHedge().data(for: CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team), on: session).0
+            try await CloudConnectHedge().data(for: CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team, timeout: timeout), on: session).0
         }
     }
 
-    /// No cache, no cookies, and redirects refused: the Stack bearer never
-    /// follows one (as `InstallHTTPTransport`).
-    private static let sessionTransport: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpShouldSetCookies = false
-        configuration.timeoutIntervalForRequest = 15
-        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
-    }()
+    private static let sessionTransport = CloudPersonCreate.session(), createTransport = CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout)
 }
 
 extension CloudPresenter {

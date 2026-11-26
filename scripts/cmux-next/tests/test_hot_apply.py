@@ -8,6 +8,8 @@ runs from it, so the swap is the file alone.
 
     python3 -m unittest scripts/cmux-next/tests/test_hot_apply.py
 """
+import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -1076,6 +1078,54 @@ class PinCompatibility(unittest.TestCase):
             self.assertIn("ffi", plan["parts"])
             self.assertIn("rust", plan["parts"])
 
+    def test_a_branch_on_a_repin_the_app_lacks_takes_the_pinned_release(self):
+        # 2026-11-17: the NIGHTLY (pin a) predated a repin on feat-cmux-next (pin c) that the PR forked after, and the
+        # PR did not move the pin. hot-apply refused every branch's ffi part, then held the daemon back for the repin,
+        # so 7 of the 8 failed Rust looks ended `apply --parts rust exited 3`. The pin is feat-cmux-next's: published.
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("c" * 40, "d" * 64))
+        repin = self.commit()
+        self.git("update-ref", self.hot.BASE_REF, repin)
+        daemon = self.repo / "cmux-tui/crates/cmux-wg/src/lib.rs"
+        daemon.parent.mkdir(parents=True)
+        daemon.write_text("// the branch's daemon change\n")
+        branch = self.commit()
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=True), \
+                mock.patch.object(self.hot.ffi_part, "additive", return_value=[]):
+            self.assertTrue(self.hot.pin_on_base(self.repo, branch))
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", branch, True, self.added)
+            self.assertIn("ffi", plan["parts"], plan)
+            self.assertIn("rust", plan["parts"], plan)
+            self.assertEqual(plan["ffi"]["source"], "c" * 40)
+            # A branch that moves the pin itself names a release nothing published: still held back.
+            self.git("update-ref", self.hot.BASE_REF, self.added)
+            self.assertFalse(self.hot.pin_on_base(self.repo, branch))
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", branch, True, self.added)
+            self.assertNotIn("ffi", plan["parts"])
+            self.assertNotIn("rust", plan["parts"])
+
+    def test_rust_alone_is_held_back_until_the_release_it_rides_with_is_in(self):
+        # Review of cmux#46195: `cmux app try` applies --parts rust only. A plan that puts the fork's release in
+        # beside the daemon must not swap the daemon alone onto the app's old library; the look says --ffi-in.
+        planned = {"head": "h" * 40, "parts": ["ffi", "rust"], "left": {}, "notes": [], "tree_key": "k" * 64,
+                   "ffi": {"source": "c" * 40, "app_pin_source": "a" * 40, "release": "cmux-app-ffi-" + "c" * 40}}
+        args = argparse.Namespace(command="apply", repo=str(self.repo), app=str(self.repo / "unused.app"),
+                                  sha="h" * 40, branch=True, base=None, unsigned_daemon=False, parts="rust",
+                                  dry_run=False, ffi_in=False, binary=None, socket=None)
+        fetched = mock.Mock(side_effect=RuntimeError("stop at the fetch"))
+        with mock.patch.dict(os.environ, {"CMUX_HOT_APPLY_STATE_DIR": str(self.repo / "state")}), \
+                mock.patch.object(self.hot, "plan", side_effect=lambda *_a: json.loads(json.dumps(planned))), \
+                mock.patch.object(self.hot, "fetch_build", fetched), \
+                mock.patch.object(self.hot, "put_back", return_value={}), \
+                mock.patch("builtins.print"):
+            self.assertEqual(self.hot.command_apply(args), 3)
+            fetched.assert_not_called()
+            args.ffi_in = True
+            with contextlib.suppress(Exception):
+                self.hot.command_apply(args)
+            fetched.assert_called_once()
+
 
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
@@ -1592,6 +1642,30 @@ class HotApplyFFI(unittest.TestCase):
         self.assertIn("rust", plan["parts"])
         self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
+    def test_a_copy_that_is_not_running_takes_the_library_and_stays_stopped(self):
+        # hot-verify.py puts a lagging NIGHTLY's copy on its branch's release before the copy first opens: the swap
+        # must not open it (the look launches it itself and records its pid), nor open it on the way back.
+        self.carry_dylib()
+        new = self.tmp / "new.dylib"
+        new.write_bytes(b"new library")
+        launched = []
+        with mock.patch.object(self.ffi, "app_pid", return_value=None), \
+                mock.patch.object(self.ffi, "imports", return_value=set()), \
+                mock.patch.object(self.ffi, "exports", return_value=set()), \
+                mock.patch.object(self.ffi, "prepare", side_effect=lambda src, app, how, ident, work: src), \
+                mock.patch.object(self.ffi, "launch", side_effect=lambda *a: launched.append(a) or {}):
+            step, undo = self.ffi.swap(self.app, new, self.tmp / "state", "adhoc", None, self.hot_module().PHASES)
+            self.assertEqual((self.app / self.ffi.DYLIB).read_bytes(), b"new library")
+            self.assertIsNone(step["quit_pid"])
+            self.assertIsNone(step["launch"])
+            back = self.ffi.put_back(self.app, undo)
+        self.assertEqual(launched, [])
+        self.assertIsNone(back["launch"])
+        self.assertEqual((self.app / self.ffi.DYLIB).read_bytes(), b"old library")
+
+    def hot_module(self):
+        return load_hot("hot_apply_ffi_swap_under_test")
+
     def test_fetch_checks_the_published_library(self):
         digest = self.publish()
         library, got = self.fetch_library()
@@ -1636,6 +1710,26 @@ class HotApplyFFI(unittest.TestCase):
             self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
         finally:
             self.ffi.signature, self.ffi.validates_no_libraries = saved
+
+    def test_the_library_must_export_what_the_app_framework_imports(self):
+        # CMUX-629: the stub executable binds nothing from the library; CmuxNextApp.framework does.
+        code = self.app / self.ffi.CODE_FRAMEWORK_BINARY
+        code.parent.mkdir(parents=True)
+        code.write_bytes(b"framework")
+        read = []
+
+        def run(*args, check=True):
+            read.append(args[-1])
+            return subprocess.CompletedProcess(args, 0, "                 (undefined) external _cmux_layout_apply"
+                                               " (from libcmux_app_ffi)\n", "")
+
+        saved = self.ffi._run
+        try:
+            self.ffi._run = run
+            self.assertEqual(self.ffi.imports(self.app), {"_cmux_layout_apply"})
+        finally:
+            self.ffi._run = saved
+        self.assertEqual(read, [str(code)])
 
     def test_the_app_opens_through_launchd_where_open_fails(self):
         # A terminal of the app outlives `cmux app quit --keep-sessions`, but `open` fails there (error -600), and

@@ -56,8 +56,6 @@ ALLOWED = frozenset({
     "cmux_tui_tree_key.py:git:run",
     "cmux_tui_tree_key.py:make_tree:run",
     "cmux_tui_tree_key.py:tree_key:run",
-    "cua_signed_host_check.py:probe:run",
-    "cua_signed_host_check.py:run:run",
     "delta_since_green.py:_git:run",
     "dev_landing_place.py:git:run",
     "dev_release_product_reuse.py:download:run",

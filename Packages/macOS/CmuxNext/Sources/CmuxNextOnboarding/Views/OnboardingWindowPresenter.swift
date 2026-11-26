@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextDesign
 
@@ -86,13 +87,37 @@ public final class OnboardingWindowPresenter {
         !defaults.bool(forKey: historyShownKey) && defaults.string(forKey: FirstRunSetup.stateKey) == nil
     }
 
-    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent),
-    /// then `next` (Bring your history) once no tool window shows. Each keeps its own once flag.
-    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, defaults: UserDefaults = .standard,
-                                  then next: @MainActor () -> Void) async {
+    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
+    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (Bring your
+    /// history) once no tool window shows. Each keeps its own once flag.
+    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
+                                  defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
         await untilClosed()
+        await askAgentToolsOnce(source: agentTools, defaults: defaults)
+        await untilClosed()
         next()
+    }
+
+    /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its
+    /// terminals and agent chats, get cmux's server only with the person's yes), so a person who
+    /// closes it without answering is not asked at every launch (Settings > Agents keeps the row). A
+    /// new key: an install that was asked under the old rule (cmux added its server to the person's
+    /// own agents; agent chats always had it) is asked once more, since its chats now need the yes.
+    public static let agentToolsAskedKey = "cmux.onboarding.agentToolsAsked.launchOnly"
+
+    /// The cmux Tools step, asking whether agents the person starts in cmux (its terminals and agent
+    /// chats) get cmux's MCP server, at launch (a first run or an existing installation, an upgrade
+    /// included) when the answer is not `on`, no tool window shows, and it was not shown under this
+    /// rule before. Until the person says yes, their agents in cmux get no server, agent chats too
+    /// (agent_mcp_choice.rs, acpmux `agent_tools`), so the question comes right away rather than
+    /// waiting in Settings (Aziz, 2026-11-11). It asks whether or not a coding agent's CLI is on the
+    /// PATH: agent chats need none.
+    public func askAgentToolsOnce(source: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async {
+        guard let source, source.agentToolsChoice() != .on, controller == nil,
+              !defaults.bool(forKey: Self.agentToolsAskedKey) else { return }
+        defaults.set(true, forKey: Self.agentToolsAskedKey)
+        show(step: .agentTools)
     }
 
     private func windowDidClose(_ closed: OnboardingWindowController?) {

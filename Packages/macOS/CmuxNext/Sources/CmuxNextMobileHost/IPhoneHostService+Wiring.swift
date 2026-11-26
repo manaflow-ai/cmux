@@ -81,6 +81,11 @@ extension IPhoneHostService {
             baseURL: base,
             stackProjectID: auth.configuration.stackProjectID,
             stateDirectory: state,
+            keychainName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                         storageNamespace: auth.configuration.runtimeSelection?.storageNamespace),
+            pairingSealName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                            storageNamespace: auth.configuration.runtimeSelection?.storageNamespace,
+                                                            adHocCode: MobileHostPairedStore.adHocCodeIdentity()),
             accessToken: { force in
                 if force { return try await auth.coordinator.forceRefreshAccessToken() }
                 return try await auth.tokens().access

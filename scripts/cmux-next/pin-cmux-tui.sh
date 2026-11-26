@@ -137,6 +137,8 @@
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
+# A stalled git transfer (under 1 KB/s for 120 s) ends instead of holding the nightly (run 44232805509).
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}"
 
 # The binary the cmux-next app bundles and the gate commands (probe, wait,
 # resolve-commit, resolve-newest-published, pin) read on any host.

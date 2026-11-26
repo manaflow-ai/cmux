@@ -537,8 +537,8 @@ import Testing
     }
 
     func settle(until done: @escaping () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !done(), ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(.seconds(5))
+        while !done(), deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the reporter's send task
         }
     }
@@ -678,8 +678,8 @@ import Testing
         var signals: [LinkController.LinkSignal] = []
         controller.onSignal = { signals.append($0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-1", name: "Mac", isOnline: true)))
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(.seconds(10))
+        while !controller.phase.isConnected, deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the mock dial
         }
         #expect(controller.phase.isConnected)
@@ -687,13 +687,13 @@ import Testing
         controller.send(.background)
         controller.send(.resume)
         #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
+        while !controller.phase.isConnected, deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial
         }
         // A transport switch redials on purpose: no drop either.
         controller.send(.transport(.wireGuard))
         #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
+        while !controller.phase.isConnected, deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial on the new transport
         }
         controller.send(.linkDropped(generation: controller.dialGeneration, reason: "stream ended"))

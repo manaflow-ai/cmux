@@ -52,6 +52,9 @@ public final class SidebarModel {
     // when a structural/configuration change already needs a projection.
     @ObservationIgnored private var sourceRowPatches: [WorkspaceID: SidebarWorkspace] = [:]
     @ObservationIgnored private var isReprojecting = false
+    /// The last projection showed the selected workspace only because it is selected: the settings hide it or its
+    /// section (`SidebarCustomizationPlanner.Projection.selectionSpared`).
+    @ObservationIgnored private var selectionSpared = false
     /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
     /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
     /// instead of every row.
@@ -185,10 +188,9 @@ public final class SidebarModel {
             if case let .workspace(id)? = selectedItem { expandSections(hiding: id) }
             // A selected row is always visible, even when a settings reload
             // hides its workspace or section. Reproject the current document
-            // in the same turn as selection changes.
-            if !sectionCustomization.hiddenSections.isEmpty || sectionCustomization.workspaces.values.contains(where: \.hidden) {
-                reprojectSections()
-            }
+            // in the same turn as selection changes, when the change shows or
+            // hides a row: never on a click between shown rows.
+            if selectionReprojects(to: selectedItem) { reprojectSections() }
         }
     }
     /// The workspace shown in the window: the selection when it is a workspace.
@@ -523,7 +525,9 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let projected = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        let shown = SidebarCustomizationPlanner.apply(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        let projection = SidebarCustomizationPlanner.apply(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        let shown = projection.sections
+        selectionSpared = projection.selectionSpared
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
@@ -669,6 +673,17 @@ public final class SidebarModel {
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`
     /// (built once per structural set), never a walk of every row.
     public func lists(_ id: WorkspaceID) -> Bool { !listedPaths(of: id).isEmpty }
+
+    /// Whether selecting `item` changes what the customization shows: the old selection was shown only because it was
+    /// selected, or the new one is a workspace the settings hide (its own rule, or a hidden section's row, which this
+    /// window does not list). O(1): a click between shown rows costs the same at 50 workspaces and 5,000, where it
+    /// used to send the whole sidebar through the planner whenever any hide rule was set.
+    private func selectionReprojects(to item: SidebarItem?) -> Bool {
+        if selectionSpared { return true }
+        guard case let .workspace(id)? = item else { return false }
+        if sectionCustomization.workspaces[id.rawValue]?.hidden == true { return true }
+        return !sectionCustomization.hiddenSections.isEmpty && !lists(id)
+    }
 
     /// Whether `id` sits in a collapsed group: the list draws its row only while it is active or revealed.
     func isInCollapsedGroup(_ id: WorkspaceID) -> Bool { collapsedGroup(of: id) != nil }

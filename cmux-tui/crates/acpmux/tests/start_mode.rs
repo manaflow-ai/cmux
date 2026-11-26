@@ -1610,3 +1610,48 @@ async fn a_web_switch_of_a_mac_chat_starts_asking_and_its_send_runs() {
     assert!(r.get("error").is_none(), "the Web switch's first send runs: {r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `_acpmux/harnesses` tells every client, the Web included (the phone's New Task), the modes
+/// and options a new chat on each agent has, as its newest chat reported them: names and
+/// choices, never a chat's current values. Before any chat, Claude Code's own modes.
+#[tokio::test]
+async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
+    let dir = home("reported", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // The stand-in agent's chats report modes Normal and Strict and a Model option on m1.
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let rows = |r: &Value| r["result"]["harnesses"].clone();
+    let before = rows(&app.call("_acpmux/harnesses", json!({})).await);
+    let claude = &before["claude"]["reported"]["modes"];
+    assert_eq!(claude[1]["id"], "default", "{before}");
+    assert_eq!(claude[1]["name"], "Manual", "{before}");
+    assert!(claude[1]["description"].is_string(), "{before}");
+    assert!(before["picker"].get("reported").is_none(), "no chat yet: {before}");
+
+    let (_, _) = app.chat(&dir, "picker").await;
+    for mut client in [Client::app(&daemon).await, Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken)] {
+        let r = client.call("_acpmux/harnesses", json!({})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let reported = &rows(&r)["picker"]["reported"];
+        let ids: Vec<&str> =
+            reported["modes"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert_eq!(ids, ["normal", "strict"], "{reported}");
+        assert_eq!(reported["modes"][1]["name"], "Strict", "{reported}");
+        let model = reported["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == "model")
+            .unwrap_or_else(|| panic!("{reported}"));
+        assert_eq!(model["options"].as_array().map(Vec::len), Some(2), "{reported}");
+        assert!(model.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
+        // A phone may set the model (a free option); it is told so.
+        assert_eq!(model["remoteSettable"], true, "{reported}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

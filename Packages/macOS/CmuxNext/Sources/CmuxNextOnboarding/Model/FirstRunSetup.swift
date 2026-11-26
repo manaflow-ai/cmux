@@ -5,12 +5,12 @@ public import Observation
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
 /// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends it for good, per
-/// channel (`defaults`). Settings keeps every row.
+/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends first-run setup,
+/// per channel (`defaults`). An explicit reopen keeps the card visible until Hide.
 @MainActor
 @Observable
 public final class FirstRunSetup {
-    /// UserDefaults: "pending" while the card shows, "ended" once hidden or done.
+    /// UserDefaults: "pending" for first run, "reopened" for an explicit visit, "ended" once hidden or done.
     public static let stateKey = "home.firstRun.setupCard"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
@@ -23,7 +23,7 @@ public final class FirstRunSetup {
     public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false) {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
-        shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
+        shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
         historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
 
@@ -72,11 +72,26 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
-    /// Hide, or every row done: the card leaves for good, and its chat history row with it.
+    /// Hide, or first-run completion: the card leaves until explicitly reopened, and its chat history row with it.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
         historyAnswered()
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
+    }
+
+    /// Shows the card again from a release action, preserving rows that were already answered.
+    /// This explicit request works even when automatic onboarding is skipped. It never changes first-run
+    /// markers or reopens the first-run windows, and refreshes the shared agent model without restarting installs.
+    public func reopen() {
+        defaults.set("reopened", forKey: Self.stateKey)
+        agentsModel?.refresh(recheck: true)
+        shows = true
+    }
+
+    /// Automatically dismisses first-run setup; a requested visit stays so completed rows can be reviewed.
+    func complete() {
+        guard defaults.string(forKey: Self.stateKey) != "reopened" else { return }
+        end()
     }
 }

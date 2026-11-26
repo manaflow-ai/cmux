@@ -94,6 +94,8 @@ struct ForkApi {
   // API version 18: profile (Touch ID) passkeys, metadata only.
   int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 23: WebAuthn per tab (refuse every request of an agent-driven tab).
+  int (*tab_set_webauthn_mode)(int, int) = nullptr;
   // API version 18: password manager core (shim_password_core.mm).
   int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;

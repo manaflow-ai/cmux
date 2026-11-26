@@ -19,8 +19,8 @@ import Testing
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-42", name: "Mac", isOnline: true)))
         // A count of yields is no deadline: on a busy runner 200 reschedules can pass before the dial fails.
-        let deadline = ContinuousClock.now + .seconds(10)
-        while ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(.seconds(10))
+        while deadline.hasTimeLeft() {
             if case .waiting = controller.phase { break }
             try? await Task.sleep(for: .milliseconds(5)) // test: polls the phase until a deadline
         }

@@ -2789,6 +2789,20 @@
     "source": "Computer Use",
     "class": "brand"
   },
+  "settings.category.computerUse": {
+    "source": "Computer Use",
+    "class": "brand"
+  },
+  "settings.computerUse.mode": {
+    "source": "Computer Use",
+    "class": "brand"
+  },
+  "menu.menuBar.computerUse.agentInApp": {
+    "source": "%1$@ in %2$@",
+    "identityLocales": {
+      "de": "German uses the same preposition \"in\" for an agent working in an app; the translated entry is still required."
+    }
+  },
   "settings.section.mobile": {
     "source": "Mobile",
     "identityLocales": {

@@ -48,9 +48,9 @@ pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), and the saved
-/// custom densities.
-const EXCLUDED_KEYS: [&str; 8] = [
+/// (where this Mac is), the saved
+/// custom densities, and the keys the person changed over the file.
+const EXCLUDED_KEYS: [&str; 9] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -59,7 +59,21 @@ const EXCLUDED_KEYS: [&str; 8] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    EXCEPTIONS_KEY,
 ];
+/// The look keys the person changed in Settings while the active theme
+/// file sets them (#44894): the file applies over the settings file except
+/// at these, where the person's own value applies. The app writes the
+/// list (Swift `ThemeFileExceptionsSetting`); the owner only reads it.
+pub const EXCEPTIONS_KEY: &str = "appearance.themeFileExceptions";
+
+/// The dotted keys of `root`'s exceptions list; a missing or bad value is none.
+pub fn exceptions_in(root: &Value) -> BTreeSet<String> {
+    crate::value::value_at(root, &["appearance", "themeFileExceptions"])
+        .and_then(Value::as_array)
+        .map(|keys| keys.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
 const LOOK_PREFIXES: [&str; 7] = [
     "appearance.",
     "ui.animation",

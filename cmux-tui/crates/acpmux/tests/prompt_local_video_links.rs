@@ -63,9 +63,8 @@ impl Client {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prompt_linking_two_large_local_videos_is_accepted_at_once() {
     let _ = &HERMETIC;
-    let home = std::env::temp_dir().join(format!("acpmux-video-links-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    std::fs::create_dir_all(&home).unwrap();
+    let scratch = daemon_env::Scratch::new("acpmux-video-links");
+    let home = scratch.to_path_buf();
     acpmux::config::set_home_override(home.clone());
     // Two sparse recordings: 500 MB each, no disk used, a read of either is slow.
     let movies = home.join("Movies");
@@ -141,7 +140,6 @@ async fn a_prompt_linking_two_large_local_videos_is_accepted_at_once() {
     let copied = walk(&uploads).into_iter().filter(|p| p.metadata().is_ok_and(|m| m.len() >= SIZE));
     assert_eq!(copied.count(), 0, "a linked video was copied into the uploads");
     eprintln!("two 500 MB linked videos: accepted in {took:?}");
-    let _ = std::fs::remove_dir_all(&home);
 }
 
 fn walk(dir: &Path) -> Vec<std::path::PathBuf> {

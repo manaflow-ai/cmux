@@ -195,7 +195,10 @@ struct DensityPlaygroundTests {
         #expect(f.model.isChanged(gap) && f.model.changedCount == 1)
         f.model.reset(gap)
         #expect(!f.model.isChanged(gap) && f.model.changedCount == 0)
-        try await Task.sleep(for: .milliseconds(50))
+        let drawn = ContinuousClock.now + .seconds(5)
+        while f.design.densityTokens != f.model.draft, ContinuousClock.now < drawn {
+            await Task.yield()
+        }
         #expect(f.design.densityTokens == f.model.draft, "edits draw live")
     }
 

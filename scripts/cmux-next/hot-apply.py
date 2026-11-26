@@ -524,6 +524,21 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
+BASE_REF = "refs/remotes/origin/feat-cmux-next"
+
+
+def pin_on_base(repo: Path, sha: str) -> bool:
+    """A branch head SHA pins the app FFI release feat-cmux-next pinned where SHA forked from it: the branch did
+    not move the pin itself, so its release is one app-ffi-release.yml published for that merge (fetch_library
+    still checks). False when REPO has no feat-cmux-next or the pin is the branch's own."""
+    fork = git(repo, "merge-base", sha, BASE_REF, check=False)
+    if not SHA.fullmatch(fork):
+        return False
+    have = git(repo, "rev-parse", "--verify", "--quiet", f"{sha}:{ffi_part.PIN_FILE}", check=False)
+    return bool(have) and have == git(repo, "rev-parse", "--verify", "--quiet", f"{fork}:{ffi_part.PIN_FILE}",
+                                      check=False)
+
+
 def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
     """One sha256 over PATHS and their blobs: equal for two commits exactly when none of them changed."""
     return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
@@ -793,7 +808,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                 if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
                     raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
                 if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
-                    if branch:
+                    if branch and not pin_on_base(repo, sha):
                         raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
                     moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
                     if moved:
@@ -811,9 +826,12 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
                 out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
-    if not branch and "ffi" not in out["parts"] and "Rust the app links (FFI)" not in out["left"]:
+    if ((not branch or pin_on_base(repo, sha)) and "ffi" not in out["parts"]
+            and "Rust the app links (FFI)" not in out["left"]):
         # No FFI source changed after the app's commit, but SHA may pin a newer release than the app runs (the
-        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry.
+        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry. A branch
+        # takes it when the pin is feat-cmux-next's (a NIGHTLY older than the repin the branch forked after: 7 of
+        # the 8 Rust looks that ended `exit 3` on 2026-11-17).
         try:
             moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
             if moved:
@@ -1719,6 +1737,14 @@ def command_apply(args) -> int:
     receipt = {"action": args.command if args.dry_run and args.command == "prefetch" else
                "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
                "steps": {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if ("rust" in parts and "ffi" in planned["parts"] and "ffi" not in parts and not args.ffi_in
+            and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]):
+        # The daemon rides with the app FFI release the plan puts in (#44525): --parts rust alone would pair it with
+        # the app's old library. hot-verify's look puts the release in first and says so with --ffi-in.
+        planned["left"] = {**planned["left"], "Rust the app links (FFI)": [
+            f"the daemon needs the app FFI release {planned['ffi']['release']} in first: apply --parts ffi too"]}
+        receipt["left"] = planned["left"]
+        parts = [p for p in parts if p != "rust"]
     if not parts:
         receipt["seconds"] = round(time.monotonic() - t0, 3)
         record(state, receipt, last=False)  # nothing changed: `rollback` still puts back the last apply
@@ -1953,7 +1979,7 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.dry_run, args.parts, args.binary, args.ffi_in = True, "web,rust,ffi", None, False
     args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
@@ -1994,6 +2020,9 @@ def main(argv=None) -> int:
                            help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
                                 "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
+            p.add_argument("--ffi-in", action="store_true",
+                           help="the app FFI release the plan names is already in the app (an earlier --parts ffi): "
+                                "--parts rust alone may then put the daemon in")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",

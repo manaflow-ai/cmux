@@ -178,7 +178,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         try file.append(Self.record(build: "199"))
         let asked = Asked()
-        let recorder = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.launch-times"),
+        let work = BackgroundWork(label: "test.launch-times")
+        let recorder = LaunchTimesRecorder(file: file, work: work,
                                            info: ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "200"]) { _ in
             asked.count.withLock { count in count += 1; return count == 1 }
         }
@@ -199,7 +200,10 @@ import Testing
         #expect(records.last?.preMainMs == 41.3, "and every other column")
         // A late first write (the Home gate after the chat) keeps the chat's columns and is no third line.
         recorder.write(marks: Self.marks)
-        try await Task.sleep(for: .milliseconds(300))
+        // The files lane runs its best-effort items one at a time, in order: once this one ran, the late write has.
+        await withCheckedContinuation { (ran: CheckedContinuation<Void, Never>) in
+            work.post(.bestEffort, mayBlock: .files) { ran.resume() }
+        }
         #expect(file.records().count == 2 && file.records().last?.priorChatLiveMs == 1490.2)
         #expect(asked.count.withLock { $0 } == 1, "pre-warm asked once")
     }

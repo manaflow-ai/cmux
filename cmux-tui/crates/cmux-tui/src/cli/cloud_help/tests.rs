@@ -301,7 +301,9 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 3, "{examples:?}");
+    // The fourth: the composer's picks (cmux#46701: --effort and --no-folder parse too).
+    assert_eq!(examples.len(), 4, "{examples:?}");
+    assert!(examples.iter().any(|line| line.contains("--effort") && line.contains("--no-folder")));
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();

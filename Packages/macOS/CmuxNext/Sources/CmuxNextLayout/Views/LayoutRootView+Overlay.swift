@@ -78,7 +78,7 @@ extension LayoutRootView {
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
                 let alpha = host.alphaValue
                 let key = PaneOverlaySyncKey(hostFrame: host.frame, screenBounds: screen.bounds,
-                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
+                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.hidesRing)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
@@ -87,7 +87,7 @@ extension LayoutRootView {
                 if chrome.frame != rect { chrome.frame = rect }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
-                if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
+                if chrome.isHidden != host.hidesRing { chrome.isHidden = host.hidesRing }
                 host.noteWindowFrame()
                 overlayHostsPlaced += 1
             }

@@ -615,8 +615,7 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
 # (workflow, job) -> the placing job. A re-run of failed jobs keeps the placing job's outputs from the
 # attempt that ran it, so the owned read must hold only on that attempt; a later attempt would wait on
 # a Mac that may be gone or busy (main's cmux#27704).
-OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick",
-                ("nightly-next-cua-signed-host.yml", "signed-host"): "pick"}
+OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick"}
 
 
 def owned_pick_failures(name: str, job_id: str, jobs: dict, placer: str) -> list[str]:

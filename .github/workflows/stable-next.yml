@@ -213,7 +213,7 @@ jobs:
           [ -z "$BUILD" ] || args=(--build "$BUILD")
           python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --stable "$RUNNER_TEMP/stable.xml" \
             --pulled "$RUNNER_TEMP/pulled.json" --stable-pulled "$RUNNER_TEMP/stable-pulled.json" \
-            --verdicts "$NEXT_VERDICTS_BASE/verdicts" ${args[@]+"${args[@]}"}
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts" --notes "$NEXT_FEED_BASE/notes" ${args[@]+"${args[@]}"}
 
       # The commit the build was compiled from: nightly.yml's build_sha (the resolved cmux-tui tree,
       # which can trail the run's head, or a recovered run's source), as its release notes record it
@@ -266,6 +266,7 @@ jobs:
             echo "| commit | ${{ steps.commit.outputs.commit }} |"
             echo "| published | ${PUBLISHED_AT:-unknown}${age_h:+ (${age_h} h ago)} |"
             echo "| canary verdict | ${{ steps.pick.outputs.verdict }} |"
+            echo "| newer builds without release notes yet | ${{ steps.pick.outputs.passed_without_notes || 'none' }} |"
             echo "| runs | $go${SKIP_REASON:+ ($SKIP_REASON)} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -538,12 +539,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stable-out
-          : > "$RUNNER_TEMP/unused-helper-state"
           # Overnight there is time to wait for Apple; a run still waiting fails and the next tick retries.
           CMUX_CHANNEL=next-stable \
           CMUX_NOTARY_WAIT_TIMEOUT=90m \
-          CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
-          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
           CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/stable.notarization.state" \
           CMUX_NOTARY_OUTPUT_FILE="$RUNNER_TEMP/stable.notarization.log" \
             ./scripts/ci/notarize-nightly-dmg.sh "stable-app/cmux NEXT Stable.app" \

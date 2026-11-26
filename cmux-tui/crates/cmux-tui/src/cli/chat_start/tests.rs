@@ -1600,3 +1600,86 @@ fn a_failing_cmux_acp_keeps_its_pretty_answer() {
     assert_eq!(error["code"], "acpmux.failed", "{error}");
     assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }
+
+/// cmux#46701: `cmux chat --on cloud` takes what the composer's Cloud start picks: harness,
+/// model, effort, mode, and a folder (`--cwd`, `--from-folder`) or No folder (`--no-folder`).
+/// Each reaches `cloud start-chat`, which checks them again.
+#[test]
+fn a_cloud_chat_takes_the_composers_effort_mode_and_no_folder() {
+    let cloud = start(&[
+        "--on",
+        "cloud",
+        "--harness",
+        "codex",
+        "--model",
+        "gpt-x",
+        "--effort",
+        "high",
+        "--mode",
+        "plan",
+        "--no-folder",
+        "-p",
+        "1+1?",
+    ]);
+    assert!(cloud.no_folder);
+    let words_out = cloud_words(&cloud, &Machine::New).unwrap();
+    assert_eq!(
+        words_out,
+        words(&[
+            "--prompt",
+            "1+1?",
+            "--agent",
+            "codex",
+            "--model",
+            "gpt-x",
+            "--effort",
+            "high",
+            "--mode",
+            "plan",
+            "--no-folder",
+        ])
+    );
+    let super::super::cloud_start_chat::Parsed::Run(request) =
+        super::super::cloud_start_chat::parse(&words_out, || Ok(String::new())).unwrap()
+    else {
+        panic!("help")
+    };
+    assert_eq!((request.effort.as_deref(), request.mode.as_deref()), (Some("high"), Some("plan")));
+    assert!(TAKES_VALUE.contains(&"--effort") && TAKES_VALUE.contains(&"--mode"));
+    assert!(USAGE.contains("--effort EFFORT") && USAGE.contains("--no-folder"));
+}
+
+#[test]
+fn no_folder_is_refused_with_a_folder_and_bad_settings_are_refused() {
+    for folder in [&["--cwd", "/w"][..], &["--from-folder", "."], &["--repo", "o/n"]] {
+        let mut list = vec!["--on", "cloud", "--no-folder", "-p", "go"];
+        list.extend_from_slice(folder);
+        assert!(parse(&words(&list), None).is_err(), "{list:?}");
+    }
+    assert!(parse(&words(&["--effort", "a b", "go"]), None).is_err());
+    assert!(parse(&words(&["--mode", "-x", "go"]), None).is_err());
+}
+
+/// The effort and mode of a chat here go to `agents chat new` (they used to be refused).
+#[test]
+fn a_chat_here_takes_effort_and_mode_too() {
+    let here = start(&["--effort", "low", "--mode", "plan", "hi"]);
+    assert_eq!(
+        here_words(&[], &here).unwrap(),
+        words(&["agents", "chat", "new", "--effort", "low", "--mode", "plan", "--", "hi"])
+    );
+    here_preflight(&here).unwrap();
+}
+
+/// A joined machine's start takes no effort or mode: refused, never dropped.
+#[test]
+fn a_joined_machine_refuses_effort_and_mode() {
+    let machine = JoinedMachine {
+        id: None,
+        name: "studio".into(),
+        host: "studio".into(),
+        carrier: Carrier::Hub,
+    };
+    let error = joined::start_words(&start(&["--effort", "low", "go"]), &machine, "n").unwrap_err();
+    assert!(error.0.contains("--effort and --mode"), "{}", error.0);
+}

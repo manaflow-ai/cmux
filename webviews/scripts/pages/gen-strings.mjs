@@ -276,25 +276,17 @@ export const PAGES = {
       },
     ],
   },
-  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
-  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
+  // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
-      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
-      },
-      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
-      // refusals (`refusal.*`) stay native.
+      // The server surfaces' own table (the menu bar panel, Health, pairing); the app's refusals (`refusal.*`) and
+      // Add Server's words (`approver.*`) stay native.
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
-        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.") && !key.startsWith("approver.")),
       },
-      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
-      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:

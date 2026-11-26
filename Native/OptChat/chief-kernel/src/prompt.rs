@@ -420,8 +420,11 @@ macro_rules! home_rule {
   follow it. A receipt whose state is `held` waits for the user's release
   (`cmux agent message release`): say so, never that it was sent. Your
   subagents stay `tell`.
-- Browser: drive pages in the column right of your chat with `cmux
-  browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
+- Browser: a page that shows work (a diff, a compare, a pull request, a
+  preview) opens in that work's workspace (Where to show things), never in
+  the column right of your chat. Drive a page there only for short, visible
+  steps or when the user asks, with `cmux browser right <verb> --agent
+  \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
   FILE; `cmux browser page --help` lists them). It uses your own tab there,
   else the tab the column shows, else opens one there; it never moves the

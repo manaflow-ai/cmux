@@ -22,6 +22,7 @@ use cmux_json::JsonSet as _;
 
 mod browser_import;
 mod cloud_machine;
+mod cmux_serve;
 mod computer_use;
 mod harness;
 mod machine;
@@ -31,7 +32,7 @@ mod repo;
 mod tailnet;
 mod trust;
 
-const HELP: &str = "Usage: cmux setup <list|status|local|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import|tailnet>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object (but `list --prompts-md`, which prints Markdown).\n\n  cmux setup list [--prompts-md]  Every setup task, the commands that check and do it, and the prompt a person pastes into Chief to have it done (--prompts-md: the prompts as Markdown, docs/chief-setup-prompts.md)\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup local [--dry-run]    One safe local pass: trust this folder, inspect harnesses, and wire the cmux MCP server\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...] [--dry-run]\n                                  Give Claude Code and Codex outside cmux the cmux MCP server (default: each installed one)\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n  cmux setup tailnet [--owner LOGIN] [--dry-run]\n                                  Serve this machine to the person's other machines over Tailscale (cmux host enable); names the Tailscale step the person still needs\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n\nA whole customization from a git repo (a setup repo, cmux-setup.json at its root):\n  cmux setup install HOST/OWNER/REPO[@REF] [--yes] | update [REPO] | remove [REPO] | installed | export DIR --id OWNER/NAME\n                                  `cmux setup install --help` says more\n";
+const HELP: &str = "Usage: cmux setup <list|status|local|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import|tailnet>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object (but `list --prompts-md`, which prints Markdown).\n\n  cmux setup list [--prompts-md]  Every setup task, the commands that check and do it, and the prompt a person pastes into Chief to have it done (--prompts-md: the prompts as Markdown, docs/chief-setup-prompts.md)\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup local [--dry-run]    One safe local pass: trust this folder, inspect harnesses, and report the cmux MCP server\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...]\n                                  Which coding agents cmux gives its MCP server when it starts them (agents.cmuxMcp), and the lines a person runs to use it elsewhere; writes nothing\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n  cmux setup tailnet [--owner LOGIN] [--dry-run]\n                                  Serve this machine to the person's other machines over Tailscale (cmux host enable); names the Tailscale step the person still needs\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n\nA whole customization from a git repo (a setup repo, cmux-setup.json at its root):\n  cmux setup install HOST/OWNER/REPO[@REF] [--yes] | update [REPO] | remove [REPO] | installed | export DIR --id OWNER/NAME\n                                  `cmux setup install --help` says more\n";
 
 /// The result of a setup task: the JSON the agent reads, and whether it failed.
 pub(super) struct Outcome {
@@ -113,8 +114,8 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
 
 /// Runs the local first-chat prerequisites as one explicit, idempotent pass.
 ///
-/// This deliberately stops at the local folder, harness health, and optional
-/// MCP wiring. Cloud machines, tailnet peers, and other external resources
+/// This deliberately stops at the local folder, harness health, and the cmux
+/// MCP report (it writes no agent config). Cloud machines, tailnet peers, and other external resources
 /// remain separate setup tasks because they need a person's approval or can
 /// incur cost. Each child task keeps its own report and undo command so Chief
 /// can explain exactly what changed and recover it without a second status
@@ -300,12 +301,14 @@ const TASKS: &[Task] = &[
     },
     Task {
         id: "mcp",
-        summary: "Give Claude Code and Codex the cmux MCP server outside cmux (chats cmux starts have it)",
-        setup: Some("cmux setup mcp [claude|codex ...] [--dry-run]"),
-        check: &["cmux setup mcp --dry-run", "cmux agents doctor --json", "cmux mcp tools --json"],
-        apply: &["cmux setup mcp"],
-        person: Some("turning on \"mcp\": {\"enabled\": true} in the cmux settings file"),
-        prompt: "Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.",
+        summary: "Give agents you start in cmux the cmux MCP server (its terminals, agent chats and the Chief)",
+        setup: Some("cmux setup mcp [claude|codex ...]"),
+        check: &["cmux setup mcp", "cmux agents doctor --json", "cmux mcp tools --json"],
+        apply: &["cmux settings set agents.cmuxMcp on --confirm"],
+        person: Some(
+            "turning on cmux Tools for agents in Settings > Agents (agents.cmuxMcp), and running the report's manual lines yourself to use cmux's tools in agents started elsewhere",
+        ),
+        prompt: "Tell me whether agents I start in cmux get cmux's MCP tools: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. If I want cmux's tools in agents started outside cmux, show me its manual lines to run myself; do not run them.",
     },
     Task {
         id: "computer_use",
@@ -413,7 +416,7 @@ fn prompts_markdown() -> String {
 /// The read-only check of every task `setup` runs: this folder's trust,
 /// every acpmux peer with whether it is connected and on this build, every
 /// harness with whether it is installed, signed in and current, whether
-/// Claude Code and Codex outside cmux have the cmux MCP server, whether
+/// agents cmux starts get the cmux MCP server, whether
 /// agents can use the Mac (Computer Use and its macOS grants), the Cloud
 /// machine setup created, whether macOS lets cmux show notifications, and
 /// which browsers' bookmarks are imported.

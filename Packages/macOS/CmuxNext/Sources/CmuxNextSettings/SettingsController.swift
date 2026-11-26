@@ -567,12 +567,20 @@ extension SettingsController {
             }
             goodSource = good
             self.overlay = overlay
-            applied = overlay.applied(to: root, managed: managed)
+            // The keys the person changed over the file keep their own value (#44894).
+            let exceptions = ThemeFileExceptionsSetting.keys(in: root)
+            applied = overlay.applied(to: root, managed: managed.union(exceptions))
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
             diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
                 .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
+                .map { id in
+                    exceptions.contains(id)
+                        ? SettingsDiagnostic(kind: .overThemeFile, path: id,
+                                             message: "your value applies over the theme file's; Reset returns to the file's", file: file)
+                        : SettingsDiagnostic(kind: .setByThemeFile, path: id,
+                                             message: "set by the theme file; a change here applies over it", file: file)
+                }
         }
     }
 

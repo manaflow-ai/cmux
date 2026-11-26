@@ -273,8 +273,14 @@ impl State {
         {
             self.theme.last_good = Some((name, text.clone()));
         }
-        let managed: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
-        let themed = file.applied(&self.file_root, &managed);
+        // Managed keys, and the keys the person changed over the file (#44894), keep their value.
+        let mut kept: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
+        // Only look rows count, never the colors map: a hand-written "appearance" must not turn
+        // the whole file off (as Swift `ThemeFileExceptionsSetting.keys`).
+        kept.extend(theme_file::exceptions_in(&self.file_root).into_iter().filter(|key| {
+            key != "appearance.themeEdits" && self.schema.row(key).is_some_and(theme_file::is_look)
+        }));
+        let themed = file.applied(&self.file_root, &kept);
         self.theme.file = Some(file);
         Some(themed)
     }

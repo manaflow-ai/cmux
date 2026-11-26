@@ -16,6 +16,12 @@
 //! commands) hold no registry or state lock, because each of them already
 //! called a registry or state locker of its own before this change. Rings
 //! change only under the feed lock, together with the items they follow.
+//!
+//! One caller keeps a decided post, and so the feed lock, across more than
+//! the registry: the agent report of a hook that also notifies
+//! (`agent_reports.rs`). It decides the post first, then takes the registry,
+//! the state and the agent records' lock for the one commit of both. No
+//! holder of one of those 3 takes the feed lock.
 
 use cmux_feed_core::{
     Actor, Changes, Context as FeedContext, Feed, FeedError, Item, ListFilter, Notice,
@@ -67,6 +73,22 @@ pub(crate) fn refused_json(refused: &[FeedError]) -> Value {
     )
 }
 
+/// A local `feed.post` that is decided on a copy of the feed and not
+/// committed yet. It holds the feed lock, so no other post comes between the
+/// decision and the commit.
+pub(super) struct PendingFeedPost<'a> {
+    feed: MutexGuard<'a, Feed>,
+    next: Feed,
+}
+
+impl PendingFeedPost<'_> {
+    /// The copy replaces the live feed.
+    fn install(self) {
+        let Self { mut feed, next } = self;
+        *feed = next;
+    }
+}
+
 impl Mux {
     /// The local owner's items matching `filter`, oldest first.
     pub fn feed_local_list(&self, filter: &ListFilter) -> Vec<Item> {
@@ -90,9 +112,64 @@ impl Mux {
         notification: &ResourceNotification,
         numeric_id: u64,
     ) -> anyhow::Result<u64> {
+        let (post, write) = self.decide_feed_post(actor, notification);
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let (intent, finish) = registry.prepare_effect_outcome_intent_with(
+            idempotency_key,
+            "notification.create",
+            fingerprint,
+            outcome,
+            Some(deltas),
+            write,
+        )?;
+        // The registry stays held across the writer receipt (effect_commit.rs);
+        // the feed lock does too: the writer takes neither.
+        let revision = match self.commit_effect_intent(&mut registry, intent, finish) {
+            Ok(receipt) => receipt.revision(),
+            Err(error) => {
+                // Indeterminate: the writer admitted the batch and almost
+                // always commits it. Keep the in-memory feed on the rows it
+                // is writing, so later posts do not diff against a stale
+                // copy. (If it does not commit, memory is ahead of the
+                // database until the next start reloads the feed.)
+                if error
+                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
+                    .is_some()
+                {
+                    post.install();
+                }
+                return Err(error);
+            }
+        };
+        let ring = self.install_feed_post(post, notification, numeric_id);
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
+        drop(registry);
+        let session = notification
+            .terminal_id
+            .as_ref()
+            .filter(|_| notification.source == NotificationSource::Agent)
+            .and_then(|terminal| {
+                lock(&self.agent_records)
+                    .get(terminal)
+                    .and_then(|record| record.agent_session_id.clone())
+            });
+        self.announce_notification(notification, numeric_id, ring, session);
+        Ok(revision)
+    }
+
+    /// Decide the local `feed.post` of `notification` on a copy of the feed
+    /// (B7), before its commit. Returns the post, which holds the feed lock
+    /// until it is installed or dropped, and the feed rows that go into the
+    /// transaction of the commit. The caller holds neither the registry nor
+    /// the state lock.
+    pub(super) fn decide_feed_post(
+        &self,
+        actor: &crate::Actor,
+        notification: &ResourceNotification,
+    ) -> (PendingFeedPost<'_>, crate::workspace_registry::OwnedTransactionWrite) {
         let notice = self.feed_notice(notification, actor);
         let item_id = notice.id.clone();
-        let mut feed = lock(&self.feed_local);
+        let feed = lock(&self.feed_local);
         let mut next = (*feed).clone();
         // The item that took the notice (its own, or the one it coalesced
         // into); the folded set records it so the ledger pass never posts
@@ -129,42 +206,37 @@ impl Mux {
                     None => Ok(()),
                 }
             });
-        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let (intent, finish) = registry.prepare_effect_outcome_intent_with(
-            idempotency_key,
-            "notification.create",
-            fingerprint,
-            outcome,
-            Some(deltas),
-            write,
-        )?;
-        // The registry stays held across the writer receipt (effect_commit.rs);
-        // the feed lock does too: the writer takes neither.
-        let revision = match self.commit_effect_intent(&mut registry, intent, finish) {
-            Ok(receipt) => receipt.revision(),
-            Err(error) => {
-                // Indeterminate: the writer admitted the batch and almost
-                // always commits it. Keep the in-memory feed on the rows it
-                // is writing, so later posts do not diff against a stale
-                // copy. (If it does not commit, memory is ahead of the
-                // database until the next start reloads the feed.)
-                if error
-                    .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
-                    .is_some()
-                {
-                    *feed = next;
-                }
-                return Err(error);
-            }
-        };
+        (PendingFeedPost { feed, next }, write)
+    }
+
+    /// The copy of a committed post replaces the live feed, and the ring goes
+    /// up with the item, under the feed lock: a read or a tab ack holds this
+    /// lock while it clears rings, so it sees both the ring and the unread
+    /// item, or neither. True when a ring went up.
+    pub(super) fn install_feed_post(
+        &self,
+        post: PendingFeedPost<'_>,
+        notification: &ResourceNotification,
+        numeric_id: u64,
+    ) -> bool {
+        let PendingFeedPost { mut feed, next } = post;
         *feed = next;
-        // The ring goes up with the item, under the feed lock: a read or a
-        // tab ack holds this lock while it clears rings, so it sees both the
-        // ring and the unread item, or neither.
         let ring = self.raise_notification_ring(notification, numeric_id);
         drop(feed);
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
-        drop(registry);
+        ring
+    }
+
+    /// The `notification` event of a committed notification, then the tree
+    /// and resource events. `session` is the agent session that the
+    /// terminal's record held when the notification committed. The caller
+    /// holds no lock.
+    pub(super) fn announce_notification(
+        &self,
+        notification: &ResourceNotification,
+        numeric_id: u64,
+        ring: bool,
+        session: Option<String>,
+    ) {
         // An agent's banner takes the reply its hook kept beside the event (memory only): the
         // banner its folded 200-character preview, the phone's Feed the whole message and the
         // prompt of the turn it ends.
@@ -179,11 +251,6 @@ impl Mux {
         let prompt = agent_terminal
             .and_then(|terminal| self.agent_feed_prompt(terminal))
             .map(|prompt| prompt.to_string());
-        let session = agent_terminal.and_then(|terminal| {
-            lock(&self.agent_records)
-                .get(terminal)
-                .and_then(|record| record.agent_session_id.clone())
-        });
         // A question hook's notification takes its question; the terminal keeps it while the
         // agent waits (`list-notifications`).
         let question = agent_terminal
@@ -210,7 +277,6 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
         self.publish_resource_event();
-        Ok(revision)
     }
 
     /// Set the unread marker of a committed notification: on its terminal

@@ -9,7 +9,7 @@ import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
 /// comes from the app bundle only (`LaunchIdentity`); inherited `CMUX_*`
-/// variables were stripped in `CmuxNextApp.shared.main` before this is read.
+/// variables were stripped in `CmuxNextApp.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost

@@ -14,7 +14,7 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 # dependency change in a crate they share needs one lock edit, not one per FFI
 # crate (#40883, #40898).
 [workspace]
-members = ["../cmux-launch-record", "../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
+members = ["../cmux-launch-record", "../cmux-launch-shell","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -47,6 +47,8 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
+# What the stage-0 launch window shows and which input it holds (src/ffi.rs, include/cmux_launch_shell.h).
+cmux-launch-shell = { path = "../cmux-launch-shell" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

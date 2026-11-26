@@ -49,6 +49,11 @@ public final class AgentPaneLoadingView: NSView {
     private var onGiveUp: (@MainActor () -> Void)?
     /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
     var pageIsAlive: (@MainActor () -> Bool)?
+    /// Whether this cover may show the busy mark: false for a chat this app showed recently
+    /// (``AgentPaneSeenChats``), which opens with no mark however long its page takes (Leo, 2026-11-18:
+    /// "we shouldnt need to see spinners on loading switching between chats most of the time"). Read when
+    /// the delay would start and again when it ends, so a pane that learns its chat meanwhile follows it.
+    var marksLoading: @MainActor () -> Bool = { true }
     /// How many checks in a row have seen the pane, still unpainted.
     private var seenUnpainted = 0
     /// Whether a check has already seen the page answer, so the count starts over only once.
@@ -102,6 +107,8 @@ public final class AgentPaneLoadingView: NSView {
     func showMarkLater() {
         markTurn += 1
         let turn = markTurn
+        // A chat seen recently: no mark and no timer to wake the main thread for one.
+        guard marksLoading() else { return markTimer.cancel() }
         markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.markDelayEnded(turn) }
     }
 
@@ -109,7 +116,7 @@ public final class AgentPaneLoadingView: NSView {
     /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
     /// newest delay, with no ``hideMark()`` after it, puts the mark in.
     func markDelayEnded(_ turn: Int) {
-        guard turn == markTurn else { return }
+        guard turn == markTurn, marksLoading() else { return }
         addSubview(indicator)
     }
 
@@ -236,6 +243,8 @@ extension AgentPaneView {
     /// Shows the loading state over a page that has not painted; the page's first frame ends it.
     func beginLoadingState() {
         guard !model.hasPainted else { return }
+        // Live, not taken now: a spare that adopts a chat names it after this pane was made.
+        loadingView.marksLoading = { [weak model] in !(model?.sessionId.map { AgentPaneTailCache.shared.seen.wasShown($0) } ?? false) }
         pageContent.alphaValue = 0
         loadingView.frame = topBar.contentFrame(in: bounds)
         addSubview(loadingView, positioned: .above, relativeTo: nil)

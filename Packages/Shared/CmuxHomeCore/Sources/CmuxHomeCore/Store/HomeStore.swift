@@ -145,6 +145,8 @@ public final class HomeStore {
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
     @ObservationIgnored private var pruneLoop: Task<Void, Never>?
+    /// Whether `start` runs the prune loop (``init(source:blobCacheDirectory:clock:cache:cacheWriteDelay:prunesBlobCache:)``).
+    @ObservationIgnored private let prunesBlobCache: Bool
     @ObservationIgnored var pruning: Task<Void, Never>?
     @ObservationIgnored var preparing = 0
 
@@ -206,10 +208,17 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
-    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
+    /// - Parameter blobCacheDirectory: The attachment folder; by default one of its own (``ownBlobCacheDirectory()``).
+    ///   The app's Home store passes its folder in the app's Caches (``defaultBlobCacheDirectory``).
+    /// - Parameter prunesBlobCache: Whether this store prunes `blobCacheDirectory` at `start` and while it runs. A
+    ///   store over a local conversation of its own (New Message's blank page, a bare launch's message box) passes
+    ///   false: it keeps none of the folder's blobs, so its pass would delete the drafts' and pending sends' blobs of
+    ///   the store that owns the folder (its keep set is empty).
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.ownBlobCacheDirectory(),
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
-                cacheWriteDelay: Duration = .milliseconds(250)) {
+                cacheWriteDelay: Duration = .milliseconds(250), prunesBlobCache: Bool = true) {
         self.source = source
+        self.prunesBlobCache = prunesBlobCache
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
@@ -223,11 +232,13 @@ public final class HomeStore {
         restoreCache()
         let clock = self.clock
         let interval = Self.blobCachePruneInterval
-        pruneLoop = Task { [weak self] in
-            while !Task.isCancelled {
-                guard self != nil else { return }
-                await self?.pruneBlobCache()
-                do { try await clock.sleep(for: interval) } catch { return }
+        if prunesBlobCache {
+            pruneLoop = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard self != nil else { return }
+                    await self?.pruneBlobCache()
+                    do { try await clock.sleep(for: interval) } catch { return }
+                }
             }
         }
         let source = self.source

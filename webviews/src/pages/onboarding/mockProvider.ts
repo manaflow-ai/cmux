@@ -2,7 +2,7 @@
 // `?mock`: the page on fixture states, answering gestures the way the host would, closely enough to
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { agentsState, computerUseState, importState } from "./fixtures";
+import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
 import { OPS, type ImportDataKind, type OnboardingState } from "./ops";
 
 export class MockOnboardingProvider implements PageClient {
@@ -15,7 +15,9 @@ export class MockOnboardingProvider implements PageClient {
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
-          : agentsState("mixed");
+          : step === "agentTools"
+            ? agentToolsState("found")
+            : agentsState("mixed");
   }
 
   private change(next: OnboardingState): void {
@@ -32,6 +34,7 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.focused:
         return {} as R;
       case OPS.next:
+        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("added"));
         if (state.step === "importData" && state.importer?.phase === "idle") this.change(importState("ready"));
         else if (state.step === "importData" && state.importer?.phase === "ready") this.change(importState("finished"));
         else if (state.step === "importData" && state.importer?.phase === "explainingAccess")
@@ -92,6 +95,8 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        if (state.step === "agentTools" && !state.agentTools?.answered) this.change(agentToolsState("declined"));
+        return {} as R;
       case OPS.install:
       case OPS.openFullDiskAccess:
       case OPS.fromFiles:

@@ -108,6 +108,7 @@ public struct CloudStartSessionStrings {
         // The words after "cmux": product names, never translated.
         let words = switch plan {
         case "max": "Max"
+        case "next_plus": "NEXT Plus"
         case "next_pro": "NEXT Pro"
         case "next_max": "NEXT Max"
         default: "Pro"

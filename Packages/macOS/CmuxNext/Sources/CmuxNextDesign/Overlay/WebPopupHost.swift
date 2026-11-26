@@ -152,6 +152,7 @@ public final class WebPopupHost {
     private func makePopup() -> NativePopupHost {
         let popup = NativePopupHost(panel: WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
                                                          onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) }))
+        popup.followsOpeningPress = true
         // The page closes its own menu on a click in it.
         popup.keepsOpen = { [weak self] event in
             guard let webView = self?.webView, event.window === webView.window else { return false }

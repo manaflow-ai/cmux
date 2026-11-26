@@ -71,15 +71,7 @@ enum NewTabPage {
 
     /// The Commands palette's pick history for the kinds of rows the bar lists (tabs, workspaces, actions), by usage
     /// key: one history for both, so a pick in either ranks the row in both (cmuxterm-hq lenses slack-firefox-frecency.md).
-    static func pickHistory(_ services: AppServices) -> [String: Double] {
-        let model = services.palette.model, now = model.now()
-        var uses: [String: Double] = [:]
-        for key in model.frecency.entries.keys where key.hasPrefix("tab:") || key.hasPrefix("workspace:") || key.hasPrefix("action:") {
-            let score = model.frecency.score(for: key, at: now)
-            if score > 0.01 { uses[key] = score }
-        }
-        return uses
-    }
+    static func pickHistory(_ services: AppServices) -> [String: Double] { AgentPaneOmnibar.uses(of: services.palette.model) }
 
     /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
     static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {

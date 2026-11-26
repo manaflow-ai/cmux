@@ -94,20 +94,6 @@ fn the_owners_start_relays_the_credential_to_acpmux_with_the_agent_launch() {
     assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], env(TOKEN));
 }
 
-/// cmux#45774: a Codex CLI ChatGPT login's access token (the Mac's `codex login`) is a credential
-/// the owner's start relays, as a ChatGPT plan token is; a daemon that refused it left a Cloud Codex
-/// with no sign-in ("Missing environment variable: `OPENAI_API_KEY`").
-#[test]
-fn a_codex_cli_login_token_is_relayed_with_the_agent_launch() {
-    let codex = json!({"env": {"CMUX_CODEX_ACCESS_TOKEN": "eyJhbGciOi.eyJleHAiOjF9.c2ln"}});
-    let mut chat = connect("cred-codex-login", AgentStartHost::OwnerCloud, false);
-    let started = chat.start(codex.clone(), json!("owner"));
-    assert_eq!(started["ok"], json!(true), "{started}");
-    let new = chat.sent("session/new");
-    assert_eq!(new.len(), 1, "{new:?}");
-    assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], codex);
-}
-
 #[test]
 fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [

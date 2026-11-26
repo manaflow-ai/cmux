@@ -319,7 +319,8 @@ impl HarnessWatcher {
 fn followed_targets(sources: &ProfileSources) -> Vec<crate::quiet_dirs::Target> {
     use crate::quiet_dirs::Target;
     let mut targets: Vec<Target> = sources.managed.iter().cloned().map(Target::Dir).collect();
-    targets.extend(sources.user_dir.iter().cloned().map(Target::Dir));
+    let user = sources.user_dir.iter().chain(sources.person_dir.iter());
+    targets.extend(user.cloned().map(Target::Dir));
     targets.extend(sources.cmux_json.iter().cloned().map(Target::File));
     targets
 }
@@ -344,6 +345,7 @@ fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
         folders.push(user.clone());
         folders.extend(user.parent().map(Path::to_path_buf));
     }
+    folders.extend(sources.person_dir.iter().cloned());
     folders.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
     folders
 }
@@ -369,7 +371,7 @@ fn nearest_folders(sources: &ProfileSources) -> Vec<PathBuf> {
 #[cfg(target_os = "macos")]
 fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
-    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+    for dir in sources.folders() {
         let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
@@ -391,7 +393,7 @@ type Stamp = (u64, Option<std::time::SystemTime>);
 fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
     let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
     let mut print = Vec::new();
-    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+    for dir in sources.folders() {
         print.push((dir.clone(), stamp(dir)));
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
@@ -412,7 +414,7 @@ fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
 /// folder itself, or cmux.json; or a folder on the way to one (made or removed
 /// while the folder past it is missing, `nearest_folders`).
 fn relevant(path: &Path, sources: &ProfileSources) -> bool {
-    let folders = sources.managed.iter().chain(sources.user_dir.iter());
+    let folders = sources.folders();
     let in_source = |dir: &PathBuf| path == dir || path.parent() == Some(dir.as_path());
     let on_the_way = |source: &PathBuf| source.as_path() != path && source.starts_with(path);
     sources.cmux_json.as_deref() == Some(path)
@@ -441,6 +443,7 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     ProfileSources {
         managed: sources.managed.iter().map(|p| real(p)).collect(),
         user_dir: sources.user_dir.as_deref().map(real),
+        person_dir: sources.person_dir.as_deref().map(real),
         cmux_json: sources.cmux_json.as_deref().map(real),
     }
 }
@@ -453,6 +456,7 @@ fn followed(path: &Path, sources: &ProfileSources) -> bool {
     let now = ProfileSources {
         managed: sources.managed.iter().map(|p| resolve(p).0).collect(),
         user_dir: sources.user_dir.as_deref().map(|p| resolve(p).0),
+        person_dir: sources.person_dir.as_deref().map(|p| resolve(p).0),
         cmux_json: sources.cmux_json.as_deref().map(|p| resolve(p).0),
     };
     relevant(path, &now)

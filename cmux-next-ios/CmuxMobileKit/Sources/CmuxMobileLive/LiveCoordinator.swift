@@ -289,7 +289,10 @@ public final class LiveCoordinator {
             // comes); with none kept, the chat loads instead of saying it hasn't started.
             if let owner, owner.tree == nil {
                 let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
-                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key] {
+                // The kept session from memory, else the chat's small head file in this turn (no
+                // "Loading chat…" first frame for a chat this phone holds).
+                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key]
+                    ?? self.transcriptCache?.firstScreen(keptKey)?.sessionID {
                     self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: keptSession, provisional: true)
                     return self.agentSource(owner, session: keptSession, summary: scoped)
                 }
@@ -686,7 +689,10 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let next = LinkMachine.target(in: listedMacs(team), remembered: remembered, current: focusedMacID)
+        // The remembered Mac stands for its computer (a build this phone paired by its code, beside
+        // another build of the same computer), in the focus and in every list (``MacRoster``).
+        store.setPickedMac(remembered, teamID: team.id)
+        let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
         setFocus(next?.id)
@@ -696,7 +702,7 @@ public final class LiveCoordinator {
     /// The Macs the phone focuses and the screens list: the owner's own, one
     /// build per computer (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
-        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: team.pickedMacID).visible
     }
 
     /// The Macs this phone may link: the listed ones, and another build on a
@@ -706,7 +712,7 @@ public final class LiveCoordinator {
     /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own).visible.map(\.id))
+        let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
         let invited = pairing?.invites.pending()?.mac
         return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }

@@ -625,8 +625,15 @@ public final class WorkspaceCreator {
         self.defaults = defaults
         recents = RecentDirectories(defaults: defaults)
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
-        // Where New Task opens, as last chosen (a terminal until a chat is chosen).
-        if let raw = defaults.string(forKey: Self.taskLaunchKey), let launch = TaskLaunch(rawValue: raw) { taskDraft.launch = launch }
+        #if DEBUG
+        // UI tests start each scene from a clean setup (the kept one is the last scene's).
+        if CommandLine.arguments.contains("-cmux-mobile-fresh-task-setup") {
+            for key in [Self.taskSetupKey, Self.taskLaunchKey, Self.agentSettingsKey] { defaults.removeObject(forKey: key) }
+        }
+        #endif
+        // New Task starts as it was last left: its agents, Mac, folder and Chat or Terminal (a
+        // terminal until a chat is chosen); each agent's settings are kept per agent.
+        restoreTaskSetup()
     }
 
     /// The active team's Macs this backend can create on, in team order.
@@ -954,6 +961,8 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNextForPerson = false
     /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
     public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
+    /// Where Toggle Terminal and Chat's pairings and faces are kept (the shell's; none keeps nothing).
+    public var keeping: (any TerminalChatKeeping)?
     private let clock: any Clock<Duration>
     private let latency: Duration
 
@@ -1053,13 +1062,27 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                 AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
             ])
         }
+        // As a Mac's acpmux lists them: each model's efforts, the modes a phone may start, and
+        // what the agent's chats reported (mode names). No Fast mode: a phone may not set it.
+        let claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
+        let modes = [AgentSettingChoice(id: "default", name: "Manual", detail: "Always ask before making changes"),
+                     AgentSettingChoice(id: "plan", name: "Plan", detail: "Create a plan before making changes")]
         return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
-                               models: [AgentModelChoice(id: "opus", name: "Opus"), AgentModelChoice(id: "sonnet", name: "Sonnet")],
-                               defaultModel: "opus"),
+                               models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5.5", aliases: ["opus"]),
+                                        AgentModelChoice(id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", efforts: claudeEfforts,
+                                                         defaultEffort: "high", shortName: "Sonnet 5.5", aliases: ["sonnet"]),
+                                        AgentModelChoice(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", shortName: "Haiku 5.5", aliases: ["haiku"]),
+                                        AgentModelChoice(id: "claude-opus-5", name: "Claude Opus 5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5", isCurrent: false),
+                                        AgentModelChoice(id: "claude-opus-4-8", name: "Claude Opus 4.8", efforts: ["low", "medium", "high"],
+                                                         defaultEffort: "high", shortName: "Opus 4.8", isCurrent: false)],
+                               defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes),
             AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
-                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5"), AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
-                               defaultModel: "gpt-5.5"),
+                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
+                                        AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
+                               defaultModel: "gpt-5.5", askingModes: ["default", "plan"], reportedModes: modes),
             AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
         ])
     }
@@ -1245,6 +1268,31 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
     }
+}
+
+/// Toggle Terminal and Chat on mock data (`CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1` lists terminals
+/// running Claude Code and Codex): the Mac's View Only chat opens at once, and what the phone
+/// keeps goes to `keeping`, which the shell gives the file a signed-in account keeps
+/// (`KeptTerminalChats`), so a relaunch reads the pairings and faces through the real code.
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        .chat("mock-view-only-\(session)")
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        keeping?.keptTerminalChat(harness: harness, session: session, on: macID)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        keeping?.keepTerminalChat(chat, harness: harness, session: session, on: macID)
+    }
+    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
+        keeping?.keptTerminalChatFace(tabID: tabID, on: macID)
+    }
+    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
+        keeping?.keepTerminalChatFace(showsChat, tabID: tabID, on: macID)
+    }
+    public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
 }
 #endif
 

@@ -2365,6 +2365,12 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     nightly = "refs/heads/nightly-next"
     assert evaluate("push", nightly, "a" * 40) != evaluate("push", nightly, "b" * 40)
     assert "a" * 40 in evaluate("push", nightly, "a" * 40)
+    # 2026-11-18: promotion pushes the same commit to feat-cmux-next and nightly-next. In
+    # one shared push-<sha> group, nightly-next run 44410790075 sat pending for 45 min
+    # behind feat-cmux-next run 44404420100, whose preflight never got a runner, and
+    # nightly 44410790376 failed at "Bundle the cmux-tui client". The same-key owner
+    # claim, not the group, keeps the two runs from building the tree twice.
+    assert evaluate("push", nightly, "a" * 40) != evaluate("push", feat, "a" * 40)
 
 def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
     # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the

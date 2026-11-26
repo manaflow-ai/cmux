@@ -4,6 +4,7 @@
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -57,6 +58,7 @@ function GalleryPrimedLate({ images }: Props) {
     void Promise.all(painted.map(async ({ image, src }) => ({ ...image, id: await acpmuxId(src) }))).then((ids) => {
       if (!live) return;
       setNamed(ids);
+      // gallery-capture: `pasted-echo-first`'s play `primed` waits for the image to draw.
       setTimeout(() => {
         void primeSentImages(
           painted.map(({ image, src }) => ({
@@ -76,6 +78,11 @@ function GalleryPrimedLate({ images }: Props) {
   }, [images]);
   return named ? <GallerySentImages images={named} pending /> : null;
 }
+
+/// The capture moment of `pasted-echo-first`: the priming above landed and the image drew in its
+/// slot, not the placeholder the 300 ms timer leaves while it waits.
+const primed: Play = ({ waitFor, document }) =>
+  waitFor(() => document.querySelector("img.cv-user__image") && !document.querySelector(".cv-user__image-placeholder"));
 
 function GallerySentImages({ images, pending = false, primedLate = false, inline = false, attachmentOnly }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
@@ -229,6 +236,7 @@ export default componentEntry<Props>({
     "pasted-echo-first": {
       note: "A pasted screenshot whose echo names it before the pane primed it, while acpmux's read of a long chat is slow: it draws once the pane's priming lands, never an empty box.",
       props: { images: [pasted[0]!], primedLate: true },
+      play: primed,
     },
     "loading-sized": {
       note: "Images whose record names their size: each slot is reserved at its own shape before acpmux reads it, so nothing snaps when it loads.",

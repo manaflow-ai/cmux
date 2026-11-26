@@ -86,12 +86,12 @@ import {
   inlineCompletion,
   needsYouCards,
   profileRows,
-  recentChatCards,
   screenRows,
   searchWords,
   shellEntry,
   shortHost,
   type ScreenRow,
+  pageChatCards,
 } from "./screenModel";
 import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -711,7 +711,7 @@ export function NewTabScreen(props: Props) {
         // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
         // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
         // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
-        if (envFolder) props.onProjectPicked?.(envFolder);
+        if (askFolder) props.onProjectPicked?.(askFolder);
       }
       props.runMode?.onMode(mode);
     },
@@ -830,7 +830,10 @@ export function NewTabScreen(props: Props) {
       // tab's inherited folder the person just said not to work in.
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
-      const started = props.onCloud(agent, sent.text, envFolder, model, sentAttachments);
+      // The folder the chip shows (askFolder): with none shown, none goes. The environment card's
+      // fallback to the tab's inherited folder (envFolder) once went as a Cloud copy of a folder the
+      // chip read as "No folder" (cmux#45946).
+      const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
@@ -1121,8 +1124,8 @@ export function NewTabScreen(props: Props) {
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
-    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
+    () => pageChatCards(sections, snapshot.sessions, at, t, device),
+    [sections, snapshot.sessions, at, t, device],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off

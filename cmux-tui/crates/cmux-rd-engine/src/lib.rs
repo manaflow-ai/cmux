@@ -10,6 +10,8 @@
 //! clock in microseconds, and each source keeps its own I/O loop, capture
 //! and encoder.
 
+mod outage;
+
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
@@ -123,6 +125,8 @@ pub enum IdrReason {
     TailProbe,
     /// The last frame was too large to packetize and was dropped.
     TooLarge,
+    /// Frames queued in the host's pacer through an outage were dropped unsent (D12).
+    Outage,
 }
 
 impl IdrReason {
@@ -132,6 +136,7 @@ impl IdrReason {
             IdrReason::Recovery => "recovery",
             IdrReason::TailProbe => "tail_probe",
             IdrReason::TooLarge => "too_large",
+            IdrReason::Outage => "outage",
         }
     }
 }
@@ -323,6 +328,8 @@ struct StreamState {
     /// viewer's cumulative acknowledgement round trip on carriers that do
     /// not expose a path probe (the development socket/proxy path).
     sent_at_us: BTreeMap<u32, u64>,
+    /// Bytes of the stream's last keyframe: what starting over costs (D12).
+    last_keyframe_bytes: usize,
 }
 
 impl StreamState {
@@ -340,6 +347,7 @@ impl StreamState {
             probe_from_us: None,
             probes: 0,
             sent_at_us: BTreeMap::new(),
+            last_keyframe_bytes: 0,
         }
     }
 
@@ -635,6 +643,9 @@ impl MediaEngine {
             self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
+        if enc.idr && !tile {
+            state.last_keyframe_bytes = packets.datagrams.iter().map(Vec::len).sum();
+        }
         state.history.insert(req.frame, packets.datagrams.clone());
         state.sent_at_us.insert(req.frame, now_us);
         while state.sent_at_us.len() > HISTORY_FRAMES {
@@ -645,8 +656,9 @@ impl MediaEngine {
         }
         // Only a frame asked for as a keyframe (or one that is independent anyway) answers a
         // pending keyframe. A recovery that came in while an older P-frame request was still
-        // being encoded stays pending, so the next request is the keyframe: clearing it here
-        // lost the recovery, and a viewer that moved routes waited for another ask.
+        // being encoded (or an outage drop that asked for one while a frame was finishing on
+        // the encode thread) stays pending, so the next request is the keyframe: clearing it
+        // here lost the recovery, and a viewer that moved routes waited for another ask.
         if req.force_idr || enc.idr || tile {
             state.force_idr = None;
         }

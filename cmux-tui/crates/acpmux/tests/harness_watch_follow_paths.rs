@@ -144,6 +144,7 @@ async fn a_profile_in_a_user_folder_replaced_by_mv_reaches_watchers() {
         managed: vec![root.join("managed-missing")],
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
+        person_dir: None,
     };
     let (hub, _tx, mut rx) = watching(&root, &sources).await;
     settle(&mut rx).await;
@@ -180,6 +181,7 @@ async fn a_profile_behind_a_link_to_a_folder_made_later_reaches_watchers() {
         managed: vec![root.join("managed-missing")],
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
+        person_dir: None,
     };
     let (hub, _tx, mut rx) = watching(&root, &sources).await;
     settle(&mut rx).await;
