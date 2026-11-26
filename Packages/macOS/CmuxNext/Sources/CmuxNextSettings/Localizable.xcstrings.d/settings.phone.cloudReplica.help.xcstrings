@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.phone.cloudReplica.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stores workspace names, colors and unread counts. No paths, titles or output."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يخزّن أسماء مساحات العمل وألوانها وأعداد غير المقروء. لا مسارات ولا عناوين ولا مخرجات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čuva nazive, boje i broj nepročitanih stavki radnih prostora. Bez putanja, naslova ili izlaza."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemmer arbejdsområdernes navne, farver og antal ulæste. Ingen stier, titler eller output."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speichert Namen, Farben und Anzahl ungelesener Einträge der Arbeitsbereiche. Keine Pfade, Titel oder Ausgaben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Guarda nombres, colores y recuentos de no leídos de los espacios de trabajo. Sin rutas, títulos ni salida."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Conserve les noms, couleurs et nombres de non-lus des espaces de travail. Aucun chemin, titre ni sortie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Memorizza nomi, colori e conteggi dei non letti degli spazi di lavoro. Nessun percorso, titolo o output."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペース名、色、未読数を保存します。パス、タイトル、出力は保存しません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រក្សាទុកឈ្មោះ ពណ៌ និងចំនួនមិនទាន់អានរបស់កន្លែងធ្វើការ។ គ្មានផ្លូវ ចំណងជើង ឬលទ្ធផលទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간 이름, 색상, 읽지 않은 개수를 저장합니다. 경로, 제목, 출력은 저장하지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lagrer navn, farger og antall uleste for arbeidsområder. Ingen stier, titler eller utdata."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przechowuje nazwy, kolory i liczby nieprzeczytanych obszarów roboczych. Bez ścieżek, tytułów ani danych wyjściowych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Armazena nomes, cores e contagens de não lidos dos espaços de trabalho. Sem caminhos, títulos ou saída."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Хранит названия, цвета и число непрочитанных рабочих пространств. Без путей, заголовков и вывода."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จัดเก็บชื่อ สี และจำนวนที่ยังไม่ได้อ่านของพื้นที่ทำงาน ไม่มีพาธ ชื่อแท็บ หรือเอาต์พุต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanı adlarını, renklerini ve okunmamış sayılarını saklar. Yol, başlık veya çıktı saklanmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зберігає назви, кольори й кількість непрочитаних робочих просторів. Без шляхів, заголовків і виводу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lưu tên, màu và số mục chưa đọc của không gian làm việc. Không lưu đường dẫn, tiêu đề hay đầu ra."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "存储工作区名称、颜色和未读数。不包含路径、标题或输出。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "儲存工作區名稱、顏色和未讀數。不包含路徑、標題或輸出。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.search.devicesWords" : {
+      "comment" : "Settings search: words that find the Devices page (its Screen sharing and Control switches are not settings rows), comma-separated. Never shown; translate each word as people would type it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأجهزة، التحكم، التحكم عن بعد، مشاركة الشاشة، شاشة Mac، الانضمام، الفريق، الحواسيب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "uređaji, kontrola, daljinska kontrola, dijeljenje ekrana, Mac ekran, pridruživanje, tim, mašine"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "enheder, kontrol, fjernstyring, skærmdeling, Mac-skærm, deltag, team, maskiner"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Geräte, Steuerung, Fernsteuerung, Bildschirmfreigabe, Mac-Bildschirm, beitreten, Team, Rechner"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "devices, control, remote control, screen sharing, Mac screen, join, team, machines"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "dispositivos, control, control remoto, compartir pantalla, pantalla del Mac, unirse, equipo, máquinas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "appareils, contrôle, contrôle à distance, partage d’écran, écran du Mac, rejoindre, équipe, machines"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "dispositivi, controllo, controllo remoto, condivisione schermo, schermo del Mac, unisciti, team, macchine"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デバイス, 操作, リモート操作, 画面共有, Mac の画面, 参加, チーム, マシン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឧបករណ៍, គ្រប់គ្រង, គ្រប់គ្រងពីចម្ងាយ, ការចែករំលែកអេក្រង់, អេក្រង់ Mac, ចូលរួម, ក្រុម, ម៉ាស៊ីន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기기, 제어, 원격 제어, 화면 공유, Mac 화면, 참여, 팀, 컴퓨터"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "enheter, kontroll, fjernstyring, skjermdeling, Mac-skjerm, bli med, team, maskiner"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "urządzenia, sterowanie, zdalne sterowanie, udostępnianie ekranu, ekran Maca, dołącz, zespół, maszyny"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "dispositivos, controle, controle remoto, compartilhamento de tela, tela do Mac, entrar, equipe, máquinas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "устройства, управление, удалённое управление, демонстрация экрана, экран Mac, присоединиться, команда, компьютеры"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อุปกรณ์, ควบคุม, ควบคุมระยะไกล, แชร์หน้าจอ, หน้าจอ Mac, เข้าร่วม, ทีม, เครื่อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cihazlar, kontrol, uzaktan kontrol, ekran paylaşımı, Mac ekranı, katıl, ekip, makineler"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "пристрої, керування, віддалене керування, демонстрація екрана, екран Mac, приєднатися, команда, комп’ютери"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "thiết bị, điều khiển, điều khiển từ xa, chia sẻ màn hình, màn hình Mac, tham gia, nhóm, máy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "设备, 控制, 远程控制, 屏幕共享, Mac 屏幕, 加入, 团队, 机器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "裝置, 控制, 遠端控制, 螢幕共享, Mac 螢幕, 加入, 團隊, 機器"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
