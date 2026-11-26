@@ -2,8 +2,11 @@
 // tiles put it in the shared connect card's head (agent-session/acpmux/ConnectCard.tsx `pill`), and
 // the All connections list puts it on every row, so a connection reads the same everywhere.
 // Leo, 2026-11-25: "are there deeper ergo things we can do wrt that? and other apps and whatnot?"
-import { CONNECT_STATUS_KEY, CONNECT_TONE, type ConnectStatus } from "./connectStatus";
-import { useConnectStrings } from "./strings";
+// The pill draws the words its host gives it (`label`): the host is the card or row that carries the
+// state's one action (Connect, Reconnect), so a state like "Not connected" is said where it can be acted
+// on (cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md). A host with no words of
+// its own passes the pill's (`strings.t(CONNECT_STATUS_KEY[status])`, connectStatus.ts).
+import { CONNECT_TONE, type ConnectStatus } from "./connectStatus";
 import "./connectPill.css";
 
 export function ConnectPill({
@@ -13,14 +16,13 @@ export function ConnectPill({
   dataPrefix = "connect",
 }: {
   status: ConnectStatus;
-  /** The host's own words for the state (Connected · 14 tools); else the pill's. */
-  label?: string | null;
+  /** The words for the state: the host's own (Connected · 14 tools) or the pill's (CONNECT_STATUS_KEY). */
+  label: string;
   /** Hover text (an exact expiry time). */
   hint?: string;
   /** The pill carries `data-<prefix>-status`, so a host keeps its own selectors. */
   dataPrefix?: string;
 }) {
-  const strings = useConnectStrings();
   return (
     <span
       className="connect-pill"
@@ -30,7 +32,7 @@ export function ConnectPill({
       {...{ [`data-${dataPrefix}-status`]: "" }}
     >
       <span className="connect-dot" aria-hidden="true" />
-      <span className="connect-pill-text">{label || strings.t(CONNECT_STATUS_KEY[status])}</span>
+      <span className="connect-pill-text">{label}</span>
     </span>
   );
 }
