@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import CmuxSettings
 import Testing
@@ -29,6 +30,92 @@ import Testing
 @Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorCloseDetachTests {
     fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
+
+    enum BatchCloseState: CaseIterable {
+        case connected, reconnecting, cancelled
+    }
+
+    @Test(arguments: [false, true], BatchCloseState.allCases)
+    func closeOtherTabsRoutesRemoteWindows(
+        contextMenu: Bool,
+        state: BatchCloseState
+    ) throws {
+        let reconnecting = state == .reconnecting
+        let acceptConfirmation = state != .cancelled
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness(
+            initialWindowLines: (1...4).map {
+                "@\($0) abcd,80x24,0,0,\($0 * 11) abcd,80x24,0,0,\($0 * 11) [] tab\($0)"
+            },
+            initialRectsByWindow: Dictionary(uniqueKeysWithValues: (1...4).map {
+                ($0, ["%\($0 * 11) 0 0 80 24 1 off :zsh"])
+            })
+        )
+        defer {
+            harness.connection.stop()
+            harness.tearDown()
+        }
+        let appDelegate = try #require(AppDelegate.shared)
+        let controller = appDelegate.remoteTmuxController
+        let key = "close-other-tabs-\(UUID().uuidString)"
+        controller.insertSessionMirror(harness.sessionMirror, forKey: key)
+        defer { controller.removeSessionMirror(forKey: key) }
+
+        let workspace = harness.workspace
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let tabs = workspace.bonsplitController.tabs(inPane: pane)
+        try #require(tabs.count == 4)
+        let retainedTab = tabs[1]
+        workspace.bonsplitController.selectTab(retainedTab.id)
+        let pinnedPanelID = try #require(workspace.panelIdFromSurfaceId(tabs[0].id))
+        workspace.setPanelPinned(panelId: pinnedPanelID, pinned: true)
+        try #require(workspace.isPanelPinned(pinnedPanelID))
+        let expectedWindowIDs = try [tabs[2], tabs[3]].map { tab in
+            let panelID = try #require(workspace.panelIdFromSurfaceId(tab.id))
+            return try #require(harness.sessionMirror.windowId(forPanel: panelID))
+        }
+        let warningStore = CloseTabWarningStore(defaults: harness.manager.closeTabWarningDefaults)
+        let previousWarning = warningStore.warnsBeforeClosingTab
+        warningStore.setWarnsBeforeClosingTab(true)
+        defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+        var promptCount = 0
+        harness.manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return acceptConfirmation
+        }
+        if reconnecting { harness.connection.beginReconnecting() }
+
+        if contextMenu {
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .closeOthers,
+                for: retainedTab,
+                inPane: pane
+            )
+        } else {
+            harness.manager.closeOtherTabsInFocusedPaneWithConfirmation()
+        }
+
+        // The keyboard and main-menu path asks whenever the Close Tab warning
+        // is on. The tab context menu asks only when a tab has a running
+        // process, which these idle mirror tabs don't, so it closes without a
+        // prompt and a cancelled confirmation cannot happen there.
+        let expectsPrompt = !contextMenu
+        let closeProceeds = !reconnecting && (!expectsPrompt || acceptConfirmation)
+        #expect(promptCount == (expectsPrompt ? 1 : 0))
+        // Remote tabs remain until tmux acknowledges their removal. Rejected
+        // and cancelled requests must leave both local and remote tabs alone.
+        #expect(Set(workspace.bonsplitController.tabs(inPane: pane).map(\.id)) == Set(tabs.map(\.id)))
+        #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == retainedTab.id)
+        harness.writer.close()
+        let data = try harness.pipe.fileHandleForReading.readToEnd() ?? Data()
+        let killCommands = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("kill-window ") }
+            .map(String.init)
+        #expect(killCommands == (closeProceeds
+            ? expectedWindowIDs.map { "kill-window -t @\($0)" }
+            : []))
+    }
 
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
     /// the close detaches, the remote tmux session survives for resume. Before the
@@ -430,10 +517,14 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        // Chief Home would be a second workspace in this window, so it would
+        // never hold only its mirror.
+        private let chiefHomeOff: ChiefHomeOffForTesting
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)
+            chiefHomeOff = ChiefHomeOffForTesting()
             windowId = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
@@ -444,6 +535,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            chiefHomeOff.restore()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
@@ -554,6 +646,101 @@ import Testing
         #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
         #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
         #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
+    }
+}
+
+/// A named et server mirrors end to end through `remote.tmux.mirror` and `remote.tmux.window`
+/// (#15022): the handler builds the socket-named host, discovery runs `tmux -L alpha …` over the
+/// one-shot ssh lane, and the session becomes a workspace keyed by that endpoint. The cached
+/// control connection keeps the et control stream off the network, as the focus-policy test
+/// above does for ssh. `remote.tmux.attach` has no positive case here: it waits for the control
+/// stream to report connected, which a cached connection without a process never does.
+@MainActor
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxSocketNameWindowMirrorTests {
+    @Test(arguments: ["remote.tmux.mirror", "remote.tmux.window"])
+    func namedETServerMirrorsThroughTheHandler(method: String) async throws {
+        let support = RemoteTmuxMirrorCloseDetachTests()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-socket-name-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sshURL = root.appendingPathComponent("ssh")
+        let callsURL = root.appendingPathComponent("calls.log")
+        try support.writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> '\(callsURL.path)'
+            case "$*" in
+              *display-message*) printf '3.4\\n' ;;
+              *list-sessions*) printf '$1:1:0:1:one\\n' ;;
+            esac
+            exit 0
+            """
+        )
+        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
+        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
+        defer {
+            if let previousRemoteTmux {
+                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
+            }
+        }
+
+        let harness = try RemoteTmuxMirrorCloseDetachTests.Harness()
+        var targetWindowID: UUID?
+        defer {
+            if let targetWindowID, targetWindowID != harness.windowId { harness.closeWindow(targetWindowID) }
+            harness.tearDown()
+        }
+        let destination = "socket-\(UUID().uuidString)@example.test"
+        let host = RemoteTmuxHost(destination: destination, transport: .et, socketName: "alpha")
+        // Discovery for an et host still rides ssh; inject only this endpoint's transport.
+        let transport = RemoteTmuxSSHTransport(host: host, sshExecutablePath: sshURL.path)
+        harness.controller.transportRegistry.transports[host.connectionHash] = transport
+        #expect(harness.controller.transport(for: host) === transport)
+        defer { harness.controller.detach(host: host, sessionName: "one") }
+        harness.cacheConnection(host: host, session: "one")
+
+        // `mirror` is aimed at the harness window; `window` opens a dedicated one.
+        var params: [String: Any] = [
+            "host": destination, "transport": "et", "socket_name": "alpha", "session": "one",
+        ]
+        if method == "remote.tmux.mirror" { params["window_id"] = harness.windowId.uuidString }
+        let requestData = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        ])
+        let request = try #require(String(data: requestData, encoding: .utf8))
+        let responseText = await Task.detached {
+            TerminalController.shared.handleSocketLine(request)
+        }.value
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let result = try #require(response["result"] as? [String: Any], "\(method): \(responseText)")
+        #expect(result["mirrored"] as? Bool == true)
+        #expect((result["workspace_ids"] as? [String])?.count == 1)
+        targetWindowID = try #require(
+            (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        if method == "remote.tmux.mirror" {
+            #expect(targetWindowID == harness.windowId)
+        } else {
+            #expect(targetWindowID != harness.windowId)
+        }
+
+        // Every tmux command discovery ran carried the socket flag.
+        let calls = try String(contentsOf: callsURL, encoding: .utf8)
+            .split(separator: "\n")
+            .filter { $0.contains("list-sessions") || $0.contains("display-message") }
+        #expect(!calls.isEmpty, "discovery ran no tmux command")
+        #expect(calls.allSatisfy { $0.contains("'-L' 'alpha'") }, "\(calls)")
+
+        // The mirror belongs to the socket-named endpoint, not to the host's default server.
+        #expect(harness.controller.sessionMirror(host: host, sessionName: "one") != nil)
+        let defaultServer = RemoteTmuxHost(destination: destination, transport: .et)
+        #expect(harness.controller.sessionMirror(host: defaultServer, sessionName: "one") == nil)
     }
 }
 

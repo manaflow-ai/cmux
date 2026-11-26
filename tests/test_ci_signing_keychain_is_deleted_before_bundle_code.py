@@ -118,12 +118,14 @@ LINUX_PEM_SIGNERS = {
     ("rcodesign-parity-proof.yml", "sign-rcodesign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
     ("rcodesign-parity-proof.yml", "notarize-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
 }
-# Rule 6's one exception: a secret-free verify job that attempt 1 may run on the
+# Rule 6's one exception: a secret-free verify job that attempt 1 (or a re-run while every Blacksmith macOS 26
+# label shows dead, on the owned label the same main-only placement step named) may run on the
 # owned Mac its placement job picked (Leo, 2026-10-24: owned Macs before
 # Blacksmith), with exactly this runs-on.
 OWNED_VERIFY_JOBS = {
     ("cmux-next-dev-daily.yml", "verify"): "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
     "(github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && "
+    "needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && "
     "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
 }
 # Rule 6's other exception: a verify job whose runs-on reads only a Blacksmith pick (exactly this

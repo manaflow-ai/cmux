@@ -17,6 +17,17 @@ TLS, sealed, and dropped. It is never printed, written to disk, put in an enviro
 argument. Every run is a rotation: the old password stops working, so no other copy is worth keeping.
 Stack's response bodies are never echoed (they hold account data), only status codes.
 
+`--grant-only EMAIL` instead gives one existing capture test account (an email matching
+GRANT_ONLY_EMAIL: `cmux-cloud-capture…@manaflow.dev`, such as the no-team owner account) the same operator plan
+grant and a verified primary email, and touches nothing else: no password, no seal, no bundle. Without the plan, a
+staging account whose record carries a plan that is not paid is restricted and gets no Cloud machines, the stub
+plan included. Without the verified email, a team invitation sent to the account cannot be accepted (cmux web
+teams/received.ts answers email_mismatch), so HQ's team invite readback could never join it to a team. The account
+made above is created verified; this does the same for one made some other way.
+
+`--target journey` does the same for the Cloud journey's own staging account, sealed to this repository's
+cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (TARGETS below).
+
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
@@ -26,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import sys
 import urllib.error
@@ -40,18 +52,39 @@ import sealed_secrets  # noqa: E402
 # key must belong to this project; any other project id refuses before a request is made.
 STAGING_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 STACK_API = "https://api.stack-auth.com/api/v1"
-EMAIL = "cmux-cloud-capture@manaflow.dev"
-DISPLAY_NAME = "cmux cloud capture"
 PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
-# Where the credential goes: the capture environment of the team's private infrastructure repository.
-# A rotated GitHub key changes key_id; `put` then refuses the bundle and this pin is updated.
-TARGET_REPO = "manaflow-ai/cmuxterm-hq"
-TARGET_ENVIRONMENT = "cloud-capture"
-TARGET_KEY_ID = "3380204578043523366"
-TARGET_KEY = "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY="
-EMAIL_SECRET = "CLOUD_CAPTURE_STACK_EMAIL"
-PASSWORD_SECRET = "CLOUD_CAPTURE_STACK_PASSWORD"
+
+
+class Target:
+    """One staging test account and where its credential is sealed. A rotated GitHub key changes key_id;
+    `put` then refuses the bundle and the pin here is updated. GitHub gives both environments below the same
+    key_id with different key bytes (read from `.../environments/ENV/secrets/public-key` on 2026-11-04);
+    `put` checks both against the live key."""
+
+    def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret):
+        self.email, self.display_name = email, display_name
+        self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
+        self.email_secret, self.password_secret = email_secret, password_secret
+
+
+TARGETS = {
+    # The team's Cloud capture runs: the capture environment of the private infrastructure repository.
+    "capture": Target("cmux-cloud-capture@manaflow.dev", "cmux cloud capture", "manaflow-ai/cmuxterm-hq",
+                      "cloud-capture", "3380204578043523366", "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                      "CLOUD_CAPTURE_STACK_EMAIL", "CLOUD_CAPTURE_STACK_PASSWORD"),
+    # The headless Cloud journey's staging smoke (backend.yml journey-staging) and cloud-chat-proof.yml: both run
+    # in this repository's cmux-next-vm-image-dev environment and read the staging pair as CMUX_DOGFOOD_STACK_*.
+    # Environment secrets take precedence over the repository's own pair (the production test account), so only
+    # jobs in that environment see this one.
+    "journey": Target("cmux-cloud-capture-journey@manaflow.dev", "cmux cloud journey", "manaflow-ai/cmux",
+                      "cmux-next-vm-image-dev", "3380204578043523366", "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
+                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+}
+CAPTURE = TARGETS["capture"]
+EMAIL = CAPTURE.email
 REQUEST_SECONDS = 30
+# The only accounts --grant-only touches: the staging capture test accounts, never a person's.
+GRANT_ONLY_EMAIL = re.compile(r"cmux-cloud-capture(-[a-z0-9]+)*@manaflow\.dev")
 
 
 class ProvisionError(Exception):
@@ -117,13 +150,13 @@ class Stack:
         matches = [u for u in items if isinstance(u, dict)
                    and str(u.get("primary_email") or "").lower() == email.lower()]
         if len(matches) > 1:
-            raise ProvisionError(f"{len(matches)} staging users have the capture email; refusing to pick one")
+            raise ProvisionError(f"{len(matches)} staging users have that email; refusing to pick one")
         return matches[0] if matches else None
 
-    def create(self, email, password):
+    def create(self, email, password, display_name=CAPTURE.display_name):
         user = self.server("POST", "/users", {
             "primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
-            "password": password, "display_name": DISPLAY_NAME,
+            "password": password, "display_name": display_name,
             "client_read_only_metadata": {PLAN_KEY: PLAN}})
         if not user.get("id"):
             raise ProvisionError("Stack created the user but returned no id")
@@ -137,9 +170,20 @@ class Stack:
             "password": password, "primary_email_verified": True, "primary_email_auth_enabled": True,
             "client_read_only_metadata": metadata})
 
-    def plan(self, user_id):
-        user = self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
+    def grant(self, user):
+        """Sets the operator plan grant and marks the primary email verified, keeping the account's other metadata
+        and its password."""
         metadata = user.get("client_read_only_metadata")
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata[PLAN_KEY] = PLAN
+        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}",
+                    {"client_read_only_metadata": metadata, "primary_email_verified": True})
+
+    def read(self, user_id):
+        return self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
+
+    def plan(self, user_id):
+        metadata = self.read(user_id).get("client_read_only_metadata")
         return metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None
 
     def signs_in(self, email, password):
@@ -159,41 +203,69 @@ def new_password():
     return password
 
 
-def provision(stack, out, log=print, lib=None, key_id=TARGET_KEY_ID, key=TARGET_KEY, make_password=new_password):
-    """Find or create the account, rotate its password, check it, write the sealed bundle to OUT.
+def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_password=new_password, target=CAPTURE):
+    """Find or create TARGET's account, rotate its password, check it, write the sealed bundle to OUT.
     Returns "created" or "rotated"."""
+    key_id = target.key_id if key_id is None else key_id
+    key = target.key if key is None else key
+    email = target.email
     password = make_password()
     try:
-        user = stack.find(EMAIL)
+        user = stack.find(email)
         if user is None:
-            user = stack.create(EMAIL, password)
+            user = stack.create(email, password, target.display_name)
             action = "created"
         else:
             stack.rotate(user, password)
             action = "rotated"
         if stack.plan(user["id"]) != PLAN:
             raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
-        if not stack.signs_in(EMAIL, password):
+        if not stack.signs_in(email, password):
             raise ProvisionError("the new password did not sign in")
-        bundle = sealed_secrets.seal_bundle(TARGET_REPO, TARGET_ENVIRONMENT, key_id, key,
-                                            {EMAIL_SECRET: EMAIL, PASSWORD_SECRET: password}, lib)
+        bundle = sealed_secrets.seal_bundle(target.repo, target.environment, key_id, key,
+                                            {target.email_secret: email, target.password_secret: password}, lib)
     finally:
         # Python cannot wipe a str; dropping the only reference is what is possible. The process ends next.
         password = None  # noqa: F841
     sealed_secrets.write_bundle(out, bundle)
-    log(f"{action} the staging capture account (plan {PLAN}); sealed {EMAIL_SECRET} and {PASSWORD_SECRET} "
-        f"to {TARGET_REPO} environment {TARGET_ENVIRONMENT} (key_id {key_id})")
+    log(f"{action} the staging test account {email} (plan {PLAN}); sealed {target.email_secret} and "
+        f"{target.password_secret} to {target.repo} environment {target.environment} (key_id {key_id})")
     return action
+
+
+def grant_only(stack, email, log=print):
+    """Gives the existing capture account EMAIL the operator plan grant and a verified email; nothing else changes."""
+    if not GRANT_ONLY_EMAIL.fullmatch(email):
+        raise ProvisionError("--grant-only takes only a staging capture test account's email")
+    user = stack.find(email)
+    if user is None:
+        raise ProvisionError("no staging account has that email; --grant-only never creates one")
+    stack.grant(user)
+    after = stack.read(user["id"])
+    metadata = after.get("client_read_only_metadata")
+    if (metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None) != PLAN:
+        raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
+    if after.get("primary_email_verified") is not True:
+        raise ProvisionError("the account's primary email did not read back as verified")
+    log(f"granted {PLAN_KEY} {PLAN!r} and a verified email to the staging capture account; its password and other "
+        "metadata are unchanged")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", required=True, help="where to write the sealed bundle (ciphertext only)")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
+    mode.add_argument("--grant-only", metavar="EMAIL", help="only grant the operator plan to this existing capture account")
+    parser.add_argument("--target", choices=sorted(TARGETS), default="capture",
+                        help="which staging test account to provision and where its credential is sealed")
     args = parser.parse_args(argv)
     try:
         stack = Stack(os.environ.get("NEXT_PUBLIC_STACK_PROJECT_ID", ""), os.environ.get("STACK_SECRET_SERVER_KEY", ""),
                       os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""))
-        provision(stack, args.out)
+        if args.grant_only is not None:
+            grant_only(stack, args.grant_only.strip().lower())
+        else:
+            provision(stack, args.out, target=TARGETS[args.target])
     except (ProvisionError, sealed_secrets.SealError) as error:
         print(f"::error::cloud capture provision: {error}", flush=True)
         return 1

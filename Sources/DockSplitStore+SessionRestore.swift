@@ -165,7 +165,7 @@ extension DockSplitStore {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]? = nil
     ) -> UUID? {
-        guard acceptsRestoredDisplay(snapshot) else { return nil }
+        guard acceptsRestoredDisplay(snapshot), snapshot.type != .chief || ChiefSettings.isEnabled else { return nil }
         if (!deferBrowserPanel || snapshot.type != .browser),
            let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
@@ -240,7 +240,7 @@ extension DockSplitStore {
                 excludingStableIdentities: excludingStableIdentities
             )
         case .chief:
-            guard let chiefSnapshot = snapshot.chief else { return nil }
+            guard ChiefSettings.isEnabled, let chiefSnapshot = snapshot.chief else { return nil }
             let panel = ChiefPanel(
                 id: panels[snapshot.id] == nil ? snapshot.id : UUID(),
                 conversationID: chiefSnapshot.conversationID.map(ConversationID.init(rawValue:))

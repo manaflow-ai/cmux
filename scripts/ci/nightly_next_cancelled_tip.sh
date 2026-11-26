@@ -25,6 +25,9 @@
 # sent: it would repeat jobs whose fixed-name uploads then fail. Otherwise, or if a
 # read fails, the failed jobs are re-run as before.
 #
+# A run whose build-nightly-app failed on a compile error (scripts/ci/nightly_compile_red.py) is not re-run at
+# all: its commit cannot compile, and only a newer landing can fix that.
+#
 #   nightly_next_cancelled_tip.sh REPO
 # Needs gh (GH_TOKEN with actions: write) and git with an `origin` for REPO.
 set -euo pipefail
@@ -62,10 +65,23 @@ unserved_filter='select((.conclusion == "cancelled" or .conclusion == "failure")
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 unserved=""
+jobs_file=""
 if gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" --jq '.jobs[]' >"$scratch/jobs"; then
   unserved="$(jq -r "$unserved_filter" "$scratch/jobs")" || unserved=""
+  jobs_file="$scratch/jobs"
 else
   echo "nightly-next tip ${tip:0:12}: could not read attempt $attempt's jobs; re-running its failed jobs"
+fi
+
+# A run whose build failed to compile (a swiftc error, xcodebuild exit 65) is never re-run: the same commit
+# compiles the same source and fails the same way, burning a Mac each time (run 40989498281, 00c873b5, was
+# re-run to attempt 4 on 2026-10-30). The promotion below asks for the next landing, which carries the fix.
+# scripts/ci/nightly_compile_red.py applies the owned-pool rescue's rule (it reads older attempts when this
+# one never ran the build); a failed read prints nothing, so the run stays retryable.
+red="$(python3 "$(dirname "$0")/nightly_compile_red.py" "$repo" "$id" "$attempt" ${jobs_file:+"$jobs_file"})" || red=""
+if [[ -n "$red" ]]; then
+  echo "::warning title=nightly-next tick::the tip ${tip:0:12}'s run $id is not re-run: $red; the next landing builds instead"
+  exit 0
 fi
 # The picker job to re-run, when nightly.yml at the tip says that is safe.
 picker=""

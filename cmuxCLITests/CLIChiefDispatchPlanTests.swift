@@ -5,6 +5,18 @@ import Testing
 /// compiled into this target from `CLI/ChiefDispatchPlan.swift`.
 @Suite("cmux chief dispatch: plan")
 struct CLIChiefDispatchPlanTests {
+    // MARK: Availability
+
+    @Test func dispatchNeedsAChiefMethodInTheAppsCapabilities() {
+        #expect(ChiefDispatchPlan.appOffersChief(capabilities: [
+            "methods": ["system.ping", "chief.status", "workspace.create"],
+        ]))
+        #expect(!ChiefDispatchPlan.appOffersChief(capabilities: [
+            "methods": ["system.ping", "workspace.create"],
+        ]))
+        #expect(!ChiefDispatchPlan.appOffersChief(capabilities: [:]))
+    }
+
     // MARK: Parsing
 
     @Test func wordsAfterTheSeparatorAreTheTaskVerbatim() throws {

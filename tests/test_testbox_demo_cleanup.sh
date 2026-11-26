@@ -199,19 +199,19 @@ set +e
 bounded_pid=$!
 set +m
 set -e
-for _ in $(seq 1 100); do [[ -s "$child_pid_file" ]] && break; sleep 0.01; done
-[[ -s "$child_pid_file" ]] || { kill "$bounded_pid" 2>/dev/null || true; fail "parent-signal: child never started"; }
-bounded_rc=""
-for _ in $(seq 1 100); do
-  if [[ -s "$bound_status" ]]; then
-    bounded_rc="$(cat "$bound_status")"
-    break
-  fi
-  sleep 0.01
-done
+# Wait for the bound itself to end (a real exit, not a 1 s poll, which a busy
+# runner missed: main CI fast guards, 2026-11-08), at most 15 s. The bound's
+# own limit is 20 s, so a bound that missed the SIGINT is still running then;
+# the watchdog stops its group and the missing status fails the case.
+( sleep 15; kill -TERM -- "-$bounded_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+watchdog_pid=$!
+wait "$bounded_pid" 2>/dev/null || true
+kill -KILL "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+[[ -s "$child_pid_file" ]] || fail "parent-signal: child never started"
 child_pid="$(cat "$child_pid_file")"
+bounded_rc="$(cat "$bound_status" 2>/dev/null || true)"
 if [[ -z "$bounded_rc" ]]; then
-  kill -TERM -- "-$bounded_pid" 2>/dev/null || kill -TERM "$bounded_pid" 2>/dev/null || true
   kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
   fail "parent-signal: bound did not handle the child's SIGINT"
 fi
@@ -220,6 +220,61 @@ if kill -0 "$child_pid" 2>/dev/null; then
   kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
   fail "parent-signal: child survived the bound's signal cleanup"
 fi
+
+# A signal that lands while the Python bound is reaping its child must still
+# end the bound. Popen.wait holds a non-reentrant lock around waitpid; a
+# handler that waited on the child itself, run inside that window, never
+# reaped it and hung forever (1f-double-ctrl-c-python, main CI fast guards,
+# 2026-11-17: "cleanup never began to stop the box"). Under load the window
+# is hit by chance; this hook makes it certain: the bound's first
+# non-blocking waitpid sends the bound SIGTERM before it returns.
+in_reap_hook="$work/in-reap-hook"
+mkdir -p "$in_reap_hook"
+cat >"$in_reap_hook/sitecustomize.py" <<'PY'
+import os
+import signal
+
+_waitpid = os.waitpid
+_fired = False
+
+def waitpid(pid, options):
+    global _fired
+    result = _waitpid(pid, options)
+    if options & os.WNOHANG and not _fired:
+        _fired = True
+        os.kill(os.getpid(), signal.SIGTERM)
+    return result
+
+os.waitpid = waitpid
+PY
+reap_child_pid="$work/reap-child-pid"
+reap_status="$work/reap-status"
+rm -f "$reap_child_pid" "$reap_status"
+set -m
+set +e
+(
+  # shellcheck disable=SC2016 # the child's own $$ and $1, expanded by its bash
+  PATH="$nognu" PYTHONPATH="$in_reap_hook" "$bounded" 30 \
+    bash -c 'echo "$$" >"$1"; exec sleep 30' reap-child "$reap_child_pid" >/dev/null 2>&1
+  echo "$?" >"$reap_status"
+) &
+reap_pid=$!
+set +m
+set -e
+# The bound acts within 50 ms; 15 s leaves a busy runner room and is still
+# under the 30 s bound, so a hung bound is caught, never waited out.
+( sleep 15; kill -TERM -- "-$reap_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+watchdog_pid=$!
+wait "$reap_pid" 2>/dev/null || true
+kill -KILL "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+reap_rc="$(cat "$reap_status" 2>/dev/null || true)"
+if [[ -s "$reap_child_pid" ]]; then
+  reap_child="$(cat "$reap_child_pid")"
+  kill -TERM -- "-$reap_child" 2>/dev/null || true
+fi
+[[ -n "$reap_rc" ]] || fail "in-reap-signal: the bound hung after a signal that landed while it reaped its child"
+[[ "$reap_rc" -eq 143 ]] || fail "in-reap-signal: expected exit 143 after TERM (rc=$reap_rc)"
 
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok

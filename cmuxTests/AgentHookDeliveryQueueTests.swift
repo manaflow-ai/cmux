@@ -884,6 +884,32 @@ struct AgentHookDeliveryQueueTests {
         #expect(environment["CMUX_STABLE_SURFACE_ID"] == nil)
         #expect(environment["ANTHROPIC_BASE_URL"] == nil)
         #expect(environment["CMUX_CLAUDE_PID"] == nil)
+
+        let capability = "v1.live-hook-capability"
+        let directCapabilityParams: [String: Any] = [
+            "agent": "codex",
+            "subcommand": "stop",
+            "payload": "{}",
+            "relay_backed": false,
+            "socket_path": "/tmp/cmux-direct.sock",
+            "environment": ["CMUX_SURFACE_ID": "surface-a"],
+        ]
+        let capabilityEvent = try #require(AgentHookDeliveryEvent(params: directCapabilityParams))
+        let capabilityProcess = AgentHookDeliveryProcess(
+            executableURLProvider: { nil },
+            socketCapabilityProvider: { capability }
+        )
+        let capabilityEnvironment = capabilityProcess.deliveryEnvironment(
+            event: capabilityEvent,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(capabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == capability)
+        #expect(capabilityEvent.environment["CMUX_SOCKET_CAPABILITY"] == nil)
+        let relayCapabilityEnvironment = capabilityProcess.deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(relayCapabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == nil)
         let relayStateDirectory = try #require(
             environment["CMUX_AGENT_HOOK_STATE_DIR"]
         )
@@ -918,6 +944,8 @@ struct AgentHookDeliveryQueueTests {
 
         var unsafeParams = params
         unsafeParams["environment"] = ["ANTHROPIC_API_KEY": "secret"]
+        #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
+        unsafeParams["environment"] = ["CMUX_SOCKET_CAPABILITY": capability]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
         unsafeParams["environment"] = ["CMUX_AGENT_HOOK_RELAY_ORIGIN": "1"]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)

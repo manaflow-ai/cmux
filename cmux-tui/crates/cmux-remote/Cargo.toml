@@ -58,6 +58,7 @@ zeroize.workspace = true
 cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
+cmux-test-exec.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 cmux-wg.workspace = true
 rcgen = "0.14"

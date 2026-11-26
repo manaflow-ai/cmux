@@ -129,8 +129,8 @@ extension TerminalController {
                 return .err(
                     code: "not_available",
                     message: String(
-                        localized: "socket.chief.error.disabled",
-                        defaultValue: "Chief is disabled in Settings."
+                        localized: "socket.chief.error.unavailable",
+                        defaultValue: "Chief isn't available."
                     ),
                     data: nil
                 )

@@ -9,8 +9,13 @@
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+#[cfg(unix)]
+mod agent_session_context;
 mod app;
+mod attention;
 mod browser_input;
+#[cfg(unix)]
+mod claude_plugin;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
@@ -24,6 +29,7 @@ mod config;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 mod local_owner;
@@ -35,6 +41,8 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+#[cfg(unix)]
+mod own_build_helpers;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -72,6 +80,7 @@ mod remote_trust;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -581,6 +590,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    /// `--terminal-reap-grace-seconds`: the owner ends a terminal that has had
+    /// no tab for this long. `None`: the owner reaps no terminal.
+    terminal_reap_grace: Option<std::time::Duration>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -683,6 +695,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -818,6 +831,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                         .into(),
                 );
                 out.remote = true;
+            }
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
             }
             "--remote-resume-lease-seconds" => {
                 let value = args
@@ -1060,6 +1088,70 @@ fn schema_socket_owner(
         return SchemaSocketOwner::Unverified;
     };
     SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
+}
+
+/// A Cloud machine's daemon clears a dead predecessor's leftover lifecycle
+/// evidence as the operator acknowledgements would, when no predecessor
+/// socket answers. This process owns the session (its registry lease and the
+/// bound session socket). A refusal leaves the evidence for the start to
+/// report.
+#[cfg(unix)]
+fn recover_cloud_remote_state(
+    session: &str,
+    state_dir: Option<&std::path::Path>,
+    link_socket: Option<&std::path::Path>,
+    admin_socket: Option<&std::path::Path>,
+) {
+    match remote_runtime::recover_inactive_daemon_state(
+        session,
+        state_dir,
+        link_socket,
+        admin_socket,
+    ) {
+        Ok(actions) => {
+            for action in actions {
+                crate::client_log::stderr_log!("startup", "cmux-tui: SELF-RECOVERY: {action}");
+            }
+        }
+        Err(error) => crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: remote daemon state left as found: {error:#}"
+        ),
+    }
+}
+
+/// A Cloud daemon's registry open failed. When the failure is damage the
+/// registry recovery handles (`cmux_tui_core::recover_registry_after_failed_open`:
+/// more interrupted creations than a start settles, settled in place; or a
+/// file SQLite confirms damaged, moved to `registry-recovery/<unix ms>/`), the
+/// open runs once more. Any other failure, or a refused recovery, returns the
+/// original error.
+fn reopen_after_registry_damage(
+    error: anyhow::Error,
+    session: &str,
+    root: &Path,
+    reopen: impl FnOnce() -> anyhow::Result<Arc<Mux>>,
+) -> anyhow::Result<Arc<Mux>> {
+    match cmux_tui_core::recover_registry_after_failed_open(root, session, &error) {
+        None => Err(error),
+        Some(Ok((damage, recovery))) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: SELF-RECOVERY: workspace registry of session {session:?} could not be \
+                 opened ({}); {recovery}",
+                damage.reason()
+            );
+            reopen()
+        }
+        Some(Err(quarantine)) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: workspace registry of session {session:?} could not be opened and was \
+                 left in place: {quarantine:#}"
+            );
+            Err(error)
+        }
+    }
 }
 
 fn workspace_schema_startup_error(
@@ -1389,6 +1481,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1644,6 +1737,9 @@ fn run_main() {
         }
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:
@@ -2159,31 +2255,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
-    #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
-        // Integrated shells keep this directory first after startup files
-        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
-        // see the terminal's environment, so only the shim routes them.
-        if let Some(dir) =
-            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
-        {
-            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
-        }
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None
@@ -2207,6 +2286,17 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // A Cloud machine's daemon (the trusted-carrier listener only the boot
+    // supervisor starts) has no person to repair a registry no start can
+    // open: it does that itself, once, below. Every other session fails as
+    // before and leaves the choice to its person.
+    #[cfg(unix)]
+    let cloud_self_recovery =
+        args.remote && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());
+    #[cfg(not(unix))]
+    let cloud_self_recovery = false;
+    let registry_self_recovery = cloud_self_recovery && provider_workspace_authority.is_none();
+    let retry_surface_options = registry_self_recovery.then(|| surface_options.clone());
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2236,15 +2326,27 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
+        };
+    let mux = match (mux, state_root.as_deref(), retry_surface_options) {
+        (Err(error), Some(root), Some(surface_options)) => {
+            reopen_after_registry_damage(error, &args.session, root, || {
+                if provider_management_pending {
+                    Mux::open_persistent_provider_managed_pending(
+                        args.session.clone(),
+                        surface_options,
+                        root,
+                        new_mux_generation()?,
+                    )
+                } else {
+                    Mux::open_persistent(args.session.clone(), surface_options, root)
+                }
+            })
         }
-        .map_err(|error| {
-            workspace_schema_startup_error(
-                error,
-                &args.session,
-                &socket_path,
-                state_root.as_deref(),
-            )
-        })?;
+        (mux, _, _) => mux,
+    }
+    .map_err(|error| {
+        workspace_schema_startup_error(error, &args.session, &socket_path, state_root.as_deref())
+    })?;
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2280,6 +2382,27 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The socket answers `identify` as soon as it is bound. The reaper
+    // thread starts before the bind, held: `identify` lists
+    // `terminal-reaper-active-v1` from the bind, the thread runs its first
+    // pass only once this owner holds the session (released below), and a
+    // failed bind or later startup step drops it, which ends the thread and
+    // the advertisement.
+    let held_terminal_reaper = match args.terminal_reap_grace {
+        Some(grace) => match mux.set_terminal_reap_grace(grace).and_then(|()| {
+            cmux_tui_core::prepare_terminal_reaper(&mux).map_err(anyhow::Error::from)
+        }) {
+            Ok(held) => Some(held),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                );
+                None
+            }
+        },
+        None => None,
+    };
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,
@@ -2288,9 +2411,26 @@ fn run_server(
             return Err(error);
         }
     };
+    // Tests: hold the startup between the bind and the rest, so a test can
+    // identify while the owner starts (`restart_host_leak.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(delay.min(10_000)));
+    }
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
+        if trusted_carrier {
+            recover_cloud_remote_state(
+                &args.session,
+                args.remote_state_dir.as_deref(),
+                args.remote_link_socket.as_deref(),
+                args.remote_admin_socket.as_deref(),
+            );
+        }
         let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
@@ -2370,6 +2510,11 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period (`terminal-reaper-active-v1`). Only an owner started with
+    // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
+    // terminal runs until `terminal close` or the end of the session.
+    let terminal_reaper = held_terminal_reaper.map(cmux_tui_core::HeldTerminalReaper::release);
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -2428,6 +2573,9 @@ fn run_server(
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
+    if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     #[cfg(unix)]

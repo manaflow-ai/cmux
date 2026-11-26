@@ -16,6 +16,9 @@ final class ChiefPanel: Panel {
     /// Home is protected in the split tree; dragged copies are ordinary Chief panes.
     let isHome: Bool
 
+    /// Whether the split tree refuses to close this pane: canonical Home while `chief.enabled` is on.
+    var isProtectedHome: Bool { isHome && ChiefSettings.isEnabled }
+
     /// The conversation this pane shows; nil means Chief's default conversation.
     @Published var conversationID: ConversationID?
 

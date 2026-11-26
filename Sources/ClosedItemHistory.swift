@@ -77,6 +77,29 @@ enum ClosedItemHistoryEntry: Codable, Sendable {
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
+extension SessionWorkspaceSnapshot {
+    /// True when every panel, Dock panels included, is a Chief pane.
+    var holdsOnlyChiefPanels: Bool {
+        let all = panels + (dock?.panels ?? [])
+        return !all.isEmpty && all.allSatisfy { $0.type == .chief }
+    }
+}
+extension ClosedItemHistoryEntry {
+    /// True when reopening would bring back only Chief panes, which Chief
+    /// being off refuses. Such records are hidden and skipped while it's off.
+    var holdsOnlyChief: Bool {
+        switch self {
+        case .panel(let entry):
+            return entry.snapshot.type == .chief
+        case .workspace(let entry):
+            return entry.snapshot.holdsOnlyChiefPanels
+        case .window(let entry):
+            let workspaces = entry.snapshot.tabManager.workspaces
+            return !workspaces.isEmpty && workspaces.allSatisfy(\.holdsOnlyChiefPanels)
+                && entry.snapshot.dock?.panels.isEmpty != false
+        }
+    }
+}
 struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
@@ -189,7 +212,13 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     var canReopen: Bool {
-        !records.isEmpty
+        records.contains(where: isOffered)
+    }
+
+    /// Whether a record is listed and reopenable now: Chief-only records are
+    /// hidden while Chief is off and come back when it's on.
+    private func isOffered(_ record: ClosedItemHistoryRecord) -> Bool {
+        !record.entry.holdsOnlyChief || ChiefSettings.isEnabled
     }
 
     private func advanceRevision() {
@@ -224,6 +253,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard isOffered(record) else { return false }
                 guard isCandidate(record.entry) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
@@ -273,17 +303,18 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
         // Build only visible rows; this runs on every menu rebuild and persisted history can be larger.
-        if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
+        let offered = ChiefSettings.isEnabled ? records : records.filter(isOffered)
+        if let maxItemCount, maxItemCount >= 0, offered.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
-                items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
-                totalItemCount: records.count,
+                items: offered.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
+                totalItemCount: offered.count,
                 isLimited: true
             )
         }
 
         return ClosedItemHistoryMenuSnapshot(
-            items: records.reversed().map(Self.menuItem(for:)),
-            totalItemCount: records.count,
+            items: offered.reversed().map(Self.menuItem(for:)),
+            totalItemCount: offered.count,
             isLimited: false
         )
     }

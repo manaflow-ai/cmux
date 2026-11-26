@@ -45,8 +45,10 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # Checks that judge a pull request's author and head in workflows a pull request
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
-# would run with those names' authority. The no-op bridge uses the standard
-# Blacksmith expression because it has no token, checkout, or candidate code.
+# would run with those names' authority. The no-op bridge has no token, checkout, or candidate code, so it runs
+# on cmux-linux, the persistent pool, like every own-branch Linux job (only the fleet-wide CI_OVERFLOW_LINUX
+# switch ahead of it): it needs no one-job VM, and on 2026-11-21 the gate JIT label queued its jobs for hours
+# while that pool sat idle (tests/test_ci_required_gate_label.py POOL_JOBS).
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
@@ -63,7 +65,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
@@ -85,6 +87,46 @@ def triggers(document: dict) -> set[str]:
     return set()
 
 
+def top_level_or_branches(expression: str) -> list[str]:
+    """Split an Actions expression at its `||` operators outside parentheses and quotes."""
+    branches, depth, quoted, start, index = [], 0, False, 0, 0
+    while index < len(expression):
+        char = expression[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and expression.startswith("||", index):
+            branches.append(expression[start:index])
+            start = index + 2
+            index += 1
+        index += 1
+    branches.append(expression[start:])
+    return branches
+
+
+def merge_group_name(name: str) -> str:
+    """Return the name a job publishes on merge_group.
+
+    A name expression whose every branch but the last is guarded by
+    `github.event_name == 'pull_request_target' && ...` publishes its final
+    `|| 'literal'` on merge_group (backend-migrations.yml's gate renames only
+    ignored feat-cmux-next edits and labels). Anything else stays as written.
+    """
+    text = name.strip()
+    if not (text.startswith("${{") and text.endswith("}}")):
+        return name
+    branches = [part.strip() for part in top_level_or_branches(text[3:-2])]
+    *guarded, last = branches
+    if not guarded or not (last.startswith("'") and last.endswith("'") and last.count("'") == 2):
+        return name
+    if not all(branch.startswith("github.event_name == 'pull_request_target' && ") for branch in guarded):
+        return name
+    return last[1:-1]
+
+
 def merge_group_check_names() -> dict[str, list[str]]:
     """Collect check names that can be emitted for merge-group runs."""
     names: dict[str, list[str]] = {}
@@ -99,7 +141,7 @@ def merge_group_check_names() -> dict[str, list[str]]:
             condition = str(job.get("if", ""))
             if "merge_group" in condition and "!=" in condition:
                 continue
-            name = str(job.get("name", job_id))
+            name = merge_group_name(str(job.get("name", job_id)))
             if path.name == "web-complexity-trusted.yml" and job_id == "complexity":
                 # The required workflow must publish its literal verdict on
                 # every event, including metadata edits and merge groups.
@@ -192,6 +234,17 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
     def test_duplicate_required_name_is_rejected(self) -> None:
         """Duplicate required check ownership must fail validation."""
         self.assertEqual(self.validate(self.workflow, duplicate=True), 1)
+
+    def test_merge_group_name_resolves_pull_request_target_only_renames(self) -> None:
+        """A name renamed only for pull_request_target events reports its fallback on merge_group."""
+        renamed = (
+            "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && 'x (ignored)'"
+            " || github.event_name == 'pull_request_target' && (github.event.action == 'labeled'"
+            " || github.event.action == 'unlabeled') && 'y (ignored)' || 'backend migrations applied' }}"
+        )
+        self.assertEqual(merge_group_name(renamed), "backend migrations applied")
+        other = "${{ github.event.action == 'edited' && 'x' || 'backend migrations applied' }}"
+        self.assertEqual(merge_group_name(other), other)
 
     def test_merge_group_excluded_job_is_rejected(self) -> None:
         """The required job must remain eligible on merge-group events."""

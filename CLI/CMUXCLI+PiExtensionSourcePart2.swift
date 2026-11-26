@@ -466,6 +466,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       stopPayload = {
         turn_id: turnId,
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
+        // Reload is runtime cleanup, not a completed task. Suppress cmux's fallback notification.
+        cmux_notification_routed: objectValue(event, ["reason"]) === "reload",
       };
     }
     await enqueueLifecycleTask(sessionId, context, async () => {

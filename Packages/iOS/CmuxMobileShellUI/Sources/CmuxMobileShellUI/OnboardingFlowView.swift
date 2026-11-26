@@ -11,6 +11,7 @@ struct OnboardingFlowView: View {
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
+    let offersConnectionMethodChoice: Bool
     let keepAwakeOffer: OnboardingKeepAwakeOffer?
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onEnablePush: () async -> Bool
@@ -34,6 +35,7 @@ struct OnboardingFlowView: View {
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
         connectionMethod: MobileConnectionMethod = .automatic,
+        offersConnectionMethodChoice: Bool = true,
         keepAwakeOffer: OnboardingKeepAwakeOffer? = nil,
         onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
@@ -48,6 +50,7 @@ struct OnboardingFlowView: View {
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
         self.connectionMethod = connectionMethod
+        self.offersConnectionMethodChoice = offersConnectionMethodChoice
         self.keepAwakeOffer = keepAwakeOffer
         self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onEnablePush = onEnablePush
@@ -123,7 +126,8 @@ struct OnboardingFlowView: View {
                 connectionMethod: connectionMethod,
                 onSelectConnectionMethod: selectConnectionMethod,
                 keepAwakeOffer: keepAwakeOffer,
-                onSetKeepAwake: setKeepAwake
+                onSetKeepAwake: setKeepAwake,
+                offersConnectionMethodChoice: offersConnectionMethodChoice
             )
         }
     }

@@ -425,12 +425,20 @@ enum SettingsSearchIndex {
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 
+    /// Search rows of the Chief Settings card, hidden with the card when the build doesn't offer Chief.
+    private static let chiefEntryIDs: Set<String> = Set(
+        ["chief", "chief-harness", "chief-model", "chief-effort", "chief-dangerous-permissions"]
+            .map { settingID(for: .automation, idSuffix: $0) }
+    )
+
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedQueryTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
         let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        let chiefAvailable = ChiefSettings.isAvailable
         return allEntries.enumerated()
             .compactMap { offset, entry -> (entry: SettingsSearchEntry, score: Int, offset: Int)? in
+                if !chiefAvailable, chiefEntryIDs.contains(entry.id) { return nil }
                 guard let score = matchScore(entry: entry, query: normalizedQuery, tokens: tokens) else {
                     return nil
                 }

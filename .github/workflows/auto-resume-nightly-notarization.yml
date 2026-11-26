@@ -28,6 +28,8 @@ permissions:
   {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
 
 jobs:
@@ -36,7 +38,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Room for gh_budget_wait.sh to wait out an exhausted API budget (at most an hour).
+    timeout-minutes: 75
     permissions:
       actions: read
       contents: read
@@ -59,6 +63,46 @@ jobs:
       SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.workflow_run.head_branch }}
       SOURCE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && github.repository || github.event.workflow_run.head_repository.full_name }}
     steps:
+      # Run 41790985234 (2026-11-04) failed here on its first read with "HTTP 403 API rate
+      # limit exceeded for installation". The wrapper waits for the budget's reset and tries
+      # again (scripts/ci/gh_budget_wait.sh), bounded by this job's timeout.
+      - name: Checkout the rate-limit wrapper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+          path: .preflight-tooling
+          sparse-checkout: |
+            scripts/ci/gh_app_token.sh
+            scripts/ci/gh_budget_wait.sh
+          sparse-checkout-cone-mode: false
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash .preflight-tooling/scripts/ci/gh_app_token.sh --install --reads-only
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .preflight-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Verify source run and recovery artifacts
         id: check
         run: |
@@ -66,6 +110,13 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "invalid source run id" >&2; exit 1; }
           [[ "$SOURCE_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "invalid source run attempt" >&2; exit 1; }
           [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "invalid source head SHA" >&2; exit 1; }
+          # nightly-next continues on its own track (below), so its runs, most of this
+          # workflow's triggers, need no API read to be turned away.
+          if [ "$SOURCE_BRANCH" = nightly-next ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=nightly-next-continues-on-its-own-track" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
           python3 - "$RUNNER_TEMP/source-run.json" "$SOURCE_REPOSITORY" "$SOURCE_HEAD_SHA" "$SOURCE_BRANCH" "$SOURCE_RUN_ATTEMPT" <<'PY' > "$RUNNER_TEMP/source-check"
           import json
@@ -165,7 +216,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -191,6 +242,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Download exact polling inputs
         run: |
@@ -320,6 +394,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -532,7 +629,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -555,6 +652,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Download outer polling metadata
         run: |
@@ -611,6 +731,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -804,7 +947,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -827,6 +970,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Download stapled-app polling metadata
         run: |
@@ -883,6 +1049,29 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1043,7 +1232,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     env:
       # One writer at a time, newest first, without a concurrency group (a
       # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
@@ -1055,8 +1244,9 @@ jobs:
       # The newest build waits only for the writer already holding the lease.
       LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
-      # publish-release-assets.py waits through rate limits up to this long (default 600 s).
-      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+      # publish-release-assets.py waits through rate limits up to this long (default 600 s): a whole
+      # core window, so a wait reaches the reset (11-25: a 1800 s cap gave up 40 s before it).
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
@@ -1074,9 +1264,32 @@ jobs:
           # source SHA. A shallow checkout cannot prove ancestry after fetch.
           fetch-depth: 0
 
+      # Release App first, github.token as the fallback, as nightly.yml's publish-nightly does: the App
+      # is its own actor, so the core quota every workflow's github.token shares does not refuse it.
+      # 2026-11-25 18:23Z-21:30Z: every continuation's publish was refused "API rate limit exceeded
+      # for installation" (github.token core 0/5000) and NIGHTLY went 3 h without a publication.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
+
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
       # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
       # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      # Installed after gh_app_token.sh, it wraps that wrapper.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
 
@@ -1120,7 +1333,9 @@ jobs:
             immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
             expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
             actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
-            [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
+            # tr, not ${x,,}: a Mac mini's /bin/bash is 3.2.
+            [ "$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')" ] \
+              || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
             tested="$(find tested -type f -name "tested-${variant}.sha256" -print -quit)"
             if [ -z "$tested" ] || ! grep -Fxq "$actual  $immutable" "$tested"; then
               echo "$variant DMG is not the one verify-stapled launched" >&2
@@ -1263,6 +1478,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
@@ -1323,6 +1539,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
@@ -1547,7 +1764,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: release
     env:
       # One writer at a time, newest first, without a concurrency group (a
@@ -1560,7 +1777,7 @@ jobs:
       # The newest build waits only for the writer already holding the lease.
       LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
-      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
@@ -1573,9 +1790,32 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      # Release App first, github.token as the fallback, as nightly.yml's publish-nightly does: the App
+      # is its own actor, so the core quota every workflow's github.token shares does not refuse it.
+      # 2026-11-25 18:23Z-21:30Z: every continuation's publish was refused "API rate limit exceeded
+      # for installation" (github.token core 0/5000) and NIGHTLY went 3 h without a publication.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
+
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
       # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
       # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      # Installed after gh_app_token.sh, it wraps that wrapper.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
 
@@ -1613,6 +1853,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           R2_BUCKET: cmux-binaries
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the publisher: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check

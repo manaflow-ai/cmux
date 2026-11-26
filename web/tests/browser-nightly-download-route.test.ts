@@ -9,7 +9,10 @@ import {
   BROWSER_NIGHTLY_FEED_URL,
   resolveBrowserNightlyDownload,
 } from "../app/lib/browser-nightly-download";
-import { handleBrowserNightlyDownloadRequest } from "../app/api/download/browser-nightly/[platform]/[artifact]/route";
+import {
+  GET,
+  handleBrowserNightlyDownloadRequest,
+} from "../app/api/download/browser-nightly/[platform]/[artifact]/route";
 
 const VERSION = "151.0.7922.64";
 const { privateKey, publicKey } = generateKeyPairSync("ec", {
@@ -26,6 +29,25 @@ const PRODUCTION_SIGNED_FEED =
   '{"payload":"eyJwbGF0Zm9ybXMiOnsibGludXgteDY0Ijp7ImFyY2hpdmVfcm9vdCI6ImNtdXgtYnJvd3NlciIsImV4ZWN1dGFibGUiOiJjaHJvbWUiLCJzaGEyNTYiOiI2NTdlZmM2MTljMzYwNmUxN2I0MTViNDlkZWQxZDQ2ZjhjMGYwZmI4YjFlNGRiYjNiNDU5NDgzZTgzOWUwMTNhIiwic2l6ZSI6IjY1MTk1MjUyMSIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9tYW5hZmxvdy1haS9jbXV4LXYyL3JlbGVhc2VzL2Rvd25sb2FkL25pZ2h0bHkvY211eC1saW51eC14NjQuemlwIn19LCJzY2hlbWEiOjEsInZlcnNpb24iOiIxNTEuMC43OTIyLjY0In0=","signature":"MEQCIDqsCafTkEF9jKuN+O99bUBWiEZBec7TzLXNvN2bw/swAiB+WnzF7teqNr4B1juRDY8mwwMqcBJbffQWvAzVDK7Ieg=="}';
 
 describe("cmux Browser nightly download route", () => {
+  test("refuses every Linux artifact while Linux is waitlist-only, without fetching the feed", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = mock(() => Promise.reject(new Error("feed must not be fetched")));
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      for (const artifact of ["run", "deb", "zip"]) {
+        const response = await GET(new Request("https://cmux.com/"), {
+          params: Promise.resolve({ platform: "linux-x64", artifact }),
+        });
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: "browser_download_unavailable" });
+        expect(response.headers.get("location")).toBeNull();
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("resolves the live Linux contract through the production update key", async () => {
     const fetchMock = feedFetch(PRODUCTION_SIGNED_FEED, 302);
 

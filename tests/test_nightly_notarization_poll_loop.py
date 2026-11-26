@@ -48,7 +48,7 @@ class NightlyNotarizationPollLoopTests(unittest.TestCase):
 
     def test_preflight_uses_metadata_only_when_all_variants_exist(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        check = workflow["jobs"]["preflight"]["steps"][0]["run"]
+        check = next(s for s in workflow["jobs"]["preflight"]["steps"] if s.get("id") == "check")["run"]
         program = re.search(r'<<\'PY\' > "\$RUNNER_TEMP/artifact-check"\n(.*?)\nPY', check, re.S).group(1)
         variants = ("arm64", "x86_64", "universal")
         recovery = [f"cmux-nightly-notarization-recovery-{v}-aaaaaaa" for v in variants]

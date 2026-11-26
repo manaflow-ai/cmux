@@ -671,8 +671,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// moves ~10 px a second; SwiftUI rounds sizes and offsets to whole pixels,
     /// so it stepped. A layer placed at fractional points is drawn antialiased
     /// between pixels, so it glides. Horizontal grows left to right, vertical
-    /// top to bottom.
-    private struct RailFill: NSViewRepresentable {
+    /// top to bottom. Internal so tests can lay out the shipped fill view.
+    struct RailFill: NSViewRepresentable {
         let fraction: Double
         let vertical: Bool
         var minimumLength: CGFloat = 0
@@ -712,7 +712,10 @@ struct CloudWelcomeMediaCarousel: View {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 let length = vertical ? bounds.height : bounds.width
-                let visible = minimumLength + (length - minimumLength) * CGFloat(fraction)
+                // Core Animation raises on a NaN frame, and min/max pass NaN
+                // through, so an unknown playhead draws as not started.
+                let progress = fraction.isNaN ? 0 : min(max(fraction, 0), 1)
+                let visible = minimumLength + (length - minimumLength) * CGFloat(progress)
                 // Full length, slid in by a fractional amount (AppKit's y is up,
                 // so a top-down fill slides down from above the top edge).
                 fill.frame = vertical
@@ -1003,7 +1006,7 @@ extension CloudWelcomeMediaCarousel {
 
         /// Stores one playhead sample; the pager extrapolates between samples.
         func recordPlayhead(seconds: Double, duration: Double, rate: Double, at date: Date) {
-            guard seconds.isFinite, duration.isFinite, duration > 0 else {
+            guard seconds.isFinite, duration.isFinite, duration > 0, rate.isFinite else {
                 playhead = nil
                 return
             }

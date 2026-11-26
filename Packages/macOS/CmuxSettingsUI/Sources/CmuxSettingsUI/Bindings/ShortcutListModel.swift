@@ -202,7 +202,8 @@ final class ShortcutListModel {
     /// priority-routed clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
-        for other in ShortcutAction.allCases where other != action {
+        let unavailable = ShortcutAction.hostUnavailableActions
+        for other in ShortcutAction.allCases where other != action && !unavailable.contains(other) {
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,

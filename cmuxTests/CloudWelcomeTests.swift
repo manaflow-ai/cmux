@@ -515,3 +515,160 @@ private final class PlayheadCountingPlayer: AVPlayer {
         return super.currentTime()
     }
 }
+
+/// The welcome pager's progress fill (Sentry CMUXTERM-MACOS-4GHY): a
+/// nonfinite progress value reached `FillView.layout()`, and Core Animation
+/// raised `CALayerInvalidGeometry` for a NaN layer position. These tests lay
+/// out the shipped `FillView` in a window and read the fill layer it places.
+@Suite("Cloud welcome rail fill")
+@MainActor
+struct CloudWelcomeRailFillTests {
+    private typealias FillView = CloudWelcomeMediaCarousel.RailFill.FillView
+
+    /// The poster rail: 460 x 1.5 pt, horizontal, no minimum length.
+    private static let posterRail = NSSize(width: 460, height: 1.5)
+    /// The current page's pager pill: 36 x 6 pt with a dot-sized minimum.
+    private static let pagerPill = NSSize(width: 36, height: 6)
+
+    /// Hosts a fill view in a window, applies `fraction` and runs a real
+    /// layout pass. Returns the view and the window that keeps it alive.
+    private func laidOutFill(
+        size: NSSize,
+        fraction: Double,
+        vertical: Bool = false,
+        minimumLength: CGFloat = 0
+    ) -> (view: FillView, window: NSWindow) {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 600, height: 200)),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let view = FillView(frame: NSRect(origin: .zero, size: size))
+        window.contentView?.addSubview(view)
+        view.configure(fraction: fraction, vertical: vertical, minimumLength: minimumLength)
+        window.contentView?.layoutSubtreeIfNeeded()
+        return (view, window)
+    }
+
+    private func fillLayer(of view: FillView) throws -> CALayer {
+        try #require(view.layer?.sublayers?.first)
+    }
+
+    private static func isFinite(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite && rect.origin.y.isFinite
+            && rect.size.width.isFinite && rect.size.height.isFinite
+    }
+
+    @Test(
+        "a nonfinite progress lays out a finite, empty-or-full poster rail fill",
+        arguments: [Double.nan, -Double.nan, Double.infinity, -Double.infinity]
+    )
+    func nonfiniteProgressKeepsPosterRailGeometryFinite(fraction: Double) throws {
+        // The crash: 460 x 1.5 horizontal rail, minimumLength 0, NaN progress.
+        let (view, window) = laidOutFill(size: Self.posterRail, fraction: fraction)
+        defer { window.close() }
+        let fill = try fillLayer(of: view)
+
+        #expect(Self.isFinite(fill.frame))
+        #expect(fill.position.x.isFinite && fill.position.y.isFinite)
+        // The layout pass ran to the end: the radius is set after the frame.
+        #expect(fill.cornerRadius == 0.75)
+        // NaN and -infinity draw nothing yet; +infinity draws a full rail.
+        let expectedX: CGFloat = fraction == .infinity ? 0 : -460
+        #expect(fill.frame == CGRect(x: expectedX, y: 0, width: 460, height: 1.5))
+    }
+
+    @Test(
+        "a nonfinite progress keeps every rail shape finite",
+        arguments: [Double.nan, Double.infinity, -Double.infinity], [false, true]
+    )
+    func nonfiniteProgressKeepsEveryRailShapeFinite(fraction: Double, vertical: Bool) throws {
+        let shapes: [(size: NSSize, minimumLength: CGFloat)] = [
+            (Self.posterRail, 0),
+            (Self.pagerPill, 6),
+            (NSSize(width: 1.5, height: 460), 0),
+            (.zero, 0),
+            (.zero, 6),
+        ]
+        for shape in shapes {
+            let (view, window) = laidOutFill(
+                size: shape.size,
+                fraction: fraction,
+                vertical: vertical,
+                minimumLength: shape.minimumLength
+            )
+            defer { window.close() }
+            let fill = try fillLayer(of: view)
+            #expect(Self.isFinite(fill.frame), "size \(shape.size), minimum \(shape.minimumLength)")
+        }
+    }
+
+    @Test("valid progress still glides at fractional points in both orientations")
+    func validProgressKeepsFractionalGeometry() throws {
+        // Horizontal grows left to right: a full-length layer slid in from the left.
+        do {
+            let (view, window) = laidOutFill(size: Self.posterRail, fraction: 0.3)
+            defer { window.close() }
+            let fill = try fillLayer(of: view)
+            #expect(abs(fill.frame.origin.x - (138 - 460)) < 0.0001)
+            #expect(fill.frame.size == Self.posterRail)
+        }
+        // The pager pill never draws shorter than its dot.
+        do {
+            let (view, window) = laidOutFill(size: Self.pagerPill, fraction: 0, minimumLength: 6)
+            defer { window.close() }
+            #expect(try fillLayer(of: view).frame.origin.x == 6 - 36)
+        }
+        do {
+            let (view, window) = laidOutFill(size: Self.pagerPill, fraction: 0.5, minimumLength: 6)
+            defer { window.close() }
+            #expect(try fillLayer(of: view).frame.origin.x == 21 - 36)
+        }
+        // Vertical grows top to bottom; AppKit's y is up.
+        do {
+            let size = NSSize(width: 1.5, height: 200)
+            let (view, window) = laidOutFill(size: size, fraction: 0.25, vertical: true)
+            defer { window.close() }
+            let fill = try fillLayer(of: view)
+            #expect(fill.frame == CGRect(x: 0, y: 150, width: 1.5, height: 200))
+        }
+    }
+
+    @Test("the rail recovers its position when a valid progress follows an invalid one")
+    func railRecoversAfterInvalidProgress() throws {
+        let (view, window) = laidOutFill(size: Self.posterRail, fraction: .nan)
+        defer { window.close() }
+        let fill = try fillLayer(of: view)
+        #expect(Self.isFinite(fill.frame))
+
+        view.configure(fraction: 0.5, vertical: false, minimumLength: 0)
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(fill.frame == CGRect(x: -230, y: 0, width: 460, height: 1.5))
+    }
+
+    @Test(
+        "a playhead sample with a nonfinite rate yields no progress, and the next valid sample resumes it",
+        arguments: [Double.nan, Double.infinity, -Double.infinity]
+    )
+    func nonfiniteRateSampleYieldsNoProgress(rate: Double) {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let player = AVPlayer()
+        playback.attach(player)
+        defer { playback.detach(player) }
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+
+        playback.recordPlayhead(seconds: 2, duration: 8, rate: rate, at: start)
+        // Either no cached playhead (the pager falls back to its clock) or a
+        // finite one; never a NaN that the rail would lay out.
+        for offset in [0.0, 0.5, 3] {
+            let fraction = playback.fraction(at: start.addingTimeInterval(offset))
+            #expect(fraction == nil, "rate \(rate), +\(offset)s gave \(String(describing: fraction))")
+        }
+
+        playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
+        #expect(playback.fraction(at: start) == 0.25)
+        #expect(playback.fraction(at: start.addingTimeInterval(2)) == 0.5)
+    }
+}

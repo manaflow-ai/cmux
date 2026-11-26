@@ -793,7 +793,7 @@ def write_work(path: Path, base: str, entries: list[dict], web_entries: list[dic
 
 def run_validator(root: Path) -> tuple[int, str, str]:
     result = subprocess.run(
-        [sys.executable, str(root / "scripts/localization_catalog.py"), "check", "--root", str(root)],
+        [sys.executable, str(root / "scripts/localization_catalog.py"), "check", "--strict", "--root", str(root)],
         cwd=root,
         text=True,
         stdout=subprocess.PIPE,

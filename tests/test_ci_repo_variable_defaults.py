@@ -159,12 +159,18 @@ def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
     return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
 
 
+# The side lane's capability array read (tests/test_ci_side_lane_capability_labels.py). With its array unset it is
+# vars.CI_SIDE_LANE_RUNNER, so for an unset variable it falls back exactly as that one read does.
+SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || "
+                         "vars.CI_SIDE_LANE_RUNNER)")
+
+
 def check_runs_on(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
-        expression = matched.group(1)
+        expression = matched.group(1).replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER")
         reads = list(VARS_REFERENCE.finditer(expression))
         if not reads:
             continue
@@ -292,7 +298,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
 
 def self_test_pool_reads(errors: list[str]) -> None:
     fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
-            "github.repository && 'blacksmith-32vcpu-ubuntu-2404' || ")
+            "github.repository && 'ubuntu-24.04' || ")
     good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
     bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
     for text, expected in ((good, True), (bad, False)):

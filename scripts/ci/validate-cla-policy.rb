@@ -17,6 +17,34 @@ require "yaml"
 
 class PolicyError < StandardError; end
 
+# API failures are operational failures, not rejected candidate policy. Only
+# trusted classifications and numeric headers reach diagnostics, never a
+# response body, command stderr, or credentials.
+class APIReadError < PolicyError
+  def initialize(kind, status, reset, detail = nil)
+    super("GitHub API #{kind.tr('_', ' ')} (HTTP #{status || 'unknown'}; " \
+          "rate-limit reset #{reset || 'unavailable'})#{detail ? "; #{detail}" : ''}")
+  end
+end
+
+# One shared retry budget leaves three minutes of the ten-minute job for
+# checkout, token minting, git reads and static policy checks.
+API_RETRY_BUDGET_SECONDS = 420
+API_MAX_ATTEMPTS = 4
+PR_METADATA_QUERY = <<~GRAPHQL.freeze
+  query($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      databaseId nameWithOwner
+      pullRequest(number: $number) {
+        number state baseRefName baseRefOid headRefName headRefOid mergeable
+        potentialMergeCommit { oid }
+        author { ... on User { databaseId } ... on Bot { databaseId } }
+        headRepository { databaseId nameWithOwner }
+      }
+    }
+  }
+GRAPHQL
+
 SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
@@ -63,12 +91,38 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
     manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
     317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
+  ].freeze,
+  # The gate-label successor of the read-token successor (2026-11-20): the
+  # same action and steps; CLAAssistant.runs-on becomes
+  # CLA_GATE_RUNNER_EXPRESSION and its leading runner guard the
+  # CLA_GATE_RUNNER_GUARD_* triple, plus the two comments that describe them.
+  %w[
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+    3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+  ].freeze
+].freeze
+# Reviewed successors that also move the action, as [from action reference,
+# from cla.yml SHA-256, to action reference, to cla.yml SHA-256]. Like a
+# runner successor, each is checked by its exact bytes: the v3 structural
+# checks do not apply. The read-token successor (#42487, 2026-11-13) adds one
+# step that mints a read-only manaflow-glaeda-route App token (contents and
+# pull-requests read, this repository, continue-on-error) and passes it to the
+# 0e326dc action as CLA_READ_TOKEN, which sends only a read that GITHUB_TOKEN's
+# spent budget refused once more on it. Writes stay on GITHUB_TOKEN.
+CLA_ACTION_PINNED_SUCCESSORS = [
+  %w[
+    manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
+    6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
 CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
 CLA_ACTION_BASE_REFS = (
-  CLA_ACTION_LEGACY_REFS + CLA_ACTION_REVIEWED_MAIN_PINS.map(&:first) + [CLA_ACTION_FINAL]
+  CLA_ACTION_LEGACY_REFS + CLA_ACTION_REVIEWED_MAIN_PINS.map(&:first) +
+  CLA_ACTION_PINNED_SUCCESSORS.map { |pin| pin.fetch(2) } + [CLA_ACTION_FINAL]
 ).uniq.freeze
 CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
@@ -84,7 +138,19 @@ CLA_ACTION = CLA_ACTION_FINAL
 CLA_RUNNER = "ubuntu-24.04".freeze
 CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
 CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
-CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION]).freeze
+# The required merge gates' reserved one-job label (cmuxterm-hq gha_runners.py
+# GATE_JIT_LABEL): only the fleet reconciler's JIT VMs serve it, each runs one
+# job and is deleted after it, with no cloud identity, and only the jobs behind
+# main's required checks name it (tests/test_ci_required_gate_label.py). On
+# 2026-11-20 this guard's own required jobs 136180710145 and 136182264409 sat
+# queued with no runner from 08:41Z on GitHub-hosted ubuntu-24.04. The
+# selector is CLA_TRUSTED_RUNNER_EXPRESSION with one literal operand after the
+# fork branch; CI_GATE_SKIP_FLEET=1 skips it and leaves the trusted selector.
+CLA_GATE_LABEL = "cmux-gcp-gate-jit-x64".freeze
+CLA_GATE_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.sub(
+  "'ubuntu-24.04' || ", "'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && '#{CLA_GATE_LABEL}' || "
+).freeze
+CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION, CLA_GATE_RUNNER_EXPRESSION]).freeze
 # The original runner identity guard admits only GitHub-hosted runners. It
 # stays valid so workflows main carries keep passing until they move to the
 # ephemeral guard below.
@@ -139,13 +205,42 @@ CLA_EPHEMERAL_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
   echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
   exit 1
 SH
+# The gate JIT VMs' runner names: the reconciler names each VM and its runner
+# `cmux-gha-runner-gt-<time>-<hex>`. The shared fleet label's VMs are
+# `cmux-gha-runner-<time>-...` and the repair and nightly labels' are
+# `cmux-gha-runner-rp-...` and `-nj-...`, so this prefix admits only gate VMs.
+# As with Blacksmith, runner.name is set at registration (organization admin
+# rights) and catches a misrouted job; the exact runs-on allowlist is the
+# control. The gate triple admits the Blacksmith prefixes too, so the job keeps
+# both fallbacks of the trusted selector after it.
+CLA_GATE_RUNNER_PREFIX = "cmux-gha-runner-gt-".freeze
+CLA_GATE_RUNNER_PREFIXES = (CLA_EPHEMERAL_RUNNER_PREFIXES + [CLA_GATE_RUNNER_PREFIX]).freeze
+CLA_GATE_RUNNER_GUARD_NAME = "Require GitHub-hosted, Blacksmith or gate JIT runner".freeze
+CLA_GATE_RUNNER_GUARD_IF = (
+  "(#{(
+    ["runner.environment != 'github-hosted'"] +
+    CLA_GATE_RUNNER_PREFIXES.map { |prefix| "!startsWith(runner.name, '#{prefix}')" }
+  ).join(' && ')}) || contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}')"
+).freeze
+CLA_GATE_RUNNER_STEP_IF = (
+  "((#{(
+    ["runner.environment == 'github-hosted'"] +
+    CLA_GATE_RUNNER_PREFIXES.map { |prefix| "startsWith(runner.name, '#{prefix}')" }
+  ).join(' || ')}) && !contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}'))"
+).freeze
+CLA_GATE_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  echo "::error::CLA policy requires a GitHub-hosted, Blacksmith or gate JIT runner"
+  exit 1
+SH
 # Each accepted runner identity guard is one exact [name, if, run] triple.
 CLA_RUNNER_GUARD_STEPS = [
   [CLA_HOSTED_RUNNER_GUARD_NAME, CLA_HOSTED_RUNNER_GUARD_IF, CLA_HOSTED_RUNNER_GUARD_RUN].freeze,
-  [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze
+  [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze,
+  [CLA_GATE_RUNNER_GUARD_NAME, CLA_GATE_RUNNER_GUARD_IF, CLA_GATE_RUNNER_GUARD_RUN].freeze
 ].freeze
 # A later privileged step must carry one of these as a top-level AND term.
-CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF].freeze
+CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_GATE_RUNNER_STEP_IF].freeze
 CLA_DOCUMENT_PATH = "CLA.md".freeze
 CLA_DOCUMENT_VERSION = "v2.2".freeze
 CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
@@ -165,7 +260,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "2334f2193cb03ea591f38f193607a36c7d0e12bfbdc9a23753953eb28fb904a5"
+EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -580,19 +675,135 @@ def api_failure_status(stdout, stderr)
   nil
 end
 
-def api_json(repository, endpoint, allow_missing: false)
-  stdout, stderr, status = Open3.capture3(
-    "gh", "api", "--header", "Accept: application/vnd.github+json", endpoint
-  )
-  unless status.success?
-    response_status = api_failure_status(stdout, stderr)
-    return nil if allow_missing && response_status == 404
+def api_monotonic_time
+  Process.clock_gettime(Process::CLOCK_MONOTONIC)
+end
 
-    fail!("GitHub API request failed for #{endpoint}: #{stderr.strip}")
+def api_wall_time
+  Time.now.to_f
+end
+
+def api_sleep(seconds)
+  sleep(seconds)
+end
+
+def api_capture(args)
+  Open3.capture3("gh", "api", "--include", "--header", "Accept: application/vnd.github+json", *args)
+end
+
+def api_numeric_header(headers, name)
+  value = headers[name].to_s
+  value.to_i if value.match?(/\A\d{1,12}\z/)
+end
+
+def api_request_json(args, graphql: false, allow_missing: false, attempt: 0)
+  @cla_api_deadline ||= api_monotonic_time + API_RETRY_BUDGET_SECONDS
+  if api_monotonic_time >= @cla_api_deadline
+    raise APIReadError.new("retry_budget_exhausted", nil, nil)
   end
-  JSON.parse(stdout)
-rescue JSON::ParserError
-  fail!("GitHub API returned malformed JSON for #{endpoint}")
+  stdout, stderr, process_status = api_capture(args)
+  headers = {}
+  body = stdout
+  response_status = stdout[/\AHTTP\/\S+\s+(\d{3})\b/, 1]&.to_i
+  response_status ||= process_status.success? ? 200 : api_failure_status("", stderr)
+  if stdout.start_with?("HTTP/")
+    raw_headers, body = stdout.split(/\r?\n\r?\n/, 2)
+    raw_headers.lines.drop(1).each do |line|
+      key, value = line.split(":", 2)
+      headers[key.downcase] = value.strip if value
+    end
+  end
+  reset = api_numeric_header(headers, "x-ratelimit-reset")
+  return nil if allow_missing && response_status == 404
+
+  malformed = false
+  begin
+    payload = JSON.parse(body.to_s)
+  rescue JSON::ParserError
+    malformed = true
+  end
+  errors = graphql && payload.is_a?(Hash) ? payload["errors"] : nil
+  graphql_failed = errors && errors != []
+  if process_status.success? && response_status.between?(200, 299) && !graphql_failed
+    raise APIReadError.new("malformed_response", response_status, reset) if malformed
+
+    return payload
+  end
+
+  graphql_rate_limit = errors.is_a?(Array) && !errors.empty? && errors.all? do |error|
+    error.is_a?(Hash) && (error["type"] == "RATE_LIMITED" ||
+      (error["extensions"].is_a?(Hash) && error["extensions"]["code"] == "RATE_LIMITED"))
+  end
+  message = payload.is_a?(Hash) ? payload["message"].to_s : ""
+  rate_limit = response_status == 429 || graphql_rate_limit ||
+    (api_numeric_header(headers, "x-ratelimit-remaining") == 0 && reset) ||
+    (response_status == 403 && (api_numeric_header(headers, "x-ratelimit-remaining") == 0 ||
+      message.match?(/rate limit|secondary rate|abuse detection/i)))
+  server_error = response_status && response_status.between?(500, 599)
+  kind = if rate_limit
+           "rate_limit"
+         elsif server_error
+           "server_error"
+         elsif response_status == 403
+           "forbidden"
+         elsif graphql_failed
+           "graphql_error"
+         else
+           "request_failed"
+         end
+  error = APIReadError.new(kind, response_status, reset)
+  raise error unless rate_limit || server_error
+  if attempt + 1 >= API_MAX_ATTEMPTS
+    raise APIReadError.new(kind, response_status, reset, "retry attempts exhausted")
+  end
+
+  delay = server_error ? 2**attempt : 60
+  retry_after = api_numeric_header(headers, "retry-after")
+  if (rate_limit && reset) || retry_after
+    delay = [1, retry_after || 0, rate_limit && reset ? reset + 1 - api_wall_time : 0].max
+    delay = [delay, 2**attempt].max if server_error
+  end
+  if delay >= @cla_api_deadline - api_monotonic_time
+    raise APIReadError.new(kind, response_status, reset, "retry would exceed the job's API budget")
+  end
+  warn "::warning::#{error.message}; retry in #{delay.ceil}s (attempt #{attempt + 2}/#{API_MAX_ATTEMPTS})"
+  api_sleep(delay)
+  api_request_json(args, graphql: graphql, allow_missing: allow_missing, attempt: attempt + 1)
+end
+
+def api_pull_request(repository, number)
+  owner, name = repository.split("/", 2)
+  response = api_request_json(
+    ["graphql", "-f", "query=#{PR_METADATA_QUERY}", "-f", "owner=#{owner}",
+     "-f", "name=#{name}", "-F", "number=#{number}"], graphql: true
+  )
+  data = response.is_a?(Hash) && response["data"]
+  repo = data.is_a?(Hash) && data["repository"]
+  pr = repo.is_a?(Hash) && repo["pullRequest"]
+  raise APIReadError.new("malformed_response", 200, nil) unless pr.is_a?(Hash)
+
+  head_repo = pr["headRepository"]
+  {
+    "number" => pr["number"], "state" => pr["state"].to_s.downcase,
+    "user" => pr["author"].is_a?(Hash) ? { "id" => pr["author"]["databaseId"] } : nil,
+    "base" => { "ref" => pr["baseRefName"], "sha" => pr["baseRefOid"],
+                "repo" => { "id" => repo["databaseId"], "full_name" => repo["nameWithOwner"] } },
+    "head" => { "ref" => pr["headRefName"], "sha" => pr["headRefOid"],
+                "repo" => head_repo.is_a?(Hash) ?
+                  { "id" => head_repo["databaseId"], "full_name" => head_repo["nameWithOwner"] } : nil },
+    "mergeable" => { "MERGEABLE" => true, "CONFLICTING" => false }[pr["mergeable"]],
+    "merge_commit_sha" => pr["potentialMergeCommit"].is_a?(Hash) ? pr["potentialMergeCommit"]["oid"] : nil
+  }
+end
+
+def api_json(repository, endpoint, allow_missing: false)
+  # The ordinary guard's sole API read goes to GraphQL's separate budget.
+  # Preserve the REST-shaped identity data consumed by every trust check.
+  if (match = endpoint.match(/\Arepos\/#{Regexp.escape(repository)}\/pulls\/(\d+)\z/))
+    return api_pull_request(repository, match[1])
+  end
+
+  api_request_json([endpoint], allow_missing: allow_missing)
 end
 
 def review_sort_key(review)
@@ -1177,19 +1388,28 @@ def reviewed_cla_base?(base_ref:, base_workflow_digest:, base_script_digest:, ba
     expected[:helper_digest] == base_script_digest &&
     expected[:helper_path] == base_script_path
 
-  # A landed runner successor is a reviewed single-job base with no helper.
-  base_script_digest.nil? && base_script_path.nil? &&
+  # A landed runner or pinned successor is a reviewed single-job base with no helper.
+  base_script_digest.nil? && base_script_path.nil? && (
     CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, _from_digest, to_digest|
       reference == base_ref && to_digest == base_workflow_digest
+    end ||
+    CLA_ACTION_PINNED_SUCCESSORS.any? do |_from_ref, _from_digest, to_ref, to_digest|
+      to_ref == base_ref && to_digest == base_workflow_digest
     end
+  )
 end
 
 def cla_runner_successor?(base_ref:, candidate_ref:, base_workflow_digest:, candidate_workflow_digest:, base_script_digest:, base_script_path:)
-  base_script_digest.nil? && base_script_path.nil? &&
+  base_script_digest.nil? && base_script_path.nil? && (
     CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, from_digest, to_digest|
       base_ref == reference && candidate_ref == reference &&
         base_workflow_digest == from_digest && candidate_workflow_digest == to_digest
+    end ||
+    CLA_ACTION_PINNED_SUCCESSORS.any? do |from_ref, from_digest, to_ref, to_digest|
+      base_ref == from_ref && candidate_ref == to_ref &&
+        base_workflow_digest == from_digest && candidate_workflow_digest == to_digest
     end
+  )
 end
 
 def legacy_action_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
@@ -1269,6 +1489,7 @@ def run_action_transition_regression_matrix!
   current = CLA_ACTION_CURRENT_BASE_REF
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
+  read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1301,7 +1522,15 @@ def run_action_transition_regression_matrix!
     ["runner successor without candidate bytes", successor_ref, successor_ref, true, successor_from, nil, nil, false],
     ["runner successor from unreviewed bytes", successor_ref, successor_ref, true, "0" * 64, nil, nil, false, successor_to],
     ["runner successor with helper", successor_ref, successor_ref, true, successor_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, successor_to],
-    ["runner successor bytes under previous action", previous, previous, false, successor_to, nil, nil, false]
+    ["runner successor bytes under previous action", previous, previous, false, successor_to, nil, nil, false],
+    ["runner successor to read-token successor", read_from_ref, read_to_ref, true, read_from, nil, nil, true, read_to],
+    ["read-token successor no-op", read_to_ref, read_to_ref, false, read_to, nil, nil, true],
+    ["read-token successor to final", read_to_ref, final, true, read_to, nil, nil, true],
+    ["read-token successor reverted", read_to_ref, read_from_ref, true, read_to, nil, nil, false, read_from],
+    ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
+    ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
+    ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
@@ -1593,12 +1822,20 @@ def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
   # A job that can land on Blacksmith must gate its steps on the ephemeral
   # term: the hosted-only term would silently skip them there and let the
   # check go green without doing its work.
-  accepted = runs_on == CLA_RUNNER ? CLA_RUNNER_STEP_IFS : [CLA_EPHEMERAL_RUNNER_STEP_IF]
+  # A job on the gate selector gates its steps on the gate term, which admits
+  # the gate JIT VMs as well as the selector's fallbacks.
+  accepted = if runs_on == CLA_RUNNER
+    CLA_RUNNER_STEP_IFS
+  elsif runs_on == CLA_GATE_RUNNER_EXPRESSION
+    [CLA_GATE_RUNNER_STEP_IF]
+  else
+    [CLA_EPHEMERAL_RUNNER_STEP_IF]
+  end
   terms = top_level_and_terms(condition)
   fail!("#{name} is not restricted to a GitHub-hosted or Blacksmith runner") unless
     terms &&
     terms.any? { |term| accepted.include?(term) } &&
-    terms.none? { |term| term != CLA_EPHEMERAL_RUNNER_STEP_IF && term.include?("||") }
+    terms.none? { |term| ![CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_GATE_RUNNER_STEP_IF].include?(term) && term.include?("||") }
 end
 
 def assert_hosted_runner_job_steps(job_value, name)
@@ -1737,7 +1974,8 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
     fail!("#{name} has an expression in an unreviewed field") unless
       ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) } ||
       (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME) ||
-      (path.length == 3 && path[0] == "jobs" && path[2] == "runs-on" && value == CLA_TRUSTED_RUNNER_EXPRESSION)
+      (path.length == 3 && path[0] == "jobs" && path[2] == "runs-on" &&
+        [CLA_TRUSTED_RUNNER_EXPRESSION, CLA_GATE_RUNNER_EXPRESSION].include?(value))
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -2086,7 +2324,11 @@ expect_failure.call("App-token layout with write job permissions") do
 end
   # The selector is admitted as an expression only as a job runs-on value.
   assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
-  checks += 1
+  assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_GATE_RUNNER_EXPRESSION } } }, "regression")
+  checks += 2
+  expect_failure.call("gate selector outside runs-on") do
+    assert_safe_expression_fields({ "jobs" => { "a" => { "name" => CLA_GATE_RUNNER_EXPRESSION } } }, "regression")
+  end
   expect_failure.call("selector outside runs-on") do
     assert_safe_expression_fields({ "jobs" => { "a" => { "name" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
   end
@@ -2400,7 +2642,8 @@ def run_runner_regression_matrix!
     "ubuntu-24.04",
     "blacksmith-2vcpu-ubuntu-2404",
     "blacksmith-4vcpu-ubuntu-2404",
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   ]
   fail!("CLA runner allowlist regression failed") unless accepted_runners == CLA_RUNNERS
   cla_jobs.product(accepted_runners).each do |job_name, runner|
@@ -2435,7 +2678,13 @@ def run_runner_regression_matrix!
     "owned runner label" => "glaeda-std-xcode-26.6",
     "label list" => ["self-hosted", "blacksmith-4vcpu-ubuntu-2404"],
     "runner group" => { "group" => "Blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404" },
-    "missing runner" => nil
+    "missing runner" => nil,
+    "gate selector on the shared fleet label" => CLA_GATE_RUNNER_EXPRESSION.sub("'cmux-gcp-gate-jit-x64'", "'cmux-fleet-linux-x64'"),
+    "gate selector on the repair label" => CLA_GATE_RUNNER_EXPRESSION.sub("'cmux-gcp-gate-jit-x64'", "'cmux-gcp-repair-jit-x64'"),
+    "gate selector on a variable" => CLA_GATE_RUNNER_EXPRESSION.sub("'cmux-gcp-gate-jit-x64'", "vars.CI_GATE_RUNNER"),
+    "gate label without its switch" => CLA_GATE_RUNNER_EXPRESSION.sub("vars.CI_GATE_SKIP_FLEET != '1' && ", ""),
+    "gate operand after the selector" => CLA_TRUSTED_RUNNER_EXPRESSION.sub(" }}", " || 'cmux-gcp-gate-jit-x64' }}"),
+    "bare gate label" => "cmux-gcp-gate-jit-x64"
   }
   rejected_runners.each do |name, runner|
     expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
@@ -2507,6 +2756,47 @@ def run_runner_regression_matrix!
     checks += 1
   end
 
+  # The gate triple, written out: the two Blacksmith prefixes plus the gate
+  # JIT VMs' prefix, never the shared fleet label's VMs or an owned host.
+  gate_guard = {
+    "name" => "Require GitHub-hosted, Blacksmith or gate JIT runner",
+    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'cmux-gha-runner-gt-')) || contains(runner.name, 'glaeda')",
+    "run" => "set -euo pipefail\necho \"::error::CLA policy requires a GitHub-hosted, Blacksmith or gate JIT runner\"\nexit 1\n"
+  }
+  fail!("gate runner guard regression failed") unless
+    gate_guard["if"] == CLA_GATE_RUNNER_GUARD_IF &&
+    normalize_run_text(gate_guard["run"]) == CLA_GATE_RUNNER_GUARD_RUN
+  assert_hosted_runner_guard_step(gate_guard, "regression CLA job")
+  checks += 2
+  {
+    "cmux-gha-runner-gt-1120-104616-95d6d8" => true,
+    "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "cmux-gha-runner-1120-104616-95d6d8" => false,
+    "cmux-gha-runner-rp-1120-104616-95d6d8" => false,
+    "cmux-gha-runner-nj-1120-104616-95d6d8" => false,
+    "cmux-gha-runner-gt-glaeda-1" => false,
+    "cmuxs-mac-mini-5-glaeda-1" => false
+  }.each do |runner_name, expected|
+    admitted = CLA_GATE_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
+      !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
+    fail!("gate runner name regression failed for #{runner_name}") unless admitted == expected
+    checks += 1
+  end
+  {
+    "gate guard on the shared fleet prefix" => gate_guard.merge(
+      "if" => CLA_GATE_RUNNER_GUARD_IF.sub("'cmux-gha-runner-gt-'", "'cmux-gha-runner-'")
+    ),
+    "gate guard without the owned-name refusal" => gate_guard.merge(
+      "if" => CLA_GATE_RUNNER_GUARD_IF.sub(" || contains(runner.name, 'glaeda')", "")
+    ),
+    "gate name with the Blacksmith condition" => gate_guard.merge("if" => CLA_EPHEMERAL_RUNNER_GUARD_IF),
+    "Blacksmith name with the gate condition" => gate_guard.merge("name" => CLA_EPHEMERAL_RUNNER_GUARD_NAME),
+    "gate guard shell" => gate_guard.merge("run" => "exit 0")
+  }.each do |name, step|
+    expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
+    checks += 1
+  end
+
   ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) && !contains(runner.name, 'glaeda'))"
   fail!("ephemeral runner step condition regression failed") unless ephemeral_term == CLA_EPHEMERAL_RUNNER_STEP_IF
   [
@@ -2522,11 +2812,22 @@ def run_runner_regression_matrix!
   end
   # Off ubuntu-24.04 only the ephemeral term counts, so a Blacksmith job
   # cannot skip its privileged steps and still report success.
+  gate_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') || startsWith(runner.name, 'cmux-gha-runner-gt-')) && !contains(runner.name, 'glaeda'))"
+  fail!("gate runner step condition regression failed") unless gate_term == CLA_GATE_RUNNER_STEP_IF
   (CLA_RUNNERS - [CLA_RUNNER]).each do |runner|
+    # On the gate selector only the gate term counts: the Blacksmith-only term
+    # would skip the privileged steps on a gate VM and still report success.
+    term = runner == CLA_GATE_RUNNER_EXPRESSION ? gate_term : ephemeral_term
     assert_hosted_runner_step(
-      { "if" => "github.event_name == 'issue_comment' && #{ephemeral_term}" }, "regression CLA action", runs_on: runner
+      { "if" => "github.event_name == 'issue_comment' && #{term}" }, "regression CLA action", runs_on: runner
     )
     checks += 1
+    if runner == CLA_GATE_RUNNER_EXPRESSION
+      expect_policy_error("Blacksmith-only step on the gate selector") do
+        assert_hosted_runner_step({ "if" => ephemeral_term }, "regression CLA action", runs_on: runner)
+      end
+      checks += 1
+    end
     [CLA_HOSTED_RUNNER_STEP_IF, "github.event_name == 'issue_comment' && #{CLA_HOSTED_RUNNER_STEP_IF}"].each do |condition|
       expect_policy_error("hosted-only step on #{runner}") do
         assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: runner)
@@ -3378,6 +3679,9 @@ def validate_guard_script(raw, pr_author_id: nil)
     "CLA_HOSTED_RUNNER_STEP_IF",
     "CLA_RUNNERS",
     "CLA_TRUSTED_RUNNER_EXPRESSION",
+    "CLA_GATE_RUNNER_EXPRESSION",
+    "CLA_GATE_RUNNER_GUARD_IF",
+    "CLA_GATE_RUNNER_STEP_IF",
     "CLA_RUNNER_GUARD_STEPS",
     "CLA_EPHEMERAL_RUNNER_GUARD_IF",
     "CLA_EPHEMERAL_RUNNER_STEP_IF",
@@ -3655,6 +3959,9 @@ begin
     File.binwrite(File.join(candidate_dir, File.basename(head_script_path)), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
+rescue APIReadError => error
+  warn "::error::#{error.message}"
+  exit 1
 rescue PolicyError
   # Candidate-controlled API, YAML, and shell diagnostics must not be copied
   # into a public check annotation. Keep the check deterministic and generic;
