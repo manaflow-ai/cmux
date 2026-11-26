@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
@@ -51,6 +51,7 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
@@ -928,7 +929,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     label: (
       <>
         {label}
-        <span className="ui-menu-shortcut">{key}</span>
+        <span className="ui-menu-shortcut">
+          <KeyHint keys={key} />
+        </span>
       </>
     ),
     onSelect,
