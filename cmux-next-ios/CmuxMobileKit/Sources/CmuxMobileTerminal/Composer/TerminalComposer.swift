@@ -371,8 +371,10 @@ struct TerminalComposer: View {
 
         var errorDescription: String? {
             switch self {
-            case .deadline: "Photos took too long to provide this item."
-            case .unavailable: "Photos could not provide this item."
+            case .deadline:
+                String(localized: "terminal.photos.deadline", defaultValue: "Photos took too long to provide this item.", bundle: .module)
+            case .unavailable:
+                String(localized: "terminal.photos.unavailable", defaultValue: "Photos could not provide this item.", bundle: .module)
             }
         }
     }

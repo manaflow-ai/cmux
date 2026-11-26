@@ -1069,7 +1069,10 @@ public final class TerminalModel {
             } catch {
                 guard !Task.isCancelled, let pick, let model = pick.model else { return }
                 model.removeAttachment(tile.id)
-                model.attachmentError = "Couldn't load \(tile.name) from Photos: \(Self.message(error))"
+                model.attachmentError = String(
+                    format: String(localized: "terminal.photos.loadFailed", defaultValue: "Couldn't load %1$@ from Photos: %2$@", bundle: .module),
+                    tile.name, Self.message(error)
+                )
             }
         }
     }
