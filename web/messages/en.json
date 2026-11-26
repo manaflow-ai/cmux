@@ -4320,6 +4320,7 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
@@ -7408,7 +7409,9 @@
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
+    "backendDevelopment": "the development backend"
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
