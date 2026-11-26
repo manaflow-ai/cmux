@@ -4287,7 +4287,7 @@
           "title": "Customization notices",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "App Theme"
         },
         {
