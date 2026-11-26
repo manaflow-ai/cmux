@@ -8,10 +8,9 @@ import OSLog
 /// Send then links the copy already on the Mac instead of starting the upload: a file picked
 /// while the message is typed is there, or partway there, when Send is tapped.
 ///
-/// Only what a prompt would upload goes early: a file that is not an inline image or an inline
-/// PDF (those travel in the prompt itself). A file taken off the composer before Send cancels
-/// its upload; one that is sent is handed to its prompt (``claim(_:)``), which waits for it and
-/// uploads afresh if the early upload failed.
+/// A Mac with prompt upload support can receive prepared photos before Send. Other files use
+/// the same Mac link as a normal send. Removing a file cancels its transfer. Sending claims
+/// the transfer so clearing the composer leaves the prompt in control of it.
 @MainActor
 final class AttachmentPrestager {
     enum Result: Sendable, Equatable {
@@ -72,7 +71,7 @@ final class AttachmentPrestager {
     private(set) var entries: [String: Entry] = [:]
 
     /// Whether `attachment` goes to the Mac by upload when sent (``AcpmuxSessionSource/promptBlocks``'s
-    /// rule): not an image the prompt carries, not a PDF small enough to go inline, and with bytes here.
+    /// rule), given the connected Mac's support for image references.
     nonisolated static func uploadsAtSend(_ attachment: AgentAttachment, promptUploads: Bool = false) -> Bool {
         if attachment.kind == .image {
             guard promptUploads || attachment.imageMIMEType == nil || attachment.data == nil

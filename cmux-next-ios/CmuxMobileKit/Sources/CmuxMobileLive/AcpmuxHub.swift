@@ -1275,9 +1275,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         try Task.checkCancellation()
         guard promptPayloads[promptID] != nil else { throw CancellationError() }
-        guard let data = attachment.data, let connection = hub.connection else {
-            throw AgentFeatureUnavailable("Connect to the Mac to send this photo.")
+        guard let data = attachment.data else {
+            throw AgentFeatureUnavailable("The photo has no contents to send. Attach it again.")
         }
+        let connection = try await hub.liveConnection()
         let result = try await Self.uploadPrompt(.data(data), name: attachment.name, sessionID: sessionID,
                                                  over: connection, report: report)
         guard case .prompt(let id, let name, let owner) = result else {
@@ -1545,7 +1546,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
-
         composerAttachments = attachments
         let cwd = baseDirectory
         let macName = summary.macName
@@ -1744,7 +1744,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         await report(AgentUploadProgress(name: name, sent: 0, total: size, phase: .opening))
         let begin = try await connection.request("_acpmux/file_put_begin", .object([
             "sessionId": .string(sessionID), "fileName": .string(safeName), "size": .number(Double(size)),
-            "forPrompt": .bool(true),
+            "forPrompt": .bool(true), "source": .string("cmux-ios"),
         ]))
         guard let id = begin["uploadId"]?.stringValue, let owner = begin["ownerToken"]?.stringValue else {
             throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not open the upload.")
@@ -1771,10 +1771,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             }
             try Task.checkCancellation()
             await report(AgentUploadProgress(name: name, sent: size, total: size, phase: .saving))
-            _ = try await connection.request("_acpmux/file_put_finish", .object([
+            let finished = try await connection.request("_acpmux/file_put_finish", .object([
                 "sessionId": .string(sessionID), "uploadId": .string(id), "fileName": .string(fileName),
                 "size": .number(Double(size)), "ownerToken": .string(owner),
             ]))
+            guard finished["uploadId"]?.stringValue == id, finished["size"]?.numberValue == Double(size),
+                  let path = finished["path"]?.stringValue, !path.isEmpty else {
+                throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not confirm the saved attachment.")
+            }
             try Task.checkCancellation()
             return .prompt(uploadID: id, fileName: fileName, ownerToken: owner)
         } catch {

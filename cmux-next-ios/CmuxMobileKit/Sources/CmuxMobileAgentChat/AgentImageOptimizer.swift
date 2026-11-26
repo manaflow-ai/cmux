@@ -31,6 +31,8 @@ enum AgentImageOptimizer {
     /// Returns a smaller, orientation-correct image when ImageIO can decode it.
     /// The original bytes are retained when optimization would not save space.
     static func optimize(_ data: Data) -> Data {
+        // Chat image blocks accept only the formats the attachment model can label.
+        // Unsupported but decodable files are normalized even when the copy grows.
         let needsAcceptedFormat = AgentAttachment(kind: .image, name: "image", data: data).imageMIMEType == nil
         return AttachmentImageEncoder.encode(data, allowLargerCopy: needsAcceptedFormat)?.data ?? data
     }
