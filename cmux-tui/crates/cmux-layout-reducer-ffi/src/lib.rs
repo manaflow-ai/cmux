@@ -53,6 +53,8 @@
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -98,7 +100,9 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod notification_rings;
 mod pane_focus;
+mod pane_placement;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -107,6 +111,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
 mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
@@ -300,6 +305,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_nav" => {
                 use cmux_layout_reducer::sidebar_nav;
                 let request: sidebar_nav::Request =
@@ -368,6 +380,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: capability::AnswerRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
@@ -625,9 +644,16 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
+            }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
