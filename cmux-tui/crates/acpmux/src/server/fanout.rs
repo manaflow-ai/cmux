@@ -112,6 +112,11 @@ pub(super) fn start(
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
+    // A peer daemon linked here (its peer token) hears each change to the synced replica: it
+    // added this daemon and this daemon never added it, so a push from here has nowhere to go
+    // (`hub/synced.rs`, `SYNC_CHANGED`).
+    let mut synced = hub.synced().subscribe();
+    let hears_synced = conn.origin == super::Origin::Peer && conn.auth.peer_daemon();
     tokio::spawn(async move {
         loop {
             let rows_due = conn.held_rows.due();
@@ -190,6 +195,10 @@ pub(super) fn start(
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
                     }
+                    continue;
+                }
+                Ok(()) = synced.changed(), if hears_synced => {
+                    conn.send(&Message::notification(crate::hub::synced::SYNC_CHANGED, json!({})));
                     continue;
                 }
                 changed = inventory.changed() => {

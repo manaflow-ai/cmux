@@ -1215,6 +1215,11 @@ impl Hub {
                         self.trim_closed_peer_rows(&peer, generation);
                     }
                 }
+                // The peer's synced replica changed (`hub/synced.rs`): pull what this one lacks.
+                // A link this daemon added is the only way the peer reaches it.
+                PeerNotice::Notification { method: m, .. } if m == super::synced::SYNC_CHANGED => {
+                    self.synced_on_connect(&peer, generation);
+                }
                 // A channel this daemon opened on the peer: its bytes and its end
                 // (`server/channels.rs`).
                 PeerNotice::Notification { method: m, params, .. }

@@ -14,6 +14,12 @@
 //! cross on reconnect (`exchange`), and a later local edit goes straight to every peer it has
 //! exchanged with.
 //!
+//! A link is one way: the Mac adds the VM, the VM adds nobody, so the VM has exchanged with no
+//! one and has nobody to push to. Instead every change to its replica tells each peer daemon
+//! linked to it (`SYNC_CHANGED`, on that connection, `server/fanout.rs`), and that daemon
+//! exchanges again (`Hub::synced_on_connect`); pokes that come while an exchange runs make one
+//! more, so a burst of edits costs a few exchanges and the last one always crosses.
+//!
 //! Leo, 2026-11-24: "we absolutely need to rfd and stripmine those types of things and other
 //! actually incredible feats of engineering and sync-up".
 //!
@@ -40,6 +46,10 @@ const FILE: &str = "synced-state.json";
 const PENDING_FILE: &str = "synced-pending.json";
 /// Entries one push may carry: a client cannot hand the daemon an unbounded merge.
 const MAX_PUSH_ENTRIES: usize = 10_000;
+
+/// To a peer daemon's connection here: this replica changed, pull what you lack. No params; a
+/// daemon that does not know it ignores it (a notice with no `sessionId`, `hub/peers.rs`).
+pub const SYNC_CHANGED: &str = "_acpmux/sync/changed";
 
 /// A key's meaning, for applying a winning remote edit to the chat it names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +124,11 @@ pub struct Synced {
     /// Each peer daemon's vector as of the last exchange with it: a later local edit is pushed
     /// to it from there (`Hub::synced_tell_peers`).
     peers: StdMutex<HashMap<String, Vv>>,
+    /// Bumped at each change to the replica, a local edit or a merged winner: each peer daemon's
+    /// connection here hears it (`SYNC_CHANGED`).
+    changes: tokio::sync::watch::Sender<u64>,
+    /// The peers an exchange runs with now, each with whether another was asked meanwhile.
+    exchanging: StdMutex<HashMap<String, bool>>,
 }
 
 impl Synced {
@@ -135,6 +150,47 @@ impl Synced {
             save: StdMutex::new(()),
             pending: StdMutex::new(pending),
             peers: StdMutex::new(HashMap::new()),
+            changes: tokio::sync::watch::channel(0).0,
+            exchanging: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    /// Each change to the replica from now on (`changes`).
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    fn changed(&self) {
+        self.changes.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// An exchange with `peer` may start now; false when one runs, which then goes once more.
+    fn exchange_starts(&self, peer: &str) -> bool {
+        let mut running = self.exchanging.lock().unwrap_or_else(|e| e.into_inner());
+        match running.get_mut(peer) {
+            Some(again) => {
+                *again = true;
+                false
+            }
+            None => {
+                running.insert(peer.to_owned(), false);
+                true
+            }
+        }
+    }
+
+    /// The exchange with `peer` ended: true when another was asked meanwhile (it runs now).
+    fn exchange_again(&self, peer: &str) -> bool {
+        let mut running = self.exchanging.lock().unwrap_or_else(|e| e.into_inner());
+        match running.get_mut(peer) {
+            Some(again) if *again => {
+                *again = false;
+                true
+            }
+            _ => {
+                running.remove(peer);
+                false
+            }
         }
     }
 
@@ -229,6 +285,7 @@ impl Synced {
         };
         if wrote {
             self.persist();
+            self.changed();
         }
         wrote
     }
@@ -256,6 +313,9 @@ impl Synced {
         };
         if !changed.is_empty() || !gap {
             self.persist();
+        }
+        if !changed.is_empty() {
+            self.changed();
         }
         (changed, gap, vv)
     }
@@ -520,20 +580,36 @@ impl Hub {
         serde_json::from_value(done.vv).map_err(|e| bad("vv", e))
     }
 
-    /// Peer `peer`'s link came up: exchange with it in the background.
+    /// Peer `peer`'s link came up, or its replica changed (`SYNC_CHANGED`): exchange with it in
+    /// the background. One exchange per peer at a time; one asked meanwhile runs after it, on the
+    /// link there is then.
     pub(super) fn synced_on_connect(&self, peer: &str, generation: u64) {
         let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
-        let Some(link) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+        if self.peer(peer).is_none_or(|p| p.generation != generation) {
+            return;
+        }
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        if !self.synced().exchange_starts(peer) {
+            return;
+        }
         let name = peer.to_owned();
         rt.spawn(async move {
-            let call = |m: &'static str, params: Value| {
-                let link = link.clone();
-                async move { link.request(m, params).await }
-            };
-            match hub.synced_exchange(&name, call).await {
-                Ok(()) => tracing::debug!(peer = %name, "synced state exchanged"),
-                Err(e) => tracing::debug!(peer = %name, error = ?e, "synced state not exchanged"),
+            loop {
+                let Some(link) = hub.peer(&name) else {
+                    hub.synced().exchange_again(&name);
+                    break;
+                };
+                let call = |m: &'static str, params: Value| {
+                    let link = link.clone();
+                    async move { link.request(m, params).await }
+                };
+                match hub.synced_exchange(&name, call).await {
+                    Ok(()) => tracing::debug!(peer = %name, "synced state exchanged"),
+                    Err(e) => tracing::debug!(peer = %name, error = ?e, "synced state not exchanged"),
+                }
+                if !hub.synced().exchange_again(&name) {
+                    break;
+                }
             }
         });
     }
