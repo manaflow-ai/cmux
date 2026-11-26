@@ -797,6 +797,7 @@ try {
       unit: "count",
       target: 0,
       floor: 0.5,
+      ...(quiet.sources.length ? { sources: quiet.sources } : {}),
     });
     if (quiet.cpuMs !== null)
       perfRow({
@@ -824,6 +825,7 @@ try {
         unit: "count",
         target: 0,
         floor: 0.5,
+        ...(steady.sources.length ? { sources: steady.sources } : {}),
       });
     }
   }
