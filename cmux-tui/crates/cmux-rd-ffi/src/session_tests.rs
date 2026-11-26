@@ -545,3 +545,57 @@ fn the_stage_ledger_joins_host_times_with_decode_and_present_notes() {
     assert!(p50("Network").is_null());
     assert!(p50("Total").is_null());
 }
+
+/// The session report through the C ABI: connect start to the first frame on
+/// glass, and Present over every presented frame; Total waits for a clock
+/// offset, as in the ledger.
+#[test]
+fn the_session_report_counts_first_frame_from_connect_and_present_per_frame() {
+    use cmux_rd_proto::FrameTimes;
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    // SAFETY: live session.
+    unsafe {
+        assert_eq!(cmux_rd_session_note_connect_started(s.0, 2_000), CMUX_RD_OK);
+        assert_eq!(
+            cmux_rd_session_note_connect_started(s.0, 5_000),
+            CMUX_RD_OK,
+            "the first call counts"
+        );
+    }
+    for d in frames(0, 1, 3_000) {
+        assert!(push(&s, &d, 10_000) >= 0);
+    }
+    let times = FrameTimes {
+        display_us: 1_000,
+        encode_start_us: 3_000,
+        encoded_us: 6_000,
+        first_sent_us: 6_100,
+        last_sent_us: 9_000,
+    };
+    assert!(push(&s, &times.datagram(0, 1), 10_100) >= 0);
+    assert_eq!(pop_all(&s).len(), 1);
+    // SAFETY: live session.
+    unsafe {
+        assert_eq!(cmux_rd_session_note_frame_decoded(s.0, 0, 1, 2_000, 12_000), CMUX_RD_OK);
+        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 0, 1, 20_000), CMUX_RD_OK);
+    }
+    let mut len = 0usize;
+    // SAFETY: live session; a zero-capacity buffer only reports the size.
+    assert_eq!(
+        unsafe { cmux_rd_session_report(s.0, std::ptr::null_mut(), 0, &mut len) },
+        CMUX_RD_ERR_BUFFER
+    );
+    let mut buf = vec![0u8; len];
+    // SAFETY: live session, writable buffer of `len` bytes.
+    assert_eq!(
+        unsafe { cmux_rd_session_report(s.0, buf.as_mut_ptr(), buf.len(), &mut len) },
+        CMUX_RD_OK
+    );
+    let v: serde_json::Value = serde_json::from_slice(&buf[..len]).expect("json");
+    assert_eq!(v["schema"], "cmux.rd-session-report/1");
+    assert_eq!(v["first_frame_ms"], 18.0);
+    assert_eq!(v["frames_presented"], 1);
+    assert_eq!(v["present"]["n"], 1);
+    assert_eq!(v["present"]["p95_ms"], 8.0);
+    assert!(v["total"].is_null(), "no clock offset yet");
+}
