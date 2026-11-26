@@ -23,7 +23,11 @@ EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
 # The early controls decide no longer places: the two that read the routing App key stay on the
 # reservation pool, the two that hold no key take cmux-linux.
 RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner")
-LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper")
+LINUX_CONTROLS = ("resolve-nightly-ghostty-cli-helper",)
+# RFD 0021 route by need (#53861): the essential one takes the nightly's reserved Linux label on a first push,
+# schedule or dispatch attempt and cmux-linux on a rerun (tests/test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS).
+PINNED_LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client",)
+PINNED_LINUX = "cmux-gcp-nightly-x64"
 VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
@@ -78,7 +82,11 @@ class DedicatedMini(unittest.TestCase):
             for job in LINUX_CONTROLS:
                 with self.subTest(job=job, changes=changes):
                     self.assertEqual(selected(job, context(**changes)), "cmux-linux")
-        for job in RESERVED_CONTROLS + LINUX_CONTROLS:
+            for job in PINNED_LINUX_CONTROLS:
+                with self.subTest(job=job, changes=changes):
+                    first = context(**changes)["github.run_attempt"] == 1
+                    self.assertEqual(selected(job, context(**changes)), PINNED_LINUX if first else "cmux-linux")
+        for job in RESERVED_CONTROLS + LINUX_CONTROLS + PINNED_LINUX_CONTROLS:
             with self.subTest(job=job, fork=True):
                 self.assertEqual(selected(job, context(**{"github.repository": "other/cmux",
                                                           "github.repository_owner": "other"})), "ubuntu-24.04")
