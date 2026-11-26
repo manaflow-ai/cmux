@@ -365,6 +365,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -459,7 +460,7 @@ jobs:
     # No environment and no secrets: this job runs the app's diff sidecar.
     needs: [sign, runner, sign-blacksmith]
     if: ${{ !cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && (needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || vars.CI_OVERFLOW_MAC || 'cmux-mac') }}
     timeout-minutes: 15
     permissions:
       contents: read

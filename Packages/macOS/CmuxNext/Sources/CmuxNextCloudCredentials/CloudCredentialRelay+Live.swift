@@ -12,6 +12,7 @@ public nonisolated extension CloudCredentialRelay {
                      carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) -> CloudCredentialRelay {
         let transport = InstallHTTPTransport(baseURL: baseURL, buildSpace: buildSpace)
         let headers = identity.requestHeaders
+        let backendOrigin = CloudCredentialRelay.normalizedOrigin(baseURL.absoluteString)
         return CloudCredentialRelay(
             // The person's pre-approval rides on every call (cmux-platform#1126); none held, the server checks in full.
             post: { path, body, bearer in
@@ -28,12 +29,14 @@ public nonisolated extension CloudCredentialRelay {
                 guard await signedIn() else { return Session(signedIn: false, team: nil) }
                 // Bill the install token's backend team, never the Stack team ID.
                 let token = try? await identity.installToken()
-                return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
+                return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)), backend: backendOrigin)
             },
             // The relay's own checks never mint: a relayed op mints once, in its `token` step.
             signedIn: signedIn,
             allowedOps: allowedOps,
-            carrierSocket: carrierSocket)
+            carrierSocket: carrierSocket,
+            backendOrigin: backendOrigin,
+            tokenTeam: MacInstallIdentity.team(ofToken:))
     }
 }
 

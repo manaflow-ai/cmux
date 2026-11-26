@@ -203,27 +203,64 @@ PY
 
 # busy N: N busy loops in the background; prints their pids.
 busy() { local i; for ((i = 0; i < $1; i++)); do ( while :; do :; done ) >/dev/null 2>&1 & echo $!; done; }
+# checkers_quiet: until syspolicyd, XprotectService, amfid and trustd spend no CPU over 0.5 s (a new copy's
+# scan or the last exec's check has ended), at most 20 s; past that the rows carry what they spent.
+checkers_quiet() {
+  local i a b
+  b="$(checker_cpu)"
+  for ((i = 0; i < 40; i++)); do
+    sleep 0.5; a="$b"; b="$(checker_cpu)"
+    [[ "$a" == "$b" ]] && return 0
+  done
+  echo "FX checkers still busy 20 s on: $b" >&2
+}
+# spinning PID...: until each busy loop has run on a CPU (its CPU time is over 0), at most 5 s.
+spinning() {
+  local i p ok
+  for ((i = 0; i < 50; i++)); do
+    ok=1
+    for p in "$@"; do
+      ps -o time= -p "$p" 2>/dev/null | awk '{ k = split($1, t, ":"); s = 0; for (j = 1; j <= k; j++) s = s * 60 + t[j]; exit !(s > 0) }' || { ok=0; break; }
+    done
+    (( ok )) && return 0
+    sleep 0.1
+  done
+  echo "FX the load's busy loops never ran within 5 s" >&2
+}
+# gone PID...: until none of PIDS runs, at most 10 s.
+gone() {
+  local i
+  for ((i = 0; i < 100; i++)); do
+    ps -p "$(IFS=,; echo "$*")" >/dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+  echo "FX pids $* still running 10 s after their kill" >&2
+}
 
 # run_arm ARM REP: a new copy of ARM's master, its first exec measured, then its second; the copy deleted.
 run_arm() {
-  local arm="$1" rep="$2" tag="$1-$2" master app line cpu_before cpu_after rc=0 hogs="" trace_pid="" t0 helper_line=""
+  local arm="$1" rep="$2" tag="$1-$2" master app line cpu_before cpu_after rc=0 hogs="" trace_pid="" t0 helper_line="" i
   case "$arm" in load|helper) master="$OUT/masters/devid/$NAME" ;; *) master="$OUT/masters/$arm/$NAME" ;; esac
   [[ -d "$master" ]] || { echo "FX-RUN {\"arm\": \"$arm\", \"rep\": \"$rep\", \"error\": \"no master\"}"; return 1; }
   mkdir -p "$OUT/copy-$tag" "$OUT/home-$tag" && chmod 0777 "$OUT/home-$tag"
   app="$OUT/copy-$tag/$NAME"
   ditto "$master" "$app" || return 1
-  sync; sleep 2
+  sync; checkers_quiet
   fresh_keychain "$OUT/home-$tag/h" || true
   if [[ "$rep" == T ]]; then
     if sudo -n -l /usr/bin/fs_usage >/dev/null 2>&1; then
       # shellcheck disable=SC2024
       sudo -n /usr/bin/fs_usage -w -t 40 -f filesys >"$OUT/fs-$tag.txt" 2>&1 &
-      trace_pid=$!; sleep 1
+      trace_pid=$!
+      # Until fs_usage is tracing (its first line out), at most 5 s.
+      for ((i = 0; i < 50; i++)); do [[ -s "$OUT/fs-$tag.txt" ]] && break; sleep 0.1; done
+      [[ -s "$OUT/fs-$tag.txt" ]] || echo "FX fs_usage wrote nothing in 5 s" >&2
     fi
     t0="$(date '+%Y-%m-%d %H:%M:%S')"
   fi
   cpu_before="$(checker_cpu)"
-  [[ "$arm" == load ]] && hogs="$(busy "$(sysctl -n hw.ncpu)")" && sleep 1
+  # shellcheck disable=SC2086
+  [[ "$arm" == load ]] && hogs="$(busy "$(sysctl -n hw.ncpu)")" && spinning $hogs
   if [[ "$arm" == helper ]]; then
     local h
     h="$(find "$app/Contents/Frameworks" -maxdepth 1 -name '* Helper*.app' | while read -r d; do
@@ -241,13 +278,13 @@ run_arm() {
   [[ "$rep" == T ]] && log show --start "$t0" --style compact \
     --predicate 'process == "syspolicyd" OR process == "XprotectService" OR process == "amfid" OR sender == "AppleSystemPolicy" OR sender == "AppleMobileFileIntegrity"' \
     >"$OUT/log-$tag.txt" 2>&1
-  sleep 2
+  checkers_quiet
   cpu_before="$(checker_cpu)"
   line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
   record_fx "$arm" "$rep" second "${line:-$NORESULT}" "$cpu_before" "$(checker_cpu)"
   rm -f "$OUT/hold-$tag"
   local pids; pids="$(ps -axo pid=,command= | FX_COPY="$OUT/copy-$tag/" awk 'index($0, ENVIRON["FX_COPY"]) { print $1 }')"
-  [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; sleep 1; }
+  [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; gone $pids; }
   rm -rf "$OUT/copy-$tag" "$OUT/home-$tag"
   return $rc
 }

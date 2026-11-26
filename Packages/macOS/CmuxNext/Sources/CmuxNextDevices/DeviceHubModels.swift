@@ -43,12 +43,19 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
     public var online: Bool
+    /// The hub's id of the physical machine, per account (PROTOCOL.md, One record per machine):
+    /// records with one `machineId` are one device. Nil for a record registered without a `machineKey`.
+    public var machineId: String?
+    /// The app install whose identity the record is (the macOS bundle id), when it sent one.
+    public var appId: String?
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
+                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false,
+                machineId: String? = nil, appId: String? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
+        self.machineId = machineId; self.appId = appId
     }
 
     /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
@@ -66,7 +73,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
+        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online, machineId, appId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -80,6 +87,8 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)
         online = c.flag(.online)
+        machineId = c.lenient(String.self, .machineId).flatMap { $0.isEmpty ? nil : $0 }
+        appId = c.lenient(String.self, .appId)
     }
 }
 
@@ -263,6 +272,33 @@ public struct HubMe: Codable, Sendable, Equatable {
         userId = try c.decode(String.self, forKey: .userId)
         plan = c.lenient(DevicePlan.self, .plan) ?? .free
         device = c.lenient(HubDevice.self, .device)
+    }
+}
+
+/// The account's settings (`GET /v1/settings`): one value per account, read by every device.
+public struct HubAccountSettings: Codable, Sendable, Equatable {
+    /// "My agents can turn screen sharing and control on my machines" (off unless a person turned it on).
+    public var agentsMayShare: Bool
+
+    public init(agentsMayShare: Bool) {
+        self.agentsMayShare = agentsMayShare
+    }
+
+    enum CodingKeys: String, CodingKey { case agentsMayShare }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agentsMayShare = c.flag(.agentsMayShare)
+    }
+}
+
+/// The owner's agent session behind a sharing change (the hub's audit detail).
+public struct HubAgentActor: Codable, Sendable, Equatable {
+    public var session: String
+    public var device: String
+
+    public init(session: String, device: String) {
+        self.session = session; self.device = device
     }
 }
 

@@ -1,4 +1,5 @@
 @testable import CmuxNextHangReports
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -67,6 +68,26 @@ struct HangReportCollectorTests {
         let merged = collector.drain()
         #expect(merged.histogram == [HistogramBucket(lowMs: 50, highMs: 100, count: 2)])
         #expect(merged.stalls.count == 1)
+    }
+
+    /// hq#18810: the main thread hung 2.0 s starting a resolution task at a stall's end, one task per
+    /// sampled stall. A burst of sampled stalls now starts one job (before: 9 for these 9 stalls).
+    @Test func aBurstOfStallsStartsOneResolutionJob() {
+        let jobs = Mutex<[@Sendable () -> Void]>([])
+        let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { job in jobs.withLock { $0.append(job) } })
+        collector.setEnabled(true)
+        for ms in [300, 310, 320, 330, 340, 350, 360, 370, 380] {
+            collector.noteStall(durationNanos: Self.nanos(ms), cpuNanos: 0, addresses: [1])
+        }
+        #expect(jobs.withLock { $0.count } == 1)
+        jobs.withLock { $0.removeFirst() }()
+        #expect(collector.snapshot().stalls.count == 8, "the one job resolves every waiting stall")
+        // It schedules one follow-up, which finds nothing and ends the run.
+        #expect(jobs.withLock { $0.count } == 1)
+        jobs.withLock { $0.removeFirst() }()
+        #expect(jobs.withLock { $0.isEmpty })
+        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1])
+        #expect(jobs.withLock { $0.count } == 1, "a stall after the job ended starts the next")
     }
 
     @Test func coarseCountsAreBuckets() {

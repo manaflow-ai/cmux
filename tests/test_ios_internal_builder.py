@@ -181,6 +181,41 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(decision.build)
         self.assertIn("submittable build run 4", decision.reason)
 
+    def test_does_not_replace_a_waiting_yolo_build(self):
+        waiting = dict(run(B, status="pending", conclusion=None, minutes_ago=1, run_id=4), yolo=True)
+        decision = self.plan(runs=[waiting, run(A, status="in_progress", conclusion=None, minutes_ago=5 * 60, run_id=3),
+                                   run(A, minutes_ago=6 * 60, run_id=2)])
+        self.assertFalse(decision.build)
+        self.assertIn("YOLO build run 4", decision.reason)
+
+    def test_a_yolo_upload_is_never_the_nightly_base(self):
+        decision = self.plan(runs=[dict(run(B, minutes_ago=4 * 60, run_id=3), yolo=True),
+                                   run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+        self.assertEqual(decision.base, A)
+
+    def test_a_yolo_upload_counts_for_the_upload_gap(self):
+        decision = self.plan(runs=[dict(run(B, minutes_ago=20, run_id=3), yolo=True),
+                                   run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertFalse(decision.build)
+        self.assertIn("run 3", decision.reason)
+
+    def test_failed_yolo_builds_do_not_back_off_the_nightly(self):
+        failures = [dict(run(B, conclusion="failure", minutes_ago=10 + i, run_id=10 - i), yolo=True) for i in range(3)]
+        decision = self.plan(runs=[*failures, run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+        self.assertEqual(decision.base, A)
+
+    def test_marks_runs_whose_sha_is_a_yolo_stack(self):
+        runs = ib.mark_yolo([{"sha": A}, {"sha": B}], {B})
+        self.assertEqual([r["yolo"] for r in runs], [False, True])
+
+    def test_reads_yolo_stack_tips(self):
+        refs = json.dumps([{"ref": "refs/heads/ios-yolo/20261123T1030Z-1", "object": {"sha": B, "type": "commit"}}])
+        self.assertEqual(ib.yolo_shas(runner=FakeGh((0, refs, "")), sleep=lambda _s: None), {B})
+        self.assertEqual(ib.yolo_shas(runner=FakeGh((1, "", "gh: Not Found (HTTP 404)")), sleep=lambda _s: None),
+                         set())
+
     def test_a_running_submittable_build_does_not_hold_the_next_head(self):
         running = dict(run(B, status="in_progress", conclusion=None, minutes_ago=3 * 60 + 5, run_id=3), submittable=True)
         decision = self.plan(runs=[running, run(A, run_id=2)])
@@ -201,16 +236,25 @@ class PlanTests(unittest.TestCase):
 
     def test_one_upload_per_gap(self):
         """2026-11-22: eight cmux INTERNAL uploads in five hours, one App Store Connect email each."""
-        recent = self.plan(runs=[run(A, minutes_ago=60, run_id=2)])
+        recent = self.plan(runs=[run(A, minutes_ago=20, run_id=2)])
         self.assertFalse(recent.build)
         self.assertIn("next upload waits until", recent.reason)
         in_flight = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
         self.assertFalse(in_flight.build)
-        self.assertTrue(self.plan(runs=[run(A, minutes_ago=3 * 60, run_id=2)]).build)
+        self.assertTrue(self.plan(runs=[run(A, minutes_ago=30, run_id=2)]).build)
         # A person's dispatch skips the gap.
         self.assertTrue(self.plan(runs=[run(A, minutes_ago=60, run_id=2)], force=True).build)
         # A failure does not start the gap.
         self.assertTrue(self.plan(runs=[run(B, conclusion="failure", minutes_ago=30, run_id=3), run(A, run_id=2)]).build)
+
+    def test_a_head_merged_during_a_build_queues_behind_it_not_hours_later(self):
+        """2026-11-25: the 3 h gap held the next head until 22:04Z after 8c8416506ba1 built at 19:04Z (uploaded
+        20:09Z); Leo: "Why are these iPhone builds still so slow and unverified?" A build past the gap lets the next
+        iOS head dispatch, so it waits in the concurrency group and starts as the running one ends."""
+        running = run(B, status="in_progress", conclusion=None, minutes_ago=35, run_id=3)
+        decision = self.plan(runs=[running, run(A, minutes_ago=4 * 60, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+        self.assertLess(ib.MIN_UPLOAD_GAP, dt.timedelta(hours=1))
 
     def test_base_is_the_newest_success(self):
         decision = self.plan(runs=[run(B, conclusion="failure", run_id=3), run(A, minutes_ago=120, run_id=2)])
@@ -607,6 +651,35 @@ class GitHubApiTests(CapturedOutput):
                       self.out.getvalue())
         self.assertIn("skip: GitHub API rate-limited or down", self.out.getvalue())
 
+    def test_a_spent_quota_reads_again_on_the_fallback_token_and_plans(self):
+        """2026-11-25 21:35Z and 21:38Z: the shared GITHUB_TOKEN quota was spent and two decides in a row
+        skipped. A rate limit on GH_TOKEN now reads again on GH_FALLBACK_TOKEN and the plan goes on."""
+        seen = []
+
+        def gh(argv, **kw):
+            seen.append(os.environ.get("GH_TOKEN"))
+            if os.environ.get("GH_TOKEN") == "app":
+                return subprocess.CompletedProcess(argv, *RATE_LIMITED)
+            return subprocess.CompletedProcess(argv, 0, RUNS_JSON if "runs" in argv[-1] else "[]", "")
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.object(ib, "builder_tip", return_value=None), \
+                mock.patch.object(ib, "changed_files", return_value=["cmux-next-ios/App/A.swift"]), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
+            code = ib.cmd_plan(B, ".", runner=gh, sleep=lambda _s: None)
+        self.assertEqual(code, 0)
+        self.assertIn("app", seen)
+        self.assertIn("wf", seen)
+        self.assertIn("reading again with GH_FALLBACK_TOKEN", self.out.getvalue())
+        self.assertNotIn("skip: GitHub API rate-limited", self.out.getvalue())
+
+    def test_both_tokens_spent_is_an_error_annotation(self):
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
+            ib.cmd_plan(A, ".", runner=FakeGh(RATE_LIMITED), sleep=lambda _s: None)
+        self.assertIn("::error title=cmux INTERNAL trigger blind::", self.out.getvalue())
+
     def test_other_api_errors_still_fail(self):
         gh = FakeGh((1, "", "gh: Resource not accessible by integration (HTTP 403)"))
         with self.assertRaises(subprocess.CalledProcessError):
@@ -651,6 +724,7 @@ class PackagesLiveInTheAppTests(unittest.TestCase):
             out = Path(tmp) / "out"
             out.write_text("")
             with mock.patch.object(ib, "builder_runs", return_value=[]), \
+                    mock.patch.object(ib, "yolo_shas", return_value=set()), \
                     mock.patch.object(ib, "builder_has_script", return_value=True), \
                     mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
                 code = ib.cmd_plan(head, str(work))
@@ -668,11 +742,9 @@ class TriggerRunnerTests(unittest.TestCase):
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
-        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        # It holds a write token, so it reads only the ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+        # The one cmux-linux label (cmux#48644), never a pool variable.
         self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""

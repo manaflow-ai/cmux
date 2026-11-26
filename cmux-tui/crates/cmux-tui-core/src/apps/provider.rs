@@ -58,7 +58,6 @@ pub const FAMILIES: &[&str] = &[
     "integration",
     "team",
     "app",
-    "coderouter",
     // Session-host-owned agent environment operations. A host must still
     // register this family through the verified app/provider boundary.
     "agent_cli",
@@ -75,6 +74,10 @@ pub const FAMILIES: &[&str] = &[
     // `page.follow`): reader-mode extraction and link hints, run as page
     // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
     "page",
+    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
+    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
+    // `media.changed` subscribers when it changes.
+    "media",
     // The person's system calendar on the Mac (`system_calendar.events`,
     // `system_calendar.request_access`), read through EventKit in the Mac app, which
     // holds the calendar permission; the daemon has none. Not `calendar.*`,
@@ -89,6 +92,8 @@ const WAITS_FOR_USER: &[&str] = &["fs.pick", system_calendar::REQUEST_ACCESS];
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
 /// Calls one provider may have outstanding across every app.
+/// Measured: the cmux app's bounded control queue; 64 × MAX_PARAMS_BYTES (64 KiB) is at most
+/// 4 MiB of params untrusted apps can hold queued there.
 pub(super) const MAX_OUTSTANDING: usize = 64;
 
 /// Who waits for a provider call's answer.

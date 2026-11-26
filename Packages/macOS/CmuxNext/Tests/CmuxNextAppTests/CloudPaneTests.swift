@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
@@ -123,6 +124,33 @@ struct CloudPaneTests {
         #expect(provider.watcherCount == 0)
     }
 
+    /// New-user journeys, 2026-11-23: a failed renewal was invisible on the Mac. The page's
+    /// `cmux.cloud.billing.status` is the app's own read of cmux.com (never the Cloud app server);
+    /// signed out (no client) it answers false, and it serves no other op.
+    @Test func billingStatusSignedOutIsNotPastDue() async throws {
+        let provider = BillingStatusPageProvider { nil }
+        let answer = try await provider.call(BillingStatusPageProvider.op, params: [:], context: Self.page)
+        #expect(answer["payment_past_due"]?.boolValue == false)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.cloud.plan.get", params: [:], context: Self.page)
+        }
+    }
+
+    @Test func onlyAJSONTrueOfPaymentPastDueIsAFailedPayment() {
+        let read = { (text: String) in BillingStatusPageProvider.paymentPastDue(planReply: Data(text.utf8)) }
+        #expect(read(#"{"isPro":true,"paymentPastDue":true}"#))
+        #expect(!read(#"{"isPro":true,"paymentPastDue":false}"#))
+        #expect(!read(#"{"isPro":true}"#))
+        #expect(!read(#"{"paymentPastDue":"true"}"#))
+        #expect(!read(#"{"paymentPastDue":null}"#))
+        #expect(!read("not json"))
+        #expect(!read(""))
+    }
+
+    @Test func theCloudPageMayRunManageBilling() {
+        #expect(PageDescriptor.cloud.actions.contains("billing.openPortal"))
+    }
+
     @Test func aServerRefusalIsThePagesErrorWithTheSameCode() async throws {
         let server = Server(answers: [:])
         await server.fail(with: CloudAppOpFailure(code: "cmux.cloud.quota_exceeded", message: "limit reached",
@@ -149,6 +177,21 @@ struct CloudPaneTests {
         } catch let error as PageError {
             #expect(error.code == "cmux.protocol.transport")
             #expect(error.retryable)
+        }
+    }
+
+    /// The Cloud app server's `retryable` (a backend blip, `owner.unreachable`, a busy relay) reaches the
+    /// page, which reads again quietly before it shows the error; a final refusal stays final.
+    @Test(arguments: [true, false])
+    func aServerRefusalKeepsItsRetryable(retryable: Bool) async throws {
+        let server = Server(answers: [:])
+        await server.fail(with: CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "busy", retryable: retryable))
+        do {
+            _ = try await Self.provider(server).call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+            Issue.record("a refused read answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.cloud.upstream_error")
+            #expect(error.retryable == retryable)
         }
     }
 

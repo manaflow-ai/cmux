@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "about": "Startup JS budget per shipped web entry point, checked by scripts/cmux-next/web-entry-js.mjs: the bytes of JavaScript a page parses before first paint (its script tags, modulepreloads and their static imports; a dynamic import() is lazy and not counted). Caps are the measured size plus about 10% headroom, measured at feat-cmux-next f802641ace4 on 2026-11-19. Lower a cap when a cut lands; raise one only with a reason in the commit. A new page with no row is listed and never fails.",
+  "entries": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html": {
+      "max_bytes": 412000,
+      "measured": 373931
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html": {
+      "max_bytes": 7369000,
+      "measured": 6698698
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/apps/index.html": {
+      "max_bytes": 323000,
+      "measured": 293506
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/artifacts/index.html": {
+      "max_bytes": 389000,
+      "measured": 352749
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/bookmarks/index.html": {
+      "max_bytes": 593000,
+      "measured": 538531
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/certificate/index.html": {
+      "max_bytes": 1264000,
+      "measured": 1148958
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/changelog/index.html": {
+      "max_bytes": 1455000,
+      "measured": 1322468
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/chief-inspector/index.html": {
+      "max_bytes": 301000,
+      "measured": 273516
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/chief-usage/index.html": {
+      "max_bytes": 330000,
+      "measured": 299118
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/chief-views/index.html": {
+      "max_bytes": 374000,
+      "measured": 339443
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/cloud-progress/index.html": {
+      "max_bytes": 332000,
+      "measured": 301354
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/cloud/index.html": {
+      "max_bytes": 483000,
+      "measured": 438304
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/cookie-import/index.html": {
+      "max_bytes": 317000,
+      "measured": 287486
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/debug-settings/index.html": {
+      "max_bytes": 536000,
+      "measured": 487186
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/feed/index.html": {
+      "max_bytes": 605000,
+      "measured": 549876
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/files/index.html": {
+      "max_bytes": 398000,
+      "measured": 361697
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/github/index.html": {
+      "max_bytes": 871000,
+      "measured": 790964
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/glass-parity/index.html": {
+      "max_bytes": 107000,
+      "measured": 96828
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/group-editor/index.html": {
+      "max_bytes": 301000,
+      "measured": 273579
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/history/index.html": {
+      "max_bytes": 538000,
+      "measured": 489057
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/home-channels/index.html": {
+      "max_bytes": 1905000,
+      "measured": 1731661
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/home-messages/index.html": {
+      "max_bytes": 608000,
+      "measured": 552535
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/icon-picker/index.html": {
+      "max_bytes": 977000,
+      "measured": 887782
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/import-history/index.html": {
+      "max_bytes": 804000,
+      "measured": 730413
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/keybindings/index.html": {
+      "max_bytes": 486000,
+      "measured": 441266
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/machines/index.html": {
+      "max_bytes": 862000,
+      "measured": 783167
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/mobile-pairing/index.html": {
+      "max_bytes": 303000,
+      "measured": 275027
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/onboarding/index.html": {
+      "max_bytes": 1016000,
+      "measured": 923602
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/passwords/index.html": {
+      "max_bytes": 319000,
+      "measured": 289653
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/server-cards/index.html": {
+      "max_bytes": 324000,
+      "measured": 293637
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": {
+      "max_bytes": 1980000,
+      "measured": 1799380
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/setup-card/index.html": {
+      "max_bytes": 747000,
+      "measured": 678290
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/sidebar-chats/index.html": {
+      "max_bytes": 782000,
+      "measured": 710276
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/site-data/index.html": {
+      "max_bytes": 1043000,
+      "measured": 947843
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/site-settings/index.html": {
+      "max_bytes": 1244000,
+      "measured": 1130660
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/stash/index.html": {
+      "max_bytes": 538000,
+      "measured": 489057
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/stats/index.html": {
+      "max_bytes": 317000,
+      "measured": 288050
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/task-manager/index.html": {
+      "max_bytes": 342000,
+      "measured": 310874
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/tasks/index.html": {
+      "max_bytes": 1058000,
+      "measured": 961675
+    },
+    "Resources/markdown-viewer/webviews-app/agent-session.html": {
+      "max_bytes": 509000,
+      "measured": 462193
+    },
+    "Resources/markdown-viewer/webviews-app/diff-page.html": {
+      "max_bytes": 427000,
+      "measured": 387558
+    },
+    "Resources/markdown-viewer/webviews-app/editor-page.html": {
+      "max_bytes": 615000,
+      "measured": 559040
+    },
+    "Resources/markdown-viewer/webviews-app/markdown-page.html": {
+      "max_bytes": 1433000,
+      "measured": 1301990
+    }
+  }
+}

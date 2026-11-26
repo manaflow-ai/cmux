@@ -187,7 +187,13 @@
         "$ref": "#/$defs/interfaceName"
       },
       "properties": {
+        "cmux.chat.action/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.chip/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.model.picker/1": {
           "$ref": "#/$defs/dataImplementation"
         },
         "cmux.composer.toolbar/1": {
@@ -339,6 +345,29 @@
           "type": "boolean",
           "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
         },
+        "overlay": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The app's cmux.pane/1 scene may also open as a floating overlay over the window. Only the person opens it (a palette pick or a click in cmux); an app, a script, the CLI or an agent cannot. Escape or a click outside closes it.",
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/text",
+              "description": "Default: the app name."
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 240,
+              "maximum": 960,
+              "description": "Points. Default 480; the window's size caps it."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 120,
+              "maximum": 720,
+              "description": "Points. Default 320; the window's size caps it."
+            }
+          }
+        },
         "hiddenByDefault": {
           "type": "boolean",
           "description": "Installed but hidden until the user shows it; still reachable from the palette, CLI and App Store."
@@ -402,6 +431,32 @@
             "$ref": "#/$defs/menuItem"
           },
           "description": "Rows the app adds to cmux's own right-click menus, after the built-in rows (one group per menu, before Customize Menu)."
+        },
+        "keybindings": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/keybinding"
+          },
+          "description": "Key bindings the app installs, in keybindings.json form: a cmux action id, or an op of the app's own catalog (run with apps-run, like its palette row). They sit in the app layer: above cmux's defaults, below the person's keybindings.json, whose removals take them out. A hidden or disabled app binds none."
+        },
+        "wallpapers": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Live wallpapers (plans/cmux-next/live-wallpapers.md): each a folder in the package with wallpaper.json and its WGSL program, checked by cmux-wallpaper's validator. Needs no capability: a wallpaper gets only the Frame uniform.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
         }
       }
     },
@@ -634,7 +689,7 @@
       "maxItems": 64,
       "items": {
         "type": "string",
-        "pattern": "^(onStartup|onInterface:[a-z][a-z0-9.]*/[0-9]+|onOp:[a-z][a-zA-Z0-9_.-]{0,95}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+        "pattern": "^(onStartup|onKeybinding|onInterface:[a-z][a-z0-9.]*/[0-9]+|onOp:[a-z][a-zA-Z0-9_.-]{0,95}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
       }
     },
     "files": {
@@ -1180,6 +1235,46 @@
         },
         "args": {
           "type": "object"
+        }
+      }
+    },
+    "keybinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "command"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "One to four strokes in keybindings.json syntax (`cmd+k`, `ctrl+k s`). The first needs cmd or ctrl, or is bare under a `when` that requires a bare-key page or a key mode."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "description": "A cmux action id (`palette.open`), or an op of the app's own catalog family. A removal (`-id`) is the person's alone, in keybindings.json."
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The binding's context clause, as in keybindings.json."
+        },
+        "args": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          },
+          "description": "The action's arguments (strings, integers, booleans). An app op takes none."
         }
       }
     },

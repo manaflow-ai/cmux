@@ -23,6 +23,8 @@ import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
 import type { HandoffDO } from "./handoffs/handoff-do.ts"
 import type { HandoffIndexDO } from "./handoffs/index-do.ts"
+import type { AutoSessionDO } from "./auto-sessions/session-do.ts"
+import type { AutoSessionIndexDO } from "./auto-sessions/index-do.ts"
 
 /** A build space: "" (nightly and stable) or `dev:<slug>` (one tagged dev build; build-space.ts). */
 export type BuildSpace = "" | `dev:${string}`
@@ -57,6 +59,9 @@ export interface WorkerBindings {
   /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
   readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
   readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
+  /** Auto mode (auto-sessions/): one AutoSessionDO per Auto chat, one AutoSessionIndexDO per owner. Unbound in production until Auto mode ships there. */
+  readonly AUTO_SESSION_DO?: DurableObjectNamespace<AutoSessionDO>
+  readonly AUTO_SESSION_INDEX_DO?: DurableObjectNamespace<AutoSessionIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
@@ -171,8 +176,6 @@ export interface WorkerBindings {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
-  /** Var (development only): the public coderouter host the coderouter.cmux.internal edge rule forwards to (cloud-coderouter-edge.ts); unset = no rule. */
-  readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
@@ -181,6 +184,8 @@ export interface WorkerBindings {
   readonly CLOUD_IDLE_PAUSE?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Named MachineGitHub binding (integrations/machine-github.ts): "on" only in development; off, every method refuses. */
+  readonly PLATFORM_MACHINE_GITHUB?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
   /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
@@ -281,6 +286,7 @@ export interface WorkerBindings {
   /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
   readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
+  /** Only the fallback: the slug is read from GitHub's GET /app (providers.ts githubAppSlug), so a renamed App needs no change here. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
   readonly GITHUB_APP_CLIENT_SECRET?: string
@@ -400,6 +406,9 @@ export interface WorkerBindings {
   readonly CHIEF_CC_ENABLED?: string
   /** The chief-cc VM snapshot id (backend/chief-cc/bake.sh). */
   readonly CHIEF_CC_SNAPSHOT?: string
+  /** The Chief's computer image (backend/chief-cc/bake-computer.sh): small Ubuntu with the desktop and cua-driver baked in,
+   * for `chief-vm create --image computer`. Unset: computer setup installs the desktop on the sandbox. */
+  readonly CHIEF_CC_COMPUTER_SNAPSHOT?: string
   /** Comma-separated exact owner ids (team_ or user_) whose Chiefs use the Claude Code route; each must also be on CHIEF_BRAIN_CLAUDE_OWNERS. */
   readonly CHIEF_CC_OWNERS?: string
   /** Secret: the Freestyle key of the account that holds CHIEF_CC_SNAPSHOT (no other code reads it). */
