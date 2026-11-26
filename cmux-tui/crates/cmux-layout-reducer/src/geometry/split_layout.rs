@@ -333,11 +333,12 @@ pub fn ratio_for_pointer(
     let mut snap: Option<(f64, f64)> = None;
     for &ratio in &options.snaps {
         let at = ratio * available;
-        if (at - a_extent).abs() <= options.snap_distance && at >= min_a && available - at >= min_b
+        if (at - a_extent).abs() <= options.snap_distance
+            && at >= min_a
+            && available - at >= min_b
+            && snap.is_none_or(|(_, best)| (at - a_extent).abs() < (best - a_extent).abs())
         {
-            if snap.is_none_or(|(_, best)| (at - a_extent).abs() < (best - a_extent).abs()) {
-                snap = Some((ratio, at));
-            }
+            snap = Some((ratio, at));
         }
     }
     let ratio = snap.map_or(a_extent / available, |(ratio, _)| ratio);
