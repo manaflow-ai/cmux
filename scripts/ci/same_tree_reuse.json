@@ -291,9 +291,6 @@
   "cmux-vnc.yml": {
    "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "coderouter-ci.yml": {
-   "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "device-hub.yml": {
    "test": "needed by deploy-dev, deploy-prod: a skip would skip them or read as no verdict",
    "deploy-dev": "needed by deploy-prod: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
