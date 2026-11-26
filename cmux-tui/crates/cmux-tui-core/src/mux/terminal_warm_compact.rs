@@ -242,7 +242,12 @@ pub(super) fn input_box_text(screen: &str) -> Option<String> {
         trimmed.starts_with(['─', '━', '═']) && rule >= 10
     };
     let lines: Vec<&str> = screen.lines().collect();
-    let rules: Vec<usize> = (0..lines.len()).filter(|index| is_rule(lines[*index])).collect();
+    let rules: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| is_rule(line))
+        .map(|(index, _)| index)
+        .collect();
     let (top, bottom) = rules.windows(2).rev().find_map(|pair| match pair {
         [top, bottom] if *bottom > top + 1 => Some((*top, *bottom)),
         _ => None,
