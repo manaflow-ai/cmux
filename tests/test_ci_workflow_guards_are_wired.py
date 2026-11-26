@@ -45,9 +45,12 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: it expects the Linux jobs' runs-on not
+    # to reach cmux-linux, which #49544 and #48188 made the PR-gate Linux label. Exit: update the test to the
+    # cmux-linux route, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_same_repo_linux_owned_first.py",
     # A shell test the registry does not take (it lists .py tests). Exit: wire it into ci-guards.yml or a nightly step.
-    "tests/test_ci_nightly_warm_checkout_mirror.sh",
-    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    "tests/test_ci_nightly_warm_checkout_mirror.sh",    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
     # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
     # wrong, then wire it into ci-guards.yml's ci group.
     "tests/test_ci_webviews_affected.py",
@@ -357,11 +360,13 @@ def _registry_validator():
 def invoked_by_workflows() -> set[str]:
     """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
     pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
-    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs. A linux-guard entry counts:
+    the registry's validator derives that lane from the workflows (an entry no step runs fails it, and --write makes it
+    manual), so it already means "a workflow step runs this file"."""
     validator = _registry_validator()
     workflows = ROOT / ".github" / "workflows"
     invoked = set(INVOKED_PATH.findall(validator.all_workflow_text(workflows)))
-    live_lanes = validator.runner_lanes(workflows)
+    live_lanes = validator.runner_lanes(workflows) | {"linux-guard"}
     for entry in validator.load_tree(ROOT):
         if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
             invoked.add(entry["path"])
