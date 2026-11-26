@@ -72,8 +72,7 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that 
 
 [[test]]
 path = "tests/test_nightly_early_webviews.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_early_webviews.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_fallback_covers.py"
@@ -257,8 +256,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_signer_pick.py"
-lane = "manual"
-reason = "Run python3 -m unittest tests.test_nightly_next_signer_pick after changing the signer pick, its fallback, or its workflow wiring; uses local runner and job fixtures."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_single_loop.py"

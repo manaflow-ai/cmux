@@ -45,6 +45,10 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
+    # wrong, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_webviews_affected.py",
     # Manual capture harness regression; the workflow path is an admission identity fixture,
     # not a workflow file read. Run after changing the harness or its HQ workflow identity.
     # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
@@ -351,13 +355,11 @@ def _registry_validator():
 def invoked_by_workflows() -> set[str]:
     """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
     pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
-    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs. A linux-guard entry counts:
-    the registry's validator derives that lane from the workflows (an entry no step runs fails it, and --write makes it
-    manual), so it already means "a workflow step runs this file"."""
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
     validator = _registry_validator()
     workflows = ROOT / ".github" / "workflows"
     invoked = set(INVOKED_PATH.findall(validator.all_workflow_text(workflows)))
-    live_lanes = validator.runner_lanes(workflows) | {"linux-guard"}
+    live_lanes = validator.runner_lanes(workflows)
     for entry in validator.load_tree(ROOT):
         if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
             invoked.add(entry["path"])

@@ -91,12 +91,6 @@
       "title" : "Command Labels",
       "type" : "string"
     },
-    "agentPane.display.compactShortTurns" : {
-      "default" : false,
-      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
-      "title" : "Compact Summary for Short Turns",
-      "type" : "boolean"
-    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -262,16 +256,11 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
-    "agentPane.display.modelPickerOrder" : {
-      "default" : [
-
-      ],
-      "description" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Model Picker Harness Order",
-      "type" : "array"
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "Keeps the agent's task list under the latest message, not over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -697,7 +686,7 @@
       "type" : "number"
     },
     "agents.autoRetry.capacityFallbackAfter" : {
-      "default" : 1,
+      "default" : 0,
       "description" : "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
       "maximum" : 12,
       "minimum" : 0,
@@ -733,7 +722,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.minContextTokens" : {
-      "default" : 60000,
+      "default" : 20000,
       "description" : "Chats with at least this much context are compacted, whatever their window.",
       "maximum" : 500000,
       "minimum" : 10000,
@@ -2420,6 +2409,20 @@
       "title" : "Column Gap",
       "type" : "number"
     },
+    "appearance.metrics.composerMinHeight" : {
+      "description" : "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's.",
+      "maximum" : 160,
+      "minimum" : 32,
+      "title" : "Composer Height",
+      "type" : "number"
+    },
+    "appearance.metrics.composerPadding" : {
+      "description" : "The room from the chat prompt box's sides to its text and controls. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Composer Padding",
+      "type" : "number"
+    },
     "appearance.metrics.dividerHitWidth" : {
       "description" : "appearance.metrics.dividerHitWidth",
       "maximum" : 24,
@@ -2434,11 +2437,46 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.headerDivider" : {
+      "description" : "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Header Divider",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowGap" : {
+      "description" : "The gap between two sidebar rows. Unset is the density's.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Workspace Row Gap",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarRowHeight" : {
       "description" : "appearance.metrics.sidebarRowHeight",
       "maximum" : 48,
       "minimum" : 20,
       "title" : "Workspace Row Height",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowHeightWithSubtitle" : {
+      "description" : "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line.",
+      "maximum" : 96,
+      "minimum" : 28,
+      "title" : "Two-Line Row Height",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowInset" : {
+      "description" : "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Inset",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowPadding" : {
+      "description" : "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Padding",
       "type" : "number"
     },
     "appearance.metrics.sidebarWidth" : {
@@ -2453,6 +2491,13 @@
       "maximum" : 48,
       "minimum" : 18,
       "title" : "Space Button Spacing",
+      "type" : "number"
+    },
+    "appearance.metrics.spacingScale" : {
+      "description" : "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Spacing",
       "type" : "number"
     },
     "appearance.metrics.tabFontSize" : {
@@ -2502,6 +2547,34 @@
       "maximum" : 56,
       "minimum" : 24,
       "title" : "Titlebar Height",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonActiveFill" : {
+      "description" : "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill.",
+      "maximum" : 0.4,
+      "minimum" : 0,
+      "title" : "Active Button Fill",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonCornerRadius" : {
+      "description" : "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does.",
+      "maximum" : 20,
+      "minimum" : 0,
+      "title" : "Toolbar Button Corner",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonGap" : {
+      "description" : "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Toolbar Button Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonSize" : {
+      "description" : "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's.",
+      "maximum" : 40,
+      "minimum" : 16,
+      "title" : "Toolbar Button Size",
       "type" : "number"
     },
     "appearance.paneBackgrounds" : {
@@ -3704,7 +3777,7 @@
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
-      "default" : true,
+      "default" : false,
       "description" : "customize.doctorNotice",
       "title" : "Customization notices",
       "type" : "boolean"
@@ -4331,12 +4404,6 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
-    "experiments.expandedEditsEstimate" : {
-      "default" : false,
-      "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
-      "title" : "Expanded Edits Estimate",
-      "type" : "boolean"
-    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -4347,12 +4414,6 @@
       "default" : false,
       "description" : "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box.",
       "title" : "Forum",
-      "type" : "boolean"
-    },
-    "experiments.forumCallCard" : {
-      "default" : false,
-      "description" : "Agent forum searches, reads and posts show as forum rows with links to their threads.",
-      "title" : "Forum Tool Calls",
       "type" : "boolean"
     },
     "experiments.glassToolbarGroups" : {
@@ -4413,12 +4474,6 @@
       "default" : false,
       "description" : "The conversation stays visible behind the notices and the Needs your input row above the composer.",
       "title" : "See-Through Dock",
-      "type" : "boolean"
-    },
-    "experiments.startedTaskTitleChip" : {
-      "default" : false,
-      "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
-      "title" : "Started Tasks: Title Opens Chat",
       "type" : "boolean"
     },
     "experiments.terminalAgentMark" : {
@@ -4904,12 +4959,6 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
-    },
-    "layout.fadeInactivePanes" : {
-      "default" : false,
-      "description" : "Panes without the focus fade, and come back when you focus them.",
-      "title" : "Fade Inactive Panes",
-      "type" : "boolean"
     },
     "layout.focusFollowsMouse" : {
       "default" : false,
@@ -7664,6 +7713,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "download",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -7675,12 +7736,6 @@
       ],
       "title" : "Update Channel",
       "type" : "string"
-    },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
     },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
@@ -7699,12 +7754,6 @@
       ],
       "title" : "Live Background Updates",
       "type" : "string"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -7726,12 +7775,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {
