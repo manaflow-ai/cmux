@@ -124,7 +124,7 @@ class CloudChatProofTests(unittest.TestCase):
                     self.fail("the cut-off handler must end the proof")
                 elif words == ["cloud", "list-machines", "--json"]:
                     # The app's own sign-in (CloudHandlers.listAccount): what a shipped build names its user by.
-                    value = {"loaded": True, "account": {"signed_in": True, "user_id": "stack-user-1", "team_id": "team-1"},
+                    value = {"loaded": signed_in, "account": {"signed_in": signed_in, "user_id": "stack-user-1", "team_id": "team-1"},
                              "machines": [
                         {"machine_id": "machine-proof", "title": "proof-test"},
                         {"machine_id": "machine-other", "title": "another-run"}]}
@@ -397,6 +397,18 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(evidence["result"], "fail: selected backend active and signed in")
         self.assert_no_cloud_work(calls)
+
+    def test_a_shipped_nightly_signed_out_says_what_its_machine_list_answered(self):
+        # Run 45821163961: the NIGHTLY's list never loaded for 4 minutes and the step said only "exit 1".
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True, signed_in=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: selected backend active and signed in")
+        self.assert_no_cloud_work(calls)
+        step = {step["step"]: step for step in evidence["steps"]}["selected backend active and signed in"]
+        self.assertIs(step["loaded"], False)
+        self.assertEqual(step["account"], {"signed_in": False, "team": True})
+        self.assertIn('"loaded": false', step["stderr"])
+        self.assertNotIn("stack-user-1", json.dumps(evidence), "The step never names the account's user")
 
     def test_missing_reply_fails_but_still_deletes_created_machine(self):
         code, evidence, calls = self.run_proof(reply="")
