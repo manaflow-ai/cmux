@@ -3,7 +3,8 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
+//! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -19,6 +20,8 @@
 //! are discarded or are kept),
 //! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
 //! `auto_name_hold_step`: one step of the state the app holds),
+//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
+//! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -51,6 +54,7 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -81,6 +85,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
 mod auto_namer;
+mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -98,6 +103,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod pane_focus;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -106,6 +112,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -288,6 +295,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_launch_order::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_list_rules" => {
+                use cmux_layout_reducer::sidebar_list_rules;
+                let request: sidebar_list_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_list_rules::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_row_layout" => {
@@ -610,6 +624,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
@@ -626,9 +641,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
+            }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
