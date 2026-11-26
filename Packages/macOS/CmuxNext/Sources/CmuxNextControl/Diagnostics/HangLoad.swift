@@ -14,6 +14,8 @@ public struct HangLoad: Sendable, Equatable {
     public var host: HostLoad?
     /// The main thread was parked in a nested run loop taking no input (``StallVerdict/waiting``).
     public var idleWait: Bool
+    /// The kernel's role for the app when sampled (frontmost or not); nil when unknown (``TaskRole``).
+    public var app: TaskRole?
 
     /// - Parameters:
     ///   - mainThreadCPU: CPU the main thread used since the stall began.
@@ -22,7 +24,8 @@ public struct HangLoad: Sendable, Equatable {
     ///   - host: The host's load averages and core count.
     ///   - idleWait: The main thread sat in a nested run loop.
     public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil, host: HostLoad? = nil,
-                idleWait: Bool = false) {
+                idleWait: Bool = false, app: TaskRole? = nil) {
+        self.app = app
         self.mainThreadCPU = mainThreadCPU
         self.pageIns = pageIns
         self.faults = faults
@@ -44,6 +47,7 @@ extension HangLoad {
     /// main thread cpu: 0.100 s of 2.000 s (5%): blocked (waited: page-ins, WindowServer, a lock or another process)
     /// host load: 205.1 / 172.0 / 144.3 on 10 cores (overloaded)
     /// page-ins: 812, faults: 30500 (this process, since the stall's first sample)
+    /// app role: background (not frontmost: App Nap and the scheduler may hold it back)
     /// ```
     ///
     /// Busy is CPU for at least half of the hang, the line the debug busy-hang fault draws too
@@ -60,7 +64,9 @@ extension HangLoad {
         let pageLine = pageIns.map { "page-ins: \($0), faults: \(faults.map(String.init) ?? "?") (this process, since the stall's first sample)" }
             ?? "page-ins: unknown"
         let who = verdict(duration: duration)
-        return ["verdict: \(who.rawValue) (\(who.explanation))", cpuLine, host?.line ?? "host load: unknown", pageLine]
+        var lines = ["verdict: \(who.rawValue) (\(who.explanation))", cpuLine, host?.line ?? "host load: unknown", pageLine]
+        if let app { lines.append(app.line) }
+        return lines
     }
 }
 

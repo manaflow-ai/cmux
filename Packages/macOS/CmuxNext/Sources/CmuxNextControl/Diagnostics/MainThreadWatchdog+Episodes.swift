@@ -87,10 +87,11 @@ extension MainThreadWatchdog {
     func load(beat: UInt64, cpuNanos: UInt64?) -> HangLoad {
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
         guard let base = stallEvents.withLock({ $0 }), base.beat == beat, let counts = base.counts else {
-            return HangLoad(mainThreadCPU: cpu, host: HostLoad.current())
+            return HangLoad(mainThreadCPU: cpu, host: HostLoad.current(), app: TaskRole.current())
         }
         var load = counts.load(to: TaskEventCounts.current(), cpu: cpu)
         load.host = HostLoad.current()
+        load.app = TaskRole.current()
         return load
     }
 }
