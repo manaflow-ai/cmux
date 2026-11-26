@@ -1196,6 +1196,52 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.CLIENT_STATE) for (const [which, { page }] of pages.entries()) {
+            const state = await page.evaluate(() => {
+              const isClient = (value: any) =>
+                !!value && typeof value === "object" && typeof value.lastSeq === "number" && "selectedSessionId" in value;
+              let client: any;
+              for (const element of document.querySelectorAll("*")) {
+                const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+                for (let fiber = key ? (element as any)[key] : undefined; fiber && !client; fiber = fiber.return)
+                  for (let hook = fiber.memoizedState; hook && typeof hook === "object" && "next" in hook; hook = hook.next)
+                    if (isClient(hook.memoizedState?.current)) {
+                      client = hook.memoizedState.current;
+                      break;
+                    }
+                if (client) break;
+              }
+              if (!client) return { error: "no client" };
+              return {
+                events: client.events?.length,
+                firstSeq: client.events?.[0]?.seq,
+                rows: client.rows?.size ?? client.rows?.length,
+                following: client.following,
+                newerLeft: client.newerLeft,
+                replayThrough: client.replayThrough,
+                loadingOlder: client.loadingOlder,
+                snapshotHold: client.snapshotHold,
+                placeholders: client.indexedPlaceholders?.size,
+                gaps: client.indexedGaps?.length,
+                shedRetryAt: client.shedRetryAt,
+                sizes: Object.fromEntries(
+                  Object.entries(client)
+                    .map(([key, value]: [string, any]) => [
+                      key,
+                      value instanceof Map || value instanceof Set
+                        ? value.size
+                        : Array.isArray(value)
+                          ? value.length
+                          : value && typeof value === "object" && typeof value.size === "number"
+                            ? value.size
+                            : -1,
+                    ])
+                    .filter(([, size]) => (size as number) >= 50),
+                ),
+              };
+            });
+            console.log(`  ${name}: page ${which} client ${JSON.stringify(state)}`);
+          }
       if (HEAP_SNAPSHOT) {
         // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
         fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
