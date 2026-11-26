@@ -104,7 +104,7 @@ impl TeamSpaceReader {
                     out.behind.push(space.clone());
                     break;
                 }
-                pages += 1;
+                pages = pages.saturating_add(1);
                 let page = match store.feed(space, *cursor, PAGE_LIMIT) {
                     Ok(page) => page,
                     Err(e) => {
