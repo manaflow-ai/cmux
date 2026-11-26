@@ -137,8 +137,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private lazy var fadeGround = TerminalGroundView(page: view, fade: true)
     private lazy var scrimGround = TerminalGroundView(page: view, fade: true)
     private var groundInstalled = false
-    /// Whether a wallpaper change is being watched (one watch at a time; it re-arms when it fires).
-    private var groundObserved = false
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
@@ -296,6 +294,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CmuxMobileNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
+    #if DEBUG
+    /// The offline duress player's feed of this page (`TerminalDuress`; nil unless `CmuxMobileDuress` is set).
+    private var duressPlayback: AnyObject?
+    #endif
     private var fling: FlingAnimator?
     /// Jump to bottom's animated scroll, while it runs (CMUX-10).
     private var glide: BottomGlide?
@@ -533,26 +535,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         applyGround()
     }
 
-    /// Paints the grounds with the Mac's wallpaper (``CmuxMobileMacTheme/wallpaper``) under the
-    /// terminal background at its tint, and makes the surface see-through over it, as the Mac's
-    /// terminals are over its window's picture; without a wallpaper the page is the terminal
-    /// background as before. Follows the wallpaper live (Observation).
+    /// Paints the grounds with the terminal background. The Mac's wallpaper is not drawn on the
+    /// phone for now (2026-11-25: every background black; the options were PR #53342), so the
+    /// see-through path below stays for when it returns.
     private func applyGround() {
         guard groundInstalled else { return }
-        let wallpaper: (image: UIImage, tint: Double)?
-        if groundObserved {
-            wallpaper = CmuxMobileMacTheme.shared.wallpaper
-        } else {
-            groundObserved = true
-            wallpaper = withObservationTracking {
-                CmuxMobileMacTheme.shared.wallpaper
-            } onChange: { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.groundObserved = false
-                    self?.applyGround()
-                }
-            }
-        }
+        let wallpaper: (image: UIImage, tint: Double)? = nil
         let base = terminalBackground
         let seeThrough = wallpaper != nil
         surface.seeThrough = seeThrough
@@ -1799,6 +1787,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // live before the attach, scrolls and takes keys (they wait for it). The Mac's
             // replay, a full reset first, replaces it.
             if let seed = model.takeSeed() { surface.feed(seed) }
+            #if DEBUG
+            // Offline duress (cmux-next-ios/design/duress-sim.md): its history goes in before the
+            // session's own output, so what the session draws stays at the bottom.
+            duressPlayback = TerminalDuress.attach? { [weak self] data in self?.sessionEvent(.output(data)) }
+            #endif
             model.session.start { [weak self] event in self?.sessionEvent(event) }
             #if DEBUG
             if model.demoFinalColumns != nil { startSettleProbe() }
