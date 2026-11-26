@@ -138,7 +138,7 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-sdk-ffi",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
-                    # Typed browser address normalization the app links through cmux-app-ffi (cmux-url-input).
+                    # The browser's address bar resolver, BrowserURLResolver step A (cmux-url-input, #57119).
                     "cmux-url-input",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
