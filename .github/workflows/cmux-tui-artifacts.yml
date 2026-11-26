@@ -221,6 +221,13 @@ jobs:
   # left no Linux acpmux tree for an hour). A whole cancelled run marks too (always()): the queued-run supersede
   # cancels the window's claiming run (04:26Z run 45546778077, #55756), and an unmarked cancel held that window with
   # no tree. A hand cancel costs at most one more build in its window.
+  # A run whose publish-tree succeeded marks its window held instead (held: base-coalesce's held marker, which also
+  # keeps the next push off the REST fallback that would find this red run): the window has its tree, and a red only
+  # in the daemon tests or the Windows leg is not fixed by building the tree again (the next window's run tests the
+  # key again, tree-preflight daemon_tested). On 2026-11-26 the 01:00Z window's runs 45733047134, 45737327859,
+  # 45738040164 and 45739215246 each published and then failed only cmux-next-daemon-tests, so each marked and the
+  # next push rebuilt the whole tree: four full builds on the nightly pool, the window's retries spent on trees
+  # already on files.cmux.com (tests/test_cmux_tui_feat_publish_order.py).
   coalesce-failed:
     needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
     if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
@@ -230,6 +237,7 @@ jobs:
     with:
       key: cmux-tui-artifacts
       mark_failed: true
+      held: ${{ needs.publish-tree.result == 'success' }}
       runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
       window: ${{ needs.coalesce.outputs.window }}
       round: ${{ needs.coalesce.outputs.round }}
