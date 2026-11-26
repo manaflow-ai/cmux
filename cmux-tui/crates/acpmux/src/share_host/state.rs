@@ -253,6 +253,11 @@ pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
     RUNNING.get()?.device_hub_of(host)
 }
 
+/// Whether a share host was installed in this daemon ([`Shared::install`]).
+pub(crate) fn serving() -> bool {
+    RUNNING.get().is_some()
+}
+
 /// `share-host status` in this daemon: the running host's, or why it does not run.
 pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {

@@ -254,6 +254,20 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     });
 }
 
+/// Whether this daemon runs a share host (a joined Mac). It keeps the daemon past its app's
+/// quit (`daemon/unused_exit.rs`): the host is what serves a share with no app open, so a stop
+/// 2 s after the quit left the Mac Offline to every phone (cmuxterm-hq#18912).
+pub(crate) fn serving() -> bool {
+    #[cfg(unix)]
+    {
+        state::serving()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 /// What the device hub says of machine `host`'s screen (`peers`' `deviceHub` on a row only the
 /// mesh hub reaches): read from the running share host's device list; None when no share host
 /// runs here or it has not read the list yet.
