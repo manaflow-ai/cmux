@@ -171,10 +171,14 @@ struct MarkdownListView: View {
     }
 }
 
-/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges.
+/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges. A grid narrower
+/// than the column sits centered in it; a wider one scrolls sideways in its own box (Leo
+/// 2026-11-22: "i dont know why we dont simply center tables in our agent chats.").
 struct MarkdownTableView: View {
     let table: MarkdownTable
     let margin: CGFloat
+    /// The scroll area's width: the grid is at least this wide, its own content centered in it.
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -194,7 +198,9 @@ struct MarkdownTableView: View {
                 }
             }
             .padding(.horizontal, margin - 12)
+            .frame(minWidth: viewport)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
         .scrollIndicators(.hidden)
         .trailingOverflowFade()
         .padding(.horizontal, -margin)

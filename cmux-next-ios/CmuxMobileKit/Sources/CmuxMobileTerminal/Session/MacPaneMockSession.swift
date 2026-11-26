@@ -11,6 +11,10 @@ import Foundation
 /// for the program and one reset and replay for the phone (`resized`), as the
 /// daemon does.
 ///
+/// `claude` runs an inline TUI on the primary screen (Claude Code: its
+/// cursor hidden, a rule as wide as the PTY over and under its prompt,
+/// redrawn at the PTY's grid on each SIGWINCH).
+///
 /// `htop` runs a full-screen app on the alternate screen (its screen redrawn
 /// at the PTY's grid on each SIGWINCH, `q` quits). `latency` delays the
 /// Mac's answer to a claim (a `resized` and its replay) by a round trip, as a
@@ -39,6 +43,8 @@ public final class MacPaneMockSession: TerminalSession {
     public private(set) var resizeInFlight = false
     public private(set) var programName = "zsh"
     public private(set) var isAlternateScreen = false
+    /// Claude Code is drawing inline on the primary screen.
+    public private(set) var inlineTUI = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     private var claims = true
@@ -58,6 +64,11 @@ public final class MacPaneMockSession: TerminalSession {
         ptyGrid = paneGrid
         self.transcript = transcript ?? Self.session
         self.latency = latency
+        if program == "claude" {
+            self.transcript.append(Self.prompt + "claude")
+            programName = "claude"
+            inlineTUI = true
+        }
         if program == "htop" {
             self.transcript.append(Self.prompt + "htop")
             programName = "htop"
@@ -197,10 +208,19 @@ public final class MacPaneMockSession: TerminalSession {
         for line in transcript { out += line + "\r\n" }
         if isAlternateScreen {
             out += "\u{1B}]2;htop\u{7}\u{1B}[?1049h\u{1B}[?25l" + MockHtop.render(columns: ptyGrid.columns, rows: ptyGrid.rows, tick: 0)
+        } else if inlineTUI {
+            out += Self.claudeRegion(columns: ptyGrid.columns)
         } else {
             out += Self.prompt + line
         }
         return Data(out.utf8)
+    }
+    /// Claude Code's live region at `columns`: its title, the cursor hidden, and the prompt box
+    /// between two rules as wide as the PTY (colored as Claude Code draws them).
+    static func claudeRegion(columns: Int) -> String {
+        let rule = "\u{1B}[38;2;136;136;136m" + String(repeating: "\u{2500}", count: max(1, columns)) + "\u{1B}[0m"
+        return "\u{1B}]2;claude\u{7}\u{1B}[?25l" + rule + "\r\n\u{1B}[1m\u{276F}\u{1B}[0m \r\n" + rule + "\r\n"
+            + "  \u{1B}[38;2;215;119;87m\u{23F5}\u{23F5} bypass permissions on\u{1B}[0m"
     }
     private static let prompt = "\u{1B}[32m~/src/cmux\u{1B}[0m $ "
 
