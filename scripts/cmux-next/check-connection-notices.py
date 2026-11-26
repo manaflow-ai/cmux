@@ -393,6 +393,7 @@ def scan(tree: Tree) -> list[Unit]:
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
     presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
     opaque_modules: set[str] = set()
+    unresolved_exports: set[str] = set()
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
@@ -402,21 +403,28 @@ def scan(tree: Tree) -> list[Unit]:
         if path.endswith((".ts", ".tsx")):
             imports[path] = []
             for match in TS_IMPORT.finditer(source):
-                if not match[2].startswith("."):
-                    continue
-                target = resolve_spec(path, match[2])
+                target = resolve_spec(path, match[2]) if match[2].startswith(".") else None
                 for binding in match[1].split(","):
                     binding = binding.strip()
                     if binding and binding != "type":
                         exported, _, local = binding.partition(" as ")
                         local = local.strip() or exported
-                        imports[path].append((local, target))
-                        if not exported.startswith("type "):
-                            presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
+                        if target is None:
+                            # Bundler aliases or bare specifiers are not relative module paths. An
+                            # unresolved import of this export can hide another JSX consumer.
+                            unresolved_exports.add(exported.strip())
+                        else:
+                            imports[path].append((local, target))
+                            if not exported.startswith("type "):
+                                presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
             # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
             other_imports = TS_IMPORT.sub("", source)
-            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["'](\.[^"']+)["']""", other_imports):
-                opaque_modules.add(resolve_spec(path, match[1]))
+            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["']([^"']+)["']""", other_imports):
+                if match[1].startswith("."):
+                    opaque_modules.add(resolve_spec(path, match[1]))
+                else:
+                    # Only the filename survives an unknown namespace/default/dynamic alias.
+                    opaque_modules.add(re.sub(r"\.(tsx?|js)$", "", match[1]).rsplit("/", 1)[-1])
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
@@ -445,7 +453,7 @@ def scan(tree: Tree) -> list[Unit]:
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
     propagate(units, imports)
-    attribute_presenters(units, presenter_imports, opaque_modules)
+    attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     for unit in units.values():
         if unit.hits and not unit.acted and unit.path.endswith(".tsx"):
             unit.acted = has_local_button_action(unit, units)
@@ -565,7 +573,7 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
 # Inline text can share its containing row's action. A notice, alert, live region or stateful view
 # owns its own connection state even when a larger page also contains a button.
 INLINE_TAGS = {"span", "small", "strong", "em", "b", "i"}
-OPEN_TAG = re.compile(r"<([A-Za-z]\w*)(?=[\s/>])")
+OPEN_TAG = re.compile(r"<([A-Za-z][\w.:-]*)(?=[\s/>])")
 RETURN_TAG = re.compile(r"(?:\breturn|=>)\s*\(?\s*<([A-Za-z]\w*)(?=[\s/>])")
 
 
@@ -582,7 +590,7 @@ def inline_presenter(unit: Unit) -> bool:
 
 
 def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
-                         opaque_modules: set[str]) -> None:
+                         opaque_modules: set[str], unresolved_exports: set[str]) -> None:
     """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
     recursive mount or unresolved import keeps the leaf finding. A slot such as pill={<Pill />}
     belongs to the caller composing that card and its controls."""
@@ -596,7 +604,9 @@ def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[s
                 continue
             stem = unit.path[:-len(".tsx")]
             targets = {stem, stem.removesuffix("/index")}
-            if targets & opaque_modules:
+            if unit.name in unresolved_exports or any(
+                target in opaque_modules or target.rsplit("/", 1)[-1] in opaque_modules for target in targets
+            ):
                 continue
             bindings = {(unit.path, unit.name)}
             bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
