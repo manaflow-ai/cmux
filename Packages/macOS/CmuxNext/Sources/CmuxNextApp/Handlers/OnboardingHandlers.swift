@@ -113,8 +113,7 @@ enum OnboardingHandlers {
                 guard let reply = try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual),
                       reply.available else { return .unavailable }
                 return reply.alreadyImported ? .alreadyImported : .available
-            },
-            detectConductor: { await ConductorImportClient.detect(on: services.daemon.connection) })
+            }, detectConductor: { await ConductorImportClient.detect(on: services.daemon.connection) })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
