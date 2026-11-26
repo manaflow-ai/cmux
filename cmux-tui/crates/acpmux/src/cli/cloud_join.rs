@@ -546,8 +546,7 @@ fn load_consent() -> Consent {
     serde_json::from_value(consent_status()["consent"].clone()).unwrap_or_default()
 }
 
-/// Held until redeem and both local writes complete. A competing installer exits
-/// without redeeming; it can safely retry after this process finishes.
+/// Nonblocking acquisition for callers updating or removing the current enrollment.
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
@@ -560,7 +559,16 @@ fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
 
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
+    HeldLock::take(file, "another operation holds the machine enrollment lock")
+}
+
+/// Ordinary joins recheck enrollment under the lock before redeeming.
+pub(crate) async fn lock_for_join(replace: bool) -> Result<HeldLock> {
+    if replace {
+        // A competing enrollment may change the identity the person intended to overwrite.
+        return join_lock();
+    }
+    enroll::acquire_join_lock(&state_dir()).await
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
@@ -1629,6 +1637,24 @@ mod tests {
         let serialized = serde_json::to_string(&identity).unwrap();
         assert!(!serialized.contains(&record.credential));
         assert!(serialized.contains("machine-1"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_join_waits_until_the_enrollment_is_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = super::join_lock_at(dir.path()).unwrap();
+        let next = super::enroll::acquire_join_lock(dir.path());
+        tokio::pin!(next);
+        tokio::select! {
+            biased;
+            _ = &mut next => panic!("a second join acquired the lock before the first finished"),
+            _ = tokio::task::yield_now() => {}
+        }
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(2), next)
+            .await
+            .expect("the waiting join outlived its holder")
+            .expect("the waiting join acquires the released lock");
     }
 
     #[test]

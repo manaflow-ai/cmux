@@ -95,3 +95,45 @@ fn machine_start_resumes_a_named_machine_or_makes_a_new_one() {
     assert_eq!(machine_start_argv(&json!({})).unwrap(), ["vm", "new", "--json"]);
     assert!(machine_start_argv(&json!({"machine": "-rf"})).is_err());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn machines_reads_the_peer_snapshot_on_the_existing_connection() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-machines");
+    let socket = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, "_acpmux/peers"] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, .. } = Message::parse(&line).unwrap() else {
+                panic!("expected {expected}");
+            };
+            assert_eq!(method, expected);
+            let reply = if expected == "_acpmux/peers" {
+                json!({"peers": [{"name": "worker", "connected": true, "health": {"liveSessions": 2}}]})
+            } else {
+                json!({})
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+
+    let daemon = Client::connect(&socket).await.unwrap();
+    let result = call(&daemon, MACHINES, &json!({})).await;
+    assert_eq!(result["isError"], false);
+    assert_eq!(
+        result["structuredContent"]["machines"],
+        json!([{"name": "worker", "connected": true, "liveSessions": 2}])
+    );
+    assert_eq!(
+        result["content"][0]["text"],
+        "this machine  [local]\nworker  [connected]  2 live sessions"
+    );
+    server.await.unwrap();
+}

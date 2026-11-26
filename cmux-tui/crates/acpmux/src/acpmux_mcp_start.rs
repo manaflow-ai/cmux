@@ -5,10 +5,10 @@
 //! starting chats, all that, after you've connected to whatever or something".
 //!
 //! Each is the command the chat's agent could run in its shell, run here instead so the chat
-//! draws a tool call with a typed answer, not a command block: `machines` and `new` run this
-//! binary's own CLI (`acpmux --json machine ls`, `acpmux --json new --detach ... --prompt-file -`)
-//! with the session's env, caller token included, so the daemon takes them as this session's
-//! own, as from its Bash tool, and places, names and admits the chat exactly as the CLI does.
+//! draws a tool call with a typed answer. `machines` reads the same peer snapshot as `acpmux
+//! machine ls` over the session's existing daemon connection. `new` runs this binary's own CLI
+//! (`acpmux --json new --detach ... --prompt-file -`) in the session's environment, so the
+//! daemon places, names and admits the chat exactly as it does for that command in the shell.
 //! `fork` is the request `acpmux session fork` makes (`session/fork`) on this server's
 //! connection, which carries the same caller token. `machine_start` runs `cmux vm resume NAME` or
 //! `cmux vm new` (`CMUX_BIN`, else `cmux` on PATH): with the cmux app the app makes the machine
@@ -86,7 +86,7 @@ pub(super) fn tools() -> Vec<Value> {
 
 pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Value {
     match name {
-        MACHINES => machines().await,
+        MACHINES => machines(daemon).await,
         NEW => new(args).await,
         FORK => fork(daemon, args).await,
         MACHINE_START => machine_start(args).await,
@@ -153,21 +153,17 @@ fn still_starting(name: &str) -> Value {
     )
 }
 
-async fn machines() -> Value {
-    let argv = ["--json", "machine", "ls"].map(str::to_owned);
-    match run_acpmux(&argv, None, MACHINES_WAIT).await {
-        Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
-            Ok(list) => {
-                let rows = machine_rows(&list);
-                ok(machines_text(&rows), json!({"machines": rows}))
-            }
-            Err(_) => ok(out.trim().to_owned(), json!({})),
-        },
-        Err(CliError::Late) => error_result(format!(
-            "machine ls did not answer in {} s; try again",
+async fn machines(daemon: &Client) -> Value {
+    match tokio::time::timeout(MACHINES_WAIT, daemon.request("_acpmux/peers", json!({}))).await {
+        Ok(Ok(list)) => {
+            let rows = machine_rows(&list);
+            ok(machines_text(&rows), json!({"machines": rows}))
+        }
+        Ok(Err(e)) => refusal(e),
+        Err(_) => error_result(format!(
+            "The daemon did not return the machine list within {} seconds.",
             MACHINES_WAIT.as_secs()
         )),
-        Err(CliError::Failed(why)) => error_result(why),
     }
 }
 

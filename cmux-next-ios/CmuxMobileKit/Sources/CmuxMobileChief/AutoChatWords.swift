@@ -37,7 +37,6 @@ public enum AutoChatWords {
     public static var loadFailed: String {
         String(localized: "mobile.auto.loadFailed", defaultValue: "Couldn't load Auto chats.", bundle: .module)
     }
-    public static var retry: String { String(localized: "mobile.auto.retry", defaultValue: "Retry", bundle: .module) }
     public static var newChat: String { String(localized: "mobile.auto.newChat", defaultValue: "New Chat", bundle: .module) }
     public static var repository: String {
         String(localized: "mobile.auto.repository", defaultValue: "Repository", bundle: .module)
@@ -50,9 +49,11 @@ public enum AutoChatWords {
                bundle: .module)
     }
     public static var startFailed: String {
+        // retry-prompt-ok: starting a new chat is the person's explicit request; retrying could create another chat.
         String(localized: "mobile.auto.startFailed", defaultValue: "Couldn't start the chat. Try again.", bundle: .module)
     }
     public static var notSent: String {
+        // retry-prompt-ok: the composer keeps the unsent message for the person to choose when to send it again.
         String(localized: "mobile.auto.notSent", defaultValue: "Couldn't send. Try again.", bundle: .module)
     }
     public static var textOnly: String {

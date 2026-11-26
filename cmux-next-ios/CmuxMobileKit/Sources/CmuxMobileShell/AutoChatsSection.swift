@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxSpinner
 import SwiftUI
@@ -43,14 +44,14 @@ final class AutoChatsPresentation {
 /// The Auto section of the Cloud chats list.
 struct AutoChatsSection: View {
     let auto: AutoChatsPresentation
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Section {
             if let model = auto.model {
                 if model.phase == .failed {
                     Text(verbatim: AutoChatWords.loadFailed).foregroundStyle(.secondary)
-                    Button(AutoChatWords.retry) { Task { await model.load() } }
-                        .accessibilityIdentifier("autoChats.retry")
+                    AutoRetryQuietLine(autoRetry)
                 } else if model.chats.isEmpty {
                     if model.phase == .loaded {
                         Text(verbatim: AutoChatWords.noChats).foregroundStyle(.secondary)
@@ -71,6 +72,10 @@ struct AutoChatsSection: View {
             }
         } header: {
             Text(verbatim: AutoChatWords.auto)
+        }
+        .autoRetry(autoRetry, failing: auto.model?.phase == .failed) {
+            guard let model = auto.model else { return }
+            await model.load()
         }
     }
 }

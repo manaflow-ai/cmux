@@ -394,18 +394,32 @@ async fn record_leave_intent_at(
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
 pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
-    let take = async {
+    acquire_join_lock(home).await.ok()
+}
+
+/// Wait only on lock contention. A refused or unusable state file fails at once.
+pub(super) async fn acquire_join_lock(home: &Path) -> Result<HeldLock> {
+    crate::config::private_state_dir(home)?;
+    let file = crate::config::private_state_rw(&home.join("machine-join.lock"))?;
+    tokio::time::timeout(LOCK_WAIT, async {
         loop {
-            if let Ok(lock) =
-                crate::config::private_state_dir(home).and_then(|()| join_lock_at(home))
-            {
-                return lock;
+            match file.try_lock() {
+                Ok(()) => return Ok(HeldLock(file)),
+                Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    // timeout: short-gate: LOCK_WAIT bounds contention with another process.
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
             }
-            // timeout: short-gate: the step between tries at the join lock; LOCK_WAIT bounds the wait.
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
-    };
-    tokio::time::timeout(LOCK_WAIT, take).await.ok()
+    })
+    .await
+    .map_err(|_| {
+        anyhow!(
+            "another operation still holds the machine enrollment lock after {} s",
+            LOCK_WAIT.as_secs()
+        )
+    })?
 }
 
 /// Enrolls the box whose fingerprint is `current` with its acpmux home at `home`, through `port`.

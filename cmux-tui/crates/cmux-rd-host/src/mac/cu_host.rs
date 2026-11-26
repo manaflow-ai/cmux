@@ -182,7 +182,7 @@ fn screen_capture() -> ScreenCapture {
 fn require_grant() -> DResult<()> {
     match screen_capture() {
         ScreenCapture::Granted => Ok(()),
-        ScreenCapture::GrantedAfterStart => Err(DesktopError::Failed(
+        ScreenCapture::GrantedAfterStart => Err(DesktopError::ScreenCaptureRestarting(
             "Screen Recording was just turned on; Computer Use is restarting to use it. Try again in a second."
                 .into(),
         )),

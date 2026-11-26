@@ -19,7 +19,7 @@ impl Mux {
             anyhow::ensure!(
                 read.get("snapshot").and_then(Value::as_bool) == Some(true)
                     && read.get("complete").and_then(Value::as_bool) == Some(true),
-                "terminal recovery surface unavailable; retry"
+                "terminal recovery surface unavailable and no complete exit snapshot exists"
             );
             let text = read.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
             anyhow::ensure!(
@@ -37,13 +37,18 @@ impl Mux {
         let (text, end) = surface.try_with_terminal(|terminal| -> anyhow::Result<_> {
             anyhow::ensure!(
                 surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0),
-                "terminal output capture is in progress; retry"
+                "terminal output capture is in progress"
             );
-            let (current, _, _, end) = self
-                .output_store
-                .recovery_state(terminal_id)
-                .ok_or_else(|| anyhow::anyhow!("terminal output recovery disappeared; retry"))?;
-            anyhow::ensure!(current.as_ref() == epoch, "terminal output recovery changed; retry");
+            let (current, _, _, end) =
+                self.output_store.recovery_state(terminal_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "terminal output recovery state disappeared before snapshot capture"
+                    )
+                })?;
+            anyhow::ensure!(
+                current.as_ref() == epoch,
+                "terminal output recovery epoch changed before snapshot capture"
+            );
             let text = terminal
                 .recovery_text_bounded(usize::try_from(max_bytes.min(4 * 1024 * 1024))?)?
                 .ok_or_else(|| anyhow::anyhow!("terminal recovery snapshot exceeds max_bytes"))?;
@@ -108,14 +113,14 @@ impl Mux {
             }
             anyhow::ensure!(
                 requested <= *end,
-                "terminal output cursor is beyond the current stream; retry recovery"
+                "terminal output cursor {requested} exceeds the current stream end {end}"
             );
         }
         let mut result = self.terminal_output_read_raw(terminal_id, after, max_bytes)?;
         let current = self.output_store.recovery_state(terminal_id);
         anyhow::ensure!(
             before.as_ref().map(|state| &state.0) == current.as_ref().map(|state| &state.0),
-            "terminal output recovery changed during read; retry"
+            "terminal output recovery epoch changed during read"
         );
         if let Some((epoch, gap, _, _)) = current {
             let fields = result

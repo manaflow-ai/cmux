@@ -67,6 +67,8 @@ pub(super) const ENGLISH: AttachMessages = AttachMessages {
     remote_attach_queue_full: "remote surface attach queue is full",
     remote_attach_workers_failed_template: "could not start surface attach workers: {error}",
     surface_sync_failed_template: "surface {surface} {operation} failed; retries are rate-limited: {error}",
+    // retry-prompt-ok: detach discards input queued for a surface whose attachment is uncertain;
+    // the person reconnects before choosing what to send to the verified destination.
     surface_sync_unknown_template: "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}",
     surface_sync_attach: "attach",
     surface_sync_resize: "resize",

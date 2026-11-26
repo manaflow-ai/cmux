@@ -36,8 +36,10 @@ enum ChiefUpload {
         var message: String {
             switch self {
             case let .stalled(hop, _, seconds):
+                // retry-prompt-ok: the attachment send was requested by the person and remains unsent.
                 String(format: String(localized: "The attachment stopped uploading: nothing moved for %1$d seconds (%2$@). Try again."), seconds, hop)
             case let .timedOut(hop, seconds):
+                // retry-prompt-ok: the attachment send was requested by the person and remains unsent.
                 String(format: String(localized: "The attachment couldn't upload: %1$@ sent no reply for %2$d seconds. Try again."), hop, seconds)
             }
         }

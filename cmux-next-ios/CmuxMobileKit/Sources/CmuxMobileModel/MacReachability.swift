@@ -147,17 +147,24 @@ public enum MacReachability: Equatable, Sendable {
         case .connecting: "Your sessions on \(macName) stay open while this iPhone connects."
         case .notConnected: "Connect to this Mac to view its workspaces."
         case .slow(let quiet):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
             "The cmux service hasn't heard from \(macName) for \(Self.span(quiet)). The Mac may be overloaded or its network failing. Retry, or check the Mac."
         case .offline(let date):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
             "The cmux service lost touch with \(macName).\(seen(date)) Retry to try reaching it directly; if it doesn't answer, make sure the Mac is awake and cmux is open."
         case .noAnswer(true, _):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
             "The cmux service lists \(macName) as online, but it isn't responding to this iPhone. It may be frozen, busy or overloaded. Retry, or quit and reopen cmux on the Mac."
         case .noAnswer(false, let date):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
             "The cmux service lost touch with \(macName).\(seen(date)) The Mac may be asleep, or cmux on it may have quit. Make sure it's awake and cmux is open, then retry."
         case .serviceDown:
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
             "This iPhone reached \(macName), but cmux on it didn't respond. Your sessions stay on the Mac. Retry, or quit and reopen cmux on the Mac."
         case .authRequired: "The cmux service refused this iPhone's session. Sign in again to reach \(macName)."
-        case .notAllowed: "Allow this iPhone on \(macName), then retry."
+        case .notAllowed:
+            // retry-prompt-ok: the person must allow this iPhone on the Mac before trying again.
+            "Allow this iPhone on \(macName), then retry."
         case .phoneOffline: "Connect to Wi-Fi or cellular. \(macName) reconnects on its own when the network is back."
         }
     }
@@ -290,9 +297,15 @@ public struct MacRecoveryAttempt: Equatable, Sendable {
         switch result {
         case nil: nil
         case .connected: "Connected. Your sessions are back."
-        case .failed(.service): "Couldn't reach the cmux service. Check this iPhone's connection, then retry."
-        case .failed(.mac): "Reached the cmux service, but not \(macName). Make sure it's awake and cmux is open, then retry."
-        case .failed(.session): "Reached \(macName), but cmux on it isn't responding. Quit and reopen cmux on the Mac, then retry."
+        case .failed(.service):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
+            "Couldn't reach the cmux service. Check this iPhone's connection, then retry."
+        case .failed(.mac):
+            // retry-prompt-ok: reaching a remote Mac is an explicit troubleshooting action.
+            "Reached the cmux service, but not \(macName). Make sure it's awake and cmux is open, then retry."
+        case .failed(.session):
+            // retry-prompt-ok: reopening a remote Mac's cmux service is an explicit troubleshooting action.
+            "Reached \(macName), but cmux on it isn't responding. Quit and reopen cmux on the Mac, then retry."
         }
     }
 }

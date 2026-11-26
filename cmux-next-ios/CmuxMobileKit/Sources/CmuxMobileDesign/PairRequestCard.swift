@@ -47,6 +47,7 @@ public struct PairRequestCardView: View {
                     .accessibilityIdentifier("pairRequest.fingerprint")
             }
             if failed {
+                // retry-prompt-ok: the person already approved this pairing and chooses whether to resend that answer.
                 Text(String(localized: "pairRequest.failed",
                             defaultValue: "Your Mac didn’t take the answer. Try again.", bundle: .module))
                     .font(.footnote)

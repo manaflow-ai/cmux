@@ -716,11 +716,13 @@ const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
 const LOCAL_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
+// retry-prompt-ok: Resize was already retried; reloading the document can discard unsaved input.
 const BROWSER_RESIZE_RECOVERY_FAILED_MESSAGE: &str =
     "browser resize recovery failed; reload to retry";
 const BROWSER_NEW_PAGE_VERIFICATION_FAILED_PREFIX: &str = "could not verify new page pixels: ";
 const BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX: &str =
     "could not verify updated page pixels: ";
+// retry-prompt-ok: After pixel capture attempts fail, only the person can choose to reload an edited page.
 const BROWSER_VERIFICATION_FAILED_SUFFIX: &str = "; reload to retry";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
 #[cfg(not(test))]

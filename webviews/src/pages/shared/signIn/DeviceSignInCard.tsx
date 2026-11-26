@@ -147,6 +147,7 @@ function ActionButtons({
       out.push(button("newCode", strings.t("signIn.newCode"), props.onRetry, true));
       break;
     case "tryAgain":
+      // retry-prompt-ok: a failed sign-in starts a fresh provider sign-in flow by person choice.
       out.push(button("tryAgain", strings.t("signIn.tryAgain"), props.onRetry, true));
       break;
     case "install":

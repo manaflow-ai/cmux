@@ -588,14 +588,22 @@ impl Hub {
                 }
             }
             let age = idle.map_or_else(|| "an unknown time".to_owned(), |d| format!("{d:?} ago"));
+            // A second begin cancels the stalled owner's move. After a full (or unknown)
+            // read, only the target can establish which machine owns the chat.
+            let takeover = if fully_read == Some(false) && idle.is_some() {
+                // retry-prompt-ok: taking over abandons the first move and uses this caller's destination.
+                "retry after the lease"
+            } else {
+                "the daemon must establish the outcome of the current move first"
+            };
             let e = transfer_error(
                 "moving",
                 format!(
-                    "this chat is already being moved by transfer {other} (last heartbeat {age}); retry after the {}-second lease to take it over",
+                    "this chat is already being moved by transfer {other} (last heartbeat {age}, lease {}s); {takeover}",
                     lease.as_secs()
                 ),
             );
-            let mut data = json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"});
+            let mut data = json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": takeover});
             if let Some(token) = moving_begin_token(&other) {
                 data.set("beginToken", json!(token));
             }

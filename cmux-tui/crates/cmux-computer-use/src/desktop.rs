@@ -353,6 +353,9 @@ pub enum DesktopError {
     /// The platform cannot do this safely here (for example a raw key to a
     /// multi-window app in the background). Says what would work instead.
     Unsupported(String),
+    /// A helper is restarting after an OS permission changed. The caller may
+    /// retry only when it knows the operation has no side effects.
+    ScreenCaptureRestarting(String),
     Failed(String),
     /// The screen is locked, so the call did nothing ([`crate::locked`]).
     Locked(String),
@@ -373,6 +376,7 @@ impl std::fmt::Display for DesktopError {
                 write!(f, "element {e} is stale; call get_ui_tree again")
             }
             DesktopError::Unsupported(m) => write!(f, "unsupported: {m}"),
+            DesktopError::ScreenCaptureRestarting(m) => write!(f, "{m}"),
             DesktopError::Failed(m) | DesktopError::Locked(m) => write!(f, "{m}"),
         }
     }
@@ -387,6 +391,7 @@ impl DesktopError {
             DesktopError::TargetNotFound(_) => "target_not_found",
             DesktopError::StaleElement(_) => "stale_element",
             DesktopError::Unsupported(_) => "unsupported",
+            DesktopError::ScreenCaptureRestarting(_) => "screen_capture_restarting",
             DesktopError::Failed(_) => "failed",
             DesktopError::Locked(_) => crate::locked::CODE,
         }

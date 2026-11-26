@@ -69,6 +69,7 @@ export function ReviewBox({
         )}
         {mine && write.phase === "failed" && (
           <span className="gh-merge-note gh-merge-failure" role="alert">
+            {/* retry-prompt-ok: GitHub requires the person to approve or request changes. */}
             {write.personOnly ? t("github.review.personOnly") : write.message}
           </span>
         )}

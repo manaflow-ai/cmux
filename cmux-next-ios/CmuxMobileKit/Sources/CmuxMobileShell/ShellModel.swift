@@ -1044,7 +1044,9 @@ final class ShellModel {
     static func sendInviteFailureText(_ error: any Error) -> String {
         if let failure = error as? LiveAPI.Failure {
             switch failure.code {
-            case "rate_limited": return "Too many invitations. Try again in a minute."
+            case "rate_limited":
+                // retry-prompt-ok: sending another invitation is an explicit person-requested action.
+                return "Too many invitations. Try again in a minute."
             case "bad_request": return InviteEmail.invalidMessage
             default: break
             }
