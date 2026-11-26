@@ -58,7 +58,7 @@ await requireBrowserLane("feel-sidebar.test.ts", async () => {
 What every surface should be put through: drags slow, fast, shaky and in bursts; a click that is not a
 drag; misses just around each handle; a double-click and repeats; bursts and extremes in its data (1, 5
 and 50 items; short and huge text). A stage of its own (a `*.gallery.ts` entry) gives the hand room, like
-`agent-pane.feel-plan-tray`.
+`agent-pane.feel-tray`.
 
 ## Known reds
 
