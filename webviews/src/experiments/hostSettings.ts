@@ -20,6 +20,7 @@ export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
   toastGlass: { experiment: "toast-glass", arm: "host" },
   composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "groups" },
+  forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
 
 /**
