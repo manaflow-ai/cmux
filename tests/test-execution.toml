@@ -2453,3 +2453,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_red_fix_mine.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_rate_limit.py"
+lane = "linux-guard"
