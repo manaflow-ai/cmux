@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45858937509",
+  "recorded_at": "2026-11-26T16:53:02Z",
+  "reason": "image inputs changed in 9cd7f57ef30fe6f343bce394cb3636d26657e981..35d7612c56f3100ef2a072b00f6c93ffe6000390",
+  "dry_run": false,
+  "cmux_tui": "99de33e5513cd5ea3ae708115d2b919681d3f9cb",
+  "fixes": [
+    {
+      "sha": "35d7612c56f3100ef2a072b00f6c93ffe6000390",
+      "mergedAt": "2026-11-26T16:27:16Z",
+      "subject": "cmux-vm image: pinned files from the edge by sha256, origin fallback (RFD 0056 part 3) (#57315)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T16:53:02Z",
+    "snapshot_id": "sh-7ded01291053466599f3e809225dbb82",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45858937509): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae5e6c06b04a2665898a06b5ee9c6490c43a4ade",
+    "image": "cloud-native-auto-99de33e5-45858937509-1",
+    "revision": "ci-45858937509-1",
+    "at": "2026-11-26T16:53:02Z"
+  },
+  "rolled_back": false
+}
