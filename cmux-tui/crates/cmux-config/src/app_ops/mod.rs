@@ -17,8 +17,8 @@
 //!   [`build_defaults`], [`quick_toggles`], [`schema`].
 
 pub mod build_defaults;
-pub mod controller;
 pub mod chrome_theme;
+pub mod controller;
 pub mod effective;
 pub mod jsonc;
 pub mod looks;
