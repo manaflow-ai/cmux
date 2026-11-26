@@ -410,6 +410,7 @@ impl HostShared {
     }
 
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+        cmux_interactivity::note(cmux_interactivity::InteractionKind::Typing);
         let (delivered, wrote) = {
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.

@@ -57,7 +57,7 @@ done
   args=()
   for name in "${names[@]}"; do args+=(--target "$name"); done
   start=$SECONDS
-  swift build "${args[@]}" 2>&1 | tail -20
+  swift build ${args[@]+"${args[@]}"} 2>&1 | tail -20
   echo "swift build took $((SECONDS - start)) s"
   bin="$(swift build --show-bin-path)"
   CMUX_SWIFT_BIN_PATH="$bin" "$repo/scripts/cmux-next/compile-string-catalogs.sh"

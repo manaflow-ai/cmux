@@ -73,7 +73,7 @@ pub async fn serve(opts: Serve) -> Result<(), String> {
         match crate::crates::write_cargo_config(path, port) {
             Ok(true) => eprintln!("git-cache: crates.io served through {}", path.display()),
             Ok(false) => {
-                eprintln!("git-cache: crates cache off ({})", crate::crates::DISABLED_FILE)
+                eprintln!("git-cache: crates cache off ({})", crate::crates::DISABLED_FILE);
             }
             Err(e) => eprintln!("git-cache: crates cache: write {}: {e}", path.display()),
         }

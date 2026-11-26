@@ -5,6 +5,7 @@
 // expanded, the auto folding situation shouldn't collapse it when a new tool call comes in and the
 // folds reformat").
 import { ANCHORED_COLLAPSE_EVENT } from "./foldAnchor";
+import { scrollListBy } from "./motionOwner";
 
 /// An opened line: a call's own (`data-tool-id`), a group's (`data-tool-group`) or a run's
 /// (`data-tool-run`). Each is keyed by an id that outlasts the regroup, so the line is found again.
@@ -79,5 +80,5 @@ export function keepOpenedLine(box: HTMLElement | null, line: OpenedLine): void 
   );
   if (answered) return;
   const scroller = scrollerOf(node);
-  if (scroller) scroller.scrollTop += moved;
+  if (scroller) scrollListBy(scroller, moved);
 }
