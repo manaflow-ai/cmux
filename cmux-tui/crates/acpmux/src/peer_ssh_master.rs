@@ -160,15 +160,15 @@ impl Peer {
     /// The first SSH process establishes the shared transport. A per-socket advisory lock
     /// also covers a second daemon starting during handoff. The lock is released on exit
     /// or cancellation, and a warm multiplexed channel only needs a socket existence check.
-    pub(in crate::peer) async fn spawn_ssh(
+    pub(in crate::peer) async fn begin_ssh_login(
         &self,
-        command: &mut tokio::process::Command,
-    ) -> io::Result<tokio::process::Child> {
+        command: &tokio::process::Command,
+    ) -> io::Result<Option<MasterLogin>> {
         // ssh_with_master adds -S only if the path can be used by OpenSSH.
         let path =
             self.master_path().filter(|_| command.as_std().get_args().any(|arg| arg == "-S"));
         let Some(path) = path.filter(|path| !path.exists()) else {
-            return command.spawn();
+            return Ok(None);
         };
         let lock = match OpenOptions::new()
             .read(true)
@@ -178,7 +178,7 @@ impl Peer {
             .open(path.with_extension("lock"))
         {
             Ok(lock) => lock,
-            Err(_) => return command.spawn(), // Preserve ordinary SSH when locking is unavailable.
+            Err(_) => return Ok(None), // Preserve ordinary SSH when locking is unavailable.
         };
         let mut stopped = self.stopped();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(self.ssh_connect_secs());
@@ -187,10 +187,10 @@ impl Peer {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "peer stopped"));
             }
             if path.exists() {
-                return command.spawn();
+                return Ok(None);
             }
             match lock.try_lock() {
-                Ok(()) => break,
+                Ok(()) => return Ok(Some(MasterLogin { path, _lock: lock })),
                 Err(TryLockError::WouldBlock) if tokio::time::Instant::now() < deadline => {}
                 Err(TryLockError::WouldBlock) => {
                     return Err(io::Error::new(
@@ -198,30 +198,43 @@ impl Peer {
                         "waiting for peer SSH master to log in",
                     ));
                 }
-                Err(TryLockError::Error(_)) => return command.spawn(),
+                Err(TryLockError::Error(_)) => return Ok(None),
             }
             tokio::select! {
                 _ = stopped.changed() => {}
                 () = tokio::time::sleep(MASTER_POLL) => {}
             }
         }
-        let mut child = command.spawn()?;
+    }
+}
+
+/// Owns the first channel's login until the control socket is ready for other channels.
+pub(in crate::peer) struct MasterLogin {
+    path: PathBuf,
+    _lock: std::fs::File,
+}
+
+impl MasterLogin {
+    pub(in crate::peer) async fn wait(
+        self,
+        peer: &Peer,
+        child: &mut tokio::process::Child,
+    ) -> io::Result<()> {
+        let mut stopped = peer.stopped();
         // OpenSSH publishes the socket after authentication. On failure, pass the child's
         // status and stderr back to the caller immediately. Keep the lock bounded even if
         // a proxy command never produces a socket.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(self.ssh_connect_secs());
-        while !path.exists() && tokio::time::Instant::now() < deadline {
-            if child.try_wait()?.is_some() {
-                break;
-            }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(peer.ssh_connect_secs());
+        while !self.path.exists() && tokio::time::Instant::now() < deadline {
             tokio::select! {
+                status = child.wait() => return status.map(|_| ()),
                 _ = stopped.wait_for(|stopped| *stopped) => {
                     return Err(io::Error::new(io::ErrorKind::Interrupted, "peer stopped"));
                 }
                 () = tokio::time::sleep(MASTER_POLL) => {}
             }
         }
-        Ok(child)
+        Ok(())
     }
 }
 

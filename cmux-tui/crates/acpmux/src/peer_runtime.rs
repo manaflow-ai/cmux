@@ -399,11 +399,14 @@ impl Peer {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        let mut child =
-            self.spawn_ssh(&mut command).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        let login = self.begin_ssh_login(&command).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("spawn ssh: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        }
         Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
@@ -451,9 +454,13 @@ impl Peer {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        let mut child =
-            self.spawn_ssh(&mut command).await.map_err(|e| format!("read remote config: {e}"))?;
+        let login =
+            self.begin_ssh_login(&command).await.map_err(|e| format!("read remote config: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("read remote config: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("read remote config: {e}"))?;
+        }
         let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
         // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
         let out = tokio::select! {
