@@ -991,12 +991,32 @@ if [[ "$mode" == release-build ]]; then
   note "- configuration: Release; destination: generic/platform=iOS Simulator; signing: disabled"
   note "- compilation conditions: Release defaults; no injected DEBUG or CMUX_MOBILE_DEMO"
 fi
+# The UI tests' own build (test ui=SUITE, $ui_config in dd-ui), started beside the Demo build: the two
+# share no DerivedData, so the step no longer waits for one compile and then the other. Only for plain
+# UI suites (no cold suites, duress, net or profile, which build on their own below). The UI section
+# waits for it and runs test-without-building; a failed prebuild leaves that section's `test` (it
+# builds and reports the error as before). Every app still comes from the same sources and settings.
+ui_prebuild_pid="" ui_prebuild_t0=0
+ui_prebuild_args=()
+if [[ "$mode" == test && ${#ui_suites[@]} -gt 0 && ${#ui_cold[@]} -eq 0 && ${#duress_specs[@]} -eq 0 &&
+  ${#net_profiles[@]} -eq 0 && $ui_profile -eq 0 ]]; then
+  ui_prebuild_args=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$ui_config"
+    -destination 'generic/platform=iOS Simulator' -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet)
+  [[ "$ui_config" != Demo ]] || ui_prebuild_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  ui_prebuild_t0=$SECONDS
+  xcodebuild build-for-testing "${ui_prebuild_args[@]}" >"$work/ui-build.log" 2>&1 &
+  ui_prebuild_pid=$!
+fi
 set +e
 "${build_command[@]}" >"$work/build.log" 2>&1
 status=$?
 set -e
 grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build.log" | sort -u | head -40 || true
-[[ $status -eq 0 ]] || { tail -40 "$work/build.log"; exit 1; }
+[[ $status -eq 0 ]] || {
+  [[ -z "$ui_prebuild_pid" ]] || kill "$ui_prebuild_pid" 2>/dev/null || true
+  tail -40 "$work/build.log"; exit 1; }
 app="$dd/Build/Products/$configuration-iphonesimulator/CmuxMobileApp.app"
 if [[ "$mode" == release-build ]]; then
   [[ -d "$app" ]] || { echo "error: Release app missing at $app" >&2; exit 1; }
@@ -1092,6 +1112,17 @@ elif [[ "$mode" == clips && -n "$listperf_base" ]]; then
 fi
 
 # --- Simulator --------------------------------------------------------------
+# The UI tests' build (started beside the Demo build above) ends before anything is timed on a simulator.
+ui_prebuild_status=""
+if [[ -n "$ui_prebuild_pid" ]]; then
+  ui_prebuild_status=0
+  wait "$ui_prebuild_pid" || ui_prebuild_status=$?
+  note "- UI test build (build-for-testing, beside the Demo build): exit $ui_prebuild_status, $((SECONDS - ui_prebuild_t0)) s from its start"
+  if [[ $ui_prebuild_status -ne 0 ]]; then
+    tail -40 "$work/ui-build.log"
+    cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
+  fi
+fi
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
 if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then
@@ -1624,6 +1655,8 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   fi
   ui_action=test
   ui_status=0
+  # Built beside the Demo build: only the run is left. A failed prebuild builds again here (`test`).
+  [[ "$ui_prebuild_status" != 0 ]] || ui_action=test-without-building
   if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
     # Cold suites run test-without-building once per fresh boot: built once, first.
     ui_t0=$SECONDS
