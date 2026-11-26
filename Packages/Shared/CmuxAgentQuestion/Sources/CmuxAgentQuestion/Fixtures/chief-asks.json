@@ -1,0 +1,41 @@
+{
+  "id": "perm_chief_1",
+  "source": {
+    "harness": "chief",
+    "session": "sess_mux",
+    "permission": "perm_chief_1",
+    "agentName": "Chief",
+    "answerOption": "allow_once",
+    "rejectOption": "reject_once",
+    "toolCall": "toolu_chief"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "header": "Deploy",
+      "prompt": "Two agents finished. Merge both branches into feat-cmux-next now?",
+      "options": [
+        {
+          "id": "both",
+          "label": "Merge both",
+          "detail": "Runs the gates on the merged head first."
+        },
+        {
+          "id": "first",
+          "label": "Only the docs branch",
+          "detail": "The app branch waits for dogfood."
+        },
+        {
+          "id": "wait",
+          "label": "Wait",
+          "detail": "Ask again after the nightly."
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": true
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

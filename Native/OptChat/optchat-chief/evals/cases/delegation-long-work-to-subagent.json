@@ -1,0 +1,19 @@
+{
+  "id": "delegation-long-work-to-subagent",
+  "group": "delegation",
+  "owner": "a25575",
+  "about": "work that needs builds and tests goes to a subagent; the Chief does not run the build itself and names the subagent",
+  "turns": [
+    {
+      "text": "ChiefSettingsTests is flaky on the fleet, fix it and land it",
+      "checks": [
+        {"type": "called", "cmd": "spawn"},
+        {"type": "not_called", "cmd": "cmux-ci"},
+        {"type": "not_called", "cmd": "git", "re": "commit|push"},
+        {"type": "reply_matches", "re": "\\ba\\d+\\b"},
+        {"type": "no_question"},
+        {"type": "max_words", "n": 40}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "assistant-a672-short-status",
+  "owner": "a672",
+  "about": "a status question gets the short one-line-per-agent form",
+  "history": [
+    {
+      "kind": "user",
+      "text": "[a905] Landed 5c6369c0a1..c3c07ba184 on feat-cmux-next: GitHub sign-in for local Chiefs."
+    },
+    {
+      "kind": "talk",
+      "text": "a905 landed GitHub sign-in."
+    },
+    {
+      "kind": "user",
+      "text": "[a906] Still working: Kitty image protocol, 3 of 5 tests green."
+    }
+  ],
+  "turns": [
+    {
+      "text": "status?",
+      "tail": "Subagents at work now: a906. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
+      "checks": [
+        {
+          "type": "max_words",
+          "n": 70
+        },
+        {
+          "type": "reply_matches",
+          "re": "a906"
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

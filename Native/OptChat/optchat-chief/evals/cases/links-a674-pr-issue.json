@@ -1,0 +1,39 @@
+{
+  "id": "links-a674-pr-issue",
+  "owner": "a674",
+  "about": "a PR and an issue a subagent names by number become GitHub links, never a bare #number",
+  "history": [
+    {
+      "kind": "user",
+      "text": "get the open-terminal-here bug fixed"
+    },
+    {
+      "kind": "talk",
+      "text": "- a901: fixing open-terminal-here"
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a901] Opened PR #25240 in manaflow-ai/cmux; it fixes issue #25092 (open terminal here ignores the cwd). CI pending. Nothing landed on feat-cmux-next yet.",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/issues/25092\\)"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(^|[^\\[\\w/])#?(25240|25092)([^\\w\\]]|$)"
+        },
+        {
+          "type": "max_words",
+          "n": 70
+        }
+      ]
+    }
+  ]
+}

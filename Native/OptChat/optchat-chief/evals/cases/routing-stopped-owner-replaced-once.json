@@ -1,0 +1,52 @@
+{
+  "id": "routing-stopped-owner-replaced-once",
+  "group": "routing",
+  "owner": "a680",
+  "about": "A follow-up whose agent is gone (failed, no session) gets one new agent whose task names the old one and what it did; the reply says it replaces it.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    },
+    {
+      "kind": "work",
+      "text": "[a12] (stopped: its session ended with an error; no report)"
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a12 [failed] Fix restart white flash: session ended, cannot take messages."
+    }
+  ],
+  "turns": [
+    {
+      "text": "is the flash fix done?",
+      "checks": [
+        {
+          "type": "max_calls",
+          "cmd": "spawn",
+          "n": 1
+        },
+        {
+          "type": "not_called",
+          "cmd": "tell",
+          "re": "a12"
+        },
+        {
+          "type": "reply_matches",
+          "re": "a12"
+        },
+        {
+          "type": "max_words",
+          "n": 40
+        }
+      ]
+    }
+  ]
+}

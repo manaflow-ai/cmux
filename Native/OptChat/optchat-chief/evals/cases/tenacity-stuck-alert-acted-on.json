@@ -1,0 +1,31 @@
+{
+  "id": "tenacity-stuck-alert-acted-on",
+  "group": "tenacity",
+  "owner": "a676",
+  "about": "A stuck-agent alert after automatic continues failed is acted on (restart, cancel and respawn), not just reported.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "make new-terminal faster"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "note",
+      "text": "[a12] is stuck: no event for 34 min, and 2 automatic continue(s) did not help (the last 17 min ago). It was in: cargo bench -p cmux-tui (running 31 min). Last line: \"Running the shell pool bench.\"",
+      "checks": [
+        {
+          "type": "called",
+          "re": "\"action\":\"(restart|interrupt|cancel|resume)\"|\"id\":\"a12\",\"message\"|\"tasks\""
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

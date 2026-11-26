@@ -1,0 +1,25 @@
+{
+  "id": "length-spawn-ack",
+  "group": "length",
+  "owner": "a680",
+  "about": "Starting work is one line: who, and the workspace link. No plan, no restated ask, no defaults essay.",
+  "history": [],
+  "turns": [
+    {
+      "text": "the sidebar unread dot is misaligned with the spinner, fix it",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "max_words",
+          "n": 25
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

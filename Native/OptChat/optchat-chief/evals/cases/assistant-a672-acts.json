@@ -1,0 +1,16 @@
+{
+  "id": "assistant-a672-acts",
+  "owner": "a672",
+  "about": "a vague but safe ask is acted on, not answered with a question",
+  "turns": [
+    {
+      "text": "the nightly build is failing again, can you look?",
+      "checks": [
+        {
+          "type": "judge",
+          "rubric": "PASS when the assistant takes action this turn (a tool call that investigates or spawns someone to investigate the nightly failure) and does not ask the person a question it could answer itself. FAIL when it asks which build, which repo, or whether to proceed."
+        }
+      ]
+    }
+  ]
+}

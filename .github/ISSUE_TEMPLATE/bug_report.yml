@@ -1,0 +1,158 @@
+name: Bug Report
+description: Report a bug in cmux
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the information below so we can reproduce and fix it.
+
+  - type: input
+    id: cmux-version
+    attributes:
+      label: cmux version
+      description: "Run `cmux --version` or check About cmux in the menu bar."
+      placeholder: "e.g. 0.3.2"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: "Apple menu → About This Mac"
+      placeholder: "e.g. macOS 15.3 (Sequoia)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Mac chip
+      options:
+        - Apple Silicon (M1/M2/M3/M4)
+        - Intel
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation method
+      options:
+        - Homebrew
+        - Direct download (DMG)
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: nightly-repro
+    attributes:
+      label: Can you reproduce this on cmux NIGHTLY?
+      description: "Please test with the latest NIGHTLY build first: https://github.com/manaflow-ai/cmux?tab=readme-ov-file#nightly-builds"
+      options:
+        - Yes, it still reproduces on NIGHTLY
+        - No, it does not reproduce on NIGHTLY
+        - I could not test NIGHTLY
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: "A clear description of the bug."
+      placeholder: "What happened?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: "What did you expect to happen?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: "Minimal steps to reproduce the bug."
+      placeholder: |
+        1. Open cmux
+        2. ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: shell-info
+    attributes:
+      label: Shell and environment
+      description: "Which shell are you using? Any relevant env config (oh-my-zsh, starship, tmux, etc.)?"
+      placeholder: "e.g. zsh with starship prompt, using tmux inside cmux"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or crash reports
+      description: |
+        If applicable, paste logs or crash reports. Crash reports are in `~/Library/Logs/DiagnosticReports/`.
+        You can also check `Console.app` for cmux-related messages.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or screen recordings
+      description: "If applicable, add screenshots or recordings to help explain the problem."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of cmux is this about?
+      description: |
+        A guess is fine, and "Not sure" is a normal answer. It only helps triage
+        find the right person: https://github.com/manaflow-ai/cmux/blob/main/docs/triage.md
+      options:
+        - Not sure
+        - terminal (rendering, scrollback, fonts, shell integration)
+        - input (keyboard, paste, IME, mouse)
+        - layout (splits, panes, tabs, windows)
+        - sidebar
+        - workspaces (sessions, worktrees, restore)
+        - agents (Claude Code, Codex, ACP, agent panes)
+        - cloud (cmux Cloud, VMs, relays, the dashboard)
+        - remote (cmux ssh, tunnels, device pairing)
+        - ios
+        - cli (the cmux command, cmux-tui, SDKs)
+        - settings
+        - browser
+        - command-palette
+        - appearance (themes, colors, transparency)
+        - notifications
+        - updates (Sparkle, nightly, install)
+        - auth (sign-in, tokens)
+        - performance (slowness, CPU, memory)
+        - localization (translations, RTL)
+        - accessibility (VoiceOver, keyboard-only)
+        - docs
+        - build-and-ci
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: "Anything else that might be relevant (other apps running, display setup, accessibility features, etc.)."
+    validations:
+      required: false

@@ -1,0 +1,57 @@
+{
+  "id": "barrage-two-turns-nothing-lost",
+  "group": "barrage",
+  "owner": "tenacity-loop",
+  "about": "after a burst, the person asks what is in flight: the answer accounts for every ask of the burst, one line each",
+  "turns": [
+    {
+      "text": "four things: fix the white flash on restart, add autobalance to splits, make group headers 2pt shorter, and export chat as markdown",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)white flash|restart"
+        },
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)autobalance|balance"
+        },
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)group header"
+        },
+        {
+          "type": "called",
+          "cmd": "spawn",
+          "re": "(?i)markdown|export"
+        }
+      ]
+    },
+    {
+      "text": "ok what's in flight from that",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "(?i)flash"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)balance|equal|split"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)header"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)markdown|export"
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

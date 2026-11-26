@@ -1,0 +1,38 @@
+{
+  "id": "links-a674-file-path",
+  "owner": "a674",
+  "about": "a file a subagent wrote on the Mac is a file:// link named by its file name, never a raw path",
+  "history": [
+    {
+      "kind": "user",
+      "text": "audit the Chief's link handling and write it up"
+    },
+    {
+      "kind": "talk",
+      "text": "- a901: auditing Chief links"
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a901] Done. Audit written to /home/person/fun/cmux/plans/cmux-next/chief-links-audit.md (12 gaps, 3 fixed). Nothing landed: report only.",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(file:///home/person/fun/cmux/plans/cmux-next/chief-links-audit\\.md\\)"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(^|[^(/\\w])(/home/person|~)/fun/cmux/plans"
+        },
+        {
+          "type": "no_raw_ids"
+        },
+        {
+          "type": "max_words",
+          "n": 70
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,713 @@
+//! The Chief's engine settings (Lawrence, 2026-10-05: "visibility into the
+//! model / harness, and swap it between turns"): the turn harness, model and
+//! reasoning effort, and the compactor's harness and model, in
+//! `$MUX_HOME/optchat/engine.json` (0600). The host reads the turn fields at
+//! EACH turn start, so a change applies from the next turn without a
+//! restart; a running turn finishes on its engine. The compactor fields
+//! apply at the next host start (its sessions' presets and slot directories
+//! are made for one harness family at start).
+//!
+//! `optchat-chief engine show|set` (also `chief engine ...` in a turn) reads
+//! and writes the file; the app can show and write the same file.
+
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// What `engine.json` holds; a missing field is the host's default (its env).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EngineChoice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_harness: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_model: Option<String>,
+    /// `fast` (the priority tier) or none (`default`): turns, then the
+    /// compactor (its slots, at the next host start).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_speed: Option<String>,
+    /// The reaction classifier's harness (reaction_wake.rs); None: the
+    /// user's `chief.reactionClassifier.harness`, else the host's Claude route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_harness: Option<String>,
+    /// The reaction classifier's model; None: the user's, else Claude Haiku.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_model: Option<String>,
+    /// The reaction classifier's prompt; None: the user's, else the built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_prompt: Option<String>,
+    /// Whether a user's reaction on a Chief message may wake this Chief;
+    /// None: the user's `chief.reactionsCanWake`, else on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactions_can_wake: Option<bool>,
+    /// Whether `spawn` may name its subagents' harness or model: `auto` or
+    /// `off`; None: cmux.json `chief.autoRouteSubagents`, else off (Leo,
+    /// 2026-11-01: "optional ofc we don't wanna change defaults or whatnot
+    /// yet").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_routing: Option<String>,
+    /// Per-turn model routing; absent means off. Never changes the harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_routing: Option<String>,
+    /// The harness a spawn that names none runs its subagents on, routing
+    /// on or off; None: the turn's (or OPTCHAT_SUBAGENT_HARNESS, which wins).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_harness: Option<String>,
+    /// The Cloud machine a Chief on this Mac does computer use on
+    /// (`machine:<id>`, cmux issue 36047): the owner attaches one in the
+    /// Chief's card. None: computer use stays on this Mac. Read at each turn
+    /// start, like the turn fields; the turn gets one line naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
+    /// The permission mode the Chief's own Claude turns run in
+    /// (`chief engine set --mode`, [`PERMISSION_MODES`]); None: the user's
+    /// cmux-next.json `chief.permissionMode`, else `bypassPermissions`
+    /// (cmux#37392). The user's setting caps it ([`permission_mode`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    /// The model gateway an open-source brain (Hermes, OpenClaw: brain_home.rs) sends its model
+    /// calls to, an OpenAI-compatible base URL; None: the team subrouter. Applies at the next
+    /// host start, which writes the brains' homes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain_base_url: Option<String>,
+}
+
+/// The permission modes a Chief turn takes, widest first: Claude Code's
+/// `bypassPermissions` (no permission check, the default: the Chief never
+/// asks, Lawrence 2026-10-20), its own `auto` (a safety classifier judges
+/// each call) and `default` (Manual: Claude Code asks before each change,
+/// and the turn runs under acpmux's `ask`, so each ask is refused).
+pub const PERMISSION_MODES: &[&str] = &["bypassPermissions", "auto", "default"];
+
+/// The mode a Chief turn runs in when nothing chooses one (cmux#37392: "it
+/// should be default on that right?").
+pub const DEFAULT_PERMISSION_MODE: &str = "bypassPermissions";
+
+/// The user's cmux-next.json key for the Chief turns' permission mode.
+pub const PERMISSION_MODE_SETTING: &str = "chief.permissionMode";
+
+/// `value` as one of [`PERMISSION_MODES`] (also `bypass`, `yolo`,
+/// `full-access`, `manual`), or None.
+pub fn parse_permission_mode(value: &str) -> Option<&'static str> {
+    match value.trim() {
+        "bypassPermissions" | "bypass" | "yolo" | "full-access" | "fullAccess" => {
+            Some("bypassPermissions")
+        }
+        "auto" => Some("auto"),
+        "default" | "manual" | "ask" => Some("default"),
+        _ => None,
+    }
+}
+
+/// How widely a mode acts without asking: `default` 0, `auto` 1, bypass 2.
+fn breadth(mode: &str) -> usize {
+    PERMISSION_MODES.len()
+        - 1
+        - PERMISSION_MODES
+            .iter()
+            .position(|m| *m == mode)
+            .unwrap_or(2)
+}
+
+/// The Chief turns' permission mode and what chose it (`engine`, `settings`,
+/// `default`): engine.json's `permission_mode`, else the user's
+/// `chief.permissionMode` (`user`), else [`DEFAULT_PERMISSION_MODE`]. The
+/// user's setting is also a ceiling: a Chief's own `engine set --mode` (a
+/// turn can run it) never goes wider than the person chose in Settings. An
+/// unknown user value reads as `default` (never wider than they meant).
+pub fn permission_mode(choice: &EngineChoice, user: Option<&str>) -> (&'static str, &'static str) {
+    let user = user
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| parse_permission_mode(v).unwrap_or("default"));
+    let own = choice
+        .permission_mode
+        .as_deref()
+        .and_then(parse_permission_mode);
+    match (own, user) {
+        (Some(own), Some(cap)) if breadth(own) > breadth(cap) => (cap, "settings"),
+        (Some(own), _) => (own, "engine"),
+        (None, Some(user)) => (user, "settings"),
+        (None, None) => (DEFAULT_PERMISSION_MODE, "default"),
+    }
+}
+
+/// The user's `chief.permissionMode` string in the settings document `doc`.
+pub fn user_permission_mode(doc: Option<&serde_json::Value>) -> Option<String> {
+    doc.and_then(|d| crate::agent_memory::settings::value(d, PERMISSION_MODE_SETTING))
+        .and_then(|v| v.as_str().map(str::to_owned))
+}
+
+/// The user's `chief.permissionMode` from a settings read that may have
+/// failed: a file that is there but does not read or parse gives `default`
+/// (Manual), the narrowest mode, never the bypass default (cmux#37392).
+pub fn user_permission_mode_checked<E>(
+    doc: Result<Option<&serde_json::Value>, E>,
+) -> Option<String> {
+    match doc {
+        Ok(doc) => user_permission_mode(doc),
+        Err(_) => Some("default".to_owned()),
+    }
+}
+
+/// The values `subagent_routing` takes.
+pub const SUBAGENT_ROUTINGS: &[&str] = &["auto", "off"];
+
+/// The Chief kinds `engine set --preset` writes in one step (Leo, 2026-10-23:
+/// "we can have vanilla all opus 5.5 med chief, we can have forced hybrid
+/// chief, and we can have pure codex chief").
+pub const PRESETS: &[&str] = &["opus", "hybrid", "codex"];
+
+/// The choice a preset writes over `choice`: turns, compactor and subagents.
+/// The reaction classifier and the prompt fields are kept.
+/// - `opus`: every turn on Claude Opus 5.5 at medium; the compactor and the
+///   subagents follow the Claude route.
+/// - `hybrid`: Opus 5.5 medium turns, every subagent forced onto codex
+///   (routing off, so a spawn cannot name another harness).
+/// - `codex`: turns, compactor and subagents on codex at their default
+///   model, fast.
+pub fn apply_preset(mut choice: EngineChoice, preset: &str) -> Result<EngineChoice, String> {
+    let some = |v: &str| Some(v.to_owned());
+    let (harness, model, effort, speed, compactor, subagents) = match preset.trim() {
+        "opus" => (
+            some("claude"),
+            some("claude-opus-5-5"),
+            some("medium"),
+            None,
+            None,
+            None,
+        ),
+        "hybrid" => (
+            some("claude"),
+            some("claude-opus-5-5"),
+            some("medium"),
+            None,
+            None,
+            some("codex"),
+        ),
+        "codex" => (
+            some("codex"),
+            None,
+            None,
+            some("fast"),
+            some("codex"),
+            some("codex"),
+        ),
+        other => {
+            return Err(format!(
+                "--preset is one of {}, not {other:?}",
+                PRESETS.join(", ")
+            ));
+        }
+    };
+    choice.harness = harness;
+    choice.model = model;
+    choice.effort = effort;
+    // The compactor runs at the turns' speed (fast only on codex).
+    choice.compactor_speed = speed.clone();
+    choice.speed = speed;
+    choice.compactor_harness = compactor;
+    choice.compactor_model = None;
+    choice.subagent_harness = subagents;
+    choice.subagent_routing = some("off");
+    Ok(choice)
+}
+
+/// The speeds a Chief engine takes: `default` (the harness's) and `fast`
+/// (codex's priority tier, "2x speed, increased usage").
+pub const SPEEDS: &[&str] = &["default", "fast"];
+
+/// Whether `speed` can run on a `family` harness: Err with the reason when
+/// it cannot (Claude Code's adapter has no fast mode).
+pub fn check_speed(speed: &str, family: crate::acpmux::Family) -> Result<(), String> {
+    use crate::acpmux::Family;
+    match (speed.trim(), family) {
+        ("" | "default", _) | ("fast", Family::Codex) => Ok(()),
+        ("fast", Family::Claude) => Err(
+            "speed fast is not available on a Claude harness: Claude Code's acpmux adapter has no fast mode"
+                .to_owned(),
+        ),
+        ("fast", Family::Other) => {
+            Err("speed fast is available only on a codex harness".to_owned())
+        }
+        (other, _) => Err(format!("speed {other} is not one of {}", SPEEDS.join(", "))),
+    }
+}
+
+/// Whether `speed` names the fast tier.
+pub fn is_fast(speed: Option<&str>) -> bool {
+    speed.map(str::trim) == Some("fast")
+}
+
+/// One turn's engine, resolved against the host's defaults.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnEngine {
+    pub harness: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    /// `fast` (engine.json `speed`, else `OPTCHAT_CHIEF_SPEED`); None: default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+}
+
+impl TurnEngine {
+    /// `harness=claude model=claude-opus-5-5 effort=high` (default when unset).
+    pub fn describe(&self) -> String {
+        let mut text = format!(
+            "harness={} model={} effort={}",
+            self.harness,
+            self.model.as_deref().unwrap_or("default"),
+            self.effort.as_deref().unwrap_or("default")
+        );
+        if let Some(speed) = &self.speed {
+            text.push_str(&format!(" speed={speed}"));
+        }
+        text
+    }
+}
+
+/// `$MUX_HOME/optchat/engine.json`.
+pub fn path(home: &Path) -> PathBuf {
+    crate::paths::Paths::new(home).root.join("engine.json")
+}
+
+/// The file's choice; missing or unreadable is the empty choice (defaults).
+pub fn load(path: &Path) -> EngineChoice {
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Writes the choice through a temporary file (0600) and a rename.
+pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)?;
+    let mut bytes = serde_json::to_vec_pretty(choice).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    std::fs::rename(&tmp, path)
+}
+
+/// One role's harness as the host resolved it at its start: the acpmux
+/// profile, its kind, the executable it runs and that executable's
+/// `--version`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedHarness {
+    pub harness: String,
+    pub kind: String,
+    pub argv0: String,
+    #[serde(default)]
+    pub version: String,
+}
+
+/// What the running host resolved for its turns, compactor and subagents
+/// (`$MUX_HOME/optchat/engine-resolved.json`, written at each host start),
+/// so `engine show` names the CLI each one runs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEngine {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<ResolvedHarness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor: Option<ResolvedHarness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<ResolvedHarness>,
+}
+
+/// `$MUX_HOME/optchat/engine-resolved.json`.
+pub fn resolved_path(home: &Path) -> PathBuf {
+    crate::paths::Paths::new(home)
+        .root
+        .join("engine-resolved.json")
+}
+
+/// Writes what the host resolved (through a temporary file and a rename).
+pub fn save_resolved(home: &Path, resolved: &ResolvedEngine) -> std::io::Result<()> {
+    let path = resolved_path(home);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let mut bytes = serde_json::to_vec_pretty(resolved).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// The last host start's resolution; None when no host wrote one.
+pub fn load_resolved(home: &Path) -> Option<ResolvedEngine> {
+    std::fs::read(resolved_path(home))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+}
+
+/// The first line of `program --version`, or "" when it does not answer
+/// within 5 s (a wrapper that hangs never holds the host's start).
+pub fn binary_version(program: &str) -> String {
+    let Ok(mut child) = std::process::Command::new(program)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return String::new();
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                // Bounded wait for a short-lived child; no async runtime here.
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return String::new();
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+    }
+    out.lines().next().unwrap_or("").trim().to_owned()
+}
+
+/// The compactor's harness setting at host start: `env`
+/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`.
+/// None leaves the compactor on Claude Haiku (Lawrence 2026-10-09) over the
+/// turns' engine harness when it is a Claude one, else the host's Claude
+/// route (`host::compactor_harness_for`).
+pub fn compactor_harness_setting(env: Option<String>, choice: &EngineChoice) -> Option<String> {
+    env.or_else(|| choice.compactor_harness.clone())
+}
+
+/// The turn engine of `choice` over the defaults.
+pub fn resolve(
+    choice: &EngineChoice,
+    harness: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> TurnEngine {
+    TurnEngine {
+        harness: choice.harness.clone().unwrap_or_else(|| harness.to_owned()),
+        model: choice.model.clone().or_else(|| model.map(str::to_owned)),
+        effort: choice.effort.clone().or_else(|| effort.map(str::to_owned)),
+        speed: choice
+            .speed
+            .clone()
+            .or_else(|| crate::cli::env("OPTCHAT_CHIEF_SPEED"))
+            .filter(|s| is_fast(Some(s))),
+    }
+}
+
+/// `engine set` flags over the current choice: `--harness`, `--model`,
+/// `--effort`, `--compactor-harness`, `--compactor-model`, `--speed`,
+/// `--compactor-speed`, and the reaction classifier's
+/// `--reactions-can-wake`, `--classifier-harness`, `--classifier-model`,
+/// `--classifier-prompt`, and the subagents' `--subagent-routing auto|off`
+/// and `--subagent-harness`; the value `default` clears a field. `--preset`
+/// applies first, so the other flags adjust it.
+pub fn apply_flags(
+    mut choice: EngineChoice,
+    flags: &crate::cli::Flags,
+) -> Result<EngineChoice, String> {
+    let mut changed = false;
+    if let Some(preset) = flags.value("preset") {
+        changed = true;
+        choice = apply_preset(choice, preset)?;
+    }
+    for (key, field) in [
+        ("harness", &mut choice.harness),
+        ("model", &mut choice.model),
+        ("effort", &mut choice.effort),
+        ("compactor-harness", &mut choice.compactor_harness),
+        ("compactor-model", &mut choice.compactor_model),
+        ("speed", &mut choice.speed),
+        ("compactor-speed", &mut choice.compactor_speed),
+        ("classifier-harness", &mut choice.classifier_harness),
+        ("classifier-model", &mut choice.classifier_model),
+        ("classifier-prompt", &mut choice.classifier_prompt),
+        ("subagent-harness", &mut choice.subagent_harness),
+        ("brain-base-url", &mut choice.brain_base_url),
+    ] {
+        if let Some(value) = flags.value(key) {
+            changed = true;
+            *field = match value.trim() {
+                "" | "default" => None,
+                v => Some(v.to_owned()),
+            };
+        }
+    }
+    if let Some(value) = flags.value("reactions-can-wake") {
+        changed = true;
+        choice.reactions_can_wake = match value.trim() {
+            "" | "default" => None,
+            "true" | "on" => Some(true),
+            "false" | "off" => Some(false),
+            other => {
+                return Err(format!(
+                    "--reactions-can-wake is true, false or default, not {other:?}"
+                ));
+            }
+        };
+    }
+    if let Some(value) = flags.value("subagent-routing") {
+        changed = true;
+        choice.subagent_routing = match value.trim() {
+            "" | "default" => None,
+            v if SUBAGENT_ROUTINGS.contains(&v) => Some(v.to_owned()),
+            other => {
+                return Err(format!(
+                    "--subagent-routing is auto, off or default, not {other:?}"
+                ));
+            }
+        };
+    }
+    if let Some(value) = flags.value("turn-routing") {
+        changed = true;
+        choice.turn_routing = parse_turn_routing(value)?;
+    }
+    if let Some(value) = flags.value("computer") {
+        changed = true;
+        choice.computer = parse_computer(value)?;
+    }
+    if let Some(value) = flags.value("mode") {
+        changed = true;
+        choice.permission_mode = parse_mode_flag(value)?;
+    }
+    if !changed {
+        return Err(USAGE.into());
+    }
+    Ok(choice)
+}
+
+/// `--mode` (and the brain control path's `permission_mode`): one of
+/// [`PERMISSION_MODES`]; `unset` (or empty) clears the field, since
+/// `default` is a mode here (Claude Code's Manual).
+pub fn parse_mode_flag(value: &str) -> Result<Option<String>, String> {
+    match value.trim() {
+        "" | "unset" => Ok(None),
+        v => parse_permission_mode(v)
+            .map(|m| Some(m.to_owned()))
+            .ok_or_else(|| {
+                format!(
+                    "--mode is one of {} or unset, not {v:?}",
+                    PERMISSION_MODES.join(", ")
+                )
+            }),
+    }
+}
+
+/// Shared validation for the CLI and the brain control path.
+pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
+    match value.trim() {
+        "" | "default" => Ok(None),
+        "auto" | "off" => Ok(Some(value.trim().to_owned())),
+        other => Err(format!(
+            "turn-routing is auto, off or default, not {other:?}"
+        )),
+    }
+}
+
+/// A `computer` value: a Cloud machine as `machine:<id>` or its bare id, or
+/// the Chief's own Cloud computer as `chief:<id>` (Set Up Computer for a
+/// Chief on this Mac; `<id>` is its conversation id, 1 to 64 letters,
+/// digits, `-` and `_`, the id the app's `cloud.chiefComputer` and the
+/// backend's `/v1/local-chiefs/<id>/computer` take); `default`, `none` or
+/// empty clears it. The machine id is the Cloud machine id the app lists
+/// (`cmux cloud list-machines`): letters, digits, `-` and `_`, so the turn
+/// line that names it cannot carry anything else.
+pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if matches!(value, "" | "default" | "none") {
+        return Ok(None);
+    }
+    if let Some(id) = value.strip_prefix("chief:") {
+        let ok = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        return if ok {
+            Ok(Some(format!("chief:{id}")))
+        } else {
+            Err(format!(
+                "computer chief:<id> takes 1 to 64 letters, digits, - and _, not {value:?}"
+            ))
+        };
+    }
+    let id = value.strip_prefix("machine:").unwrap_or(value);
+    // Other machines' ids (`MachineRegistry`): `ssh-…` hosts, `server-…`
+    // paired servers and `local` are not Cloud machines.
+    let cloud = !id.starts_with("ssh-") && !id.starts_with("server-") && id != "local";
+    let ok = cloud
+        && !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok {
+        return Err(format!(
+            "computer is a Cloud machine (machine:<id>), none or default, not {value:?}"
+        ));
+    }
+    Ok(Some(format!("machine:{id}")))
+}
+
+/// The per-turn line that names the Chief's attached Cloud computer (it goes
+/// in the turn's tail, after the cached prompt, so attaching one never
+/// changes the cached system text); None without one.
+pub fn computer_line(choice: &EngineChoice) -> Option<String> {
+    // A hand edit of engine.json skips the set's check: check it again here,
+    // so the line can only ever carry a Cloud machine id.
+    let target = parse_computer(choice.computer.as_deref()?).ok()??;
+    if target.starts_with("chief:") {
+        return Some(format!(
+            "Your computer: you have your own Cloud computer {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default computer; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
+        ));
+    }
+    Some(format!(
+        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default machine; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
+    ))
+}
+
+pub const USAGE: &str = "chief engine show
+chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--computer machine:<id>|chief:<id>|none] [--mode bypassPermissions|auto|default|unset] [--brain-base-url URL]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode; --brain-base-url is the model gateway of the open-source brains, hermes and openclaw, from the next host start; `chief brains` lists them)";
+
+/// `engine show`'s permission mode line: the mode, what chose it, and when
+/// it applies.
+pub fn permission_mode_line(choice: &EngineChoice, user: Option<&serde_json::Value>) -> String {
+    permission_mode_line_for(choice, user_permission_mode(user).as_deref())
+}
+
+/// [`permission_mode_line`] for the user's `chief.permissionMode` string
+/// itself (`user_permission_mode_checked`: Manual for an unreadable file).
+pub fn permission_mode_line_for(choice: &EngineChoice, user: Option<&str>) -> String {
+    let (mode, source) = permission_mode(choice, user);
+    let source = match source {
+        "engine" => "chief engine set --mode",
+        "settings" => "Settings > Chief > Permission Mode (chief.permissionMode)",
+        _ => "default",
+    };
+    format!(
+        "permission mode: {mode} ({source}; Claude turns, from the next turn; acpmux runs bypassPermissions only while new chats start in Full Access, Settings > Agents)\n"
+    )
+}
+
+/// `engine show|set`; Ok carries what to print.
+pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
+    let home = flags
+        .value("mux-home")
+        .map(PathBuf::from)
+        .unwrap_or_else(crate::paths::mux_home);
+    let file = path(&home);
+    match flags.words.get(1).map(String::as_str) {
+        Some("set") => {
+            let choice = apply_flags(load(&file), flags)?;
+            save(&file, &choice).map_err(|e| format!("{}: {e}", file.display()))?;
+            Ok(format!(
+                "engine set: {}\nTurns use it from the next turn; the compactor fields apply at the next host start.\n",
+                serde_json::to_string(&choice).expect("json")
+            ))
+        }
+        Some("show") | None => {
+            let choice = load(&file);
+            let mut out = format!(
+                "engine ({}): {}\n",
+                file.display(),
+                serde_json::to_string(&choice).expect("json")
+            );
+            out.push_str(&format!(
+                "turn routing: {}\n",
+                choice.turn_routing.as_deref().unwrap_or("off")
+            ));
+            out.push_str(&format!(
+                "computer: {}\n",
+                choice.computer.as_deref().unwrap_or("this Mac")
+            ));
+            // The turns' own read (brain/reaction_wake.rs): an unreadable
+            // settings file shows Manual, as the turns run.
+            let user = match std::env::var_os("HOME") {
+                Some(h) => {
+                    crate::agent_memory::settings::document_checked(std::path::Path::new(&h))
+                }
+                None => Ok(None),
+            };
+            let user = user_permission_mode_checked(user.as_ref().map(Option::as_ref));
+            out.push_str(&permission_mode_line_for(&choice, user.as_deref()));
+            // The CLI each role runs, as the host resolved it at its start.
+            match load_resolved(&home) {
+                Some(r) => {
+                    for (role, h) in [
+                        ("turn", &r.turn),
+                        ("compactor", &r.compactor),
+                        ("subagent", &r.subagent),
+                    ] {
+                        if let Some(h) = h {
+                            let version = if h.version.is_empty() {
+                                "version unknown"
+                            } else {
+                                &h.version
+                            };
+                            out.push_str(&format!(
+                                "{role}: {} ({}, {}, {version})\n",
+                                h.harness, h.kind, h.argv0
+                            ));
+                        }
+                    }
+                }
+                None => out.push_str(
+                    "resolved: unknown (the host has not started since it began recording this)\n",
+                ),
+            }
+            // The last turn the trace saw: which engine answered, and its stats.
+            let since = chrono::Local::now().timestamp_millis().max(0) as u64;
+            let events = crate::report::read(
+                &crate::trace::dir(&home),
+                since.saturating_sub(7 * 86_400_000),
+            )
+            .unwrap_or_default();
+            if let Some(end) = events.iter().rev().find(|e| e["ev"] == "turn.end") {
+                out.push_str(&format!(
+                    "last turn: {} model {} effort {}: {} in {} ms, {} tool call(s) ({} failed), cache hit {}, cost {}\n",
+                    end["harness"].as_str().unwrap_or("?"),
+                    end["model"].as_str().unwrap_or("default"),
+                    end["effort"].as_str().unwrap_or("default"),
+                    end["status"].as_str().unwrap_or("?"),
+                    end["ms"],
+                    end["tools"],
+                    end["tool_errors"],
+                    crate::report::hit_rate(&end["usage"])
+                        .map_or("-".to_owned(), |h| format!("{:.0}%", h * 100.0)),
+                    end["cost_usd"]
+                        .as_f64()
+                        .map_or("-".to_owned(), |c| format!("${c:.4}"))
+                ));
+            }
+            Ok(out)
+        }
+        _ => Err(USAGE.into()),
+    }
+}

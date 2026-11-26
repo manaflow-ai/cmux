@@ -1,0 +1,26 @@
+{
+  "id": "automations-a675-laptop-asleep",
+  "group": "automations",
+  "owner": "a675",
+  "about": "a job that must run while the laptop sleeps is a Cloud automation (cmux automation --target cloud), not a local sleep() timer or a promise",
+  "history": [],
+  "stubs": [],
+  "turns": [
+    {
+      "text": "every night at 2am, even when my laptop is closed, summarize what landed on feat-cmux-next and send it to me",
+      "checks": [
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 90
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the assistant makes the 2am job run in the cloud with a tool call this turn (`cmux automation create … --target cloud --daily 02:00 --prompt` with the whole task, or a tell asking the Cloud Chief to make a chief-auto job) and tells the person in about one line what will run when and where results appear. FAIL when it only sets its own sleep/wake timer, makes a this-Mac-only automation, only promises, asks the person how to set it up, or says it cannot."
+        }
+      ]
+    }
+  ]
+}
