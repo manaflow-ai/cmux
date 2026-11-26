@@ -87,6 +87,7 @@ CMUX_REPO = "manaflow-ai/cmux"
 CMUX_URL = f"https://github.com/{CMUX_REPO}.git"
 BASE_BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
+BRANCH_NAME = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")  # a plain branch name, as the brokered fetch takes it
 SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,200}$")
 BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,250}$")
 # The web gallery also reads design/ (icons) and first-party-apps/<app>/preview: both are web looks.
@@ -591,14 +592,33 @@ class Worker:
                 tips.append(done.stdout.strip())
         return list(dict.fromkeys(tips))
 
-    def fetch(self, *shas: str) -> None:
-        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest from GitHub, the
-        mirror's refs telling GitHub what is here (one lock, so a prefetch and a look never fetch one head twice)."""
+    def fetch(self, *shas: str, branches: tuple[str | None, ...] = ()) -> None:
+        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES (and
+        BASE_BRANCH) as origin/B, then by id only for what is still missing (one lock, so a prefetch and a look never
+        fetch one head twice). By branch, never by --filter or a bare id: on a lane VM that publishes through the
+        broker (host-gh) git fetch carries plain branch names and tracking refspecs only, and every warm-up died
+        "git fetch --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The
+        blob-less clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
         with self.fetch_lock:
             missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
             if missing:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    *missing, timeout=FETCH_SECONDS)
+                self.fetch_branches(*branches, BASE_BRANCH)
+                missing = [s for s in missing if not self.has_commit(s)]
+            if missing:
+                git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
+                    timeout=FETCH_SECONDS)
+
+    def fetch_branches(self, *branches: str | None) -> None:
+        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds fetch_lock, or needs none)."""
+        names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b)]
+        if names:
+            git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
+                *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in names), timeout=FETCH_SECONDS)
+
+    def remote_tip(self, branch: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(self.clone), "rev-parse", "-q", "--verify",
+                               f"refs/remotes/origin/{branch}^{{commit}}"], capture_output=True, text=True, env=NO_LAZY)
+        return done.stdout.strip() if done.returncode == 0 and SHA.match(done.stdout.strip()) else None
 
     def prefetch(self, req: dict) -> None:
         """While REQ waits in the queue: its head and base into the clone, and the blobs the diff between them reads
@@ -607,7 +627,7 @@ class Worker:
         began = time.monotonic()
         try:
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             git(self.clone, "diff", "--numstat", "--no-renames", base, head, "--", ".", ":!cmux-next-ios",
                 ":!ghostty", ":!ghostty-next", timeout=PREFETCH_SECONDS)
             log(f"prefetch {head[:12]}: {time.monotonic() - began:.1f} s")
@@ -632,20 +652,19 @@ class Worker:
 
     def on_branch_tip_or_landed(self, head: str, branch: str | None) -> bool:
         """The head is a manaflow-ai/cmux branch's tip, or landed on feat-cmux-next: never a fork's commit (the
-        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else one
-        ls-remote, and the base tip fetched only when it is not here (it was most of a 36 s fetch stage)."""
+        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else the
+        branch tip the look's fetch wrote (origin/BRANCH: a tip the repo held, so the repo's own commit even if the
+        branch moved since), and only when that is not the head one fetch of the branch and the base. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
         if any(self.is_ancestor(head, tip) for tip in self.local_base_tips()):
             return True
-        refs = [f"refs/heads/{branch}"] if branch else []
-        out = git(self.clone, "ls-remote", "origin", *refs, f"refs/heads/{BASE_BRANCH}", timeout=60)
-        tips = dict(line.split("\t")[::-1] for line in out.splitlines() if "\t" in line)
-        if branch and tips.get(f"refs/heads/{branch}") == head:
+        if branch and self.remote_tip(branch) == head:
             return True
-        tip = tips.get(f"refs/heads/{BASE_BRANCH}")
-        if tip:
-            self.fetch(tip)
-            return self.is_ancestor(head, tip)
-        return False
+        with self.fetch_lock:
+            self.fetch_branches(branch, BASE_BRANCH)
+        if branch and self.remote_tip(branch) == head:
+            return True
+        tip = self.remote_tip(BASE_BRANCH)
+        return bool(tip) and self.is_ancestor(head, tip)
 
     def gallery_config_changed(self, old: str, new: str) -> bool:
         out = git(self.clone, "diff", "--name-only", "--no-renames", old, new, "--",
@@ -840,8 +859,7 @@ class Worker:
             self.ensure_clone()
             ref = f"refs/remotes/origin/{BASE_BRANCH}"
             with self.fetch_lock:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    f"+refs/heads/{BASE_BRANCH}:{ref}", timeout=FETCH_SECONDS)
+                self.fetch_branches(BASE_BRANCH)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
         prune_transforms(self.state / "vite-transforms")
@@ -946,7 +964,7 @@ class Worker:
             raise LookError(why)
         with stages("fetch"):
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             if not self.on_branch_tip_or_landed(head, req.get("branch")):
                 raise LookError(f"{head[:12]} is neither {req.get('branch')}'s tip on {CMUX_REPO} nor on "
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
