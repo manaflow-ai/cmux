@@ -656,7 +656,7 @@
         }
       }
     },
-    "cloud.computerControl.badAction": {
+    "cloud.computerControl.actionRefused": {
       "extractionState": "manual",
       "localizations": {
         "en": {
