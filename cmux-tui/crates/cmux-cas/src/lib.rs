@@ -8,6 +8,10 @@
 //! and Cloud machine channel already use, and [`assemble`] rebuilds the tree bit-exact, checking
 //! every file's hash.
 //!
+//! Peer to peer, the same chunks ride any byte stream as versioned [`wire`] frames (`HAVE`,
+//! `WANT`, `DATA`, `NOPE`, each tagged so either end of a link upgrades first), answered and
+//! checked by [`peer`].
+//!
 //! Grown from `cmux-session-pack` (`store.rs`, `ship.rs`): the same BLAKE3 ids, zstd chunk files
 //! written beside their name and renamed into place, and "ship only what the far end lacks".
 //! The differences: ids hash the bytes alone (`BLAKE3(bytes)`, so public artifacts dedup
@@ -16,12 +20,19 @@
 
 pub mod assemble;
 pub mod cdc;
+pub mod cold;
+pub mod dedup;
 pub mod id;
+pub mod lazy;
 pub mod manifest;
 pub mod pack;
+pub mod peer;
 pub mod plan;
 pub mod pointer;
+pub mod public;
+pub mod seed;
 pub mod store;
+pub mod wire;
 
 pub use id::Id;
 pub use manifest::Manifest;

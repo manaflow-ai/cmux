@@ -242,7 +242,20 @@ public struct AgentChatDestinationView: View {
 extension View {
     /// Registers `AgentChatDestination` on the enclosing NavigationStack.
     public func agentChatDestinations() -> some View {
-        navigationDestination(for: AgentChatDestination.self) { AgentChatDestinationView(destination: $0) }
+        navigationDestination(for: AgentChatDestination.self) {
+            AgentChatDestinationView(destination: $0).modifier(TurnsWithPhone())
+        }
+    }
+}
+
+/// A pushed chat turns with the phone while on screen (`AgentChatPageOrientation`).
+private struct TurnsWithPhone: ViewModifier {
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { AgentChatPageOrientation.shared.page(id, shows: true) }
+            .onDisappear { AgentChatPageOrientation.shared.page(id, shows: false) }
     }
 }
 #endif
