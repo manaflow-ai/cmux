@@ -39,22 +39,49 @@ jobs:
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
     # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 325
+    # counts 40 min): 337 min with 33 shared steps (17 waves), plus room for the checkout, so a slow step is reported
+    # by the runner, not cut here.
+    timeout-minutes: 355
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
+      # The base's verdict of cmux-next-guards.yml's tooling-tests job (the tooling-tests-base-red step below).
+      actions: read
     outputs:
       # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
       mac_fallback: ${{ steps.run.outputs.mac_fallback }}
       canary_targets: ${{ steps.run.outputs.canary_targets }}
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -66,9 +93,37 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
+      # cmux-next-guards.yml's tooling-tests-base-red job, carried over with the tooling-tests steps (Leo,
+      # 2026-11-23: "we're drowning in our own workflow"): while that job is red on feat-cmux-next, a pull request
+      # does not run tooling-tests-1..5, as it does not run the job (scripts/ci/base_red_skip.py: fails open, 10% of
+      # skips still run as the audit, label full-ci runs them, vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). The
+      # steps are left out of the run rather than passed, so no skip is stored as a pass under their inputs.
+      - name: Tooling tests red on the base right now?
+        id: tooling-tests-base-red
+        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
       - name: Run the routed linux steps (ci/steps.toml)
         id: run
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        env:
+          # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
+          TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+        run: |
+          # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
+          only=""
+          if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+              | python3 -I -c 'import json, re, sys
+          print(" ".join(n for n in json.load(sys.stdin).get("linux", []) if not re.fullmatch(r"tooling-tests-\d+", n)))')"; then
+            if [ -z "$only" ]; then
+              echo "No linux step is routed but tooling-tests-1..5, which the base's red skips."
+              exit 0
+            fi
+          fi
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -126,17 +181,41 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
     # step, then each `alone` step (tests/test_ci_step_table.py holds this).
-    timeout-minutes: 60
+    timeout-minutes: 70
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -184,6 +263,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -303,9 +383,10 @@ jobs:
     needs: [ios-runner]
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
-    # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (60 min) and phone cells (45 min), with
-    # room for the checkout and Xcode (tests/test_ci_step_table.py holds this).
-    timeout-minutes: 125
+    # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (80 min with the fleet pool's wait) and
+    # phone cells (45 min), the fleet pool's build (25 min), with room for the checkout and Xcode
+    # (tests/test_ci_step_table.py holds this).
+    timeout-minutes: 170
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -336,7 +417,42 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # The kit's simulator tests on the fleet pool (scripts/ci/ios-sim-pool.sh): this Mac builds for testing and
+      # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow times both,
+      # on uses the pool's verdict with this Mac as the fallback, unset or off skips it (shadow spends Mac minutes). Same-repo pull requests only.
+      - name: Fleet pool, build the kit's simulator tests
+        id: sim-pool
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX) && vars.CMUX_FLEET_CONTROLLER != '' }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          if ! ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -c 'import json, sys; sys.exit("ios-kit" not in (json.load(sys.stdin).get("ios") or []))'; then
+            echo "ios-kit is not routed: no pool run"; exit 0
+          fi
+          bash scripts/ci/ios-sim-pool.sh pack
+          echo "packed=1" >> "$GITHUB_OUTPUT"
+      - name: Fleet pool, upload the products
+        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sim-pool/products/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Fleet pool, submit
+        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        continue-on-error: true
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/ci/ios-sim-pool.sh submit
       - name: Run the routed ios steps (ci/steps.toml)
+        env:
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX }}
+          CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
         run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
 
   # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
