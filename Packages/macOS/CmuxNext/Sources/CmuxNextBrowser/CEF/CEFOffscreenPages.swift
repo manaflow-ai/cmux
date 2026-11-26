@@ -313,7 +313,9 @@ final class CEFOffscreenPages {
     func frameArrived(_ frame: CEFOffscreenFrame, browser: Int32) {
         guard let page = page(browser) else { return }
         if frame.letterboxed {
+            // The capturer still had the old size: the page asks once per resize for a capture at its own size.
             stats.letterboxedDropped += 1
+            if page.takeRefreshAsk() { calls?.invalidate(browser) }
             return
         }
         guard let surface = frame.surface else { return }
@@ -522,6 +524,15 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     private var resizeStarted: CFTimeInterval = 0
     /// The window fences this page holds for its frame at ``awaitedPixels`` (one per resize turn).
     private var fenceHolds: [@MainActor (Bool) -> Void] = []
+    /// Whether this resize already asked Chromium for a capture at the new size (``takeRefreshAsk()``).
+    private var refreshAsked = false
+
+    /// True once per resize: a frame scaled into the old capture size came, and a refresh is worth asking.
+    func takeRefreshAsk() -> Bool {
+        guard awaitedPixels != nil, !refreshAsked else { return false }
+        refreshAsked = true
+        return true
+    }
 
     /// Holds a window fence until the frame at the awaited size is in this layer.
     func holdFence(_ done: @escaping @MainActor (Bool) -> Void) {
@@ -535,6 +546,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         self.calls = calls
         super.init(frame: .zero)
         wantsLayer = true
+        autoresizingMask = [.width, .height]
         layer?.masksToBounds = true
         content.contentsGravity = .topLeft
         content.actions = Self.noActions
@@ -592,6 +604,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         guard pixels != shownPixels else { return }
         if awaitedPixels == nil { resizeStarted = CACurrentMediaTime() }
         awaitedPixels = pixels
+        refreshAsked = false
         CEFRuntime.shared.offscreenPages.awaitFrame(self)
     }
 

@@ -218,6 +218,12 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// it for a fence experiment. Kept through the strip like ``resizeFenceOverrideKey``; another cmux's goes.
     public static let resizeFenceSwitchKey = "CMUX_CEF_RESIZE_FENCE"
 
+    /// The off-screen pages prototype's switches (`InTreePages.offscreenEnvironmentKey` and the `CEFOffscreenPages`
+    /// knobs): a bench launch names them for an arm. Kept through the strip like ``inTreePagesKey``; another cmux's go.
+    public static let offscreenPageKeys: Set<String> = [
+        "CMUX_OFFSCREEN_PAGES", "CMUX_OSR_RESIZE_WAIT_MS", "CMUX_OSR_BEGIN_FRAMES", "CMUX_OSR_FRAME_RATE",
+    ]
+
     /// Whether this launch ignores every layer: the argument, the variable set to anything but
     /// empty, `0`, `false` or `no`, or Option and Shift held as the app starts (`keysHeld`).
     public static func ignoresCustomizations(arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -247,7 +253,8 @@ public struct LaunchIdentity: Sendable, Equatable {
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
             if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey
-                || key == inTreePagesKey || key == resizeFenceOverrideKey || key == resizeFenceSwitchKey,
+                || key == inTreePagesKey || key == resizeFenceOverrideKey || key == resizeFenceSwitchKey
+                || offscreenPageKeys.contains(key),
                !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }

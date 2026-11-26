@@ -62,6 +62,25 @@ struct InTreePagesLaunchSwitchTests {
         #expect(!off.0 && off.1 == "environment")
     }
 
+    /// The off-screen pages prototype's switches (`CMUX_OFFSCREEN_PAGES` and its `CMUX_OSR_*` knobs) reach the app from
+    /// a bench launch, and another cmux's go; a Release build tagged `osr…` latches off-screen pages with no environment.
+    @Test func theOffscreenSwitchesSurviveTheLaunchStrip() {
+        #expect(LaunchIdentity.offscreenPageKeys.contains(InTreePages.offscreenEnvironmentKey))
+        for key in LaunchIdentity.offscreenPageKeys {
+            let launch = [key: "1"]
+            #expect(!LaunchIdentity.inheritedKeys(processEnvironment: launch, bundledEnvironment: [:]).contains(key),
+                    "the launch strip took \(key)")
+            let foreign = launch.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]) { a, _ in a }
+            #expect(LaunchIdentity.inheritedKeys(processEnvironment: foreign, bundledEnvironment: [:]).contains(key),
+                    "another cmux's \(key) reached this app")
+        }
+        let inputs = DebugSettingsService.launchInTreePagesInputs(devTools: false, file: nil, tag: "osr-bench")
+        #expect(InTreePages.decideOffscreen(tag: inputs.tag, environment: [:]))
+        #expect(!InTreePages.decideOffscreen(tag: inputs.tag, environment: [InTreePages.offscreenEnvironmentKey: "0"]))
+        #expect(!InTreePages.decideOffscreen(tag: "itp-rs-steps", environment: [:]))
+        #expect(InTreePages.decideOffscreen(tag: nil, environment: [InTreePages.offscreenEnvironmentKey: "1"]))
+    }
+
     /// One that another cmux's terminal passed on is that cmux's, and goes, like every other launch switch.
     @Test func aSwitchAnotherCmuxSetGoes() {
         let foreign = [InTreePages.environmentKey: "1", "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]
