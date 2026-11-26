@@ -26,14 +26,8 @@ public struct ErrorJournalReport: Sendable {
     /// The report: the header, a blank line, then `last-seen level source ×count: sample`
     /// lines with the top frame indented under its entry; a journal with no entry says so.
     public func text() -> String {
-        var lines = header
-        lines.append("")
-        if entries.isEmpty { lines.append("No problems recorded.") }
-        let time = ISO8601DateFormatter()
-        for entry in entries {
-            lines.append("\(time.string(from: entry.lastSeen)) \(entry.level.rawValue) \(entry.source) ×\(entry.count): \(entry.sample)")
-            if let frame = entry.topFrame, !frame.isEmpty { lines.append("    at \(frame)") }
-        }
-        return lines.joined(separator: "\n") + "\n"
+        let request: [String: Any] = ["header": header, "entries": ErrorJournalFFI.json(entries)]
+        return ErrorJournalFFI.object("error_journal_report_text", request)?["text"] as? String
+            ?? header.joined(separator: "\n") + "\n"
     }
 }

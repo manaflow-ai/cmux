@@ -95,22 +95,13 @@ public struct ConsoleErrorCapture {
     }
 
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
-        let redactor = ErrorRedactor()
-        let prefix = level == "warn" ? "[warn] " : ""
-        let firstLine = message.split(separator: "\n").first.map(String.init) ?? message
-        var text = prefix + redactor.redact(firstLine).utf8Prefix(1024)
-        if let frame = topFrame(stack) { text += "\n    at " + redactor.redact(frame).utf8Prefix(256) }
-        return text
+        ErrorJournalFFI.object("error_journal_console_log_text", ["level": level, "message": message, "stack": stack])?["text"]
+            as? String ?? "<redacted>"
     }
 
     /// The first stack line that names code (V8 `at f (url:1:2)` or JSC `f@url:1:2`).
     nonisolated static func topFrame(_ stack: String) -> String? {
-        for raw in stack.split(separator: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("at ") { return String(line.dropFirst(3)) }
-            if line.contains("@"), line.contains(":") { return line }
-        }
-        return nil
+        ErrorJournalFFI.object("error_journal_console_top_frame", ["stack": stack])?["frame"] as? String
     }
 }
 

@@ -1,25 +1,28 @@
 import Foundation
 
-/// The journal's files: NDJSON segments of ``ErrorEntry`` snapshots, newest line per
-/// fingerprint wins. Appends go to the newest segment; once it passes the size limit the live
-/// table is written to a new segment (temp file, then rename) and every older segment is
-/// deleted, so disk use stays below about twice the limit. Every line it writes carries
-/// `redaction` (``StoredErrorEntry``). Owned by ``ErrorJournal``, which serializes every call.
+/// The journal's files: NDJSON segments, newest line per fingerprint wins. Appends go to the newest
+/// segment; a compaction writes a new segment (temp file, then rename) and deletes every older one,
+/// so disk use stays below about twice the limit. The lines and when to append or compact are
+/// Rust's (`cmux-error-journal`); this store only reads and writes bytes. Owned by ``ErrorJournal``,
+/// which serializes every call.
 struct ErrorSegmentStore {
+    /// How one write went.
+    struct Outcome {
+        /// Whether the bytes reached disk (for a compaction, the new segment).
+        var written: Bool
+        /// The bytes written.
+        var bytes: Int
+        /// The first error: the write's, or (a written compaction) removing an old segment.
+        var error: String?
+    }
+
     let directory: URL
-    let segmentBytes: Int
-    /// The stamp of the lines this store writes: the journal's ``ErrorRedactor/rulesDigest``.
-    let redaction: String
     private let files = FileManager()
     private var current: URL?
-    private var currentBytes = 0
     private var sequence = 0
-    private var cleanupPending = false
 
-    init(directory: URL, segmentBytes: Int, redaction: String) {
+    init(directory: URL) {
         self.directory = directory
-        self.segmentBytes = segmentBytes
-        self.redaction = redaction
         try? Self.protectDirectory(directory)
     }
 
@@ -35,73 +38,55 @@ struct ErrorSegmentStore {
         }.sorted { $0.0 < $1.0 }
     }
 
-    /// Reads every line, oldest first, with its stamp; a line that does not decode (a torn last
-    /// write) is skipped. The journal re-redacts only lines another rule set wrote, and compacts
-    /// when there is one anywhere, so a secret in shadowed history is still rewritten away.
-    mutating func load() -> [StoredErrorEntry] {
-        var entries: [StoredErrorEntry] = []
-        let decoder = JSONDecoder()
+    /// Every segment's text, oldest first, and the size of the newest (nil when there is none).
+    mutating func load() -> (segments: [String], currentBytes: Int?) {
+        var texts: [String] = []
         let all = segments()
         for (_, url) in all {
             try? Self.protectFile(url)
             guard let data = try? Data(contentsOf: url) else { continue }
-            for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
-                if let entry = try? decoder.decode(StoredErrorEntry.self, from: Data(line)) { entries.append(entry) }
-            }
+            texts.append(String(decoding: data, as: UTF8.self))
         }
-        if let last = all.last {
-            current = last.url
-            sequence = last.sequence
-            currentBytes = ((try? files.attributesOfItem(atPath: last.url.path)[.size]) as? Int) ?? 0
-        }
-        return entries
+        guard let last = all.last else { return (texts, nil) }
+        current = last.url
+        sequence = last.sequence
+        return (texts, ((try? files.attributesOfItem(atPath: last.url.path)[.size]) as? Int) ?? 0)
     }
 
-    /// Appends `changed`; compacts `all()` into a new segment first when the newest one is full.
-    mutating func write(changed: [ErrorEntry], all: () -> [ErrorEntry]) throws {
-        guard !changed.isEmpty else { return }
-        if cleanupPending {
-            try compact(all())
-            return
-        }
-        let data = try lines(changed)
-        if current == nil || currentBytes + data.count > segmentBytes {
-            try compact(all())
-            return
-        }
-        guard let current, let handle = try? FileHandle(forWritingTo: current) else {
-            try compact(all())
-            return
-        }
+    /// Appends `data` to the newest segment; nil when there is none or it does not open.
+    func append(_ data: Data) -> Outcome? {
+        guard let current, let handle = try? FileHandle(forWritingTo: current) else { return nil }
         defer { try? handle.close() }
-        try Self.protectFile(current)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: data)
-        currentBytes += data.count
+        do {
+            try Self.protectFile(current)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            return Outcome(written: true, bytes: data.count)
+        } catch {
+            return Outcome(written: false, bytes: 0, error: String(describing: error))
+        }
     }
 
-    /// Writes `entries` as the only live segment and deletes the older ones.
-    mutating func compact(_ entries: [ErrorEntry]) throws {
-        try Self.protectDirectory(directory)
+    /// Writes `data` as the only live segment and deletes the older ones.
+    mutating func compact(_ data: Data) -> Outcome {
         let old = segments()
-        sequence = (old.last?.sequence ?? sequence) + 1
-        let name = Self.prefix + String(format: "%06d", sequence) + Self.suffix
-        let url = directory.appendingPathComponent(name)
-        let data = try lines(entries)
-        try data.write(to: url, options: .atomic)
-        try Self.protectFile(url)
+        let url: URL
+        do {
+            try Self.protectDirectory(directory)
+            sequence = (old.last?.sequence ?? sequence) + 1
+            url = directory.appendingPathComponent(Self.prefix + String(format: "%06d", sequence) + Self.suffix)
+            try data.write(to: url, options: .atomic)
+            try Self.protectFile(url)
+        } catch {
+            return Outcome(written: false, bytes: 0, error: String(describing: error))
+        }
         current = url
-        currentBytes = data.count
         var firstRemovalError: (any Error)?
         for (_, oldURL) in old where oldURL != url {
             do { try files.removeItem(at: oldURL) }
             catch { if firstRemovalError == nil { firstRemovalError = error } }
         }
-        if let firstRemovalError {
-            cleanupPending = true
-            throw firstRemovalError
-        }
-        cleanupPending = false
+        return Outcome(written: true, bytes: data.count, error: firstRemovalError.map { String(describing: $0) })
     }
 
     /// Bytes of every segment on disk.
@@ -111,24 +96,9 @@ struct ErrorSegmentStore {
         }
     }
 
-    private func lines(_ entries: [ErrorEntry]) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        var data = Data()
-        for entry in entries {
-            data.append(try encoder.encode(StoredErrorEntry(entry: entry, redaction: redaction)))
-            data.append(UInt8(ascii: "\n"))
-        }
-        return data
-    }
-
     static func protectDirectory(_ url: URL) throws {
         let files = FileManager.default
-        try files.createDirectory(
-            at: url,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try files.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 

@@ -36,45 +36,42 @@ public struct LogFileErrorSource: ErrorHarvestSource {
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
         let files = FileManager()
         guard let attributes = try? files.attributesOfItem(atPath: url.path),
-              let size = (attributes[.size] as? NSNumber)?.intValue else { return ErrorHarvest(events: [], cursor: cursor) }
+              let size = (attributes[.size] as? NSNumber)?.uint64Value else { return ErrorHarvest(events: [], cursor: cursor) }
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
-        var start: Int
-        if let cursor, let saved = Self.parse(cursor), saved.inode == inode, saved.offset <= size {
-            start = saved.offset
-        } else if cursor == nil {
-            start = max(0, size - firstReadBytes)
-        } else {
-            start = 0
+        // Where to read (a replaced, truncated or first-read file; the bound) is Rust's.
+        var request: [String: Any] = ["inode": inode, "size": size, "first_read_bytes": max(0, firstReadBytes),
+                                      "max_read_bytes": max(0, maxReadBytes)]
+        if let cursor { request["cursor"] = cursor }
+        guard let plan = ErrorJournalFFI.decode(Plan.self, "error_journal_log_plan", request) else {
+            throw ErrorJournalFFI.Unanswered(operation: "error_journal_log_plan")
         }
-        // The first read of a file starts at its tail, and so does a read of more than the bound:
-        // both can begin in the middle of a line.
-        var startsMidLine = cursor == nil && start > 0
-        if size - start > maxReadBytes {
-            start = size - maxReadBytes
-            startsMidLine = true
-        }
-        guard start < size, let handle = try? FileHandle(forReadingFrom: url) else {
-            return ErrorHarvest(events: [], cursor: "\(inode):\(size)")
+        guard plan.read > 0, let handle = try? FileHandle(forReadingFrom: url) else {
+            return ErrorHarvest(events: [], cursor: plan.cursor)
         }
         defer { try? handle.close() }
-        try handle.seek(toOffset: UInt64(start))
-        let data = try handle.read(upToCount: min(size - start, maxReadBytes)) ?? Data()
+        try handle.seek(toOffset: plan.start)
+        let data = try handle.read(upToCount: Int(plan.read)) ?? Data()
         // Only complete lines; a partial last line waits for its newline.
-        guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else {
-            return ErrorHarvest(events: [], cursor: "\(inode):\(start)")
+        var chunk: [String: Any] = ["inode": inode, "start": plan.start, "starts_mid_line": plan.startsMidLine,
+                                    "complete_bytes": 0, "source": source, "file": url.lastPathComponent,
+                                    "now": Date().timeIntervalSince1970]
+        if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) {
+            let complete = data[data.startIndex...lastNewline]
+            chunk["complete"] = String(decoding: complete, as: UTF8.self)
+            chunk["complete_bytes"] = complete.count
         }
-        let complete = data[data.startIndex...lastNewline]
-        var text = String(decoding: complete, as: UTF8.self)
-        if startsMidLine, let firstBreak = text.firstIndex(of: "\n") {
-            text = String(text[text.index(after: firstBreak)...]) // the tail began mid-line
-        }
-        let events = LogLineParser(source: source, file: url.lastPathComponent).events(in: text)
-        return ErrorHarvest(events: events, cursor: "\(inode):\(start + complete.count)")
+        return try ErrorJournalFFI.harvest("error_journal_log_chunk", chunk)
     }
 
-    private static func parse(_ cursor: String) -> (inode: UInt64, offset: Int)? {
-        let parts = cursor.split(separator: ":")
-        guard parts.count == 2, let inode = UInt64(parts[0]), let offset = Int(parts[1]) else { return nil }
-        return (inode, offset)
+    private struct Plan: Decodable {
+        let start: UInt64
+        let read: UInt64
+        let startsMidLine: Bool
+        let cursor: String
+
+        enum CodingKeys: String, CodingKey {
+            case start, read, cursor
+            case startsMidLine = "starts_mid_line"
+        }
     }
 }

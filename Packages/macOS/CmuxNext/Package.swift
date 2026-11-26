@@ -139,8 +139,9 @@ import PackageDescription
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
-//   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
-//     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
+//   CmuxNextErrorJournal -> CCmuxAppFFI, Wakeups (the bounded, deduplicated error journal
+//     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports; its
+//     rules are Rust's cmux-error-journal)
 //   CmuxNextFiles -> system frameworks only (Files pane core: listing, FSEvents, file operations,
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
@@ -2243,7 +2244,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextWakeups",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
