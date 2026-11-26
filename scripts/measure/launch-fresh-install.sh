@@ -88,14 +88,10 @@ main() {
   # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
   mkdir -p "$out/mnt-layout"
   if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
-    local layout_app
-    layout_app="$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)"
-    cp "$layout_app/Contents/Info.plist" "$out/Info.plist" || rc=1
-    bundle_layout "$layout_app" "$out/layout.txt" LF
+    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
     hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
   else
     echo "LF-LAYOUT unknown: attach failed"
-    rc=1
   fi
   OUT="$out"
   cua_pick "$out"
@@ -374,6 +370,10 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$name" == q || "$name" == m ]] && sweep_prompts Cancel "after $tag"
   echo "$json" >>"$OUT/runs.jsonl"
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
+  # Capture the build identity after timing, while the measured copy still exists.
+  if [[ ! -f "$OUT/Info.plist" ]]; then
+    cp "$app/Contents/Info.plist" "$OUT/Info.plist" || rc=1
+  fi
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
     n|p|k|s|x) rm -rf "$OUT/copy-$tag" "$OUT/pkgscripts-$tag" ;;
