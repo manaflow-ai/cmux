@@ -140,9 +140,9 @@ jobs:
               if [[ "$json" =~ $state_re ]]; then state="${BASH_REMATCH[1]}"; fi
               if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
             fi
-            if [[ "$status" == 0 && "$state" == done && "$code" == 0 ]]; then
+            if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
               echo "$package: every suite passed at $REF (step $id)" | tee -a "$GITHUB_STEP_SUMMARY"
-            elif [[ ( "$state" == failed || "$state" == done ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
+            elif [[ ( "$state" == failed || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
               echo "::error title=Fast tier batch (Swift)::$package: a suite failed or did not build at $REF (step $id, exit $code)"
               failed=1
             else

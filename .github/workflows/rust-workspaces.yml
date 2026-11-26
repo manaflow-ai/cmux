@@ -430,7 +430,8 @@ jobs:
 
   workspace:
     name: ${{ matrix.root }}
-    needs: plan
+    # reads: its `if` reads needs.reads.outputs.hit, which is empty unless reads is a need.
+    needs: [plan, reads]
     # !cancelled(): plan runs past a skipped receipt (every push and every PR without one), and GitHub's
     # implicit success() skipped this job there, so no planned workspace ran and summary read the skip
     # as a pass.

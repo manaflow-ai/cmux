@@ -25,6 +25,11 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - cmux-fleet-linux-x64
+    # The owned Linux pool (runners.json `owned`), named literally by push-only and same-repository jobs
+    # (swift-linux-packages, cmux-next, cmux-next-ios-kit, cmux-machine-channel-thin).
+    - cmux-linux
+    # The nightly x86_64 GCP builder the Cloud machine channel's thin leg runs on (#56853).
+    - cmux-gcp-nightly-x64
     # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
     # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
