@@ -115,12 +115,8 @@ impl Hub {
             // back to its own model before this attempt, instead of waiting for a turn that ends
             // well, which a gateway that cuts every turn never gives (cmux#57784).
             if after == 0 {
-                let fallback = session
-                    .meta
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .capacity_fallback
-                    .take();
+                let fallback =
+                    session.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback.take();
                 if let Some(fallback) = fallback {
                     self.put_back(session, fallback).await;
                 }
