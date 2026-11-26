@@ -241,3 +241,38 @@ fn a_loopback_server_is_marked_and_asked_again_with_its_port() {
     );
     assert_eq!(with_loopback_port(None, 47215), json!({"loopback_port": 47215}));
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the bearer rides only in `Authorization`, a
+/// server's API key only in the connect body, and the team only in `x-cmux-team` and the query.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::mcp_servers`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_platform_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDmcpBearer-0d47";
+    let team = "SEEDmcpTeam-a2f9";
+    let key = "SEEDmcpServerKey-61bc";
+    let common = Common {
+        platform: Some(cmux_cloud_environment::PRODUCTION_PLATFORM.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let connect = Verb::Connect { name: "seeded".into(), owner: None, return_to: None, key: true };
+    let _ = run(&common, &connect, Some(Zeroizing::new(key.to_owned()))).await;
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    assert!(sent.iter().any(|r| r.target.starts_with("/v1/mcp-servers/connect")), "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(key);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places.iter().all(|p| p.contains("/v1/mcp-servers/connect") && p.ends_with(": body")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(team);
+    assert!(
+        places.iter().all(|p| p.ends_with(": header x-cmux-team") || p.ends_with(": target")),
+        "{places:?}"
+    );
+}
