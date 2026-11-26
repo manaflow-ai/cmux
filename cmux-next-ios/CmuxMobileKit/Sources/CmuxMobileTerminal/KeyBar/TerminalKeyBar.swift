@@ -143,11 +143,7 @@ struct KeyBarScrollerKey: View {
 
     var body: some View {
         let isClipped = clipped.keys.contains(key)
-        // A key whose center has slid under the pinned keys is not drawn:
-        // their glass is clear, and a key behind it showed through (the
-        // retired mask hid it). The system's scroll edge effect softens it
-        // on its way under.
-        let drawn = clipped.draws(key) && !isClipped
+        let drawn = clipped.draws(key)
         Group {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
