@@ -398,6 +398,7 @@ mod subsession_send;
 pub mod subsessions;
 mod successors;
 mod surge_triage;
+mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 pub mod synced;

@@ -775,6 +775,13 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Leaves this chat marked as on its capacity fallback, as a past switch did
+    /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
+    /// reach `meta`.
+    #[doc(hidden)]
+    pub fn leave_on_capacity_fallback_for_tests(&self, fallback: crate::store::CapacityFallback) {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = Some(fallback);
+    }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
     pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
