@@ -27,6 +27,8 @@ describe("cloud journey", () => {
       .toBe("idle clock not running (last_active_at null: no report speaks for its activity); idle policy 120 s");
     expect(await idleHeldBy(api({ status: "running", last_active_at: 940_000, idle_policy: { idle_seconds: 120 }, activity: { active_sessions: 1 } }), "vm_x", 1_000_000))
       .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 1_000_000, idle_policy: { idle_seconds: 120 }, idle_kept: { why: "workload", running_s: 900, report_age_s: 20, daemon: "1.0.0", workload: { busy: 0, listening: 1, ports: [5173] } } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 0 s ago; idle policy 120 s; kept by {"why":"workload","workload":{"busy":0,"listening":1,"ports":[5173]}}');
     const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
     expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
   });
@@ -71,7 +73,10 @@ describe("cloud journey", () => {
     expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
     expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
     expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
-    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
+    // A record with both fields: the top-level idle_seconds wins.
+    expect(await machineIdleSeconds(api({ idle_seconds: 120, idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(120);
+    // No policy fails at once instead of waiting out the 24 h backstop.
+    expect(() => idlePauseDeadlineMs(null, 600)).toThrow(/names no idle policy/);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
