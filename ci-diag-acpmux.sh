@@ -3,14 +3,12 @@ set -x
 OUT=${FAST_CHECKS_OUT:-/tmp/out}; mkdir -p "$OUT"
 cd cmux-tui
 ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol:: > "$OUT/protocol.log" 2>&1
-cp crates/acpmux/spec/*.json "$OUT/" 2>/dev/null
-find . -path ./target -prune -o -name 'acpmux-protocol.json' -print -o -name 'acpmux-abi.surface.json' -print >> "$OUT/protocol.log"
-git status --short > "$OUT/git-status-after-bless.txt"
-git diff > "$OUT/bless.diff"
-cargo test -p acpmux --lib every_tool_schema_fits -- --nocapture > "$OUT/schema.log" 2>&1
-cargo test -p acpmux --lib -- list_tee link_v2 omit_time_breakdown reopen_attach_bytes ls_far help_examples model_hint cell_report agent_login connections home_writers test_hooks --nocapture > "$OUT/lib.log" 2>&1
 ACPMUX_LIST_STREAM_BLESS=1 cargo test -p acpmux --lib sidebar_mirror > "$OUT/mirror.log" 2>&1
-git diff --stat >> "$OUT/mirror.log"; git diff > "$OUT/after-mirror.diff"
-cargo test -p acpmux --test hub_integration -- fork_restart transfer --nocapture > "$OUT/hub.log" 2>&1
-tail -50 "$OUT"/*.log
+git status --short > "$OUT/git-status-after-bless.txt"
+git diff --stat > "$OUT/bless.stat"
+cp crates/acpmux/spec/acpmux-protocol.json crates/acpmux/spec/acpmux-abi.surface.json ../Packages/macOS/CmuxNext/Tests/Fixtures/AgentListStream/mirror.bytes ../Packages/macOS/CmuxNext/Tests/Fixtures/AgentListStream/mirror.jsonl "$OUT/"
+cargo test -p acpmux --lib every_tool_schema_fits -- --nocapture 2>&1 | grep -E "SCHEMA acpmux TOTAL|over budget|test result" > "$OUT/schema.log"
+cargo test -p acpmux --lib > "$OUT/lib.log" 2>&1; echo "lib exit $?" >> "$OUT/lib.log"
+cargo test -p acpmux --test hub_integration > "$OUT/hub.log" 2>&1; echo "hub exit $?" >> "$OUT/hub.log"
+grep -hE "^test .*FAILED|test result|exit " "$OUT"/*.log
 exit 0

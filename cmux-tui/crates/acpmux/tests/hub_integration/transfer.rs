@@ -1054,11 +1054,12 @@ async fn a_stale_move_is_ended_now_on_asking_and_a_live_one_is_not() {
 }
 
 /// A daemon taken over mid-copy (`acpmux daemon run --take-over`, 2026-11-22: the move died on
-/// `transfer_read` and its abort died the same way) leaves the move whole: the new daemon still
-/// holds the chat frozen in it, the copy goes on from the offset it reached against the new one,
-/// and the move commits with every prompt once on the target.
+/// `transfer_read` and its abort died the same way) leaves no chat frozen: a move not read to its
+/// end cannot have landed, so the new daemon gives the chat back at start (#54328, RFD 0063 item
+/// 3), the chat takes prompts again, and the old move's reads are refused so its driver starts
+/// the move anew.
 #[tokio::test]
-async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offset() {
+async fn a_move_whose_source_daemon_is_taken_over_mid_copy_gives_the_chat_back() {
     let dir = std::env::temp_dir().join(format!("acpmux-takeover-{}", uuid::Uuid::now_v7()));
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
@@ -1091,41 +1092,20 @@ async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offs
     drop(hub);
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["moving"], true, "the new daemon holds the chat in its move: {info}");
-    let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
-    assert!(refused.is_err(), "a chat in a move takes no prompt after a take-over: {refused:?}");
-
-    // The copy goes on from where it was, against the new daemon.
-    for file in begin["files"].as_array().unwrap() {
-        let path = file["path"].as_str().unwrap();
-        let mut offset = if path == midway["path"] { reached } else { 0 };
-        loop {
-            let read = json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch});
-            let part = src.request("_acpmux/transfer_read", read).await.unwrap();
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch});
-            dst.request("_acpmux/transfer_write", write).await.unwrap();
-            offset = part["next"].as_u64().unwrap();
-            if part["eof"] == true {
-                break;
-            }
+    let started = std::time::Instant::now();
+    loop {
+        let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        if info["moving"] == false {
+            break;
         }
+        assert!(started.elapsed() < Duration::from_secs(20), "the move was not given back: {info}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch}))
-        .await
-        .unwrap();
-    let to = json!({"host": "gcp-1", "sessionId": id});
-    let committed = src
-        .request(
-            "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": transfer_id, "to": to, "epoch": epoch}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(committed["committed"], true, "{committed}");
-    assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi"], "its history moved once");
-    let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(left["movedTo"], to, "{left}");
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await.unwrap();
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "late"], "it runs here again");
+    let read = json!({"transferId": transfer_id, "path": path, "offset": reached, "limit": 4096, "epoch": epoch});
+    let stale = src.request("_acpmux/transfer_read", read).await;
+    assert!(stale.is_err(), "the old move's copy does not go on: {stale:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
