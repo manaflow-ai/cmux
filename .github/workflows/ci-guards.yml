@@ -1652,6 +1652,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
+      - name: Validate github.com egress proxy direct fallback
+        if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
+        run: ./tests/test_ci_github_egress_direct.sh
+
       - name: Validate focused test launcher
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: |
