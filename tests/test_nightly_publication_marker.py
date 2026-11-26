@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -41,8 +42,9 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
     def test_continuation_retries_closure_only_for_the_published_source(self):
         steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
         guard = steps["Reject stale continuation before publication"]["run"]
-        # Execute the workflow's release lookup with a fixture response.
-        lookup = guard.split("\n", 2)[2].split("\nPY\n", 1)[0]
+        # Execute the workflow's release parser (the heredoc after <<'PY') on a fixture
+        # `gh api` response; the step reads the release through gh, not urllib.
+        lookup = guard.split("<<'PY'", 1)[1].split("\n", 1)[1].split("\nPY\n", 1)[0]
         closure = steps["Close deferred nightly failure incident"]["if"].replace("||", "or").replace("&&", "and")
         for published_sha, build, should_publish, should_close in (
             (self.SHA.lower(), 99, False, True),
@@ -58,10 +60,12 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 if published_sha:
                     body += f"<!-- cmux-published-sha: {published_sha} -->"
                 output = io.StringIO()
-                with patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps({"body": body}))), \
-                        patch.object(sys, "argv", ["-", "test/repo", "nightly", self.SHA, "100"]), \
-                        patch.dict(os.environ, {"GH_TOKEN": "fixture"}), contextlib.redirect_stdout(output):
-                    exec(compile(lookup, str(WORKFLOW), "exec"), {})
+                with tempfile.TemporaryDirectory() as tmp:
+                    release_json = Path(tmp) / "release.json"
+                    release_json.write_text(json.dumps({"body": body}))
+                    with patch.object(sys, "argv", ["-", str(release_json), self.SHA, "100"]), \
+                            contextlib.redirect_stdout(output):
+                        exec(compile(lookup, str(WORKFLOW), "exec"), {})
                 result = dict(line.split("=", 1) for line in output.getvalue().splitlines())
                 env = SimpleNamespace(
                     ALREADY_PUBLISHED=result.get("already_published", "false"),
