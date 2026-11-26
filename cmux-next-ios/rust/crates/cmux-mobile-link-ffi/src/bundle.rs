@@ -376,6 +376,30 @@ pub async fn open_plain(link: &Link, path: &str, dest: &Path) -> Result<FileTran
 
 #[uniffi::export]
 impl LinkHandle {
+    /// Try the bundle-v1 path for the attachment engine. `None` means the service or the file
+    /// is unsupported and the caller should use the resumable `upload` protocol.
+    pub(crate) async fn upload_attachment_bundle(
+        &self,
+        path: String,
+        name: String,
+        cwd: String,
+        store_dir: PathBuf,
+    ) -> Result<Option<FileTransfer>, CmuxMobileError> {
+        if self.bundle_refused.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let outcome = upload_bundle(&self.link, Path::new(&path), &name, &cwd, &store_dir).await?;
+        match outcome {
+            Outcome::Done(transfer) => Ok(Some(transfer)),
+            Outcome::Fallback(unsupported) => {
+                if unsupported {
+                    self.bundle_refused.store(true, Ordering::Release);
+                }
+                Ok(None)
+            }
+        }
+    }
+
     /// Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
     /// folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
     /// holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's

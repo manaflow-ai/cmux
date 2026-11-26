@@ -165,10 +165,15 @@ struct State {
     /// Counts every advance, so the run loop can tell an attempt made progress.
     epoch: u64,
     file_ready: bool,
+    /// Bundle-v1 is attempted once before falling back to the resumable upload service.
+    bundle_attempted: bool,
 }
 
 struct Upload {
     mac_id: String,
+    /// `LinkUpload` uses a fresh `link-<UUID>` key and clears it when its call ends. Such a
+    /// link has no reconnect owner, so waiting for a replacement would deadlock that caller.
+    one_shot: bool,
     name: String,
     cwd: Option<String>,
     state: Mutex<State>,
@@ -321,6 +326,7 @@ impl AttachmentUploads {
     pub fn reserve(&self, spec: UploadSpec) -> String {
         let id =
             spec.upload_id.filter(|id| !id.is_empty()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let one_shot = spec.mac_id.starts_with("link-");
         let progress = UploadProgress {
             upload_id: id.clone(),
             stage: UploadStage::Compressing,
@@ -334,6 +340,7 @@ impl AttachmentUploads {
         };
         let upload = Arc::new(Upload {
             mac_id: spec.mac_id,
+            one_shot,
             name: spec.name,
             cwd: spec.cwd,
             state: Mutex::new(State {
@@ -345,6 +352,7 @@ impl AttachmentUploads {
                 last_advance: Instant::now(),
                 epoch: 0,
                 file_ready: false,
+                bundle_attempted: false,
             }),
             result: watch::channel(None).0,
             task: Mutex::new(None),
@@ -459,6 +467,23 @@ fn unreadable(name: &str) -> Outcome {
     Outcome::Fatal("unreadable".into(), format!("Couldn't read {name} on this iPhone."))
 }
 
+/// Keep bundle-v1's phone cache independent from the outbox folder, whose per-upload directories
+/// are removed as soon as Swift observes a terminal result. Stable Mac ids therefore share chunks,
+/// while `link-<UUID>` ids naturally get an isolated cache.
+fn bundle_store_dir(mac_id: &str) -> PathBuf {
+    let safe: String = mac_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') { character } else { '_' }
+        })
+        .collect();
+    std::env::temp_dir().join("cmux-mobile-attachment-bundles").join(if safe.is_empty() {
+        "unknown"
+    } else {
+        &safe
+    })
+}
+
 async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
     let size = match tokio::fs::metadata(&path).await {
         Ok(meta) => meta.len(),
@@ -482,6 +507,12 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         let link = match current {
             Some(link) => link,
             None => {
+                if upload.one_shot {
+                    return upload.fail(
+                        "link_unavailable",
+                        "The direct upload link ended before the Mac could receive the attachment.",
+                    );
+                }
                 upload.stage(UploadStage::WaitingForMac);
                 let live =
                     |link: &Option<Arc<LinkHandle>>| link.as_ref().is_some_and(|link| !link.is_closed());
@@ -664,10 +695,44 @@ async fn attempt(
         let st = lock(&upload.state);
         (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd)
     };
+    let bundle = {
+        let mut st = lock(&upload.state);
+        if offset == 0 && !st.bundle_attempted {
+            st.bundle_attempted = true;
+            true
+        } else {
+            false
+        }
+    };
     upload.edit(true, |st| {
         st.progress.attempt += 1;
         st.progress.stage = UploadStage::Uploading;
     });
+    if bundle {
+        let cwd = upload.cwd.as_deref().unwrap_or_default().to_owned();
+        match link
+            .upload_attachment_bundle(
+                path.to_string_lossy().into_owned(),
+                upload.name.clone(),
+                cwd,
+                bundle_store_dir(&upload.mac_id),
+            )
+            .await
+        {
+            Ok(Some(transfer)) => {
+                upload.edit(true, |st| st.progress.sent_bytes += transfer.sent_bytes);
+                upload.advance(total, true);
+                return Outcome::Done(transfer.path);
+            }
+            Ok(None) => {}
+            Err(CmuxMobileError::Refused { code, message })
+                if matches!(code.as_str(), "bad_request" | "forbidden" | "not_found" | "io") =>
+            {
+                return Outcome::Fatal(code, message);
+            }
+            Err(_) => return Outcome::Retry,
+        }
+    }
     let mut args = serde_json::json!({
         "name": upload.name,
         "size": total.to_string(),
