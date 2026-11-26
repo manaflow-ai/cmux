@@ -4,6 +4,66 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it.
+    TeamCloudSessionRemoveOp {
+        name: "team.cloud.session.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamCloudSessionRemoveParams,
+        result: TeamCloudSessionRemoveResult,
+        error: TeamCloudSessionRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionRemoveParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionRemoveResult {
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.remove declares.
+    TeamCloudSessionRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionNotYours = "cloud_session.not_yours",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows.
+    TeamCloudSessionViewingOp {
+        name: "team.cloud.session.viewing",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamCloudSessionViewingParams,
+        result: TeamCloudSessionViewingResult,
+        error: TeamCloudSessionViewingError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionViewingParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub viewing: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamCloudSessionViewingResult {
     pub viewing: bool,
@@ -839,68 +899,4 @@ wire_op! {
         result: TeamVmJournalAppendResult,
         error: TeamVmJournalAppendError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalAppendParams {
-    pub stream: TeamJournalStream,
-    pub epoch: i64,
-    pub first_seq: i64,
-    pub last_seq: i64,
-    pub bytes: String,
-    pub sha256: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalAppendResult {
-    pub stream: TeamJournalStream,
-    pub first_seq: i64,
-    pub last_seq: i64,
-    pub epoch: i64,
-    pub high_water: i64,
-    pub replayed: bool,
-}
-
-wire_errors! {
-    /// The error codes team_vm.journal.append declares.
-    TeamVmJournalAppendError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        JournalConflict = "journal.conflict",
-        JournalFull = "journal.full",
-        JournalGap = "journal.gap",
-        JournalStaleEpoch = "journal.stale_epoch",
-        JournalTooLarge = "journal.too_large",
-        RevisionConflict = "revision.conflict",
-        TeamVmNotBound = "team_vm.not_bound",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
-    TeamVmJournalHighWaterOp {
-        name: "team_vm.journal.high_water",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamVmDO",
-        risk: "read",
-        principals: [Install],
-        params: TeamVmJournalHighWaterParams,
-        result: TeamVmJournalHighWaterResult,
-        error: TeamVmJournalHighWaterError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalHighWaterParams {
-    pub stream: TeamJournalStream,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalHighWaterResult {
-    pub stream: TeamJournalStream,
-    pub high_water: i64,
-    pub epoch: i64,
 }

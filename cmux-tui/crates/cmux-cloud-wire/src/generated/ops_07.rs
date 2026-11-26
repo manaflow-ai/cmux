@@ -856,44 +856,41 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
-    IntegrationApprovalGetOp {
-        name: "integration.approval.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
+    /// Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.
+    IntegrationApprovalApproveOp {
+        name: "integration.approval.approve",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
         principals: [Session],
-        params: IntegrationApprovalGetParams,
-        result: IntegrationApprovalGetResult,
-        error: IntegrationApprovalGetError,
+        params: IntegrationApprovalApproveParams,
+        result: IntegrationApprovalApproveResult,
+        error: IntegrationApprovalApproveError,
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetParams {
+pub struct IntegrationApprovalApproveParams {
     pub request: String,
+    pub op: String,
+    pub params: Value,
+    pub team: TeamId,
 }
 
 wire_enum! {
-    IntegrationApprovalGetResultState {
-        Pending = "pending",
-        Done = "done",
-        Denied = "denied",
-        Expired = "expired",
+    IntegrationApprovalApproveResultAnswered {
+        Here = "here",
+        Elsewhere = "elsewhere",
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetResult {
+pub struct IntegrationApprovalApproveResult {
     pub request: String,
-    pub op: String,
-    pub connection: String,
-    pub target: String,
-    pub summary: String,
-    pub params: Value,
-    pub digest: String,
-    pub state: IntegrationApprovalGetResultState,
-    pub created_at: WireNumber,
-    pub expires_at: WireNumber,
+    pub answered: IntegrationApprovalApproveResultAnswered,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub reply: Option<Value>,
 }

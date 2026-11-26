@@ -5,6 +5,64 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes integration.approval.approve declares.
+    IntegrationApprovalApproveError {
+        ApprovalMismatch = "approval.mismatch",
+        ApprovalOneCallOff = "approval.one_call_off",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
+    IntegrationApprovalGetOp {
+        name: "integration.approval.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session],
+        params: IntegrationApprovalGetParams,
+        result: IntegrationApprovalGetResult,
+        error: IntegrationApprovalGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetParams {
+    pub request: String,
+}
+
+wire_enum! {
+    IntegrationApprovalGetResultState {
+        Pending = "pending",
+        Done = "done",
+        Denied = "denied",
+        Expired = "expired",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetResult {
+    pub request: String,
+    pub op: String,
+    pub connection: String,
+    pub target: String,
+    pub summary: String,
+    pub params: Value,
+    pub digest: String,
+    pub state: IntegrationApprovalGetResultState,
+    pub created_at: WireNumber,
+    pub expires_at: WireNumber,
+}
+
+wire_errors! {
     /// The error codes integration.approval.get declares.
     IntegrationApprovalGetError {
         AuthForbidden = "auth.forbidden",
@@ -844,62 +902,5 @@ wire_errors! {
         PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
         SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Replace the parts of one of your messages (not after it was retracted).
-    MessageEditOp {
-        name: "message.edit",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: MessageEditParams,
-        result: HomeConversationCommit,
-        error: MessageEditError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MessageEditParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub parts: Vec<HomePart>,
-}
-
-wire_errors! {
-    /// The error codes message.edit declares.
-    MessageEditError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParts = "invalid_parts",
-        KindForbids = "kind_forbids",
-        NotAuthor = "not_author",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Retract one of your messages: its parts and reactions are cleared and it leaves search.
-    MessageRetractOp {
-        name: "message.retract",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: MessageRetractParams,
-        result: HomeConversationCommit,
-        error: MessageRetractError,
     }
 }

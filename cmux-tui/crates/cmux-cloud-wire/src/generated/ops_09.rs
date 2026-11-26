@@ -4,6 +4,63 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Replace the parts of one of your messages (not after it was retracted).
+    MessageEditOp {
+        name: "message.edit",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MessageEditParams,
+        result: HomeConversationCommit,
+        error: MessageEditError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MessageEditParams {
+    pub conversation: ConversationId,
+    pub message_id: MessageId,
+    pub parts: Vec<HomePart>,
+}
+
+wire_errors! {
+    /// The error codes message.edit declares.
+    MessageEditError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParts = "invalid_parts",
+        KindForbids = "kind_forbids",
+        NotAuthor = "not_author",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        Retracted = "retracted",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Retract one of your messages: its parts and reactions are cleared and it leaves search.
+    MessageRetractOp {
+        name: "message.retract",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MessageRetractParams,
+        result: HomeConversationCommit,
+        error: MessageRetractError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MessageRetractParams {
     pub conversation: ConversationId,
@@ -846,55 +903,4 @@ wire_op! {
         result: ServerNetworkConfirmResult,
         error: ServerNetworkConfirmError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmParams {
-    pub host: HostId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub proof: ServerNetworkProof,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmResult {
-    pub host: HostId,
-    pub network: ServerNetworkBinding,
-}
-
-wire_errors! {
-    /// The error codes server.network.confirm declares.
-    ServerNetworkConfirmError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.
-    ServerPairApproveOp {
-        name: "server.pair.approve",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:PairingDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: ServerPairApproveParams,
-        result: ServerPairApproveResult,
-        error: ServerPairApproveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveParams {
-    pub code: PairingCode,
-    pub team: TeamId,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<NativeMeshId>,
 }

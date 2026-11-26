@@ -4,7 +4,7 @@
 // - Layout: which views are turned on, the one in the pane and the one beside it (split or
 //   sidebar). Client view state: kept in this page's localStorage, nothing reaches the app.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { keptAgents } from "./model";
+import { keptAgents, keptReply } from "./model";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ChiefViewsErrors,
@@ -170,7 +170,9 @@ export class ChiefViewsStore {
     try {
       const op = kind === "fleet" ? ChiefViewsOps.fleet : ChiefViewsOps.landing;
       const value = await this.client.call<FleetReply | LandingReply>(op, {});
-      if (id === this.reads[kind]) this.set({ [kind]: { status: "ready", reply: value } });
+      // Unchanged pull requests and machines keep their objects, so their rows do not draw again.
+      if (id === this.reads[kind])
+        this.set({ [kind]: { status: "ready", reply: reply ? keptReply(reply, value) : value } });
     } catch (error) {
       if (id !== this.reads[kind]) return;
       const unavailable =
