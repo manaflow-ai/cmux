@@ -26,9 +26,9 @@
 # ignored=1 runs only ignored tests. enable=ACPMUX_DURESS enables the manual duress
 # benchmark for the run only; it requires acpmux/duress_daemon, duress_bench, ignored=1,
 # config=release and explicit legs=baseline,rfd0050 (either leg alone also works).
+# Its fresh JSON and Markdown reports are saved under duress/ beside output.txt; a missing report fails.
 # enable=CMUX_AGENT_PANE_COMPILE_HINTS forwards the opt-in pane compile-hints flag to the
 # selected test. It is a reviewed measurement-only switch; ordinary runs stay default-off.
-# Its fresh JSON and Markdown reports are saved under duress/ beside output.txt; a missing report fails.
 #
 # Output: the test's own output (--nocapture, one test thread) in the step log and the artifact,
 # then RUST-TEST-BENCH lines: the measured tree, the host, `vm.loadavg` and the processes over
@@ -178,7 +178,7 @@ main() {
   local t0=$SECONDS build_status
   set +e
   # Output goes to the step log as it comes, so a long build is not stopped as a silent one.
-  cargo test --locked -p "$crate" "${target_args[@]}" ${config_args[@]+"${config_args[@]}"} --no-run 2>&1 | tee "$out/build.log"
+  env ${run_env[@]+"${run_env[@]}"} cargo test --locked -p "$crate" "${target_args[@]}" ${config_args[@]+"${config_args[@]}"} --no-run 2>&1 | tee "$out/build.log"
   local -a build_pipe=("${PIPESTATUS[@]}")
   set -e
   build_status=${build_pipe[0]}
