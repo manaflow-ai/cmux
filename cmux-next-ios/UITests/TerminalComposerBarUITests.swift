@@ -46,70 +46,115 @@ final class TerminalComposerBarUITests: XCTestCase {
 
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field\n\(app.debugDescription)")
-        let keyboardKey = app.buttons["terminal.key.keyboard"]
-        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key")
         Thread.sleep(forTimeInterval: 1.5)
 
-        // Keyboard down, empty field: the row at its start, middle and end.
+        // Keyboard down: the key row is away (#53325, it rides the keyboard).
+        shoot(app, "\(look)-kbd-down-empty")
+
+        // Keyboard up, empty: the row at its start, middle and end.
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        let keyboardKey = app.buttons["terminal.key.keyboard"]
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key over the keyboard")
+        Thread.sleep(forTimeInterval: 1)
         var seen = Set<String>()
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-empty", seen: &seen)
+        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-empty", seen: &seen)
         let missing = Self.scrollerKeys.filter { !seen.contains($0) }
         XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
-        // Keyboard up, empty.
-        field.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
-        Thread.sleep(forTimeInterval: 1)
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-empty", seen: &seen)
-
         // Keyboard up, filled.
+        let keyRowY = keyboardKey.frame.midY
+        let window = app.windows.firstMatch.frame
         field.typeText("git status --short && ls -la ~/Development")
         Thread.sleep(forTimeInterval: 0.8)
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-filled", seen: &seen)
+        shots(app, keyRowY: keyRowY, window: window, name: "\(look)-kbd-up-filled")
+        // How long the app takes to answer again after the typing and drags.
+        let asked = Date()
+        let answered = keyboardKey.waitForExistence(timeout: 90)
+        let busy = XCTAttachment(string: "responsive-again \(look) answered=\(answered) after=\(String(format: "%.1f", Date().timeIntervalSince(asked)))s")
+        busy.name = "\(look)-responsive-again"
+        busy.lifetime = .keepAlways
+        add(busy)
 
         // Keyboard down, filled: the key row's keyboard key hides it.
         keyboardKey.tap()
         Thread.sleep(forTimeInterval: 1.2)
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-filled", seen: &seen)
+        shoot(app, "\(look)-kbd-down-filled")
+
+        // Leave no draft behind: drafts persist (#48958), and the next suite
+        // (TerminalComposerLookUITests) measures the empty field.
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
+        Thread.sleep(forTimeInterval: 0.5)
     }
 
-    /// Scrolls the key row back to its start, then shoots start, middle and
-    /// end; checks Paste draws at the start and records every key seen.
+    /// Walks the key row from its start to its end in short, slow drags,
+    /// recording every key whose center comes on screen; shoots the start,
+    /// the middle and the end, and checks Paste draws where it is whole.
     @MainActor
     private func rowStates(_ app: XCUIApplication, keyRowY: CGFloat, name: String, seen: inout Set<String>) throws {
         let window = app.windows.firstMatch.frame
-        func drag(_ fromX: CGFloat, _ toX: CGFloat) {
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            origin.withOffset(CGVector(dx: fromX, dy: keyRowY))
-                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: toX, dy: keyRowY)),
-                       withVelocity: .default, thenHoldForDuration: 0.3)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        func drag(_ dx: CGFloat) {
+            let from = dx < 0 ? window.width * 0.85 : window.width * 0.55
+            origin.withOffset(CGVector(dx: from, dy: keyRowY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: from + dx, dy: keyRowY)),
+                       withVelocity: .slow, thenHoldForDuration: 0.3)
+            Thread.sleep(forTimeInterval: 0.5)
         }
-        func record() {
+        var pasteChecked = false
+        func record() throws {
             for key in Self.scrollerKeys {
                 let element = app.descendants(matching: .any)["terminal.key.\(key)"]
-                if element.exists, element.isHittable, window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
+                // Keys under the pinned keys are hidden from accessibility
+                // (`KeyBarClippedKeys`); one that exists with its center on
+                // screen is shown.
+                if element.exists, element.frame.width > 0,
+                   window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
                     seen.insert(key)
                 }
             }
+            let paste = app.descendants(matching: .any)["terminal.key.paste"]
+            if !pasteChecked, paste.exists, paste.frame.minX >= window.width * 0.3, paste.frame.maxX <= window.maxX {
+                pasteChecked = true
+                try checkPasteDraws(app, name: name)
+            }
         }
-        for _ in 0..<4 { drag(window.width * 0.35, window.width * 0.95) }
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
+        for _ in 0..<6 { drag(window.width * 0.6) }
+        try record()
         shoot(app, "\(name)-start")
-        try checkPasteDraws(app, name: "\(name)-start")
-
-        drag(window.width * 0.9, window.width * 0.45)
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
-        shoot(app, "\(name)-middle")
-
-        for _ in 0..<5 { drag(window.width * 0.95, window.width * 0.3) }
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
+        var steps = 0
+        while steps < 24, !seen.contains("hide-chrome") {
+            drag(-window.width * 0.3)
+            try record()
+            steps += 1
+            if steps == 4 { shoot(app, "\(name)-middle") }
+        }
         shoot(app, "\(name)-end")
-        // Back to the start for the next state.
-        for _ in 0..<5 { drag(window.width * 0.35, window.width * 0.95) }
-        Thread.sleep(forTimeInterval: 0.4)
+        if !pasteChecked { XCTFail("\(name): Paste never came whole on screen") }
+        for _ in 0..<8 { drag(window.width * 0.6) }
+    }
+
+    /// Start, middle and end of the row by drags alone: no per-key
+    /// queries, which a busy app answers slowly (the walk above did them).
+    @MainActor
+    private func shots(_ app: XCUIApplication, keyRowY: CGFloat, window: CGRect, name: String) {
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        func drag(_ from: CGFloat, _ to: CGFloat) {
+            origin.withOffset(CGVector(dx: window.width * from, dy: keyRowY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: window.width * to, dy: keyRowY)),
+                       withVelocity: .fast, thenHoldForDuration: 0.2)
+        }
+        for _ in 0..<4 { drag(0.4, 0.95) }
+        Thread.sleep(forTimeInterval: 0.6)
+        shoot(app, "\(name)-start")
+        drag(0.9, 0.4)
+        Thread.sleep(forTimeInterval: 0.6)
+        shoot(app, "\(name)-middle")
+        for _ in 0..<6 { drag(0.95, 0.3) }
+        Thread.sleep(forTimeInterval: 0.8)
+        shoot(app, "\(name)-end")
+        for _ in 0..<6 { drag(0.4, 0.95) }
     }
 
     /// Paste draws its glyph: its cap is not one flat color (a blank
