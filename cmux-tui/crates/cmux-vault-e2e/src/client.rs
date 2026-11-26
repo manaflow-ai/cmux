@@ -373,8 +373,12 @@ impl<'a, H: Http, S: DeviceStore> Vault<'a, H, S> {
             let epoch = snap.epoch + 1;
             let vk = VaultKey::generate()?;
             let wrap = crypto::wrap_key(&vk, &self.vault.0, &id, key.public_bytes(), epoch)?;
-            body["wrap"] =
-                json!({"epoch": epoch, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)});
+            if let Some(fields) = body.as_object_mut() {
+                fields.insert(
+                    "wrap".to_owned(),
+                    json!({"epoch": epoch, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)}),
+                );
+            }
         }
         self.call("POST", &format!("{BASE}/devices"), Some(&id), Some(&body))?;
         self.status()

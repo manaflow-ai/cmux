@@ -28,7 +28,7 @@ fn scope_props() -> Value {
 
 pub(super) fn descriptors() -> Vec<Value> {
     let read = json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true});
-    let team_only = json!({"type": "object", "additionalProperties": false, "properties": {"team": scope_props()["team"]}});
+    let team_only = json!({"type": "object", "additionalProperties": false, "properties": {"team": scope_props().get("team").cloned().unwrap_or_default()}});
     let mut import_props = scope_props().as_object().cloned().unwrap_or_default();
     import_props.insert(
         "file".into(),

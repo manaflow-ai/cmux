@@ -657,10 +657,10 @@ fn pick(
     let stdin = std::io::stdin();
     loop {
         eprintln!("Keep which names? Values stay hidden.");
-        for (index, row) in rows.iter().enumerate() {
+        for (index, (row, on)) in rows.iter().zip(&ticked).enumerate() {
             eprintln!(
                 "  [{}] {:>2}. {:<32} {}{}",
-                if ticked[index] { "x" } else { " " },
+                if *on { "x" } else { " " },
                 index + 1,
                 row.name,
                 row.masked,
