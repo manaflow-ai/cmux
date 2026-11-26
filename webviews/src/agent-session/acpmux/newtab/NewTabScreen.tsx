@@ -2050,8 +2050,14 @@ export function NewTabScreen(props: Props) {
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || fieldElement()?.contains(event.target as Node)) return;
-    // The mic and Send at the row's end (Claude Code's split) keep their own press.
-    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
+    // A press in a menu a chip portals out (React bubbles it here) is the menu's, not the row's.
+    if (!event.currentTarget.contains(event.target as Node)) return;
+    // The row's controls (+, the chips, the mic and Send) keep their own press; the gaps between them focus the field.
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, [role='button'], [aria-haspopup], a, input, select, .acpmux-newtab-plus")
+    )
+      return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
@@ -2548,6 +2554,8 @@ export function NewTabScreen(props: Props) {
           slash list behind +, so it offers those rows of the registry only. */}
       <ComposerPlusMenu
         className={`acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        // The card's + is in the bar under the field: its menu opens down, over the page, not over the field.
+        {...(split ? { menuSide: "bottom" as const } : {})}
         entries={composerPlusRegistry({
           translate: t,
           canCapture: false,
@@ -2988,7 +2996,6 @@ export function NewTabScreen(props: Props) {
               focusFromRow(event);
             }}
           >
-            {split && attachmentPicker}
             {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
               none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
             <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
@@ -3068,9 +3075,22 @@ export function NewTabScreen(props: Props) {
                 shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
               {!shell && attachmentView !== "strip" && inline.chips}
             </div>
-            {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
-              the mic and Send end the field's row and the empty box is one line tall, as the chat
-              composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
+            {/* The card's bar, under the field (Lucas 2026-11-25, newtab-composer-lab "Unified Card"): +, the
+              quiet row (the mode, model and effort), then the mic and Send, one grid row (screen.css), in the
+              order they read and tab. */}
+            {split && attachmentPicker}
+            {split && Chips && (
+              <div className="nt-foot" onPointerDownCapture={touch}>
+                <ComposerFoot ref={foot} plain={plainFooter}>
+                  <ChipsSlot
+                    chips={Chips}
+                    snapshot={chipSnapshot}
+                    {...(chipFolder ? { cwd: chipFolder } : {})}
+                    onAddAgent={openSetup}
+                  />
+                </ComposerFoot>
+              </div>
+            )}
             {split && pickers}
           </div>
           {fixFromLink && props.onFixFromLink && (
@@ -3106,20 +3126,6 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
-            and Send. Folder and computer head the box (above). */}
-        {split && Chips && (
-          <div className="nt-foot" onPointerDownCapture={touch}>
-            <ComposerFoot ref={foot} plain={plainFooter}>
-              <ChipsSlot
-                chips={Chips}
-                snapshot={chipSnapshot}
-                {...(chipFolder ? { cwd: chipFolder } : {})}
-                onAddAgent={openSetup}
-              />
-            </ComposerFoot>
-          </div>
-        )}
         {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
             Aside's New Tab draws them; it steps aside while the suggestions show. */}
         {pill && (
@@ -3216,7 +3222,8 @@ export function NewTabScreen(props: Props) {
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
-          hostGlass={false}
+          // One material with the box (composerStates.css, ONE MATERIAL FAMILY): the App's popover glass,
+          // with its cover, as Popover draws by default (#50119).
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}

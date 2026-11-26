@@ -12,7 +12,7 @@ step on the same worker had already built.
     ios_ffi_cache.py restore ROOT KEY          install the cached build for KEY (exit 0 hit, 1 miss)
     ios_ffi_cache.py probe   INPUTS TIP        write the same paths' trees on feat-cmux-next's tip to
                                                TIP (run beside the build on a miss)
-    ios_ffi_cache.py store   ROOT INPUTS TIP   publish ROOT's fresh build, when trusted
+    ios_ffi_cache.py store   ROOT INPUTS TIP   publish ROOT's fresh build under its key
 
 The key is a sha256 over:
   - the git tree id at HEAD of every directory cargo builds from: the cmux-next-ios/rust
@@ -33,15 +33,21 @@ The cache bounds itself: every store keeps at most KEEP_ENTRIES entries, drops t
 recently used beyond that and any entry unused for MAX_AGE_SECONDS, and never removes one used
 or written within BUSY_SECONDS. Removal holds the cache's exclusive lock (.lock, flock) and a
 restore holds it shared while it verifies and copies, so no entry goes away mid-copy. One entry is about 157 MiB
-(2026-10-29), so a worker holds at most about 1 GiB. disk-pressure.sh may also remove the
+(2026-10-29), so a worker holds at most about 2.5 GiB. disk-pressure.sh may also remove the
 whole cache under low disk: every entry is reproducible.
 
-Only trusted builds are published: store writes an entry only when every input tree is the
-same tree as on the tip of feat-cmux-next (probe: a one-commit, blob-less clone in TMPDIR, run
-while the FFI builds), so an entry is always the build of landed sources. A pull request that
-changes the FFI builds it and writes nothing. (Step code runs as the worker's user either way,
-as with ensure-web-bundles.sh's cache; the check keeps a pull request's own FFI out of it.)
-Publication is one rename of a private temp dir, so two steps that miss one key never mix.
+Every clean build is published under its own key, a landed build and a branch build alike
+(2026-11-25: 84 of 133 handoff steps missed, and 44 of those misses were inputs an earlier step had
+already built, because only builds of feat-cmux-next's inputs were stored). The key names every
+input tree and the toolchain, and restore verifies every byte against the manifest, so a branch's
+entry serves only a later step with exactly the same inputs: the same branch rebuilt, a stacked
+branch, or feat-cmux-next once that branch lands. It never serves other inputs. probe still runs
+beside the build and records in the manifest whether the inputs were the landed ones
+(`landed`, `trusted`); a failed probe only means the entry is recorded as a branch build. (Step
+code runs as the worker's user either way, as with ensure-web-bundles.sh's cache, so the old
+landed-only rule never kept a step's own code out: a step whose FFI inputs matched the tip
+could already publish whatever its own scripts built.) Publication is one rename of a private
+temp dir, so two steps that miss one key never mix.
 
 Exit codes: 0 done (restore: hit), 1 restore: miss (probe: no tip), 2 usage, 3 no key for an
 expected reason (no cache, inputs differ from HEAD), 4 no key because a command it needs failed,
@@ -74,7 +80,7 @@ TRUSTED_URL = "https://github.com/manaflow-ai/cmux.git"
 TRUSTED_BRANCH = "feat-cmux-next"
 KEY_CHARS = set("0123456789abcdef")
 SHA_CHARS = KEY_CHARS
-KEEP_ENTRIES = 6
+KEEP_ENTRIES = 16  # branch builds are stored too: room for the branches in flight on a worker
 MAX_AGE_SECONDS = 7 * 86400
 BUSY_SECONDS = 3600
 # Build settings that change the FFI's bytes besides the sources and the toolchain.
@@ -157,10 +163,28 @@ def input_paths(root):
 
 
 def trees(root, rev, paths):
-    out = {}
+    """Each path's object id at REV ("" when it is not there), from one git process.
+
+    One `git cat-file --batch-check` for every path, not one `git rev-parse` each: in a checkout
+    with tens of thousands of packs every git process spends seconds opening them, and the key
+    names about 45 paths (2026-11-25, a developer Mac with 50,619 packs: 70 s per key, 2 s batched).
+    """
+    paths = list(paths)
+    if not paths:
+        return {}
     for rel in paths:
-        p = git(root, "rev-parse", "--verify", "--quiet", "%s:%s" % (rev, rel), check=False)
-        oid = p.stdout.strip() if p.returncode == 0 else ""
+        if "\n" in rel:
+            raise NoKey("path with a newline: %r" % rel)
+    p = subprocess.run(["git", "-C", str(root), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                       input="".join("%s:%s\n" % (rev, rel) for rel in paths), capture_output=True, text=True)
+    if p.returncode != 0:
+        raise ToolFailed("git cat-file --batch-check: %s" % p.stderr.strip()[:300])
+    lines = p.stdout.splitlines()
+    if len(lines) != len(paths):
+        raise ToolFailed("git cat-file --batch-check answered %d lines for %d paths" % (len(lines), len(paths)))
+    out = {}
+    for rel, line in zip(paths, lines):
+        oid = "" if line.endswith(" missing") else line.split(" ", 1)[0]
         if oid and (len(oid) != 40 or not set(oid) <= SHA_CHARS):
             raise NoKey("%s:%s is not a full object id: %r" % (rev, rel, oid))
         out[rel] = oid
@@ -398,20 +422,23 @@ def store(root, inputs_file, tip_file):
     try:
         tip = json.loads(pathlib.Path(tip_file).read_text())
     except (OSError, ValueError):
-        print("ios-ffi cache: not stored, no %s tip to compare with" % TRUSTED_BRANCH)
-        return 0
-    # The checkout still holds the inputs the key names (the build changed none of them) ...
+        tip = {}
+    # The checkout still holds the inputs the key names (the build changed none of them).
     paths = sorted(want)
     dirty = git(root, "status", "--porcelain", "--untracked-files=all", "--", *paths).stdout.strip()
     if dirty or trees(root, "HEAD", paths) != want:
         print("ios-ffi cache: not stored, the FFI inputs changed during the build")
         return 0
-    # ... and they are the landed ones.
-    if tip.get("trees") != want:
+    # Landed or a branch's: either is stored under its own key (see the module doc).
+    landed = tip.get("trees") == want
+    if not tip:
+        how = "branch build, no %s tip to compare with" % TRUSTED_BRANCH
+    elif landed:
+        how = "inputs as on %s %s" % (TRUSTED_BRANCH, str(tip.get("sha", ""))[:12])
+    else:
         changed = sorted(p for p in want if tip.get("trees", {}).get(p) != want[p])
-        print("ios-ffi cache: not stored, inputs differ from %s %s (%s)"
-              % (TRUSTED_BRANCH, str(tip.get("sha", ""))[:12], ", ".join(changed)))
-        return 0
+        how = "branch build, inputs differ from %s %s (%s)" % (
+            TRUSTED_BRANCH, str(tip.get("sha", ""))[:12], ", ".join(changed))
     for out in OUTPUTS:
         if not (root / out).exists():
             print("ios-ffi cache: not stored, no " + out)
@@ -421,7 +448,8 @@ def store(root, inputs_file, tip_file):
     try:
         for out in OUTPUTS:
             install(root / out, tmp / "payload" / out)
-        manifest = {"schema": SCHEMA, "key": key, "inputs": want, "trusted": {k: tip.get(k) for k in ("branch", "sha")},
+        manifest = {"schema": SCHEMA, "key": key, "inputs": want, "landed": landed,
+                    "trusted": {k: tip.get(k) for k in ("branch", "sha")} if landed else None,
                     "files": listing(tmp / "payload"), "created_at": int(time.time())}
         (tmp / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
         try:
@@ -434,7 +462,7 @@ def store(root, inputs_file, tip_file):
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    print("ios-ffi cache: stored %s (inputs as on %s %s)" % (key[:12], TRUSTED_BRANCH, str(tip.get("sha", ""))[:12]))
+    print("ios-ffi cache: stored %s (%s)" % (key[:12], how))
     removed = prune(cache)
     if removed:
         print("ios-ffi cache: pruned %d old entries (%s)" % (len(removed), ", ".join(k[:12] for k in removed)))
