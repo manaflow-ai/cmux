@@ -61,6 +61,7 @@ GATE_SCRIPTS = {
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
+    "egress gate": "scripts/ci/egress_new_sites.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
@@ -796,6 +797,20 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
         self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self):
+        # docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (2026-11-23): on a runner whose own Bun cache is already filled (a persistent pool runner), the
+        # archive restore spent 400-1,096 s in 12 of 14 jobs cut at their limit. The check runs first, the restore only
+        # when it is not warm, and CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again.
+        steps = job(workflow())["steps"]
+        names = [s.get("name") for s in steps]
+        warm = step_named(steps, "Is this runner's own Bun package cache warm")
+        self.assertEqual(warm["id"], "bun-warm")
+        self.assertIn("CI_BUN_CACHE_RESTORE_WARM", warm["env"]["RESTORE_ON_WARM"])
+        for restore_id in ("bun-r2", "bun-cache"):
+            restore = next(s for s in steps if s.get("id") == restore_id)
+            self.assertIn("steps.bun-warm.outputs.warm != 'true'", restore["if"])
+            self.assertLess(names.index(warm["name"]), names.index(restore["name"]))
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
@@ -840,8 +855,9 @@ class WorkflowShape(unittest.TestCase):
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
-        # in full) and the last two run after the gate, so none of them is a verdict.
-        receipt_steps = ("same-input receipt", "the receipt's results")
+        # in full) and the last two run after the gate, so none of them is a verdict. The React Compiler transform
+        # cache steps fail open the same way: a miss or a broken cache only makes the shard compile from scratch.
+        receipt_steps = ("same-input receipt", "the receipt's results", "React Compiler transform cache")
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
@@ -1487,6 +1503,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
