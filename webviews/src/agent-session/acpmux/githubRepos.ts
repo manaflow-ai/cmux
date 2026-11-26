@@ -6,6 +6,9 @@
 //                                              browser) | { opened: false } (already connected); refused with
 //                                              github.signed_out | github.not_configured | github.unavailable |
 //                                              github.connect_failed and a short message
+//   github.connect       { add_account }   -> as github.connect: GitHub's account chooser, one more organization
+//   (github.status also says `progress`: on_github | finishing | connected | requested, and `account`: where the app's
+//   own connect stands, its GitHub page open in the app's panel, so no page of ours needs a click)
 //   github.repos.list    { query }         -> { repos: [{ full_name, private, default_branch }], truncated }
 // A repository picked as the chat's folder is the folder string `github:owner/name`: the composer
 // carries it where a folder path goes (App.tsx `projectDraft`), and the Cloud start sends it as
@@ -37,7 +40,12 @@ export type GitHubStatus = {
   message?: string;
   pendingApproval?: boolean;
   connecting?: boolean;
+  /// Where the app's own connect stands (its GitHub panel, cmux#55885's follow-up): GitHub's page is open in the app,
+  /// the app is finishing GitHub's return, it connected `account`, or an organization owner has the request for `account`.
+  progress?: GitHubProgress;
+  account?: string;
 };
+export type GitHubProgress = "on_github" | "finishing" | "connected" | "requested";
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
 /// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected`, or
@@ -78,6 +86,8 @@ export type GitHubPicker = {
   /// Connect to GitHub, or Choose more repositories…: the host opens GitHub. `want`: the repository the person is
   /// after (typed or chosen; `owner/name`, `github:owner/name` or a github.com URL), picked once it comes back.
   onConnect(want?: string): void;
+  /// Add organization: GitHub's account chooser for one more organization, even with one connected already.
+  onAddAccount?(): void;
   /// The folder menu picked `returned`: forget it.
   onTakeReturned?(): void;
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
@@ -108,9 +118,20 @@ export function githubStatusFromReply(reply: unknown): GitHubStatus {
     message?: unknown;
     pending_approval?: unknown;
     connecting?: unknown;
+    progress?: unknown;
+    account?: unknown;
   };
   const state: GitHubConnection = raw.state === "ready" || raw.state === "not_connected" ? raw.state : "unavailable";
   const reposScope = raw.repos_scope === "all" || raw.repos_scope === "selected" ? raw.repos_scope : null;
+  const progress: GitHubProgress | undefined =
+    raw.progress === "on_github" ||
+    raw.progress === "finishing" ||
+    raw.progress === "connected" ||
+    raw.progress === "requested"
+      ? raw.progress
+      : undefined;
+  const account = typeof raw.account === "string" && raw.account.trim() ? raw.account.trim() : undefined;
+  const where = { ...(progress ? { progress } : {}), ...(account ? { account } : {}) };
   if (state === "not_connected") {
     const message = typeof raw.message === "string" ? raw.message.trim() : undefined;
     return {
@@ -119,9 +140,10 @@ export function githubStatusFromReply(reply: unknown): GitHubStatus {
       ...(message ? { message } : {}),
       ...(raw.connecting === true ? { connecting: true } : {}),
       ...(raw.pending_approval === true ? { pendingApproval: true } : {}),
+      ...where,
     };
   }
-  if (state !== "unavailable") return { state, reposScope };
+  if (state !== "unavailable") return { state, reposScope, ...where };
   const reason: GitHubUnavailableReason =
     raw.reason === "signed_out" || raw.reason === "not_configured" || raw.reason === "not_allowed"
       ? raw.reason
@@ -327,14 +349,14 @@ export function createGitHubPicker(
       if (state.connectError !== undefined) set({ connectError: undefined });
       if (!statusOut) readStatus();
     },
-    connect(want?: string) {
+    connect(want?: string, addAccount = false) {
       if (state.connecting) return;
-      const wanted = githubFullName(want);
+      const wanted = addAccount ? undefined : githubFullName(want);
       checksWanted = false;
       set({ connectError: undefined, connecting: true, wanted, missing: undefined, returned: undefined });
       // The wanted repository goes to the host too: GitHub's page opens for its owner, and a connection that already
-      // covers it answers `opened: false` with nothing to open.
-      call("github.connect", wanted ? { repo: wanted } : {}).then(
+      // covers it answers `opened: false` with nothing to open. Add organization asks for GitHub's account chooser.
+      call("github.connect", addAccount ? { add_account: true } : wanted ? { repo: wanted } : {}).then(
         (reply) => {
           set({ connecting: false });
           // Already connected (the host found it so as it re-read the status): read it here too.
@@ -365,6 +387,10 @@ export function createGitHubPicker(
           });
         },
       );
+    },
+    /// Add organization: GitHub's account chooser, the same wait as Connect.
+    addAccount() {
+      picker.connect(undefined, true);
     },
     /// A Cloud start card's Connect GitHub for `repo` (`owner/name`, #55104): the host asks the API for that
     /// repository, which reuses a connection that covers it (`connected`) or opens GitHub's page (`opened`), whose
@@ -425,7 +451,8 @@ export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
   return {
     state,
     onOpen: picker.open,
-    onConnect: picker.connect,
+    onConnect: (want?: string) => picker.connect(want),
+    onAddAccount: picker.addAccount,
     onSearch: picker.search,
     onRetry: picker.retry,
     onTakeReturned: picker.takeReturned,
