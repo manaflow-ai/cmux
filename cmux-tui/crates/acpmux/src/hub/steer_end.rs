@@ -351,7 +351,9 @@ impl Hub {
             // message, so one message sent in pieces reads and carries as one (`steer_batch.rs`).
             // Keyed by its author: two people of a shared chat never share a line.
             let author = crate::author::of_provenance(opts.provenance.as_ref()).unwrap_or("");
-            params["_meta"]["batch"] = json!({"person": author});
+            if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut) {
+                meta.insert("batch".to_owned(), json!({"person": author}));
+            }
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());

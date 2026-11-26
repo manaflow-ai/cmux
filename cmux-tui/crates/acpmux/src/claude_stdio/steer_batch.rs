@@ -135,7 +135,7 @@ pub(super) fn person_content(parts: &[Part]) -> Vec<Value> {
         let mut blocks = part.content.as_slice();
         if i > 0 {
             if label.is_some() && blocks.first() == label.as_ref() {
-                blocks = &blocks[1..];
+                blocks = blocks.get(1..).unwrap_or_default();
             }
             content.push(json!({"type": "text", "text": "\n\n"}));
         }
