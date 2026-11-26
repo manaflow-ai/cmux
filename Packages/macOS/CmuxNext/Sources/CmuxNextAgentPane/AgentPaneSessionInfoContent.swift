@@ -201,14 +201,14 @@ final class AgentPaneSessionInfoContent: NSView {
         // pixels leave the list untouched. At either scroll edge that end becomes fully opaque.
         let topAlpha: CGFloat = offset <= 1 ? 1 : 0
         let bottomAlpha: CGFloat = offset >= maxOffset - 1 ? 1 : 0
-        let fadeFraction = min(0.5, 18 / max(1, scroll.contentView.bounds.height))
-        edgeFadeMask.colors = [
-            NSColor.black.withAlphaComponent(topAlpha).cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.withAlphaComponent(bottomAlpha).cgColor,
-        ]
-        edgeFadeMask.locations = [NSNumber(value: 0), NSNumber(value: Double(fadeFraction)), NSNumber(value: Double(1 - fadeFraction)), NSNumber(value: 1)]
+        // Eased bands, as `ScrollEdgeFadeView`'s: smoothstep from the edge to full ink, so the fade
+        // ends in no line (Leo 2026-11-22: "simultaneously a fade AND a hard break").
+        let n = ScrollEdgeFadeView.bandSamples
+        let fadeFraction = min(0.5, Metrics.scrollEdgeFade / max(1, scroll.contentView.bounds.height))
+        let ramp = (0...n).map { CGFloat($0) / CGFloat(n) }
+        let alphas = ramp.map { max(topAlpha, ScrollEdgeFadeView.ease($0)) } + ramp.map { max(bottomAlpha, ScrollEdgeFadeView.ease(1 - $0)) }
+        edgeFadeMask.colors = alphas.map { NSColor.black.withAlphaComponent($0).cgColor }
+        edgeFadeMask.locations = (ramp.map { fadeFraction * $0 } + ramp.map { 1 - fadeFraction + fadeFraction * $0 }).map { NSNumber(value: Double($0)) }
         edgeFadeMask.frame = scroll.contentView.bounds
     }
 
@@ -581,7 +581,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
-            control.themedToolTip = line.help
+            control.setAccessibilityHelp(line.help) // beside its title: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
             self.toggle = control
         }
         if !line.menu.isEmpty {
@@ -595,7 +595,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
-        themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
+        // A row has no tooltip (a1315's cut 3); VoiceOver hears what one said.
+        let help = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: ". ")
+        setAccessibilityHelp(help.isEmpty ? nil : help)
         setAccessibilityElement(true)
         setAccessibilityLabel([line.title, line.detail, line.subtitle ?? line.progress, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)

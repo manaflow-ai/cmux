@@ -37,9 +37,25 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sha2::{Digest, Sha256};
+
 use super::*;
 
 const TRACKED_RESOURCES: [&str; 6] = ["workspace", "screen", "pane", "tab", "terminal", "browser"];
+
+/// The fields that decoration sets (`state/values.rs` `decorate_value`).
+const DECORATION_FIELDS: [&str; 2] = ["content_kind", "extra"];
+
+/// The fields of a published value that a live surface changes on its own threads (output
+/// revision, title, size, directory, status): two walks a moment apart may read different ones,
+/// so the debug cross-check compares values without them (`projection_crosscheck.rs`).
+pub(crate) fn volatile_fields(resource: &str) -> &'static [&'static str] {
+    match resource {
+        "terminal" => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
+        "browser" => &["title", "loading", "status", "error", "frames_stalled", "size"],
+        _ => &[],
+    }
+}
 
 #[derive(Debug, Default)]
 pub(super) struct PublicTopologyFold {
@@ -47,12 +63,248 @@ pub(super) struct PublicTopologyFold {
     /// The revision at which the fold started, empty: it folded each record after it and none
     /// before it.
     since: u64,
-    values: HashMap<(String, String), Value>,
+    /// What the fold keeps of each value it holds: digests, not the value ([`StatedDigests`]).
+    values: HashMap<(String, String), StatedDigests>,
     /// Whether `values` holds every live topology resource (a full projection was folded since
     /// the fold started). Read through [`Self::holds_every_resource`] only.
     complete: bool,
     /// The public ids of the workspaces that the fold holds whole (see the module text).
     whole: HashSet<String>,
+}
+
+/// A 128-bit digest (the first half of a SHA-256) of one form of a value.
+type ValueDigest = [u8; 16];
+
+/// What the fold keeps of one value that the journal states: a digest of each form in which a
+/// reader compares it, and no copy of the value. Every reader asks only whether a value is the
+/// one held (whole, without its decorations, without a workspace's key, without the volatile
+/// fields, or field by field for a workspace). A copy of every value of 6 kinds was 9.2 MB of a
+/// session of 1,000 workspaces (dhat, `PublicTopologyFold::apply`).
+///
+/// Two values have the same digest exactly when they are equal as `serde_json::Value` (object
+/// keys in any order), except numbers, which are equal here only when they are written the
+/// same (`0.0` and `-0.0` differ). A digest that differs only keeps an upsert the journal could
+/// have dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StatedDigests {
+    /// The whole value.
+    whole: ValueDigest,
+    /// Without [`volatile_fields`], for a resource that has them.
+    stable: Option<ValueDigest>,
+    /// Without [`DECORATION_FIELDS`]: an object value of a workspace, tab or screen
+    /// ([`PublicTopologyFold::may_state_decorated`]).
+    undecorated: Option<ValueDigest>,
+    /// A workspace's other forms.
+    workspace: Option<Box<WorkspaceDigests>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceDigests {
+    /// Without `extra.key` ([`without_key_digest`]).
+    without_key: ValueDigest,
+    /// One digest ([`field_digest`]) of each field of the value, sorted; none when it is not an
+    /// object.
+    fields: Vec<ValueDigest>,
+    /// The same of each field of its `extra` object; none when it has no `extra` object.
+    extra: Vec<ValueDigest>,
+}
+
+impl StatedDigests {
+    fn new(resource: &str, value: &Value) -> Self {
+        let whole = value_digest(value);
+        let volatile = volatile_fields(resource);
+        Self {
+            whole,
+            stable: (!volatile.is_empty())
+                .then(|| digest_without(value, volatile).unwrap_or(whole)),
+            undecorated: if matches!(resource, "workspace" | "tab" | "screen") {
+                digest_without(value, &DECORATION_FIELDS)
+            } else {
+                None
+            },
+            workspace: (resource == "workspace").then(|| Box::new(WorkspaceDigests::new(value))),
+        }
+    }
+
+    /// Whether the held value is `value`.
+    pub(crate) fn is(&self, value: &Value) -> bool {
+        self.whole == value_digest(value)
+    }
+
+    /// Whether the held value without its [`volatile_fields`] is `stable` (a value that has
+    /// none of them).
+    pub(crate) fn is_stable(&self, stable: &Value) -> bool {
+        self.stable.unwrap_or(self.whole) == value_digest(stable)
+    }
+
+    /// Whether `raw` (the object of a raw, undecorated workspace upsert) has only fields that
+    /// the held workspace value has with the same value, the fields of an `extra` object
+    /// compared one by one with the held `extra`'s.
+    pub(crate) fn holds_fields(&self, raw: &serde_json::Map<String, Value>) -> bool {
+        let none: &[ValueDigest] = &[];
+        let (fields, extra) = self
+            .workspace
+            .as_deref()
+            .map_or((none, none), |workspace| (&workspace.fields[..], &workspace.extra[..]));
+        let holds = |digests: &[ValueDigest], name: &str, value: &Value| {
+            digests.binary_search(&field_digest(name, value)).is_ok()
+        };
+        raw.iter().all(|(field, raw)| match (field.as_str(), raw) {
+            ("extra", Value::Object(raw_extra)) => {
+                raw_extra.iter().all(|(name, raw)| holds(extra, name, raw))
+            }
+            _ => holds(fields, field, raw),
+        })
+    }
+
+    /// Whether the held workspace value's `extra.key` is the string `key`.
+    pub(crate) fn has_workspace_key(&self, key: &str) -> bool {
+        let key = field_digest("key", &Value::String(key.to_string()));
+        self.workspace.as_ref().is_some_and(|workspace| workspace.extra.binary_search(&key).is_ok())
+    }
+
+    /// The bytes that this entry keeps, besides its key.
+    #[cfg(test)]
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            + self.workspace.as_ref().map_or(0, |workspace| {
+                size_of::<WorkspaceDigests>()
+                    + (workspace.fields.capacity() + workspace.extra.capacity())
+                        * size_of::<ValueDigest>()
+            })
+    }
+}
+
+impl WorkspaceDigests {
+    fn new(value: &Value) -> Self {
+        let object = value.as_object();
+        let fields = |object: Option<&serde_json::Map<String, Value>>| {
+            let mut digests = object
+                .into_iter()
+                .flatten()
+                .map(|(name, value)| field_digest(name, value))
+                .collect::<Vec<_>>();
+            digests.sort_unstable();
+            digests
+        };
+        Self {
+            without_key: without_key_digest(value),
+            fields: fields(object),
+            extra: fields(object.and_then(|object| object.get("extra")).and_then(Value::as_object)),
+        }
+    }
+}
+
+/// One field of an object to digest: a value, or an object given by its fields.
+enum Field<'a> {
+    Value(&'a Value),
+    Object(Vec<(&'a str, Field<'a>)>),
+}
+
+fn finish(hasher: Sha256) -> ValueDigest {
+    // The first 16 of the hash's 32 bytes, copied without a slice index (the panic ratchet denies
+    // indexing_slicing in this crate).
+    let mut digest = [0; 16];
+    for (out, byte) in digest.iter_mut().zip(hasher.finalize()) {
+        *out = byte;
+    }
+    digest
+}
+
+fn value_digest(value: &Value) -> ValueDigest {
+    let mut hasher = Sha256::new();
+    hash_value(&mut hasher, value);
+    finish(hasher)
+}
+
+/// The digest of one field `name` with `value`, an entry of a set of fields.
+fn field_digest(name: &str, value: &Value) -> ValueDigest {
+    let mut hasher = Sha256::new();
+    hash_bytes(&mut hasher, b'k', name.as_bytes());
+    hash_value(&mut hasher, value);
+    finish(hasher)
+}
+
+/// The digest of the object `value` without the fields `skip` (the digest of that copy, made
+/// with no copy), or `None` when it is not an object.
+fn digest_without(value: &Value, skip: &[&str]) -> Option<ValueDigest> {
+    let object = value.as_object()?;
+    let fields = object
+        .iter()
+        .filter(|(name, _)| !skip.contains(&name.as_str()))
+        .map(|(name, value)| (name.as_str(), Field::Value(value)))
+        .collect();
+    let mut hasher = Sha256::new();
+    hash_fields(&mut hasher, fields);
+    Some(finish(hasher))
+}
+
+/// The digest of a workspace value without `extra.key` (and without `extra` when that was its
+/// only field), made with no copy: the fold checks every workspace of a projection. Every
+/// journaled workspace upsert carries its key (state/values.rs), a projection's raw upsert never
+/// does, and a workspace's key never changes, so the comparison leaves it out.
+fn without_key_digest(value: &Value) -> ValueDigest {
+    let Some(object) = value.as_object() else { return value_digest(value) };
+    let Some(Value::Object(extra)) = object.get("extra") else { return value_digest(value) };
+    let extra = extra
+        .iter()
+        .filter(|(name, _)| *name != "key")
+        .map(|(name, value)| (name.as_str(), Field::Value(value)))
+        .collect::<Vec<_>>();
+    let mut fields = object
+        .iter()
+        .filter(|(name, _)| *name != "extra")
+        .map(|(name, value)| (name.as_str(), Field::Value(value)))
+        .collect::<Vec<_>>();
+    if !extra.is_empty() {
+        fields.push(("extra", Field::Object(extra)));
+    }
+    let mut hasher = Sha256::new();
+    hash_fields(&mut hasher, fields);
+    finish(hasher)
+}
+
+fn hash_bytes(hasher: &mut Sha256, tag: u8, bytes: &[u8]) {
+    hasher.update([tag]);
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+}
+
+/// `value` into `hasher` as `output_cleanup/stated_fold.rs` hashes one: each object's fields
+/// sorted by name, so the order of a map does not count (serde_json's `preserve_order` is off in
+/// this workspace, and the digest does not depend on it).
+fn hash_value(hasher: &mut Sha256, value: &Value) {
+    match value {
+        Value::Null => hasher.update([b'n']),
+        Value::Bool(true) => hasher.update([b't']),
+        Value::Bool(false) => hasher.update([b'f']),
+        Value::Number(number) => hash_bytes(hasher, b'd', number.to_string().as_bytes()),
+        Value::String(text) => hash_bytes(hasher, b's', text.as_bytes()),
+        Value::Array(items) => {
+            hasher.update([b'a']);
+            hasher.update((items.len() as u64).to_le_bytes());
+            for item in items {
+                hash_value(hasher, item);
+            }
+        }
+        Value::Object(fields) => hash_fields(
+            hasher,
+            fields.iter().map(|(name, value)| (name.as_str(), Field::Value(value))).collect(),
+        ),
+    }
+}
+
+fn hash_fields(hasher: &mut Sha256, mut fields: Vec<(&str, Field<'_>)>) {
+    hasher.update([b'o']);
+    hasher.update((fields.len() as u64).to_le_bytes());
+    fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    for (name, field) in fields {
+        hash_bytes(hasher, b'k', name.as_bytes());
+        match field {
+            Field::Value(value) => hash_value(hasher, value),
+            Field::Object(fields) => hash_fields(hasher, fields),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -86,7 +338,7 @@ impl PublicTopologyFold {
             let key = (resource.to_string(), id.to_string());
             match kind {
                 "upsert" => {
-                    self.values.insert(key, change["value"].clone());
+                    self.values.insert(key, StatedDigests::new(resource, &change["value"]));
                 }
                 "delete" => {
                     self.values.remove(&key);
@@ -127,14 +379,9 @@ impl PublicTopologyFold {
         let Some(held) = self.values.get(&(resource.to_string(), id.to_string())) else {
             return false;
         };
-        let (Some(held), Some(raw)) = (held.as_object(), change["value"].as_object()) else {
-            return false;
-        };
-        let decorated_only = |key: &String| key == "content_kind" || key == "extra";
-        held.iter()
-            .filter(|(key, _)| !decorated_only(key))
-            .all(|(key, value)| raw.get(key) == Some(value))
-            && raw.keys().filter(|key| !decorated_only(key)).all(|key| held.contains_key(key))
+        // `None` for a value, held or raw, that is not an object.
+        held.undecorated
+            .is_some_and(|held| digest_without(&change["value"], &DECORATION_FIELDS) == Some(held))
     }
 
     fn states(&self, change: &Value) -> bool {
@@ -143,79 +390,24 @@ impl PublicTopologyFold {
                 .as_str()
                 .is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
             && match (change["resource"].as_str(), change["id"].as_str()) {
-                (Some(resource), Some(id)) => {
-                    self.values.get(&(resource.to_string(), id.to_string())).is_some_and(|value| {
-                        value == &change["value"]
-                            || (resource == "workspace"
-                                && equal_without_workspace_key(value, &change["value"]))
-                    })
-                }
+                // Only a workspace's digests have the form without its key.
+                (Some(resource), Some(id)) => self
+                    .values
+                    .get(&(resource.to_string(), id.to_string()))
+                    .is_some_and(|held| workspace_value_stated(held, &change["value"])),
                 _ => false,
             }
     }
 }
 
-/// Whether `stated` (a folded value) already says what the decorated upsert `value` says: equal, or equal
-/// without `extra.key` (a raw projection value never carries it).
-pub(crate) fn workspace_value_stated(stated: &Value, value: &Value) -> bool {
-    stated == value || equal_without_workspace_key(stated, value)
-}
-
-/// A workspace value's `extra` object: `Some(None)` when absent, `None` when not an object.
-fn workspace_extra(
-    object: &serde_json::Map<String, Value>,
-) -> Option<Option<&serde_json::Map<String, Value>>> {
-    match object.get("extra") {
-        None => Some(None),
-        Some(Value::Object(extra)) => Some(Some(extra)),
-        Some(_) => None,
-    }
-}
-
-/// `without_workspace_key(a) == without_workspace_key(b)`, compared in place:
-/// the fold checks every workspace of a projection, and a copy of each per
-/// check was a create's cost growing with the session.
-fn equal_without_workspace_key(a: &Value, b: &Value) -> bool {
-    let (Some(a), Some(b)) = (a.as_object(), b.as_object()) else { return a == b };
-    let others_equal = |x: &serde_json::Map<String, Value>, y: &serde_json::Map<String, Value>| {
-        x.iter()
-            .filter(|(field, _)| *field != "extra")
-            .all(|(field, value)| y.get(field) == Some(value))
-    };
-    let (Some(extra_a), Some(extra_b)) = (workspace_extra(a), workspace_extra(b)) else {
-        return without_workspace_key(&Value::Object(a.clone()))
-            == without_workspace_key(&Value::Object(b.clone()));
-    };
-    let without_key_len = |extra: Option<&serde_json::Map<String, Value>>| {
-        extra.map_or(0, |extra| extra.len() - usize::from(extra.contains_key("key")))
-    };
-    let extras_equal = without_key_len(extra_a) == without_key_len(extra_b)
-        && extra_a.is_none_or(|extra_a| {
-            extra_a
-                .iter()
-                .filter(|(name, _)| *name != "key")
-                .all(|(name, value)| extra_b.and_then(|extra_b| extra_b.get(name)) == Some(value))
-        });
-    a.len() - usize::from(a.contains_key("extra")) == b.len() - usize::from(b.contains_key("extra"))
-        && others_equal(a, b)
-        && extras_equal
-}
-
-/// A folded workspace value without `extra.key` (and without `extra` when
-/// that was its only field). Every journaled workspace upsert carries its key
-/// (state/values.rs), a projection's raw upsert never does, and a
-/// workspace's key never changes, so the comparison leaves it out.
-fn without_workspace_key(value: &Value) -> Value {
-    let mut value = value.clone();
-    if let Some(object) = value.as_object_mut()
-        && let Some(extra) = object.get_mut("extra").and_then(Value::as_object_mut)
-    {
-        extra.remove("key");
-        if extra.is_empty() {
-            object.remove("extra");
-        }
-    }
-    value
+/// Whether `stated` (a folded value) already says what the decorated upsert `value` says: equal,
+/// or equal without `extra.key` (a raw projection value never carries it; [`without_key_digest`]).
+pub(crate) fn workspace_value_stated(stated: &StatedDigests, value: &Value) -> bool {
+    stated.is(value)
+        || stated
+            .workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace.without_key == without_key_digest(value))
 }
 
 impl WorkspaceRegistry {
@@ -257,13 +449,13 @@ impl WorkspaceRegistry {
         Ok(Value::Array(kept))
     }
 
-    /// The workspace values the fold holds now (after catching up), keyed by public id: each is what the journal
-    /// states for that workspace, and a workspace that is absent is one the fold cannot speak for. `None` when
-    /// the journal head cannot be read. A copy for a commit that prunes its workspace upserts against it
-    /// inside its transaction (`WorkspaceCommitIntent`, which may run on the journal writer, away from the
-    /// registry). The fold reads that commit back from the journal at its next catch-up, as it does every other
-    /// commit.
-    pub(crate) fn stated_workspaces(&mut self) -> Option<(u64, HashMap<String, Value>)> {
+    /// The workspace values the fold holds now (after catching up), as digests keyed by public id: each is what
+    /// the journal states for that workspace, and a workspace that is absent is one the fold cannot speak for.
+    /// `None` when the journal head cannot be read. A copy for a commit that prunes its workspace upserts
+    /// against it inside its transaction (`WorkspaceCommitIntent`, which may run on the journal writer, away
+    /// from the registry). The fold reads that commit back from the journal at its next catch-up, as it does
+    /// every other commit.
+    pub(crate) fn stated_workspaces(&mut self) -> Option<(u64, HashMap<String, StatedDigests>)> {
         self.catch_up_public_fold();
         let fold = self.public_fold.as_ref()?;
         let workspaces = fold
@@ -271,6 +463,24 @@ impl WorkspaceRegistry {
             .iter()
             .filter(|((resource, _), _)| resource == "workspace")
             .map(|((_, id), value)| (id.clone(), value.clone()))
+            .collect();
+        Some((fold.revision, workspaces))
+    }
+
+    /// [`Self::stated_workspaces`] for the workspaces `ids` only: a commit that changes only these
+    /// (a workspace insert) copies their digests, not one for each workspace of the session.
+    pub(crate) fn stated_workspaces_of(
+        &mut self,
+        ids: &[&str],
+    ) -> Option<(u64, HashMap<String, StatedDigests>)> {
+        self.catch_up_public_fold();
+        let fold = self.public_fold.as_ref()?;
+        let workspaces = ids
+            .iter()
+            .filter_map(|id| {
+                let key = ("workspace".to_string(), (*id).to_string());
+                fold.values.get(&key).map(|value| ((*id).to_string(), value.clone()))
+            })
             .collect();
         Some((fold.revision, workspaces))
     }
@@ -482,24 +692,30 @@ impl WorkspaceRegistry {
         }
     }
 
-    /// What the journal states for one topology resource: `Some(Some(value))`, `Some(None)` when
-    /// it states none, or `None` when the fold cannot tell (it is lost, behind the store, or
-    /// does not hold the resource and is not complete). No catch-up: callers hold only a shared
-    /// registry borrow. The debug cross-check is the one caller.
-    pub(crate) fn stated_topology_value(&self, resource: &str, id: &str) -> Option<Option<Value>> {
+    /// What the journal states for one topology resource: `Some(Some(digests))` of its value,
+    /// `Some(None)` when it states none, or `None` when the fold cannot tell (it is lost, behind
+    /// the store, or does not hold the resource and is not complete). No catch-up: callers hold
+    /// only a shared registry borrow. The debug cross-check is the one caller.
+    pub(crate) fn stated_topology_value(
+        &self,
+        resource: &str,
+        id: &str,
+    ) -> Option<Option<&StatedDigests>> {
         let fold = self.public_fold.as_ref()?;
         let head = current_resource_revision(&self.connection.get()).ok()?;
         if fold.revision != head {
             return None;
         }
         match fold.values.get(&(resource.to_string(), id.to_string())) {
-            Some(value) => Some(Some(value.clone())),
+            Some(held) => Some(Some(held)),
             None => fold.holds_every_resource().then_some(None),
         }
     }
 
-    /// The value the fold holds for one topology resource, after catching
-    /// up; `None` when the fold is lost and cannot start again.
+    /// The value the fold holds for one topology resource, after catching up; `None` when the
+    /// fold is lost and cannot start again. The fold keeps digests, so the value is the last one
+    /// that the records it folded state (from the record at `since`, which a fold started from
+    /// a record's own changes folded), checked against the digest it holds.
     #[cfg(test)]
     pub(crate) fn stated_topology_value_for_test(
         &mut self,
@@ -508,41 +724,32 @@ impl WorkspaceRegistry {
     ) -> Option<Option<Value>> {
         self.catch_up_public_fold();
         let fold = self.public_fold.as_ref()?;
-        Some(fold.values.get(&(resource.to_string(), id.to_string())).cloned())
+        let Some(held) = fold.values.get(&(resource.to_string(), id.to_string())) else {
+            return Some(None);
+        };
+        let (mut revision, mut stated) = (fold.since.saturating_sub(1), None);
+        loop {
+            let page = self.resource_events_after(revision).ok()?;
+            if page.batches.is_empty() {
+                break;
+            }
+            for batch in page.batches {
+                revision = batch.revision;
+                for change in batch.changes.as_array().into_iter().flatten() {
+                    if change["resource"] == resource && change["id"] == id {
+                        stated = (change["kind"] == "upsert").then(|| change["value"].clone());
+                    }
+                }
+            }
+        }
+        assert!(
+            stated.as_ref().is_some_and(|stated| held.is(stated)),
+            "the fold holds another value of {resource} {id} than the records it folded state: {stated:?}"
+        );
+        Some(stated)
     }
 }
 
 #[cfg(test)]
-mod workspace_key_comparison_tests {
-    use super::{equal_without_workspace_key, without_workspace_key};
-    use serde_json::json;
-
-    /// The in-place comparison answers as the copying one did.
-    #[test]
-    fn the_comparison_in_place_matches_the_copies() {
-        let values = [
-            json!({"id": "w", "name": "a"}),
-            json!({"id": "w", "name": "b"}),
-            json!({"id": "w", "name": "a", "extra": {}}),
-            json!({"id": "w", "name": "a", "extra": {"key": "k"}}),
-            json!({"id": "w", "name": "a", "extra": {"key": "k2"}}),
-            json!({"id": "w", "name": "a", "extra": {"key": "k", "title": "t"}}),
-            json!({"id": "w", "name": "a", "extra": {"title": "t"}}),
-            json!({"id": "w", "name": "a", "extra": {"title": "u"}}),
-            json!({"id": "w", "name": "a", "extra": {"title": "t", "color": "c"}}),
-            json!({"id": "w", "name": "a", "focused": true}),
-            json!({"id": "w", "extra": {"key": "k"}}),
-            json!({"id": "w", "name": "a", "extra": "odd"}),
-            json!("not an object"),
-        ];
-        for a in &values {
-            for b in &values {
-                assert_eq!(
-                    equal_without_workspace_key(a, b),
-                    without_workspace_key(a) == without_workspace_key(b),
-                    "{a} vs {b}"
-                );
-            }
-        }
-    }
-}
+#[path = "public_fold_digest_tests.rs"]
+mod digest_tests;

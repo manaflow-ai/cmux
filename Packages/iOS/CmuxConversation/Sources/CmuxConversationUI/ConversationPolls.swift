@@ -414,14 +414,16 @@ extension ConversationViewController {
         guard pollLayout.cardFrame.contains(shifted) else { return false }
         guard pollModel.interactive,
               let optionID = cell.pollCard.optionID(at: cell.pollCard.convert(shifted, from: cell.shiftable)) else { return true }
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
         store.togglePollVote(messageID: model.message.id, optionID: optionID)
         return true
     }
 
     func presentPollComposer() {
         let composer = PollComposerViewController { [weak self] question, choices in
-            self?.store.sendPoll(question: question, choices: choices)
+            guard let self else { return }
+            let send = { [weak self] in _ = self?.store.sendPoll(question: question, choices: choices) }
+            if self.sendGateAllows(retry: send) { send() }
         }
         let nav = UINavigationController(rootViewController: composer)
         if let sheet = nav.sheetPresentationController {

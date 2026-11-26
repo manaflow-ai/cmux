@@ -1,5 +1,6 @@
 // Owns the diff viewer toolbar: the pill, the view options rows, the source and base controls
 // and the branch picker payload they read.
+import { useMemo } from "react";
 import { BranchBasePicker, branchPickerStateKey, type BranchPickerPayload } from "../BranchBasePicker";
 import { type DiffItem } from "../diff-stream";
 import { Icon, type IconName } from "../icons";
@@ -7,6 +8,7 @@ import { type DiffViewerOptions } from "../pierre-options";
 import { FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "../DiffToolbar";
 import {
   diffLineTotals,
+  jumpToFileShown,
   NO_HOST_CAPABILITIES,
   overflowMenuItems,
   plainEnglishMenuItem,
@@ -31,6 +33,14 @@ import {
   validDiffSource,
 } from "./session";
 import { nextDiffViewerLayout, type AppAction, type AppState, type DiffViewerLayout } from "./state";
+import { viewedProgress, viewedProgressDetail } from "../viewed-files";
+import { experimentArm } from "../experiments/experiment";
+import { diffViewedProgress } from "./viewedProgress.experiment";
+
+/** How many of the diff's files are marked viewed (hq #19495): the menu detail and the pill read it. */
+function useViewedProgress(state: AppState): { viewed: number; total: number } {
+  return useMemo(() => viewedProgress(state.items, state.viewedByPath), [state.items, state.viewedByPath]);
+}
 
 export function Toolbar({
   activeSessionSource,
@@ -59,6 +69,7 @@ export function Toolbar({
   visibleItems: DiffItem[];
 }) {
   const payload = config.payload ?? {};
+  const progress = useViewedProgress(state);
   return (
     <header id="toolbar">
       <SourceControls
@@ -72,8 +83,11 @@ export function Toolbar({
         payload={payload}
         rememberedBranch={rememberedBranch}
         transport={transport}
+        viewedProgress={progress}
       >
-        <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
+        {jumpToFileShown({ filesVisible: state.filesVisible, fileCount: visibleItems.length }) ? (
+          <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
+        ) : null}
       </SourceControls>
       {pill}
       <span id="copy-feedback" className="visually-hidden" aria-live="polite">
@@ -114,22 +128,11 @@ export function DiffPill({
   onTogglePlainEnglish?: () => void;
   state: AppState;
 }) {
+  const progress = useViewedProgress(state);
   const onButton = (id: PillButtonId) => {
     switch (id) {
       case "options":
         dispatch({ type: "set-options-open", open: !state.optionsOpen });
-        return;
-      case "find":
-        dispatch(state.findOpen ? { type: "set-find-open", open: false } : { type: "request-find" });
-        return;
-      case "refresh":
-        onReload();
-        return;
-      case "wrap":
-        onSetOption("wordWrap", !state.options.wordWrap);
-        return;
-      case "expand":
-        onSetOption("collapsed", !state.options.collapsed);
         return;
       case "layout":
         onSetLayout(nextDiffViewerLayout(state.options.layout));
@@ -137,13 +140,22 @@ export function DiffPill({
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
         return;
-      case "plainEnglish":
-        onTogglePlainEnglish?.();
-        return;
     }
   };
   const onMenuItem = (id: OverflowMenuItemId) => {
     switch (id) {
+      case "find":
+        dispatch({ type: "request-find" });
+        return;
+      case "word-wrap":
+        onSetOption("wordWrap", !state.options.wordWrap);
+        return;
+      case "collapse-all":
+        onSetOption("collapsed", !state.options.collapsed);
+        return;
+      case "refresh":
+        onReload();
+        return;
       case "load-full-files":
         // Loads the files' sides; the gaps' chevrons then show more lines, a click at a time.
         onSetOption("loadFullFiles", !state.options.loadFullFiles);
@@ -175,7 +187,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state, plainEnglish)}
+      buttons={toolbarPillButtons(state)}
       label={label}
       menuItems={[
         ...overflowMenuItems(state.options, capabilities, state.whitespaceHidden),
@@ -189,12 +201,12 @@ export function DiffPill({
         <ViewOptionsMenuRows
           externalURL={externalURL}
           label={label}
-          onSetLayout={onSetLayout}
           onSetOption={onSetOption}
           onToggleHideViewed={() =>
             dispatch({ type: "set-file-filter", filter: { hideViewed: !state.fileFilter.hideViewed } })
           }
           state={state}
+          viewedDetail={viewedProgressDetail(label("viewedProgressShort"), progress)}
         />
       }
     />
@@ -205,17 +217,18 @@ export function DiffPill({
 function ViewOptionsMenuRows({
   externalURL,
   label,
-  onSetLayout,
   onSetOption,
   onToggleHideViewed,
   state,
+  viewedDetail,
 }: {
   externalURL: string | null;
   label: DiffViewerLabelResolver;
-  onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   onToggleHideViewed: () => void;
   state: AppState;
+  /** "3 of 30 viewed" after the Hide viewed files label; none without files. */
+  viewedDetail: string | null;
 }) {
   return (
     <>
@@ -229,6 +242,7 @@ function ViewOptionsMenuRows({
       ) : null}
       <ViewMenuButton
         checked={state.fileFilter.hideViewed}
+        detail={viewedDetail}
         icon={state.fileFilter.hideViewed ? "eyeClosed" : "eye"}
         id="hide-viewed-toggle"
         label={label("hideViewedFiles")}
@@ -252,31 +266,6 @@ function ViewOptionsMenuRows({
         label={label("showLineNumbers")}
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
-      <div className="menu-item menu-segment">
-        <Icon name="auto" />
-        <span className="menu-label">{label("layout")}</span>
-        <span className="menu-segment-controls">
-          {(
-            [
-              { value: "auto", icon: "auto", label: label("layoutAuto") },
-              { value: "split", icon: "split", label: label("layoutSplit") },
-              { value: "unified", icon: "unified", label: label("layoutUnified") },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="segment-button"
-              title={option.label}
-              aria-label={option.label}
-              aria-pressed={state.options.layout === option.value}
-              onClick={() => onSetLayout(option.value)}
-            >
-              <Icon name={option.icon} />
-            </button>
-          ))}
-        </span>
-      </div>
       <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
@@ -316,6 +305,7 @@ function SourceControls({
   payload,
   rememberedBranch,
   transport,
+  viewedProgress: progress,
 }: {
   activeSessionSource: DiffSource | null;
   /** Controls after the source and base pills (the jump-to-file button). */
@@ -330,6 +320,7 @@ function SourceControls({
   payload: any;
   rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   transport: DiffTransport | null;
+  viewedProgress: { viewed: number; total: number };
 }) {
   const repoRoot =
     diffSourceRepoRoot(activeSessionSource) ??
@@ -361,6 +352,8 @@ function SourceControls({
           label={label}
           model={sourceModel}
           onSelect={selectSource}
+          progressLook={experimentArm(diffViewedProgress)}
+          viewedProgress={loading ? null : progress}
         />
       ) : null}
       {/* The repo select is ALWAYS rendered when the host lists several

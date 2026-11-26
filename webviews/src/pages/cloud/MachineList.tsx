@@ -8,6 +8,8 @@
 import { memo, useCallback, type KeyboardEvent } from "react";
 import { useDeadlineNow } from "../../ui/pageClock";
 import type { Strings } from "../shared/i18n";
+import type { KeyStyle, ShortcutLayout } from "../../ui/keyStyle";
+import { useListKeys } from "../../ui/useListKeys";
 import { costLine, costTicks } from "./cost";
 import {
   canPause,
@@ -25,6 +27,7 @@ import {
 import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
 import { machineCapNote } from "./spendCap";
 import { format, L } from "./strings";
+import { DiskHealthSummary } from "./DiskHealth";
 
 /** The row's quiet delete line ("Deletes in 12 days"). */
 export function deleteText(date: DeleteDate, t: (key: string) => string): string {
@@ -48,6 +51,9 @@ export interface MachineListProps {
   dismissed?: ReadonlySet<string>;
   onKeep?: (id: string, keep: boolean) => void;
   onDismissNotice?: (id: string, at: number) => void;
+  /** `app.keyStyle` and `app.shortcutLayout`; without them the page's own (Standard). */
+  keyStyle?: KeyStyle;
+  shortcutLayout?: ShortcutLayout;
 }
 
 const NO_DISMISSED: ReadonlySet<string> = new Set<string>();
@@ -64,11 +70,37 @@ export function MachineList({
   dismissed = NO_DISMISSED,
   onKeep,
   onDismissNotice,
+  keyStyle,
+  shortcutLayout,
 }: MachineListProps) {
   const open = (id: string) => {
     if (!rows.find((row) => row.id === id)?.classic) onOpen(id);
   };
+  // `app.keyStyle` (the host's values as props): Vim's j/k, gg/G and l, Emacs' Ctrl-N/P/A/E/F, as
+  // the arrows and Return. The list has no search field, Esc or paging, so those keys go on.
+  const styleKeys = useListKeys({
+    style: keyStyle,
+    layout: shortcutLayout,
+    onCommand: (command) => {
+      const real = rows.filter((row) => row.machine);
+      const to =
+        command === "list.next"
+          ? moveSelection(rows, selection, 1)
+          : command === "list.previous"
+            ? moveSelection(rows, selection, -1)
+            : command === "list.first"
+              ? real[0]?.id
+              : command === "list.last"
+                ? real.at(-1)?.id
+                : undefined;
+      if (to) return onSelect(to);
+      if (command === "list.open" && selection) return open(selection);
+      return ["list.next", "list.previous", "list.first", "list.last"].includes(command);
+    },
+  });
   const onKeyDown = (event: KeyboardEvent) => {
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     // Only keys aimed at the list itself or a row; a focused inline button keeps its own Return.
     if (!plain(event) || (event.target as HTMLElement).tagName === "BUTTON") return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -188,6 +220,11 @@ const MachineItem = memo(function MachineItem({
             ticks={ticks}
             strings={strings}
           />
+          {machine?.disk_health && (
+            <span className="cloud-machine-disk">
+              <DiskHealthSummary health={machine.disk_health} strings={strings} compact />
+            </span>
+          )}
           {leaving && <span className="cloud-machine-deletes">{` · ${t(L.archivingNote)}`}</span>}
           {kept && <span className="cloud-machine-deletes cloud-machine-kept">{` · ${t(L.kept)}`}</span>}
         </span>

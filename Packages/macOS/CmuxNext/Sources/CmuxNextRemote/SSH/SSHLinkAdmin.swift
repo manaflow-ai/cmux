@@ -33,39 +33,75 @@ public struct SSHLinkState: Equatable, Sendable {
     }
 }
 
-/// A link's admin socket and the two requests it answers. Each opens one connection, writes one
+/// A link's admin socket and the requests it answers (state, await-ready and the port forwards). Each opens one connection, writes one
 /// line and reads one line, on a dispatch thread (never the caller's executor): `await-ready`
 /// blocks there until the link is connected or its deadline passes.
 public struct SSHLinkAdmin: Sendable {
     /// `PATH.admin` beside the link's local socket (`link_admin_socket`).
     public let path: String
+    /// Tests only: runs on the request's dispatch thread after each exchange (its line and whether
+    /// the link answered), before the caller resumes, so a test can order what the link does
+    /// between a request's failure and its caller seeing it.
+    let exchanged: (@Sendable (String, Bool) -> Void)?
 
     public init(localSocket: String) {
+        self.init(localSocket: localSocket, exchanged: nil)
+    }
+
+    init(localSocket: String, exchanged: (@Sendable (String, Bool) -> Void)?) {
         path = localSocket + ".admin"
+        self.exchanged = exchanged
     }
 
     /// The link's state now; nil when its socket does not answer.
     public func linkState() async -> SSHLinkState? {
-        await Self.request(path, line: #"{"method":"link-state"}"#, timeout: .seconds(5))
+        await request(line: #"{"method":"link-state"}"#, timeout: .seconds(5)).flatMap(SSHLinkState.decode)
     }
 
     /// Waits until the link is connected or `deadline` passes; a parked dial dials at once. The
     /// deadline is the caller's (a person's open or Reconnect); the link caps it at 120 s.
     public func awaitReady(within deadline: Duration) async -> SSHLinkState? {
-        let milliseconds = max(0, deadline.components.seconds * 1000 + deadline.components.attoseconds / 1_000_000_000_000_000)
-        return await Self.request(path, line: #"{"method":"await-ready","within_ms":\#(milliseconds)}"#, timeout: deadline + .seconds(5))
+        // Rounded up: what is left of a person's 3 s is still 3000 ms, never 2999.
+        let (seconds, attoseconds) = deadline.components
+        let milliseconds = max(0, seconds * 1000 + (attoseconds + 999_999_999_999_999) / 1_000_000_000_000_000)
+        return await request(line: #"{"method":"await-ready","within_ms":\#(milliseconds)}"#, timeout: deadline + .seconds(5))
+            .flatMap(SSHLinkState.decode)
     }
 
-    private static func request(_ path: String, line: String, timeout: Duration) async -> SSHLinkState? {
-        await withCheckedContinuation { continuation in
+    /// Forwards the machine's loopback `host:port` to this Mac (`port-forward`). The link opens a route first, so
+    /// the wait is the link's own 30 s bound.
+    public func portForward(port: Int, host: String? = nil, workspaceRoot: String? = nil) async -> SSHLinkPortAnswer<SSHLinkForward> {
+        let line = SSHLinkPortWire.forwardLine(port: port, host: host, workspaceRoot: workspaceRoot)
+        return SSHLinkPortWire.decode(await request(line: line, timeout: .seconds(35)), SSHLinkForward.init)
+    }
+
+    /// The link's forwards (`port-list`).
+    public func portList() async -> SSHLinkPortAnswer<[SSHLinkForward]> {
+        SSHLinkPortWire.decode(await request(line: SSHLinkPortWire.listLine, timeout: .seconds(5))) { result -> [SSHLinkForward]? in
+            (result["forwards"] as? [[String: Any]])?.compactMap(SSHLinkForward.init)
+        }
+    }
+
+    /// Stops forwarding the machine's `host:port` (`port-close`); `true` when a forward was closed.
+    public func portClose(port: Int, host: String? = nil) async -> SSHLinkPortAnswer<Bool> {
+        let line = SSHLinkPortWire.closeLine(port: port, host: host)
+        return SSHLinkPortWire.decode(await request(line: line, timeout: .seconds(10))) { $0["closed"] as? Bool }
+    }
+
+    /// One request's answer line; nil when the link does not answer.
+    private func request(line: String, timeout: Duration) async -> Data? {
+        let path = path, exchanged = exchanged
+        return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: exchange(path, line: line, timeout: timeout))
+                let answer = Self.exchange(path, line: line, timeout: timeout)
+                exchanged?(line, answer != nil)
+                continuation.resume(returning: answer)
             }
         }
     }
 
-    /// One blocking exchange; runs only on a dispatch thread (``request(_:line:timeout:)``).
-    private static func exchange(_ path: String, line: String, timeout: Duration) -> SSHLinkState? {
+    /// One blocking exchange; runs only on a dispatch thread (``request(line:timeout:)``).
+    private static func exchange(_ path: String, line: String, timeout: Duration) -> Data? {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
@@ -106,8 +142,8 @@ public struct SSHLinkAdmin: Sendable {
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }
             answer.append(contentsOf: chunk[..<count])
-            if let newline = answer.firstIndex(of: 0x0A) { return SSHLinkState.decode(answer[..<newline]) }
+            if let newline = answer.firstIndex(of: 0x0A) { return Data(answer[..<newline]) }
         }
-        return answer.isEmpty ? nil : SSHLinkState.decode(answer)
+        return answer.isEmpty ? nil : answer
     }
 }

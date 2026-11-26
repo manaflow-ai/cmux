@@ -152,3 +152,129 @@ fn installs_sync_here_and_offer_install_on_this_mac_for_the_rest() {
     assert_eq!(bad.unwrap_err().code, "bad-request");
     assert!(crate::apps::store_op_mutates("cmux.apps.community.synced.put"));
 }
+
+#[test]
+fn synced_put_takes_more_items_than_the_old_cap() {
+    // `apps.community.synced.put` once refused more than 500 items.
+    let f = fixture();
+    with_registry(&f, vec![]);
+    let items: Vec<Value> = (0..600)
+        .map(|index| json!({ "ref": format!("github.com/acme/app-{index}"), "kind": "extension", "commit": SHA_A }))
+        .collect();
+    let synced = store(
+        &f,
+        "apps.community.synced.put",
+        json!({ "idempotency_key": "many", "items": items }),
+    );
+    assert_eq!(synced["elsewhere"].as_array().unwrap().len(), 600);
+}
+
+/// `cmux/demo` installed from `github.com/acme/demo` at `commit` (the git
+/// install path's sources.json).
+fn git_installed(f: &Fixture, commit: &str) {
+    f.install("cmux/demo");
+    std::fs::create_dir_all(f.state.join("apps/git")).unwrap();
+    std::fs::write(
+        f.state.join("apps/git/sources.json"),
+        serde_json::to_vec(&json!({ "apps": { "cmux/demo": {
+            "repository": "https://github.com/acme/demo", "host": "github.com", "owner": "acme",
+            "repo": "demo", "commit": commit, "tag": "v1.0.0", "version": "1.0.0",
+            "sha256": "x", "dir": "d" } } }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+/// `apps.updates.list` once the background refresh has filled the cache
+/// (the first read answers from the empty cache and starts it).
+fn updates_after_refresh(f: &Fixture) -> Value {
+    let first = store(f, "apps.updates.list", json!({}));
+    assert_eq!(first["updates"], json!([]));
+    assert_eq!(first["stale"], true);
+    wait_refreshed(f);
+    let list = store(f, "apps.updates.list", json!({}));
+    assert_eq!(list["stale"], false);
+    assert!(list["revision"].as_u64().is_some());
+    list
+}
+
+fn installed_demo(f: &Fixture) -> Value {
+    let installed = store(f, "apps.installed.list", json!({}));
+    installed["apps"].as_array().unwrap().iter().find(|a| a["app"] == "cmux/demo").unwrap().clone()
+}
+
+#[test]
+fn updates_list_is_empty_with_no_git_apps() {
+    let f = fixture();
+    with_registry(&f, vec![listing("acme", "demo", SHA_B)]);
+    // A catalog app ships with cmux: always current, never an update.
+    f.install("cmux/demo");
+    let list = updates_after_refresh(&f);
+    assert_eq!(list["updates"], json!([]));
+    assert_eq!(installed_demo(&f)["state"]["update"], Value::Null);
+}
+
+#[test]
+fn an_installed_git_app_at_an_older_commit_lists_one_update() {
+    let f = fixture();
+    with_registry(&f, vec![listing("acme", "demo", SHA_B), listing("Zed", "timer", SHA_A)]);
+    git_installed(&f, SHA_A);
+    let list = updates_after_refresh(&f);
+    let updates = list["updates"].as_array().unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["app"], "cmux/demo");
+    assert_eq!(updates[0]["name"], "demo name");
+    assert_eq!(updates[0]["ref"], "github.com/acme/demo");
+    assert_eq!(updates[0]["current_version"], "1.0.0");
+    assert_eq!(updates[0]["current_commit"], SHA_A);
+    assert_eq!(updates[0]["version"], "1.2.0");
+    assert_eq!(updates[0]["commit"], SHA_B);
+    assert_eq!(updates[0]["install_app"], format!("github.com/acme/demo@{SHA_B}"));
+    // The installed row says it too, as `{version, commit}`.
+    assert_eq!(
+        installed_demo(&f)["state"]["update"],
+        json!({ "version": "1.2.0", "commit": SHA_B })
+    );
+    // Updating is a user action, as installing is.
+    let agent = f.supervisor.store_call(
+        CLIENT,
+        "apps.update",
+        json!({ "app": "cmux/demo", "idempotency_key": "u1" }),
+        Origin::Cli,
+    );
+    assert_eq!(agent.unwrap_err().code, "apps.origin");
+}
+
+#[test]
+fn an_installed_git_app_at_the_current_commit_lists_none() {
+    let f = fixture();
+    with_registry(&f, vec![listing("acme", "demo", SHA_B)]);
+    git_installed(&f, SHA_B);
+    let list = updates_after_refresh(&f);
+    assert_eq!(list["updates"], json!([]));
+    assert_eq!(installed_demo(&f)["state"]["update"], Value::Null);
+    let current = f.supervisor.store_call(
+        CLIENT,
+        "apps.update",
+        json!({ "app": "cmux/demo", "idempotency_key": "u1" }),
+        Origin::User,
+    );
+    assert_eq!(current.unwrap_err().code, "apps.update.none");
+}
+
+#[test]
+fn updating_an_unknown_app_is_refused() {
+    let f = fixture();
+    with_registry(&f, vec![listing("acme", "demo", SHA_B)]);
+    let unknown = f.supervisor.store_call(
+        CLIENT,
+        "apps.update",
+        json!({ "app": "acme/none", "idempotency_key": "u1" }),
+        Origin::User,
+    );
+    assert_eq!(unknown.unwrap_err().code, "apps.update.none");
+    let bad = f.supervisor.store_call(CLIENT, "apps.update", json!({}), Origin::User);
+    assert_eq!(bad.unwrap_err().code, "bad-request");
+    assert!(crate::apps::store_op_mutates("cmux.apps.update"));
+    assert!(!crate::apps::store_op_mutates("cmux.apps.updates.list"));
+}

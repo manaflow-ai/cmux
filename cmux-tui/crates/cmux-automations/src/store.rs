@@ -200,14 +200,14 @@ impl Drop for Flock {
     }
 }
 
-fn is_automation_id(name: &str) -> bool {
+pub(crate) fn is_automation_id(name: &str) -> bool {
     name.len() == 25
         && name
             .strip_prefix("auto_")
             .is_some_and(|id| id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let tmp = dir.join(format!(
         ".{}.tmp-{}",
@@ -225,13 +225,15 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl Store {
-    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`.
+    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`
+    /// (`~/.config/cmux-next/automations` on macOS, where `cmux` is cmux Classic's).
     pub fn default_root() -> Option<PathBuf> {
         if let Some(dir) = std::env::var_os("CMUX_AUTOMATIONS_DIR").filter(|d| !d.is_empty()) {
             return Some(PathBuf::from(dir));
         }
         let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
-        Some(PathBuf::from(home).join(".config/cmux/automations"))
+        let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+        Some(PathBuf::from(home).join(".config").join(dir).join("automations"))
     }
 
     /// Open (and make) the store at `root`.
@@ -259,6 +261,11 @@ impl Store {
 
     fn dir(&self, id: &str) -> PathBuf {
         self.root.join(id)
+    }
+
+    /// An automation's folder (its definition, runs, logs and secrets).
+    pub(crate) fn dir_of(&self, id: &str) -> PathBuf {
+        self.dir(id)
     }
 
     /// The stderr of an automation's watch command.

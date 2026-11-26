@@ -1,10 +1,48 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
-import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
+import { sampleMachines, sampleSnapshots, sampleSurge } from "./mockData";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, CloudUsage, PortForward } from "./ops";
 
 const machines = sampleMachines();
+const surgeDone = sampleSurge(25);
+const surgeStarting = sampleSurge(25, 7);
 const snapshots = sampleSnapshots();
+const diskReport = (
+  free_mb: number,
+  total_mb: number,
+  floor_mb: number,
+  observed_at = Date.now(),
+): CloudDiskHealth => ({
+  // The Cloud API computes the state; the fixture mirrors its floor rule.
+  state: free_mb <= floor_mb ? "warning" : "healthy",
+  free_mb,
+  used_mb: total_mb - free_mb,
+  total_mb,
+  floor_mb,
+  top_users: [
+    { path: "/var/lib/docker", used_mb: Math.round((total_mb - free_mb) * 0.52) },
+    { path: "/home/cmux/.cache", used_mb: Math.round((total_mb - free_mb) * 0.18) },
+  ],
+  observed_at,
+});
+const diskHealthyMachines = machines.map((machine) => ({
+  ...machine,
+  disk_health: diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskWarningMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(3_072, machine.size.disk_mb ?? 65_536, 4_096)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskStaleMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(8_192, machine.size.disk_mb ?? 65_536, 4_096, Date.now() - 16 * 60_000)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
 const samplePorts: PortForward[] = [
   {
     machine: machines[0]!.id,
@@ -136,6 +174,36 @@ const stagingPaused: CloudMachine = {
   revision: "1",
 };
 
+// This month's usage (`cloud.usage.current`), priced as the billing owner prices it: $0.045 a vCPU-hour, $0.0145 a
+// GiB-hour of memory, $0.10 a GiB-month of disk held while paused. Fixed times, so the stage never moves.
+const USAGE_AS_OF = Date.UTC(2026, 10, 24, 8, 20);
+const emptyUsage: CloudUsage = {
+  period: "2026-11",
+  as_of: USAGE_AS_OF,
+  metered_since: null,
+  vcpu_seconds: 0,
+  memory_gib_seconds: 0,
+  stored_gib_seconds: 0,
+  usd: { vcpu: 0, memory: 0, stored: 0, total: 0 },
+  gaps: [],
+  payment_method: { attached: false },
+  stripe_mode: "test",
+};
+const monthUsage: CloudUsage = {
+  ...emptyUsage,
+  metered_since: Date.UTC(2026, 10, 1),
+  vcpu_seconds: 412.6 * 3600,
+  memory_gib_seconds: 1650.4 * 3600,
+  stored_gib_seconds: 12.5 * 730 * 3600,
+  usd: { vcpu: 18.57, memory: 23.93, stored: 1.25, total: 43.75 },
+  payment_method: { attached: true, brand: "visa", last4: "4242" },
+};
+const gapUsage: CloudUsage = {
+  ...monthUsage,
+  gaps: ["untracked_run"],
+  payment_method: { attached: false },
+};
+
 export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
@@ -147,6 +215,7 @@ export default cloudPageEntry({
     "pages/cloud/CloudPage.tsx",
     "pages/cloud/MachineList.tsx",
     "pages/cloud/MachineDetail.tsx",
+    "pages/cloud/DiskHealth.tsx",
     "pages/cloud/CreateSheet.tsx",
     "pages/cloud/AccountPanel.tsx",
     "pages/cloud/DetailSections.tsx",
@@ -165,6 +234,36 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "surge-drained": {
+      note: "After a surge of 25 machines: all ready, the last one 33 s after the start, queue drained.",
+      machines: [...surgeDone.machines, ...machines],
+      surge: surgeDone.surge,
+      snapshots,
+    },
+    "surge-starting": {
+      note: "A surge of 25 machines with 7 still provisioning: the card counts what is still starting.",
+      machines: [...surgeStarting.machines, ...machines],
+      surge: surgeStarting.surge,
+      snapshots,
+    },
+    "disk-healthy": {
+      note: "Fresh disk reports show free and used capacity with the configured floor and top users.",
+      action: "select-machine",
+      machines: diskHealthyMachines,
+      snapshots,
+    },
+    "disk-warning": {
+      note: "A machine is below its disk floor and warns before the volume fills.",
+      action: "select-machine",
+      machines: diskWarningMachines,
+      snapshots,
+    },
+    "disk-stale": {
+      note: "A stale disk report is called out so the operator does not trust an old capacity value.",
+      action: "select-machine",
+      machines: diskStaleMachines,
+      snapshots,
     },
     creating: {
       note: "The create machine sheet with plan sizes and snapshot choices.",
@@ -366,6 +465,70 @@ export default cloudPageEntry({
       note: "Cloud settings: the plan's cleanup in words, the email heads-up toggle and the team's numbers.",
       action: "cleanup-team",
       retention: { ...freeRetention, team: { heads_up_days: 7 } },
+      machines,
+      snapshots,
+    },
+    "billing-past-due": {
+      note: "The latest renewal failed (cmux.com paymentPastDue): one line under the plan with Manage Billing.",
+      planId: "pro",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-past-due-max": {
+      note: "A failed renewal on the Max plan: the same line and Manage Billing; the plan name is the plan's own.",
+      planId: "max",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-paid": {
+      note: "A paid plan whose renewal went through: no payment line.",
+      planId: "pro",
+      paymentPastDue: false,
+      machines,
+      snapshots,
+    },
+    "billing-read-failed": {
+      note: "The billing read fails (cmux.com unreachable): no payment line, the plan shows as usual.",
+      planId: "pro",
+      paymentPastDue: "fail",
+      machines,
+      snapshots,
+    },
+    "usage-none": {
+      note: "This month with no usage yet and no card: $0.00 and Add payment method; Test mode while payments are in test mode.",
+      usage: emptyUsage,
+      machines,
+      snapshots,
+    },
+    "usage-card": {
+      note: "This month's usage with its cost per meter (the server's dollars) and the card on file with Change.",
+      usage: monthUsage,
+      machines,
+      snapshots,
+    },
+    "usage-gaps": {
+      note: "Part of the month is still being counted: the line says so; no card yet.",
+      usage: gapUsage,
+      machines,
+      snapshots,
+    },
+    "usage-live-mode": {
+      note: "Live payments: no Test mode label.",
+      usage: { ...monthUsage, stripe_mode: "live" },
+      machines,
+      snapshots,
+    },
+    "usage-loading": {
+      note: "The usage read has not answered yet.",
+      usage: "hold",
+      machines,
+      snapshots,
+    },
+    "usage-failed": {
+      note: "The usage read failed: one line with Retry; the rest of the panel shows as usual.",
+      usage: "fail",
       machines,
       snapshots,
     },

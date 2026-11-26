@@ -30,6 +30,9 @@ final class AgentChatLoadingUITests: XCTestCase {
         for frame in 0..<20 {
             XCTAssertFalse(newChat.exists, "no new-chat prompt at frame \(frame)\n\(app.debugDescription)")
             XCTAssertFalse(app.buttons["Ask Claude"].exists, "no new-chat composer at frame \(frame)")
+            // iOS release bar read-back, 2026-11-22: a 4 s wait shows the spinner, not a sentence
+            // (the words wait out QuietStatusGate's 10 s).
+            XCTAssertFalse(app.staticTexts["Loading chat…"].exists, "no 'Loading chat…' words at frame \(frame)")
             attach(app, String(format: "frame-%02d", frame))
             if !loading.exists, reply.exists {
                 sawRows = true

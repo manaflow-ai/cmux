@@ -45,7 +45,7 @@ extension SidebarListViewComponents {
         // `current` is where the lines are now: the slot's reach is only in the layout the lines move to.
         let enrolling = current ? nil : enrollment(layout)
         return styled(SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails,
-                                             enrolling: enrolling) { row in
+                                             style: model.groupHeaderDetails.background, enrolling: enrolling) { row in
             current ? rowViews[row.key]?.drawnFrame ?? frame(for: row) : frame(for: row)
         }.filter { $0.group != edge })
     }
@@ -146,9 +146,15 @@ extension SidebarGroupLine {
     /// `nested` every drawn ancestor's, runs down to at least the slot's bottom, an empty group's from its header.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], nested: Bool = true,
                       layout: SidebarGroupLineLayout = SidebarStyle.groupLineLayout, joinsBar: Bool = SidebarGroupLine.joinsBar,
-                      blocks: Bool = SidebarNoColorGroupLook.tunable.value != .plain,
+                      blocks plainBlocks: Bool = SidebarNoColorGroupLook.tunable.value != .plain,
+                      style: SidebarGroupBackgroundStyle = .auto,
                       enrolling: (group: GroupID, bottom: CGFloat)? = nil,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
+        // Cards (`SidebarGroupBackgroundStyle.card`) draw every group as a block, tinted by its color; chips and trees
+        // draw a group with no color as a rail too, never the neutral block.
+        let cards = style.drawsCard
+        let blocks = cards || (plainBlocks && style != .chip && style != .tree)
+        let guide = style == .tree
         var headers: [(GroupID, SidebarRow)] = []
         // Groups drawn as their one member's row (`SidebarRow.standsForGroup`): a line along that row, no header.
         var soles: [(GroupID, SidebarRow)] = []
@@ -199,18 +205,22 @@ extension SidebarGroupLine {
         let width = SidebarStyle.groupBarWidth
         // A sole member's line runs the row's height at the bar's x a header would have: no bar above it, so no cut.
         func tint(_ id: GroupID, _ row: SidebarRow) -> GroupTint { colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none }
-        func block(_ id: GroupID, _ head: CGRect, _ tail: CGRect, level: Int, rail: CGRect?) -> SidebarGroupLine {
-            SidebarGroupLine(group: id, frame: CGRect(x: head.minX, y: head.minY, width: max(head.maxX, tail.maxX) - head.minX,
-                                                      height: max(head.maxY, tail.maxY) - head.minY),
-                             color: .none, level: level, isBlock: true, rail: rail)
+        func block(_ id: GroupID, _ head: CGRect, _ tail: CGRect, level: Int, rail: CGRect?, color: GroupTint = .none) -> SidebarGroupLine {
+            // A card wraps its rows with a margin in the list's inset, where a rail sits.
+            let outset = cards ? SidebarStyle.groupRailReach : 0
+            return SidebarGroupLine(group: id, frame: CGRect(x: head.minX - outset, y: head.minY,
+                                                             width: max(head.maxX, tail.maxX) - head.minX + 2 * outset,
+                                                             height: max(head.maxY, tail.maxY) - head.minY),
+                                    color: color, level: level, isBlock: true, rail: cards ? nil : rail)
         }
         let soleLines = soles.map { id, row in
             let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
             let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX))
                 : layout == .edge ? bar + SidebarStyle.groupRailInset : bar
             let rail = CGRect(x: x, y: head.minY, width: width, height: tail.maxY - head.minY)
-            if blocks, tint(id, last[id] ?? row).isNone {
-                return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0, rail: rail)
+            if cards || (blocks && tint(id, last[id] ?? row).isNone) {
+                return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0, rail: rail,
+                             color: cards ? tint(id, last[id] ?? row) : .none)
             }
             return SidebarGroupLine(group: id, frame: rail,
                                     color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
@@ -232,6 +242,15 @@ extension SidebarGroupLine {
             // The header's bar fills its row: the line starts a cut under it, or joined, right where it ends. The cut is
             // at most the gap down to the row under the header, so the line never starts part way down that row
             // (Lawrence 2026-10-30, "alignment here is bad": a 6 pt cut under a 2.5 pt gap).
+            if guide {
+                // A tree's guide: a hairline under the header's folder glyph, down to the middle of the last member.
+                let glyphX = head.minX + SidebarStyle.iconColumnCenterX(leading: SidebarStyle.columns(rowWidth: head.width).lead)
+                let glyphBottom = head.midY + SidebarStyle.iconColumnBox / 2
+                let guideBottom = reach(id) != nil ? tail.maxY : tail.midY
+                let guideWidth = Metrics.lineWidth(1)
+                guard guideBottom > glyphBottom else { return nil }
+                return CGRect(x: glyphX - guideWidth / 2, y: glyphBottom, width: guideWidth, height: guideBottom - glyphBottom)
+            }
             let cutTop = below[id].map { max(head.maxY, frame($0).minY) } ?? head.maxY + SidebarStyle.groupLineCut
             let top = layout == .joined && joinsBar ? head.maxY : min(head.maxY + SidebarStyle.groupLineCut, cutTop)
             let bottom = tail.maxY
@@ -248,11 +267,12 @@ extension SidebarGroupLine {
             return CGRect(x: x, y: top, width: width, height: bottom - top)
         }
         return soleLines + headers.compactMap { id, header in
-            if blocks, tint(id, last[id] ?? header).isNone {
+            if cards || (blocks && tint(id, last[id] ?? header).isNone) {
                 let end = header.isCollapsed ? header : [lastAny[id], last[id]].compactMap { $0 }.max { $0.y < $1.y } ?? header
                 var tail = frame(end)
                 if !header.isCollapsed, let bottom = reach(id), bottom > tail.maxY { tail.size.height = bottom - tail.minY }
-                return block(id, frame(header), tail, level: nested ? header.depth : 0, rail: railFrame(id, header))
+                return block(id, frame(header), tail, level: nested ? header.depth : 0, rail: railFrame(id, header),
+                             color: cards ? tint(id, last[id] ?? header) : .none)
             }
             guard let rail = railFrame(id, header) else { return nil }
             let end = last[id].flatMap { $0.y > header.y ? $0 : nil }

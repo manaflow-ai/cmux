@@ -1,16 +1,19 @@
 package import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 package import UserNotifications
 
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
-/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts
-/// (which asks for authorization) or `notifications.status` / `notifications.request` reads or asks for it
+/// through `onOpen`; a reply banner's typed text goes to `onReply`. `prepare()` configures the center at launch
+/// (delegate and categories, no authorization request) so a click that launched or relaunched the app reaches
+/// `didReceive`; authorization is asked only when the first banner posts or `notifications.status` / `notifications.request` reads or asks for it
 /// (`permission()`, for `cmux setup notifications`), so hosts without a bundle identifier (tests) never
 /// create it. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
@@ -40,6 +43,9 @@ package final class DesktopNotifier: NSObject {
         package var category: String?
         /// An incognito window's banner: the lists name nothing of the window, its surface included.
         package var incognito = false
+        /// When the app asked for the banner (wall clock), stamped where it is posted so a reader times the
+        /// app's hop from the daemon notification's `created_at_ms` without polling (`posted_at_ms`).
+        package var postedAt = Date()
     }
 
     /// The id prefix of a daemon notification's banner, whose click shows its tab: the only banners a
@@ -49,8 +55,20 @@ package final class DesktopNotifier: NSObject {
     /// never a passkey ceremony, a page's click handler or another banner's own route.
     package var onOpenTab: ((_ id: String, _ surface: UInt64?) -> Void)?
 
-    /// Banner clicked: the notification id and its tab's surface handle.
-    package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
+    /// Banner clicked: the notification id and its tab's surface handle. A click that arrives before
+    /// this is set (a click that cold-launched the app) is parked and runs once it is set, in order.
+    package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)? {
+        didSet {
+            // The app sets this in `NotificationCenterService.start`, inside launch: configure the center then.
+            prepare()
+            guard let onOpen, !parkedOpens.isEmpty else { return }
+            let parked = parkedOpens
+            parkedOpens.removeAll()
+            for click in parked { onOpen(click.id, click.surface) }
+        }
+    }
+    /// Clicks that arrived while `onOpen` was nil (bounded like `posted`).
+    package private(set) var parkedOpens: [(id: String, surface: UInt64?)] = []
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
     package var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
@@ -202,7 +220,59 @@ package final class DesktopNotifier: NSObject {
 
     /// The banner click path, also used by `debug.notifications` (click).
     package func open(id: String, surface: UInt64?) {
-        onOpen?(id, surface)
+        guard let onOpen else {
+            parkedOpens.append((id, surface))
+            if parkedOpens.count > Self.postedLimit { parkedOpens.removeFirst(parkedOpens.count - Self.postedLimit) }
+            return
+        }
+        onOpen(id, surface)
+    }
+
+    /// Configures the system center at launch (delegate and categories; no authorization request), so a
+    /// banner an earlier launch posted still routes its click here. The automation-launch and
+    /// non-main-bundle guards hold: tests and e2e launches never create the center.
+    package func prepare() {
+        _ = configuredCenter()
+    }
+
+    /// Runs `found` with what `find` returns, now or once it returns non-nil (re-read on each change of what it
+    /// observes: a banner click's tab that the daemon has not loaded yet), up to `limit`; else runs `missed`.
+    /// A later call replaces a waiting one.
+    package func whenFound<T>(limit: Duration, find: @escaping @MainActor @Sendable () -> T?,
+                              missed: @escaping @MainActor @Sendable () -> Void, found: @escaping @MainActor @Sendable (T) -> Void) {
+        pendingFind?.cancel(); pendingFind = nil; findDeadline.cancel()
+        if let target = find() { return found(target) }
+        let wait = Task { [weak self] in
+            for await present in ObservationStream({ find() != nil }) where present {
+                guard !Task.isCancelled, let target = find() else { continue }
+                self?.pendingFind = nil
+                self?.findDeadline.cancel()
+                return found(target)
+            }
+        }
+        pendingFind = wait
+        findDeadline.schedule(after: limit) { @MainActor [weak self] in
+            guard let self, self.pendingFind == wait else { return }
+            wait.cancel(); self.pendingFind = nil
+            missed()
+        }
+    }
+    private var pendingFind: Task<Void, Never>?
+    private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
+
+    /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
+    /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
+    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?) {
+        guard let center = configuredCenter() else { return (false, nil) }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in
+                guard let match = delivered.last(where: { $0.request.identifier == id }) else {
+                    continuation.resume(returning: (false, nil)); return
+                }
+                let surface = (match.request.content.userInfo["surface"] as? NSNumber)?.uint64Value
+                continuation.resume(returning: (true, surface))
+            }
+        }
     }
 
     /// A script's open of a tab banner (`notifications.open`): shows its tab, nothing else.
@@ -298,11 +368,11 @@ package final class DesktopNotifier: NSObject {
     private static func replyBannerCategory() -> UNNotificationCategory {
         let action = UNTextInputNotificationAction(
             identifier: replyAction,
-            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .module),
+            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .localizedModule),
             // A reply ends in Return in a terminal: the Mac must be unlocked to send one.
             options: [.authenticationRequired],
-            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .module),
-            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .module)
+            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .localizedModule),
+            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .localizedModule)
         )
         return UNNotificationCategory(identifier: replyCategory, actions: [action, markReadBannerAction()], intentIdentifiers: [])
     }
@@ -310,21 +380,21 @@ package final class DesktopNotifier: NSObject {
     /// Other banners' category: Open (brings cmux to the tab) and Mark as Read (reads it in place).
     private static func defaultBannerCategory() -> UNNotificationCategory {
         let open = UNNotificationAction(identifier: openAction,
-                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .module),
+                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .localizedModule),
                                         options: [.foreground])
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
     /// Needs you banners' category: Show, which brings cmux to the marked tab.
     package static func attentionBannerCategory() -> UNNotificationCategory {
-        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .module), options: [.foreground])
+        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .localizedModule), options: [.foreground])
         return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
     }
 
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
-                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .module))
+                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .localizedModule))
     }
 }
 

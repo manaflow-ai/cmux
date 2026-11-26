@@ -224,6 +224,11 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if args.has("user") && args.has("system") {
         return Err(Error::usage("--user and --system do not go together"));
     }
+    if args.has("label") {
+        return Err(Error::usage(
+            "--label names a machine set up over ssh://; it does not go with an install here",
+        ));
+    }
     let layout = mutating_layout(ctx, args.has("system"))?;
     let mode = layout.mode;
     // Flags that ask for the signed store keep its refusals; without them a
@@ -250,6 +255,8 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
     access::ensure(&access_policy(&layout), ctx.runner)?;
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = services(ctx, &layout)?.lock()?;
     // Every refusal (a foreign unit, an unsafe directory) before the store changes.
     services(ctx, &layout)?.preflight()?;
     let mut cfg = config(&layout)?;
@@ -378,8 +385,35 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ));
     }
     let layout = mutating_layout(ctx, false)?;
-    let svc = services(ctx, &layout)?;
+    let mut svc = services(ctx, &layout)?;
+    // One service command at a time, for the whole uninstall, store and
+    // state removal included (Services::lock).
+    let _service_lock = svc.lock()?;
     let session = super::session_service::installed(&svc);
+    // A session service is checked, renewed and stopped as the session unit
+    // cmux renders, not the store's unit (the same file name).
+    svc.session = super::session_service::installed_host(ctx, &svc);
+    // Uninstall ends the session's terminals: in one of them, it would end
+    // its own shell, and itself (SIGHUP), halfway through.
+    if let (Some(host), Some(socket)) = (&svc.session, &ctx.terminal_socket) {
+        use crate::service::TerminalSession;
+        match crate::service::terminal_session(socket, &host.session) {
+            TerminalSession::Other => {}
+            TerminalSession::This => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a terminal of session {:?}, and uninstall ends that session's terminals (this one too, before it could finish); nothing was changed. Run it from a terminal outside that session (another app's terminal, or a plain ssh login)",
+                    host.session
+                )));
+            }
+            TerminalSession::Unknown => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a cmux terminal whose daemon listens on {} (not a default socket path), so cmux cannot tell whether it is a terminal of session {:?}, whose terminals uninstall ends (this one too, before it could finish); nothing was changed. Run it from a terminal outside cmux (another app's terminal, or a plain ssh login)",
+                    socket.display(),
+                    host.session
+                )));
+            }
+        }
+    }
     // A unit cmux did not write (or one systemd loads from elsewhere): stop,
     // disable, remove and purge nothing, not even the store or state a
     // service of that name might use.
@@ -598,7 +632,7 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     Ok(Output::new(json!({"pinned": pinned}), human))
 }
 
-/// `cmux server logs [--lines N] [--follow]`: the service's log. On Linux
+/// `cmux server logs [--lines N | -n N] [--follow | -f]`: the service's log. On Linux
 /// the unit's journal (`journalctl`), on macOS the LaunchAgent's log file.
 pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;
@@ -640,7 +674,7 @@ pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
                     Err(e) => return Err(Error::io(log.display(), e)),
                 };
                 let all: Vec<&str> = text.lines().collect();
-                let tail = &all[all.len().saturating_sub(lines as usize)..];
+                let tail = all.get(all.len().saturating_sub(lines as usize)..).unwrap_or_default();
                 let mut human = tail.join("\n");
                 if !human.is_empty() {
                     human.push('\n');

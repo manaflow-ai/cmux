@@ -30,4 +30,16 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var keptCrossThreadRequests = 0
 
     public init() {}
+
+    /// The counters `debug.cef` reports as `pump`, by key (milliseconds for the times), as
+    /// ``CEFTrackerStats/reportFields`` does for the tracker: the mapping belongs with the counters,
+    /// not in the app's `debug.cef` handler. Pump wakeups per second = the change of `work_runs`
+    /// over an interval.
+    public var reportFields: [String: Double] {
+        ["work_runs": Double(workRuns), "immediate_requests": Double(immediateRequests),
+         "delayed_requests": Double(delayedRequests), "reentrant_fires": Double(reentrantFires),
+         "long_work_runs": Double(longWorkRuns), "follow_up_runs": Double(followUpRuns),
+         "kept_cross_thread_requests": Double(keptCrossThreadRequests),
+         "work_ms": workSeconds * 1_000, "fallback_ms": fallbackInterval * 1_000]
+    }
 }

@@ -1,6 +1,7 @@
 //! Subscriptions and event emission: mux event, config reload, attached surface and session subscriptions, and the emit_* helpers that publish terminal and tree events.
 
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 
 impl Mux {
     /// The revision of what `list-workspaces` shows (`list-workspaces-known-v1`,
@@ -96,6 +97,9 @@ impl Mux {
             self.tree_revision.bump();
         }
         self.activity.observe(&event);
+        if journal_plugin_demand_tapped() {
+            self.note_journal_plugin_demand_event(&event);
+        }
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }
@@ -103,6 +107,7 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
+        self.activity.note_output(runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
             self.emit(MuxEvent::SurfaceOutput(placement));
         }
@@ -229,21 +234,76 @@ impl Mux {
         }
     }
 
-    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
-        fn index_node(
-            node: &Node,
-            workspace_index: usize,
-            screen_index: usize,
-            screen: ScreenId,
-            index: &mut HashMap<SplitId, (usize, usize, ScreenId)>,
-        ) {
-            if let Node::Split { id, a, b, .. } = node {
-                index.insert(*id, (workspace_index, screen_index, screen));
-                index_node(a, workspace_index, screen_index, screen, index);
-                index_node(b, workspace_index, screen_index, screen, index);
+    /// [`Self::rebuild_split_screen_index`] for one screen whose layout just changed by gaining
+    /// panes and splits (a split, a new pane): the indexes of that screen only, so the work
+    /// follows the screen and not the session. `old_splits` is
+    /// `collect_screen_split_ids` of the screen as it was before the change. Splits that left
+    /// the screen drop out of both indexes; panes it holds are (re)recorded. A change that
+    /// removes panes from the screen needs the full rebuild.
+    pub(crate) fn reindex_screen_after_growth(
+        state: &mut State,
+        workspace_index: usize,
+        screen_index: usize,
+        old_splits: &HashSet<SplitId>,
+    ) {
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(1);
+        let Some(screen) =
+            state.workspaces.get(workspace_index).and_then(|ws| ws.screens.get(screen_index))
+        else {
+            return Self::rebuild_split_screen_index(state);
+        };
+        debug_assert!(
+            screen.layout_column_projection_is_consistent(),
+            "screen {} has a stale layout column projection",
+            screen.id
+        );
+        let screen_id = screen.id;
+        let mut new_splits = HashSet::new();
+        collect_screen_split_ids(screen, &mut new_splits);
+        let mut located = HashMap::new();
+        index_node(&screen.root, workspace_index, screen_index, screen_id, &mut located);
+        let panes = screen.root.pane_ids_vec();
+        for split in old_splits {
+            state.split_screens.remove(split);
+            if !new_splits.contains(split)
+                && let Some(public_id) = state.resource_indexes.split_ids.remove(split)
+            {
+                state.resource_indexes.splits.remove(&public_id);
             }
         }
+        state.split_screens.extend(located);
+        for pane_id in panes {
+            let Some(tabs) = state.panes.get(&pane_id).map(|pane| pane.tabs.clone()) else {
+                continue;
+            };
+            state.resource_indexes.pane_screen.insert(pane_id, screen_id);
+            for slot in tabs {
+                state.register_placed_tab_identity(slot);
+                if state.resource_indexes.tab_ids.contains_key(&slot) {
+                    state.resource_indexes.tab_pane.insert(slot, pane_id);
+                }
+            }
+        }
+    }
 
+    /// After the workspaces `low..=high` changed positions (a move), record their new positions
+    /// in `split_screens`: the splits of those workspaces only, not a walk of the session.
+    pub(crate) fn reindex_workspace_positions(state: &mut State, low: usize, high: usize) {
+        let high = high.min(state.workspaces.len().saturating_sub(1));
+        for workspace_index in low..=high {
+            #[cfg(test)]
+            crate::walk_counters::index_rebuild_visited(1);
+            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
+            let mut located = HashMap::new();
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                index_node(&screen.root, workspace_index, screen_index, screen.id, &mut located);
+            }
+            state.split_screens.extend(located);
+        }
+    }
+
+    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
         #[cfg(test)]
         crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
@@ -271,5 +331,19 @@ impl Mux {
             generation: registry.generation().to_string(),
             terminal_revision,
         });
+    }
+}
+
+fn index_node(
+    node: &Node,
+    workspace_index: usize,
+    screen_index: usize,
+    screen: ScreenId,
+    index: &mut HashMap<SplitId, (usize, usize, ScreenId)>,
+) {
+    if let Node::Split { id, a, b, .. } = node {
+        index.insert(*id, (workspace_index, screen_index, screen));
+        index_node(a, workspace_index, screen_index, screen, index);
+        index_node(b, workspace_index, screen_index, screen, index);
     }
 }

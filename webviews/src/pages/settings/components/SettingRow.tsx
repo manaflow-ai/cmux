@@ -1,12 +1,18 @@
-import { memo, useId, type ReactNode, type Ref } from "react";
+import { memo, useId, type ReactNode, type Ref, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
+import { Switch } from "../editors/ToggleEditor";
+import { FONT_PREVIEWS } from "../fontPreviewModel";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
+import { isExperimentalRow, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
+import { asksConsent, ConsentPrompt } from "./ConsentPrompt";
+import { FontPreview } from "./FontPreview";
 import { Highlight } from "./Highlight";
 import { RowNotes } from "./RowNotes";
 import { RowNotice } from "./RowNotice";
@@ -62,6 +68,9 @@ export const SettingRow = memo(function SettingRow({
   const labelId = useId();
   const disabled = inactive || !state.connected || !state.readable || state.managed !== null;
   const menu = rowMenu(row.key, state, store);
+  const beta = useBetaChips() && isExperimentalRow(row);
+  const consent = asksConsent(row);
+  const [asking, setAsking] = useState(false);
   return (
     <RowFrame
       settingKey={row.key}
@@ -75,6 +84,7 @@ export const SettingRow = memo(function SettingRow({
         <ContextMenu className="row-label" items={menu}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
+            {beta && <BetaChip />}
           </div>
           {row.summary && (
             <div className="row-help">
@@ -91,10 +101,35 @@ export const SettingRow = memo(function SettingRow({
         {/* The control has the row's menu too (cx-2lm4); a text field keeps its own Cut, Copy and Paste. */}
         <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
           <div className="row-control">
-            <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
+            {consent ? (
+              // Turning it on asks first (ConsentPrompt.tsx); turning it off never does.
+              <Switch
+                checked={state.value === true}
+                disabled={disabled}
+                labelId={labelId}
+                onToggle={(next) => {
+                  setAsking(next);
+                  if (!next) void store.set(row.key, false);
+                }}
+              />
+            ) : (
+              <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
+            )}
           </div>
         </ContextMenu>
       </div>
+      {asking && !disabled && (
+        <ConsentPrompt
+          row={row}
+          labelId={labelId}
+          onAccept={() => {
+            setAsking(false);
+            void store.set(row.key, true);
+          }}
+          onCancel={() => setAsking(false)}
+        />
+      )}
+      {FONT_PREVIEWS[row.key] && <FontPreview row={row} value={state.value} disabled={disabled} />}
     </RowFrame>
   );
 });

@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxUpdaterTestSupport
 @testable import CmuxUpdater
 
 @MainActor

@@ -12,6 +12,7 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SPLIT, tokenLineMarkup, tokenLines } from "./support/turnTokenLines";
+import { describedText, factsCardText, renderInDom } from "./support/factsCard";
 
 const text = (html: string) =>
   html
@@ -19,7 +20,7 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 const SPLIT_SPAN =
-  /<span class="cv-worked__tokens is-split" title="Wrote 12\.4K tokens · read 60K new, 2\.1M again"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
+  /<span (?=[^>]*class="cv-worked__tokens is-split")(?=[^>]*aria-describedby="[^"]+")[^>]*><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
 
 for (const [name, line] of Object.entries(tokenLines))
   for (const arm of ["total", "split"])
@@ -36,11 +37,22 @@ for (const [name, line] of Object.entries(tokenLines))
       expect(html).not.toContain("cv-worked__sep");
       expect(text(html)).not.toMatch(/↓|↑|tokens|12\.4K|60K/);
       // The time is in its own quieter span.
-      expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+      expect(html).toMatch(
+        /<span class="(?:ui-clock )?cv-worked__(label-)?time"(?: data-clock-size="[^"]*")?>35s<\/span>/,
+      );
     });
 
-test("standalone token formatting still shows output and uncached input with the full split on hover", () => {
+test("standalone token formatting still shows output and uncached input with the full split on hover", async () => {
   expect(renderToStaticMarkup(<TurnTokens split={SPLIT} />)).toMatch(SPLIT_SPAN);
+  // The split the two counts leave out (what it read again) shows on their hover card.
+  const page = await renderInDom(<TurnTokens split={SPLIT} />);
+  try {
+    const tokens = page.container.querySelector(".cv-worked__tokens")!;
+    expect(await factsCardText(tokens)).toBe("Wrote 12.4K tokens · read 60K new, 2.1M again");
+    expect(describedText(tokens)).toBe("Wrote 12.4K tokens · read 60K new, 2.1M again");
+  } finally {
+    await page.close();
+  }
 });
 
 test("the hover says what the model wrote and read in plain words, compact in the pane's language", () => {

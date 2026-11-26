@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { packShikiModule, packWasmModule } from "../scripts/packed-shiki-data.mjs";
+import { packShikiModule, packWasmModule, packMonacoMessages } from "../scripts/packed-shiki-data.mjs";
 import { unpackBytes, unpackJson } from "../src/shiki-packed/unpackJson";
 
 // Every Shiki grammar and theme the app ships is stored deflated by scripts/packed-shiki-data.mjs
@@ -115,4 +115,32 @@ test("the Oniguruma engine's WebAssembly survives packing", async () => {
 
 test("a module in neither shape fails the build", () => {
   expect(() => packShikiModule("export default {}", "/x/@shikijs/langs/dist/odd.mjs")).toThrow(/update the pattern/);
+});
+
+// Monaco's UI strings (the editor's find widget, menus) in each language the editor page loads
+// (src/pages/editor/main.tsx): the packed module sets exactly the array Monaco's module sets.
+const monacoLang = resolve(import.meta.dir, "../node_modules/monaco-editor/esm/vs/nls/lang");
+const MESSAGES = /^globalThis\._VSCODE_NLS_MESSAGES=(\[.*\]);$/m;
+const PACKED_MESSAGES = /^globalThis\._VSCODE_NLS_MESSAGES=unpackJson\(("[A-Za-z0-9+/=]*")\);$/m;
+
+test("every Monaco UI-strings module survives packing", () => {
+  const files = readdirSync(monacoLang).filter((entry) => entry.endsWith(".js"));
+  for (const file of files) {
+    const path = `${monacoLang}/${file}`;
+    const source = readFileSync(path, "utf8");
+    const out = packMonacoMessages(source, path);
+    const call = out.match(PACKED_MESSAGES);
+    expect(call).not.toBeNull();
+    expect(unpackJson(JSON.parse(call![1]))).toEqual(JSON.parse(source.match(MESSAGES)![1]));
+    // The language line and the license header stay as Monaco wrote them.
+    expect(out.replace(PACKED_MESSAGES, "").split("\n").slice(1).join("\n")).toBe(source.replace(MESSAGES, ""));
+    expect(out.length * 2).toBeLessThan(source.length);
+  }
+  expect(files.length).toBeGreaterThanOrEqual(12);
+});
+
+test("a Monaco UI-strings module in another shape fails the build", () => {
+  expect(() => packMonacoMessages("globalThis.x=[]", "/x/monaco-editor/esm/vs/nls/lang/de.js")).toThrow(
+    /update the pattern/,
+  );
 });

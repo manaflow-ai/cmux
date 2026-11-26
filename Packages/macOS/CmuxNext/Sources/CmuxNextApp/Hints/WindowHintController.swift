@@ -165,10 +165,10 @@ final class WindowHintController {
 enum WindowHintStrings {
     static var preview: String {
         String(localized: "windowHints.refusal.preview", defaultValue: "Click by Hint is a preview feature: turn on labs.previewFeatures in cmux.json.",
-               table: "LinkHints", bundle: .module)
+               table: "LinkHints", bundle: .module.inAppLanguage)
     }
 
     static var nothing: String {
-        String(localized: "windowHints.refusal.nothing", defaultValue: "Nothing to click in this window.", table: "LinkHints", bundle: .module)
+        String(localized: "windowHints.refusal.nothing", defaultValue: "Nothing to click in this window.", table: "LinkHints", bundle: .module.inAppLanguage)
     }
 }

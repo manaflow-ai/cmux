@@ -243,6 +243,7 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    pub launch_credential: super::LaunchCredential,
 }
 
 pub enum Connect {
@@ -446,6 +447,9 @@ pub struct Link {
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Set when this link's writer panicked (#54378): lines it took may never have reached the
+    /// host, so their requests get no answer from it; the reader marks the link broken.
+    pub writer_panicked: Arc<std::sync::atomic::AtomicBool>,
     /// The last entry the host sent on this link (`replay_end_within`).
     highest: Arc<std::sync::atomic::AtomicU64>,
     /// The ring offsets the host's entries carried (`HostFrame::Entry::o`, the agent holder),
@@ -579,6 +583,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         }) => Adopted {
             version,
             host_build,
@@ -588,6 +593,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });
@@ -626,36 +632,74 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     // is answered (review 83 of #23322).
     let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
+    // Set by a writer that panicked: the reader ends the link too, as a lost one, so its agent
+    // reaches the host again; the socket itself stays open and would never tell it (#54378).
+    let writer_gone = Arc::new(tokio::sync::Notify::new());
+    let gone = writer_gone.clone();
+    let writer_panicked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let panicked = writer_panicked.clone();
     tokio::spawn(async move {
-        while let Some((mut frame, written, fence)) = rx.recv().await {
-            if fence.as_ref().is_some_and(|f| !f.begin()) {
-                continue;
-            }
-            let mut receipt = None;
-            if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) = (&fence, &mut frame) {
-                let r = await_receipt(&host, f);
-                if receipted {
-                    *asked = Some(r);
+        use futures_util::FutureExt as _;
+        // The frame being written and its receipt, settled below if the writer panics on it.
+        let mut in_flight: Option<(crate::agent::Fence, Option<u64>)> = None;
+        let wrote = std::panic::AssertUnwindSafe(async {
+            while let Some((mut frame, written, fence)) = rx.recv().await {
+                if fence.as_ref().is_some_and(|f| !f.begin()) {
+                    continue;
                 }
-                receipt = Some(r);
-            }
-            if write_frame(&mut wr, &frame).await.is_err() {
-                if let Some(r) = receipt {
-                    RECEIPTS.lock_or_recover().remove(&r);
+                let mut receipt = None;
+                if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) =
+                    (&fence, &mut frame)
+                {
+                    let r = await_receipt(&host, f);
+                    if receipted {
+                        *asked = Some(r);
+                    }
+                    receipt = Some(r);
                 }
-                if let Some(f) = fence {
-                    f.failed();
+                in_flight = fence.clone().map(|f| (f, receipt));
+                #[cfg(debug_assertions)]
+                if let ControllerFrame::Line { msg, .. } = &frame {
+                    crate::supervise::panic_point_with("link writer", || msg.to_string());
                 }
-                break;
+                if write_frame(&mut wr, &frame).await.is_err() {
+                    if let Some(r) = receipt {
+                        RECEIPTS.lock_or_recover().remove(&r);
+                    }
+                    if let Some(f) = fence {
+                        f.failed();
+                    }
+                    break;
+                }
+                in_flight = None;
+                if let Some(f) = fence.filter(|_| receipt.is_none()) {
+                    f.written();
+                }
+                // The frame is in the socket: a caller that must not outlive an
+                // unsent frame (the Exit ack before the daemon exits) waits here.
+                if let Some(written) = written {
+                    let _ = written.send(());
+                }
             }
-            if let Some(f) = fence.filter(|_| receipt.is_none()) {
-                f.written();
+        })
+        .catch_unwind()
+        .await;
+        // A writer that panicked never writes the frame it had: its message fails, so its holder
+        // never waits on it (#54378), and its link is cut below like a closed one.
+        if wrote.is_err()
+            && let Some((f, receipt)) = in_flight.take()
+        {
+            if let Some(r) = receipt {
+                RECEIPTS.lock_or_recover().remove(&r);
             }
-            // The frame is in the socket: a caller that must not outlive an
-            // unsent frame (the Exit ack before the daemon exits) waits here.
-            if let Some(written) = written {
-                let _ = written.send(());
-            }
+            f.failed();
+        }
+        if wrote.is_err() {
+            // On stderr too (`daemon.log`): stdout may be gone with the process that read it.
+            eprintln!("acpmux: agent host link writer panicked; its link ends");
+            tracing::error!("agent host link writer panicked; its link ends");
+            panicked.store(true, std::sync::atomic::Ordering::SeqCst);
+            gone.notify_one();
         }
         // Never sent now: what it still queues is cut, so no holder waits on it.
         rx.close();
@@ -675,7 +719,11 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
-                match read_frame::<_, HostFrame>(&mut rd).await {
+                let frame = tokio::select! {
+                    frame = read_frame::<_, HostFrame>(&mut rd) => frame,
+                    () = writer_gone.notified() => break,
+                };
+                match frame {
                     Ok(Some(HostFrame::Entry { h, e, o })) => {
                         if let Some(o) = o {
                             offsets.lock_or_recover().push_back((h, o));
@@ -738,6 +786,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
+            writer_panicked,
             highest,
             offsets,
         }),
@@ -881,25 +930,5 @@ impl Link {
 }
 
 #[cfg(test)]
-mod launcher_tests {
-    use super::HostLauncher;
-    use std::path::PathBuf;
-
-    /// A daemon whose binary an update replaced still starts agent hosts: on
-    /// Linux its own binary is exec'd from the open inode, never `PATH
-    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
-    /// acpmux by it). Another binary is exec'd as given.
-    #[test]
-    fn the_host_starts_from_the_open_inode_on_linux() {
-        let launcher = HostLauncher::current().expect("launcher");
-        let exe = std::env::current_exe().expect("current exe");
-        assert_eq!(launcher.exe, exe);
-        if cfg!(target_os = "linux") {
-            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
-        } else {
-            assert_eq!(launcher.program(), exe);
-        }
-        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
-        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-}
+#[path = "link_launcher_tests.rs"]
+mod launcher_tests;

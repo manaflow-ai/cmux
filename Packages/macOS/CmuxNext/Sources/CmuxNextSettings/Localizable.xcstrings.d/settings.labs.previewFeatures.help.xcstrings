@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.previewFeatures.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "واجهات غير مكتملة، مثل تسمية تغطية جلسة الوكيل وعرض طلبات السحب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nedovršeni dijelovi, poput oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ufærdige flader, f.eks. agentsessionens dækningsetiket og visningen af pull requests."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Unfertige Oberflächen, etwa die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Superficies sin terminar, como la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Surfaces inachevées, comme l'étiquette de couverture de la session de l'agent et la vue des pull requests."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Superfici non finite, come l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントセッションのカバレッジ表示やプルリクエスト表示など、未完成の画面。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជាស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트 세션의 적용 범위 레이블과 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uferdige flater, for eksempel agentøktens dekningsetikett og visningen av pull-forespørsler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Niedokończone elementy, takie jak etykieta pokrycia sesji agenta i widok pull requestów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Superfícies inacabadas, como o rótulo de cobertura da sessão do agente e a visualização de pull requests."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Незавершённые элементы, например метка покрытия сеанса агента и представление запросов на слияние."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่วนที่ยังไม่เสร็จ เช่น ป้ายความครอบคลุมของเซสชันเอเจนต์และมุมมองคำขอดึง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Незавершені елементи, як-от позначка покриття сеансу агента та подання запитів на злиття."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các phần chưa hoàn thiện, như nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚未完成的界面，例如智能体会话的覆盖范围标签和拉取请求视图。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚未完成的介面，例如代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

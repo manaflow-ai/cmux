@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxConversationCore
 import enum CmuxMobileModel.UserFacingError
 import Foundation
@@ -217,7 +218,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
             guard let request = try? http.socketRequest(url, token: token) else { return false }
-            let task = http.session.webSocketTask(with: request)
+            let task = CmuxEgress.websocket(http.session, with: request, site: "CmuxMobileChief.ChiefReplicaBackend")
             socket = task
             task.resume()
             defer {

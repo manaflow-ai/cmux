@@ -49,7 +49,7 @@ struct WhoElseCard: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressLine)
                 .padding(.leading, 26)
                 .padding(.vertical, -10)
                 .accessibilityIdentifier("agentChat.whoElse.more")

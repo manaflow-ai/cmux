@@ -1,9 +1,10 @@
 //! A launcher profile of Claude Code (`claude-sr2`: `sr2 claude`, kind `claude-stdio`, its own
 //! family so it stays out of the default Claude row) runs Claude Code with Claude Code's modes.
 //! A client that is not the person (the CLI outside any chat, an agent) may start or move it into
-//! a mode that asks (`default`, `plan`) as it may on `claude`; a mode that does not ask
-//! (`acceptEdits`, `auto`, `bypassPermissions`) still needs the person (`hub/start_gate.rs`,
-//! `hub/person.rs`). Bench round 5, row 9: `acpmux new -m claude-sr2 --mode default` was refused
+//! a mode that asks (`default`, `plan`) as it may on `claude`, and Claude Code's own Auto under a
+//! level that covers it (here `standard`, whose plain start is Auto); a mode that does not ask and
+//! the level does not cover (`acceptEdits`, `bypassPermissions`) still needs the person
+//! (`hub/start_gate.rs`, `hub/person.rs`). Bench round 5, row 9: `acpmux new -m claude-sr2 --mode default` was refused
 //! with "mode default does not ask before it acts". From a remote (Web) connection the launcher
 //! profile gets exactly Claude's remote set, and a family with no reviewed row fails closed.
 
@@ -151,11 +152,12 @@ mod launcher_modes {
         }
     }
 
-    /// A mode that does not ask needs the person on either profile, at the start and as a move.
+    /// A mode that does not ask and the start level does not cover needs the person on either
+    /// profile, at the start and as a move.
     #[tokio::test]
     async fn a_mode_that_does_not_ask_still_needs_the_person_on_both_profiles() {
         for harness in ["claude", "claude-sr2"] {
-            for mode in ["acceptEdits", "auto", "bypassPermissions"] {
+            for mode in ["acceptEdits", "bypassPermissions"] {
                 let hub = hub();
                 let mut cli = Client::new(&hub);
                 let r = cli.new_chat(harness, Some(mode)).await;
@@ -177,6 +179,16 @@ mod launcher_modes {
                 }
                 hub.shutdown_all().await;
             }
+        }
+    }
+
+    /// Claude Code's own Auto is the `standard` level's plain start, so naming it widens nothing:
+    /// the CLI may start either profile in it, as a Cloud start names it (start_gate.rs
+    /// `plain_own_start_is`).
+    #[tokio::test]
+    async fn the_cli_starts_either_profile_in_claudes_auto_under_the_standard_level() {
+        for harness in ["claude", "claude-sr2"] {
+            starts_in(harness, "auto").await;
         }
     }
 

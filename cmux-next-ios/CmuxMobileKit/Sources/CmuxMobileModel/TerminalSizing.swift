@@ -321,11 +321,24 @@ public struct TerminalSizingPresentation: Equatable, Sendable {
         state.map { "\($0.grid.cols) × \($0.grid.rows)" }
     }
 
+    /// "A", "A and B", "A, B, and C": the system's list format (no ListFormatter off Apple platforms).
+    static func joinedList(_ items: [String]) -> String {
+        #if canImport(Darwin)
+        ListFormatter.localizedString(byJoining: items)
+        #else
+        switch items.count {
+        case 0, 1: items.joined()
+        case 2: "\(items[0]) and \(items[1])"
+        default: items.dropLast().joined(separator: ", ") + ", and " + items[items.count - 1]
+        }
+        #endif
+    }
+
     /// Why the grid has its size.
     public var reasonText: String? {
         guard let state else { return nil }
         let owners = state.participants.filter { state.owners.contains($0.id) }.map(title(of:))
-        let named = owners.isEmpty ? nil : ListFormatter.localizedString(byJoining: owners)
+        let named = owners.isEmpty ? nil : Self.joinedList(owners)
         switch state.reason {
         case "smallest": return "Fits the smallest viewer" + (named.map { ": \($0)" } ?? "")
         case "largest": return "Fits the largest viewer" + (named.map { ": \($0)" } ?? "")

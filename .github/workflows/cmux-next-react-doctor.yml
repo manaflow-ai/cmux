@@ -1,13 +1,19 @@
 name: cmux-next React Doctor
 
 # React Doctor (https://www.react.doctor/) on cmux-next's React projects, as a
-# ratchet: scripts/ci/react_doctor_gate.py fails when a change adds a React
-# Doctor error over scripts/ci/react-doctor-baseline.json. Old findings never
-# fail; warnings are reported only. Local run: `bun run react-doctor`.
+# reporting ratchet: scripts/ci/react_doctor_gate.py reports, as ::warning
+# annotations and a step-summary table, each React Doctor error a change adds
+# over scripts/ci/react-doctor-baseline.json. React Doctor is lint, and lint
+# never stops a merge (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT INSTEAD
+# OF JUST BEING OOPS"), so the step exits 0 on findings and fixes go forward;
+# the projects' own type-check and build jobs fail a broken tree. The job still
+# fails when its gate tests fail or setup breaks. Local run: `bun run react-doctor`
+# (`--strict` for the old failing verdict).
 #
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
 # React projects)`, and a required check must report. The gate scans only the
-# projects the change touches and exits green at once when it touches none.
+# projects the change touches; a pull request that touches none skips the job
+# (fast-check-route), which reports skipped, a pass.
 # Pushes to feat-cmux-next scan every project, the whole tree as it now is: base
 # stays red for as long as any project is over its baseline, whatever the push
 # touched. A push run that scanned only what the push changed let one red push
@@ -21,6 +27,7 @@ name: cmux-next React Doctor
 # (--no-score, --no-supply-chain, REACT_DOCTOR_NO_TELEMETRY).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [feat-cmux-next]
   workflow_dispatch:
@@ -28,16 +35,110 @@ on:
 permissions:
   contents: read
 
+# A push scans the whole tree, so the newest push covers every push before it: pushes share one group per branch, a
+# started scan finishes (cancel-in-progress stays false on push), and GitHub replaces a still-pending run with the
+# newest one, which ends cancelled with no job run (base_red_excuse.py reads the newest run with a verdict). One
+# group per sha ran all 783 base pushes of 11-22 21Z..11-23 21Z, 7,355 runner-min (9.4 min each), and 732 were green.
 concurrency:
-  group: cmux-next-react-doctor-${{ github.event.pull_request.number || github.sha }}
+  group: cmux-next-react-doctor-${{ github.event.pull_request.number || (github.event_name == 'push' && format('push-{0}', github.ref)) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
+  # Whether this pull request touches an input of React Doctor (scripts/ci/fast-check-inputs.json: the React projects
+  # and the gate's own files). A pull request that touches none skips the gate job before it takes a Blacksmith
+  # runner; the skipped job reports skipped, which the required check reads as passed. The feat-cmux-next push scans
+  # every project, so a miss is a fix-forward on base. A push or a dispatch skips this job, and the gate runs.
+  # The route runs only where the gate below can: into feat-cmux-next the gate needs full-ci (its push run scans every
+  # project), so the route skips there too. 2026-11-25 13Z..23Z it ran 2,563 times (2,944 runner-min) and its gate
+  # job ran 246 times, base pushes included; 30 days to 11-25 it was never red (cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
+  fast-check-route:
+    name: fast check route
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name == 'pull_request' && (!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      react_doctor: ${{ steps.route.outputs.react_doctor }}
+    steps:
+      - name: Checkout the merge commit's router (trees only)
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+            /.gitmodules
+      - name: "Pool mirror: checkout the merge commit's router"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/ci/
+        # Same as cmux-next-fast-gates.yml's resolve job: a pool VM fetches unfiltered from its local git mirror
+        # (actions/checkout's blob:none made git copy ~3 GB of promisor objects, 60-75 s a checkout on 2026-11-25).
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+      # A router failure leaves the output empty, and the gate runs.
+      - name: Route the pull request (scripts/ci/fast_check_route.py)
+        id: route
+        continue-on-error: true
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-react-doctor.yml --labels "$LABELS"
+
+  # One scan per 30-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge: the push scans
+  # every project at its tip, so the window's run covers every merge since the last one. 6,496 runner-minutes a day
+  # ran here on pushes alone (731 runs, timing feed 2026-11-23T10Z..11-24T10Z, about 1,015 merges); about 48 runs a
+  # day now. A red is seen within about 30 minutes plus the gap to the next push plus the scan, and base-red-watch
+  # bisects it over the covered range. Pull requests and dispatches are unchanged (the coalesce job is skipped on
+  # them). vars.NEXT_REACT_DOCTOR_COALESCE = '0' scans every push again.
+  coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-react-doctor
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.NEXT_REACT_DOCTOR_COALESCE) == '0' }}
+
   react-doctor:
     name: React Doctor (changed React projects)
+    needs: [fast-check-route, coalesce]
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.react_doctor != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
+    # id-token: the controller identifies this run by its OIDC token to look up or record a signed receipt.
+    permissions:
+      contents: read
+      id-token: write
     env:
       REACT_DOCTOR_NO_TELEMETRY: "1"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -70,28 +171,100 @@ jobs:
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "projects: ${projects:-none}"
 
-      - name: Setup Bun
+      # Content-addressed result, in shadow (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without
+      # Bazel"): the input key hashes what the scan reads for the selected projects. A green run records its
+      # unsigned ci-receipt/v1 under that key; a later run with the same key reports would_skip=true and still runs
+      # in full. Nothing is skipped until the controller signs receipts (RFD 0019). The cache entry is a shadow
+      # measurement, never skip evidence.
+      - name: Input key (shadow receipt)
+        id: key
         if: steps.base.outputs.projects != ''
+        continue-on-error: true
+        env:
+          PROJECTS: ${{ steps.base.outputs.projects }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --base "$BASE" --output "$GITHUB_OUTPUT"
+
+      - name: Look up a receipt (shadow)
+        id: receipt
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
+          lookup-only: true
+
+      - name: Would skip (shadow)
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          # A change to a pinned file (the gate's own scripts, tool or workflow; a check-paths.txt line) never skips.
+          HIT: ${{ steps.receipt.outputs.cache-hit == 'true' && steps.key.outputs.pinned != 'true' }}
+          PINNED: ${{ steps.key.outputs.pinned }}
+        run: |
+          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
+          echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
+
+      # Signed input-keyed receipt (scripts/ci/receipt_signed.py; cmuxterm-hq build-fleet/cmd/controller/input_receipt.go):
+      # the controller keys every project of this tree itself and, when a green feat-cmux-next push left a signed
+      # receipt under the same key, posts it as `cmux/receipt: React Doctor (changed React projects)` on the head, and
+      # the scan below is skipped. A pinned file (the gate's own scripts, tool, workflow or tests; a line of base
+      # scripts/ci/check-paths.txt) is never a hit, and any error is a miss: the scan runs. The skip is on unless the
+      # repository variable CI_INPUT_RECEIPT_SKIP is `off` (Leo, 2026-11-19: "We need to skip more often.").
+      - name: Signed receipt
+        id: signed
+        if: steps.base.outputs.projects != '' && steps.key.outputs.pinned != 'true' && vars.CI_INPUT_RECEIPT_SKIP != 'off'
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_signed.py lookup react-doctor --output "$GITHUB_OUTPUT"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
-        if: steps.base.outputs.projects != ''
+        timeout-minutes: 5
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
-        if: steps.base.outputs.projects != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/react-doctor/bun.lock', 'webviews/bun.lock', 'web/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
           restore-keys: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ (steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/react-doctor/bun.lock', 'webviews/bun.lock', 'web/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-
+
       - name: React Doctor gate
+        if: steps.signed.outputs.hit != 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
@@ -103,8 +276,33 @@ jobs:
             python3 scripts/ci/react_doctor_gate.py --out-dir "$RUNNER_TEMP/react-doctor"
           fi
 
+      - name: Record the receipt (shadow)
+        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true' && steps.signed.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py record react-doctor --input-key "$INPUT_KEY" --base "$BASE" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
+
+      # A green full scan of a feat-cmux-next push: the controller signs a receipt under this tree's key (first green
+      # wins). A pull request cannot record.
+      - name: Record the signed receipt
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.base.outputs.projects == 'all' && steps.signed.outputs.hit != 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_signed.py record react-doctor
+
+      # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request,
+      # so a PR's save is read by nothing else (tests/test_ci_no_run_scoped_cache_keys.py). PRs restore it.
+      - name: Save the receipt (shadow)
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true' && steps.signed.outputs.hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
+
       - name: Upload reports
-        if: always() && steps.base.outputs.projects != ''
+        if: always() && steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: react-doctor-reports
