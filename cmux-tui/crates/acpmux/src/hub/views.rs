@@ -1156,7 +1156,12 @@ impl Hub {
     }
 
     /// `breakdown`: which time breakdown the row carries ([`Breakdown`]); none without tools.
-    fn summary_with_tools(&self, session: &Session, with_tools: bool, breakdown: Breakdown) -> Value {
+    fn summary_with_tools(
+        &self,
+        session: &Session,
+        with_tools: bool,
+        breakdown: Breakdown,
+    ) -> Value {
         render_row(&self.row_inputs(session, with_tools, breakdown))
     }
 
