@@ -381,11 +381,13 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
       // the turn's footer and edits card come in under the answer, so the fold's height shows as
       // the prompt coming down and the answer going up together.
-      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      // On the 20px row metric (rowMetric.ts) the folded work is shorter than on the 22px rows it was
+      // first measured on, so the prompt comes down less far (6 here, over several frames).
+      expect(after.prompt - before.prompt).toBeGreaterThan(4);
       expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
-      // Since the exit lead (#48554) and the asides staying out of the fold, the prompt's own move is
-      // about 12 px; a 2 px margin at each end left a 8 px window one dropped frame on a loaded
-      // runner could cut to two frames. Every frame drawn part way counts.
+      // Since the exit lead (#48554), the asides staying out of the fold and the 20px row metric, the
+      // prompt's own move is about 6 px; a margin of 1 px or more at each end leaves a window one
+      // dropped frame on a loaded runner could cut to two frames. Every frame drawn part way counts.
       const between = folding.filter(
         (sample) => sample.prompt > before.prompt + 0.5 && sample.prompt < after.prompt - 0.5,
       ).length;
