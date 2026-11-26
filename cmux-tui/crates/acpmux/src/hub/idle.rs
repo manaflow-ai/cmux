@@ -302,10 +302,8 @@ impl Hub {
                 hub.settle_stalled_turns(stalled);
             }
             hub.stop_idle_children().await;
-            // Each pass that evicted a chat gives the freed pages back (`heap_return.rs`), once.
-            if hub.evict_idle_chats() + hub.evict_over_cap() > 0 {
-                crate::heap_return::after_eviction();
-            }
+            hub.evict_idle_chats();
+            hub.evict_over_cap();
         }
     }
 
