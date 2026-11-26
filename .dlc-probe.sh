@@ -6,7 +6,9 @@ export CARGO_TERM_COLOR=never
 unset RUSTC_WRAPPER
 nproc; rustc -V; cargo -V
 t0=$(date +%s); cargo build --profile dev -p cmux-tui --bin cmux-tui -q 2>&1 | tail -5; echo "warm_s=$(( $(date +%s)-t0 ))"
+export RUSTC_WRAPPER=$PWD/../.dlc-tp.sh
 for tok in p1 p2 p3; do
+rm -f /tmp/tp-*.txt
 echo "=== round $tok"
 git checkout -q -- crates/cmux-tui-core/src/server/cmd_server.rs
 F=crates/cmux-tui-core/src/server/cmd_server.rs
@@ -28,4 +30,5 @@ m=re.search(r'const UNIT_DATA = (\[.*?\]);',h,re.S)
 for u in sorted(json.loads(m.group(1)),key=lambda u:-u["duration"])[:15]:
     print(f'{u["name"]:40} {u.get("target",""):12} start {u["start"]:7.2f} dur {u["duration"]:7.2f} rmeta {u.get("rmeta_time")}')
 PY
+for f in /tmp/tp-*.txt; do echo "--- $f"; grep -E "^time:" "$f" | sort -k2 -g -r | head -30; done
 done
