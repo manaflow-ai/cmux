@@ -166,8 +166,8 @@ pub fn place(
     let mut plan = PlacePlan { inboxes: vec![Vec::new(); inboxes.len()], local: Vec::new() };
     for (offset, pin) in (0u64..).zip(order) {
         let placed = Placed { id: pin.to_owned(), position: base + offset };
-        match owner_of(pin, inboxes) {
-            Some(inbox) => plan.inboxes[inbox].push(placed),
+        match owner_of(pin, inboxes).and_then(|inbox| plan.inboxes.get_mut(inbox)) {
+            Some(inbox) => inbox.push(placed),
             None => plan.local.push(placed),
         }
     }
