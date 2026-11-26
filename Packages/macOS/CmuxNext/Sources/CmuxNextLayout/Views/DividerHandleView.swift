@@ -251,7 +251,11 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
+        // Its time is part of the drag's next step (`ResizeStepTimes`): the frame tick writes the point it keeps.
+        let start = ResizeStepTimes.startIfRecording()
+        if start != nil { ResizeStepTimes.noteInput(event.timestamp) }
         onDrag?(.moved(event.locationInWindow, event.modifierFlags))
+        ResizeStepTimes.recordLive("event", kind: .divider, since: start)
     }
 
     override func mouseUp(with event: NSEvent) {
