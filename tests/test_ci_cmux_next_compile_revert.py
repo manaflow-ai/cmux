@@ -141,6 +141,36 @@ class RevertStep(unittest.TestCase):
 
 
 class RefusedRead(unittest.TestCase):
+    def test_a_spent_rate_limit_skips_the_attribution_instead_of_failing(self):
+        # The job runs only after another job failed; a spent budget made it a second red row with no
+        # culprit in it (2026-11-26 01:41Z and 01:46Z). A rate-limited read now skips; other refusals raise.
+        import contextlib
+        import io
+        import subprocess
+
+        import cmux_next_push_attribution as attribution
+
+        def limited(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output='{"message":"API rate limit exceeded for installation."}',
+                stderr="gh: API rate limit exceeded for installation. (HTTP 403)")
+
+        def missing(args, **kwargs):
+            raise subprocess.CalledProcessError(1, args, output='{"message":"Not Found"}', stderr="gh: Not Found (HTTP 404)")
+
+        argv = ["--repo", "o/r", "--run-id", "1", "--sha", "a" * 40]
+        out = io.StringIO()
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=limited), \
+             contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(out):
+            self.assertEqual(attribution.main(argv), 0)
+        self.assertIn("Attribution skipped", out.getvalue())
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=missing), \
+             contextlib.redirect_stderr(io.StringIO()), \
+             self.assertRaises(subprocess.CalledProcessError):
+            attribution.main(argv)
+
     def test_a_refused_read_prints_ghs_message_and_body(self):
         # gh's message (with the HTTP status) goes to stderr and the body to stdout; both are captured,
         # so the job log showed only "returned non-zero exit status 1" (2026-11-13, 05:14Z to 05:40Z).
