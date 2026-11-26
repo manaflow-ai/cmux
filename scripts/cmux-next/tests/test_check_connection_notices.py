@@ -531,7 +531,9 @@ class NativeShapes(unittest.TestCase):
     def test_a_web_button_component_is_an_action(self):
         """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
         tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
-        button = ('export function ConnectCard() {\n'
+        button = ('function ConnectButton({ onConnect }) {\n'
+                  '  return <button onClick={onConnect}>Connect</button>;\n}\n'
+                  'export function ConnectCard() {\n'
                   '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
         bare = ('export function ConnectLine() {\n'
                 '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
