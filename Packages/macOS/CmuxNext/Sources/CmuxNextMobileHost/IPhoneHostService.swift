@@ -80,6 +80,7 @@ public final class IPhoneHostService {
         var browserHosts: (any MobileHostBrowserHosting)?
         /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
         var surfaceHosts: (any MobileHostSurfaceHosting)?
+        var siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)?
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
@@ -184,6 +185,11 @@ public final class IPhoneHostService {
     /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// Called only by the person's hand-off setting; off until that setting is wired.
+    public func setSiteDataHandoff(enabled: Bool) async {
+        await supervisor.setSiteDataHandoff(enabled: enabled)
+    }
+
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
@@ -760,7 +766,7 @@ public final class IPhoneHostService {
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
-                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks, siteData: dependencies.siteData))
             } catch let refusal as CMUXBuildSpaceError {
                 // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
                 guard !Task.isCancelled, self?.running == key else { return }

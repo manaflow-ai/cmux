@@ -38,6 +38,7 @@ extension IPhoneHostService {
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
                      cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil,
+                     siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -132,6 +133,7 @@ extension IPhoneHostService {
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,
+            siteData: siteData,
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),

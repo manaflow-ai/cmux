@@ -84,7 +84,23 @@ extension AppServices {
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
                     chief: { [weak self] in if let owner = self?.home.chief { IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath()) } else { nil } },
                     surfaceHosts: phoneSurfaceHosts(),
-                    cloudLinks: { [weak self] in await self?.phoneCloudLinks() ?? MobileHostCloudLinks() },
+                    cloudLinks: MobileCloudLinksReader(auth: cloud.auth, identity: cloud.installIdentity,
+                        sessions: { [weak self] in self?.machines.cloud ?? [] },
+                        machine: { ($0.machineID, $0.machine) }, link: { $0.appLink },
+                        current: { [weak self] in self?.machines.session($0.machineID) === $0 },
+                        paid: { [weak self] in self?.machines.cloudLimits?.paysForCloud ?? false }).read,
+                    siteData: { @MainActor [weak self] request in
+                        guard let self else { throw CancellationError() }
+                        return try await MobileSiteDataExporter(model: self.locateTab(surface: SurfaceID(rawValue: request.surface)),
+                            currentModel: { self.locateTab(surface: SurfaceID(rawValue: request.surface)) },
+                            page: { self.cache.existingBrowser($0.id)?.tab }, identity: { $0 },
+                            snapshot: { model, page in .init(profileID: page.profileID.rawValue,
+                                incognito: self.cache.browserTabs.isIncognitoTab(model.id) || self.cache.cef.stores.offTheRecord.isOffTheRecord(page.profileID),
+                                agentsProfile: page.profileID.rawValue == AgentBrowserProfile.id,
+                                url: page.state.url?.absoluteString, navigation: page.state.activeNavigation?.rawValue, isLoading: page.state.isLoading) },
+                            readCookies: { try await $0.cookies() },
+                            evaluate: { try await $0.evaluate($1, world: $2, gesture: $3) }).read(request)
+                    },
                     settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
@@ -139,32 +155,10 @@ extension AppServices {
             let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
-        // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
+        // No Cloud desktop for the phone until it has a carrier route of its own (the Cloud directory reader says so).
         let sources = PhoneSurfaceSources(phoneTabs: phoneTabs, macDisplays: MacDisplayCapture.surfaceSources { [weak self] in self?.macScreenPages.hubHost.isSharing ?? false })
         return MobileHostSurfaceClosures(start: { try await sources.start(tab: $0, onExit: $1) }, stop: { await sources.stop(tab: $0) },
                                          stopAll: { await sources.stopAll() }, streamsSimulators: phoneTabs != nil, streamsMacDisplays: true)
-    }
-
-    /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
-    /// and whether the plan pays for Cloud. Classic links never enter this directory.
-    func phoneCloudLinks() async -> MobileHostCloudLinks {
-        guard cloud.auth.isSignedIn, let user = cloud.auth.user?.id else { return MobileHostCloudLinks() }
-        let selectedTeam = cloud.auth.teamID
-        // The backend team in attention events is the install token claim, not a Stack team id.
-        guard let token = try? await cloud.installIdentity.installToken(),
-              let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
-        var result: [MobileHostCloudLink] = []
-        for session in machines.cloud {
-            guard !session.machine.isGoneForPhones else { continue }
-            let link = session.appLink
-            let socket = await link.currentLinkSocket
-            guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: cloud.auth.platformUserID ?? user))
-        }
-        // An account transition during either actor hop invalidates the whole answer.
-        guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
-        // No desktops: a phone has no carrier route to a Cloud desktop yet, whatever `phone.cloudDesktop` says.
-        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: false, links: result)
     }
 }
 

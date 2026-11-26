@@ -3029,6 +3029,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMobileHost",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextBrowserCore",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -3052,6 +3053,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMobileHostTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextMobile",
