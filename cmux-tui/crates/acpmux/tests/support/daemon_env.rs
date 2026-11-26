@@ -510,6 +510,9 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     // No spare per harness used (`hub/pool/spare.rs`): a test counts the agents it started.
     // `tests/session_pool.rs` turns it on for the spare's own tests.
     env.push(("ACPMUX_SPARE_HARNESS".into(), "0".into()));
+    // Saved peers dial at start, as before they waited to be used (`peer_demand.rs`): a test
+    // that writes a peer into config.json reads it linked.
+    env.push((acpmux::peer::DIAL_AT_START_ENV.into(), "1".into()));
     env
 }
 

@@ -210,7 +210,7 @@ pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 /// The program's identity for the cache: its real path, size and
 /// modification time. Unset when the program cannot be read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CacheKey {
     pub program: PathBuf,
     pub len: u64,
@@ -252,8 +252,8 @@ impl Cache {
         cache_path(&self.dir, harness)
     }
 
-    /// Every cached list whose program is unchanged, by harness.
-    pub fn load_all(&self) -> BTreeMap<String, Vec<LiveModel>> {
+    /// Every cached list whose program is unchanged, by harness, with that program's identity.
+    pub fn load_all(&self) -> BTreeMap<String, (Vec<LiveModel>, CacheKey)> {
         let mut out = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
         for entry in entries.flatten() {
@@ -265,20 +265,24 @@ impl Cache {
             else {
                 continue;
             };
-            if let Some(models) = self.load(harness, None) {
-                out.insert(harness.to_owned(), models);
+            if let Some(listed) = self.load(harness, None) {
+                out.insert(harness.to_owned(), listed);
             }
         }
         out
     }
 
     /// The cached list for `harness` when its program is unchanged (and is
-    /// `program`, when given).
-    pub fn load(&self, harness: &str, program: Option<&Path>) -> Option<Vec<LiveModel>> {
+    /// `program`, when given), with the identity it was read under.
+    pub fn load(
+        &self,
+        harness: &str,
+        program: Option<&Path>,
+    ) -> Option<(Vec<LiveModel>, CacheKey)> {
         let file: CacheFile<Vec<LiveModel>> =
             serde_json::from_slice(&std::fs::read(self.path(harness)).ok()?).ok()?;
         let current = CacheKey::of(program.unwrap_or(&file.key.program))?;
-        (current == file.key && !file.models.is_empty()).then_some(file.models)
+        (current == file.key && !file.models.is_empty()).then_some((file.models, current))
     }
 
     /// Keeps `models` for `harness` (write to a temporary file, then rename).

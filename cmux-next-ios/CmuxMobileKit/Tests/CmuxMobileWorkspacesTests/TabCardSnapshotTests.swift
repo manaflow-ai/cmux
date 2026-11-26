@@ -235,6 +235,26 @@ import UIKit
         #expect(next.entry(Self.key("clean")).image != nil)
     }
 
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing". A page with
+    /// little on it (a short chat) is a picture of its tab, not a placeholder: a few thin strokes
+    /// anywhere on a page-sized picture keep it, though a 64-pixel copy of it reads as one colour.
+    @Test func aSparsePageIsAPictureNotAPlaceholder() {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 1206, height: 2622)
+        for mark in [CGRect(x: 611, y: 1307, width: 2, height: 2), CGRect(x: 1203, y: 2619, width: 3, height: 1),
+                     CGRect(x: 0, y: 0, width: 1, height: 1)] {
+            let page = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+                UIColor.white.setFill()
+                context.fill(mark)
+            }
+            #expect(!CardPictureGate.isPlaceholder(page), "a page with \(mark) drawn is a picture")
+        }
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.black, width: 1206, height: 2622)))
+    }
+
     /// Leo, 2026-11-24, on a grid of black cards: "wer need to chase all these placeholders doen and
     /// prevent them". A picture of one solid colour (a capture of a page that had drawn nothing) is
     /// neither shown nor saved, from the phone or the Mac; the card keeps its last real picture.

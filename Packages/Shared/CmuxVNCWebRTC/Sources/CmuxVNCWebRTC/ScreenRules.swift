@@ -4,10 +4,11 @@ import Foundation
 /// The host's screen stream rules, asked of Rust (cmux-tui/crates/cmux-rd-screen, with their
 /// tests; ops `screen_*`): viewer demand, the viewer's caps, the cursor shape's id and delivery,
 /// and follow mode's focus producer. This package links no Rust library itself (the app links its
-/// one, CCmuxAppFFI; cmux Remote opens libcmux_rd_screen.dylib), so the process that runs a host
-/// hands its channel to each host and capture backend it makes (``ScreenStreamHost``'s and
-/// ``ScreenCaptureBackend``'s `rules:`). Without one (cmux-vnc-host, tests) a host streams the full
-/// display with the cursor in the picture and sends no focus signals.
+/// one, CCmuxAppFFI; cmux Remote and cmux-vnc-host open libcmux_rd_screen.dylib, ``bundled``), so
+/// the process that runs a host hands its channel to each host and capture backend it makes
+/// (``ScreenStreamHost``'s and ``ScreenCaptureBackend``'s `rules:`). Without one (tests, a build
+/// without the dylib) a host streams the full display with the cursor in the picture and sends no
+/// focus signals.
 public struct ScreenRules: Sendable {
     /// One JSON call: the operation and its request, the answer (nil: no answer).
     public typealias Ask = @Sendable (_ operation: String, _ request: Data) -> Data?
