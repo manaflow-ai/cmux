@@ -839,6 +839,7 @@
     "setting.sidebar.sectionLook": "quiet",
     "setting.sidebar.sessionTree": false,
     "setting.sidebar.settleFinished": false,
+    "setting.sidebar.showAutomaticSessions": false,
     "setting.sidebar.showChats": true,
     "setting.sidebar.showColors": true,
     "setting.sidebar.showLocalMachine": false,
