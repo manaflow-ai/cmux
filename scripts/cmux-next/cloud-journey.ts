@@ -5434,6 +5434,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const journeyOnly = async () => {
       if (journeyOnlyStarted) return;
       journeyOnlyStarted = true;
+      // Proof branch only: can the guest reach the model API at all (v4 and v6), and is a claude process alive.
+      await J.step("egress probe (proof)", async () => {
+        const probe = [
+          "echo resolv=$(grep -m2 nameserver /etc/resolv.conf | awk '{print $2}' | tr '\\n' ,)",
+          "echo routes4=$(ip -4 route | head -2 | tr '\\n' ';') routes6=$(ip -6 route | grep default | head -1)",
+          "echo ahosts=$(getent ahosts api.anthropic.com | awk '{print $1}' | sort -u | head -4 | tr '\\n' ,)",
+          "for f in 4 6; do echo v$f=$(timeout 15 curl -$f -sS -m 12 -o /dev/null -w '%{http_code}/%{time_total}s/%{remote_ip}' https://api.anthropic.com/ 2>&1 | tail -c 160); done",
+          "echo default=$(timeout 15 curl -sS -m 12 -o /dev/null -w '%{http_code}/%{time_total}s/%{remote_ip}' https://api.anthropic.com/ 2>&1 | tail -c 160)",
+          "echo claude=$(pgrep -fc 'claude' 2>/dev/null)",
+          "for p in $(pgrep -f 'claude' 2>/dev/null); do echo pid$p=$(sudo -n cat /proc/$p/environ 2>/dev/null | tr '\\0' '\\n' | awk -F= '/^(CLAUDE|ANTHROPIC|CMUX_CODEROUTER|CMUX_MODEL)/{print $1\":\"length(substr($0,length($1)+2))}' | tr '\\n' ,); done",
+          "echo claudehome=$(sudo -n ls -a /home/cmux/.claude 2>&1 | tr '\\n' ,) creds=$(sudo -n test -s /home/cmux/.claude/.credentials.json && echo yes || echo no)",
+        ].join("; ");
+        const r = await exec(probe, 60_000);
+        return { value: null, detail: scrub(`${r.stdout} ${r.stderr.slice(-200)}`.trim().split("\n").join(" "), J.secrets) };
+      });
       await J.step("listed", async () => {
         const { row, detail } = await listedMachine(
           created.id,
@@ -5461,19 +5476,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await exec(SIZE_READ);
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
-      });
-      // Proof branch only: can the guest reach the model API at all (v4 and v6), and is a claude process alive.
-      await J.step("egress probe (proof)", async () => {
-        const probe = [
-          "echo resolv=$(grep -m2 nameserver /etc/resolv.conf | awk '{print $2}' | tr '\\n' ,)",
-          "echo routes4=$(ip -4 route | head -2 | tr '\\n' ';') routes6=$(ip -6 route | grep default | head -1)",
-          "echo ahosts=$(getent ahosts api.anthropic.com | awk '{print $1}' | sort -u | head -4 | tr '\\n' ,)",
-          "for f in 4 6; do echo v$f=$(timeout 15 curl -$f -sS -m 12 -o /dev/null -w '%{http_code}/%{time_total}s/%{remote_ip}' https://api.anthropic.com/ 2>&1 | tail -c 160); done",
-          "echo default=$(timeout 15 curl -sS -m 12 -o /dev/null -w '%{http_code}/%{time_total}s/%{remote_ip}' https://api.anthropic.com/ 2>&1 | tail -c 160)",
-          "echo claude=$(pgrep -fc 'claude' 2>/dev/null)",
-        ].join("; ");
-        const r = await exec(probe, 60_000);
-        return { value: null, detail: scrub(`${r.stdout} ${r.stderr.slice(-200)}`.trim().split("\n").join(" "), J.secrets) };
       });
       // A chat opened with a folder: how long git_seed takes to ready the repository on this machine, cloned from
       // GitHub and borrowed from a warm mirror (cloud-journey-repo-seed.ts). Opt-in: each run pulls the repo once.
