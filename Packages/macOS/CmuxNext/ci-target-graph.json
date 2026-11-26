@@ -14,6 +14,7 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
+    "CmuxLiveCode": "Packages/Shared/CmuxLiveCode",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxPagePushBound": "Packages/Shared/CmuxPagePushBound",
     "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
@@ -362,6 +363,7 @@
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
         "CmuxNextHostPressure",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextImportCards",
@@ -527,6 +529,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
@@ -1036,6 +1039,7 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCloudUI",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
@@ -1629,9 +1633,7 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [
-        "CmuxNextDesignTokens"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
@@ -1642,6 +1644,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextHostPressureTunables": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressureTunables",
+      "targets": [
+        "CmuxNextDesignTokens",
+        "CmuxNextHostPressure"
+      ],
+      "packages": []
     },
     "CmuxNextHostedChief": {
       "kind": "regular",
@@ -1777,19 +1788,10 @@
     "CmuxNextLiveCode": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
-      "targets": [
-        "CmuxNextCompat"
-      ],
-      "packages": []
-    },
-    "CmuxNextLiveCodeTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLiveCodeTests",
-      "targets": [
-        "CmuxNextLiveCode"
-      ],
-      "packages": [],
-      "reads": []
+      "targets": [],
+      "packages": [
+        "CmuxLiveCode"
+      ]
     },
     "CmuxNextMacScreen": {
       "kind": "regular",
@@ -2292,6 +2294,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",

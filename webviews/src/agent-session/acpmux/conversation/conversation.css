@@ -1117,6 +1117,19 @@
   width: var(--cv-action-glyph);
   height: var(--cv-action-glyph);
 }
+/* A message's action row (a reply's, a turn's, another agent's message's) fades in and out on
+   Claude's super fast fade, not the dwell ramp the transcript's other hover controls take (Leo,
+   2026-11-22: "they do a SUPER FAST fade in and fade out for it. which i like"): in over the micro
+   step, out over the quick one, both eased out. min() keeps Reduce Motion's and motion off's 0s. */
+.cv-turn-actions,
+.cv-reply-actions,
+.cv-received-actions,
+.cv-received__hover {
+  --cv-actions-in: min(var(--cmux-hover-reveal-in), var(--cmux-motion-micro, 120ms));
+  --cv-actions-in-ease: var(--cmux-ease-out, ease-out);
+  --cv-actions-out: min(var(--cmux-hover-reveal-out), var(--cmux-motion-quick, 80ms));
+  --cv-actions-out-ease: var(--cmux-ease-out, ease-out);
+}
 /* User actions appear instantly. Other footer hover ramps need a fine pointer;
    keyboard focus shows them at full at once. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
@@ -2233,9 +2246,11 @@
 .cv-codeblock--diagram .cv-code-plain__line {
   height: 1lh;
 }
-/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
+/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. Its lengths are the custom
+   properties EditDiff.tsx sets on it from editDiffBox.ts (`--cv-edit-diff-*`), which the transcript's row
+   estimate reckons with too (model.ts `editDiffHeight`): never a length of their own here. */
 .cv-edit-diff {
-  margin: var(--ds-space-1) 0 var(--ds-space-2);
+  margin: var(--cv-edit-diff-above) 0 var(--cv-edit-diff-below);
   border-radius: 12px;
   overflow: hidden;
   background: var(--cv-codeblock-bg);
@@ -2257,7 +2272,7 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: calc(var(--cv-font-size) * 32 / 14);
+  min-height: var(--cv-edit-diff-head);
   padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--cv-codeblock-ring);
   font-size: calc(var(--cv-font-size) * 13 / 14);
@@ -2298,7 +2313,7 @@
    itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
    rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
-  --cv-lane: 6px;
+  --cv-lane: var(--cv-edit-diff-lane);
   --cv-bar: var(--cv-lane);
   --diffs-scrollbar-gutter-override: var(--cv-lane);
   overflow: hidden;
@@ -2309,20 +2324,20 @@
 /* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
    block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
-  --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
+  --cv-block-cut: calc(8 * var(--cv-edit-diff-row) + var(--cv-lane));
   max-height: var(--cv-block-cut);
   overflow-y: auto;
 }
 /* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
    its header, with no strip of another colour under the lines. */
 .cv-edit-diff > .cv-expand-row {
-  min-height: calc(var(--cv-font-size) * 32 / 14);
+  min-height: var(--cv-edit-diff-head);
   margin: 0;
   padding-inline: var(--ds-space-3);
 }
 .cv-edit-diff__empty {
-  padding: var(--ds-space-2) var(--ds-space-3);
-  font-size: calc(var(--cv-font-size) * 12 / 14);
+  padding: var(--cv-edit-diff-empty-pad) var(--ds-space-3);
+  font-size: var(--cv-edit-diff-empty-size);
   color: var(--cv-text-muted);
 }
 /* EditDiff.tsx: the rendered lines and their placeholder share one cell until the lines are drawn,
@@ -2342,7 +2357,7 @@
    `cardUnsafeCSS`, sideways.ts `PIERRE_BLOCK_CSS`), the text clear and painted as bars, so the
    placeholder is as tall as the rendered diff and the swap moves nothing. */
 .cv-edit-diff__loading-lines {
-  --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  --cv-loading-line-height: var(--cv-edit-diff-row);
   /* Pierre's number column: its digits (4ch at least), 2ch leading + 1ch trailing padding, and a
      2px divider. The unnumbered diff keeps its 4px indicator lane and 2px divider. */
   padding-inline-start: calc(var(--cv-loading-digits, 4) * 1ch + 3ch + 2px);
@@ -2382,9 +2397,9 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-/* Pierre's line-info separator before a hunk that skips lines (diffTheme.ts: 24px). */
+/* Pierre's line-info separator before a hunk that skips lines (EditDiffHunks.tsx `cardUnsafeCSS`). */
 .cv-edit-diff__loading-sep {
-  height: 24px;
+  height: var(--cv-edit-diff-separator);
 }
 .cv-edit-diff__loading-rest {
   height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
@@ -3095,10 +3110,7 @@ body {
    flickers", hovering the chat's right edge). A long command's words give way to it, behind their
    ellipsis, as they did on hover (Leo, 2026-10-24: "if the command is too long, hide it under the run
    in background"). */
-.cv-activity {
-  position: relative;
-}
-:is(.cv-worked, .cv-activity) .cv-command__bg {
+.cv-worked .cv-command__bg {
   display: flex;
   flex: none;
   align-items: center;
@@ -3107,41 +3119,41 @@ body {
   pointer-events: none;
 }
 /* `end`, the default: at the line's right end. */
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="end"] {
+.cv-worked .cv-command__bg[data-room="end"] {
   margin-inline-start: auto;
 }
 /* `inline`: right after the tokens, a dot before it as before each count. */
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"] {
+.cv-worked .cv-command__bg[data-room="inline"] {
   margin-inline-start: calc(4px - var(--grid-gap));
 }
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"]::before {
+.cv-worked .cv-command__bg[data-room="inline"]::before {
   content: "·";
   padding-inline-end: 4px;
   color: var(--cv-text-dim);
 }
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="always"] {
+.cv-worked .cv-command__bg[data-room="always"] {
   margin-inline-start: auto;
   opacity: 1;
   pointer-events: auto;
 }
-:is(.cv-worked, .cv-activity):hover .cv-command__bg {
+.cv-worked:hover .cv-command__bg {
   opacity: 1;
   pointer-events: auto;
 }
 /* A button (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
-:is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+.cv-worked .cv-command__bg:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
 /* It fades as a message's hover row does (#23769): in for as long as the pointer stays, out a little faster. */
 @media (prefers-reduced-motion: no-preference) {
-  :is(.cv-worked, .cv-activity) .cv-command__bg {
+  .cv-worked .cv-command__bg {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+  .cv-worked:hover .cv-command__bg {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
-  :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+  .cv-worked .cv-command__bg:focus-visible {
     transition: none;
   }
 }
@@ -6634,25 +6646,25 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-dim);
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
 }
-/* A finished turn's row with something to act on (Copy, Read aloud, ⋯, Retry) shows at rest under
-   every finished turn, the turns the person came in on too (turns.ts supersededFooters), as ChatGPT's
-   does (Leo, 2026-11-04: "we don't have the time worked for nor the thing always showing at hte bottom
-   (excl. thumb up/down)"). Only an empty footer (turns.ts isEmptyFooter: Pin and Fork alone, laid over
-   the gap) stays hidden, its space kept, but for the turn the reader points at (data-turn-revealed,
-   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`).
-   Replaces 2026-11-02's rule that only the chat's last footer showed at rest. */
+/* A turn's action row (Copy, Fork, Pin, Timeline, Read aloud, ⋯, then its age) is hidden at rest and
+   shows while the pointer is on that turn (data-turn-revealed: VirtualTranscript marks the turn from
+   its answer to its footer), a key reached it, or a menu from it is open, as Claude Code desktop's
+   (Leo, 2026-11-22: "claude hides buttons until you hover over the relevant area of a turn
+   response ... i think we go with claude code here. idk when we decided to always show all buttons
+   always. let's not"). Its line is kept, so showing it moves nothing. A failed turn's row (its
+   Retry) and a stopped turn's Continue stay shown. Replaces 2026-11-03's rule
+   (cmux#34939) that every finished turn's row showed at rest. */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
-.acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty),
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
-.acpmux-turnSummary .cv-turn-actions:focus-within,
+/* A key inside the row, never a stale click focus (test/focus-within-reveal.test.ts). */
+.acpmux-turnSummary .cv-turn-actions:has(:focus-visible),
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable,
-.acpmux-row--final-footer .cv-turn-actions {
+.acpmux-turnSummary .cv-turn-actions--resumable {
   opacity: 1;
 }
 /* A reply's time comes after its buttons, hidden at rest, and shows while the reader points at the
@@ -6665,7 +6677,7 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:hover .cv-turn-time,
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-time,
 .acpmux-turnSummary:focus-visible .cv-turn-time,
-.acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time,
+.acpmux-turnSummary .cv-turn-actions:has(:focus-visible) .cv-turn-time,
 .acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
 .acpmux-assistant:has([data-popup-open]) .cv-reply-actions .cv-turn-time,
 .acpmux-assistant:focus-visible .cv-reply-actions .cv-turn-time,
@@ -8311,238 +8323,6 @@ a.cv-sha:focus-visible {
   --acpmux-fade-bottom: 0px;
 }
 
-/* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
-   check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
-.cv-plan {
-  position: relative;
-  margin: var(--ds-space-2) 0;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-look-card-ring);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-.cv-plan__items {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cv-plan__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: 24px;
-  padding-block: 4px;
-  box-sizing: border-box;
-  line-height: 16px;
-}
-.cv-plan__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-/* A step's first line (PlanList.tsx PlanStep): at most two lines in a card, its chips inline; the
-   rest of its words are its detail, muted and smaller, at most two lines more. */
-.cv-plan__title,
-.cv-plan__detail {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-.cv-plan__detail {
-  margin-top: var(--grid-half-step);
-  color: var(--cv-text-muted);
-  font-size: var(--text-caption);
-  line-height: 14px;
-}
-.cv-plan__title .cv-chip {
-  vertical-align: baseline;
-}
-.cv-plan__mark {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--cv-text-muted);
-  margin-top: var(--grid-half-step);
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-/* The progress and each item's state for screen readers only (the pane does not load ui.css's
-   .ui-sr-only). */
-.cv-plan__state {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.cv-plan__item[data-status="completed"] {
-  color: var(--cv-text-muted);
-}
-.cv-plan__item[data-status="completed"] .cv-plan__mark {
-  border-color: transparent;
-  background: var(--cv-text-muted);
-  color: var(--agent-accent-text, #fff);
-}
-.cv-plan__item[data-status="pending"] .cv-plan__mark {
-  border-style: dashed;
-}
-/* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
-   its own while the turn runs. */
-.cv-plan:not([data-ended], [data-earlier], [data-still]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-width: 0;
-}
-/* Left in progress when its turn ended, or kept between turns (the hat's `still` list): a plain
-   ring, not a spinner frozen mid-turn, and never a blank mark (cmux#51039). */
-.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-still] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--cv-text-muted);
-}
-
-/* An earlier turn's list under the running turn (PlanList.tsx `earlier`): its one muted line says it
-   is from before the person's last message, and its steps read muted. */
-.cv-plan__earlier {
-  min-height: 24px;
-  padding-block: 4px;
-  box-sizing: border-box;
-  color: var(--cv-text-muted);
-  line-height: 16px;
-}
-.cv-plan[data-earlier] .cv-plan__item {
-  color: var(--cv-text-muted);
-}
-
-/* A step's change fades in place (Leo, 2026-11-03: the pinned list "animates in place with no layout
-   shift"): only colours move, never a size, so nothing under the list shifts. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-plan__item,
-  .cv-plan__mark {
-    transition:
-      color var(--agent-motion-in) var(--agent-ease-out, ease-out),
-      background-color var(--agent-motion-in) var(--agent-ease-out, ease-out),
-      border-color var(--agent-motion-in) var(--agent-ease-out, ease-out);
-  }
-}
-/* An ended turn's list folds where it stood to its one progress line, which opens the steps
-   (PlanList.tsx): a muted row with the tool rows' chevron after its words. */
-.cv-plan__summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 24px;
-  padding: 4px 0;
-  border: 0;
-  background: none;
-  color: var(--cv-text-muted);
-  font: inherit;
-  line-height: 16px;
-  text-align: start;
-  cursor: default;
-}
-.cv-plan__summary:hover {
-  color: var(--cv-text);
-}
-.cv-plan__summary:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.cv-plan__summary .cv-plan__mark {
-  margin-top: 0;
-}
-.cv-plan__summary .cv-plan__mark[data-status="completed"] {
-  border-color: transparent;
-  background: var(--cv-text-muted);
-  color: var(--agent-accent-text, #fff);
-}
-.cv-plan__summary .cv-plan__mark[data-status="pending"] {
-  border-style: dashed;
-}
-.cv-plan__chevron {
-  color: var(--cv-text-muted);
-}
-/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
-   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
-.cv-plan__summary .cv-plan__chevron {
-  flex: none;
-  width: var(--cv-chevron-glyph);
-  height: var(--cv-chevron-glyph);
-  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
-}
-/* An ended list is that line alone: no card around it, like the turn's other summary lines. Opened,
-   its steps draw under it on the same left edge, still with no card (Lucas, 2026-11-12: "make the
-   spacing left. and remove the background on open"); the running turn's pinned list keeps its card. */
-.cv-plan[data-ended] {
-  /* A row like the turn's other lines: the transcript's row gap is all the room around it, with no
-     card padding or margin left over (Lucas, 2026-11-12: "still substantial spacing there below").
-     model.ts estimates it at its 24px line. */
-  margin-block: 0;
-  padding-block: 0;
-  /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
-  padding-inline: calc((var(--cv-row-icon) - 12px) / 2) 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
-   cx-ncc.102): what the agent is doing now and the turn's time. */
-.cv-activity {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--grid-row);
-  margin: 0;
-  padding-inline-start: 0;
-  font-size: var(--text-body);
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-.cv-activity__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* The words' rolling cell (ui/motion/TextRoll.tsx): it gives way before the time. */
-.cv-activity__roll {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.cv-activity__time {
-  flex: none;
-  font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
-}
-/* A live line under a plan is the finished turn footer's slot. Keep its content at the same
-   leading edge while the row holds the footer's 32 line, so `turnSummary` can replace it in place
-   when the turn ends. */
-.acpmux-row.acpmux-activityLine.acpmux-row--below {
-  min-height: 0;
-  height: var(--cv-footer-row);
-  padding-bottom: 0;
-}
-.acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-live-line-box, var(--cv-footer-row));
-}
-/* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
-   TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-live-step-height);
-}
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
-}
-
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
    pointer, the shared focus ring, no hover fill, Leo 2026-10-13); nothing else opens. */
@@ -9639,7 +9419,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-worked__time,
 .cv-worked__label-time,
 .cv-command__time,
-.cv-activity__time,
 .cv-waterfall__time,
 .cv-agentmsg__time,
 .cv-subagent__time,

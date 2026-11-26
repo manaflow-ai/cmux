@@ -3099,6 +3099,8 @@ Above `pr-red-checks` in `.github/workflows/cmux-next.yml`.
 
 compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
 
+It starts only when `checks` ran (not skipped). A call after a skipped `checks` has no red of its own to add, and cmux-next-guards.yml's call on every head already writes the `ran` line and clears an older head's red from all of that head's check runs. On 11-25 03Z..11Z, 1,387 runs paid this job about 1.3 min each (about 5.6k runner-min a day), almost all of them after a skipped `checks`.
+
 ## note-341
 
 Above `push-attribution: if` in `.github/workflows/cmux-next.yml`.
@@ -5151,6 +5153,21 @@ So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.l
 cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
+
+## note-head-fail-fast
+
+Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs).
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
+(controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the
+head's other jobs kept running for 238,776 runner-min a day. A red head never lands as it is. So when one of the
+jobs a head most often first fails on (app compile, fast tier, fast tier cargo, web bundles, generated files, fast
+gates, tooling-tests, pr pipeline) fails, a caller job that needs only that job runs
+`head-fail-fast.yml`: unless the failed job is red on the base too (land-judge excuses that red), it cancels the
+head's other heavy pull_request runs still queued or running, never its own run, and lists them in its summary.
+Replayed on that day's jobs, these triggers fire on 2,053 heads and cut about 51.7k runner-min a day net (54.2k no longer spent after the trigger, less 2.4k re-spent on the 250 heads later rerun). The failed check stays the head's verdict. `vars.CI_HEAD_FAIL_FAST` set to `0` turns it off; a full-ci label or a
+fork's pull request never cancels. Rules: `scripts/ci/head_fail_fast.py`.
 
 ## note-559
 

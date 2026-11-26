@@ -497,3 +497,37 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
         },
     );
 }
+
+#[test]
+fn a_pass_over_much_text_on_many_threads_finds_what_one_thread_finds() {
+    // Past PAR_MIN_BYTES so the pass takes threads; docs of uneven size so chunks finish apart.
+    let filler = "lorem ipsum dolor sit amet ".repeat(1_000);
+    let docs: Vec<(String, Arc<Doc>)> = (0..400)
+        .map(|n| {
+            let mut turns = vec![turn("start", &filler[..(n % 7 + 1) * 3_000])];
+            if n % 13 == 0 {
+                turns.push(turn("needle here", &format!("planted Zebrafinch {n}")));
+            }
+            turns.push(turn("end", &filler[..(n % 5 + 1) * 2_000]));
+            (
+                format!("chat-{n}"),
+                Arc::new(Doc::new(Stamp { updated_ms: 0, messages: None }, &turns)),
+            )
+        })
+        .collect();
+    let refs: Vec<(&String, &Arc<Doc>)> = docs.iter().map(|(k, d)| (k, d)).collect();
+    let bytes: usize = refs.iter().map(|(_, d)| d.text.len()).sum();
+    assert!(bytes >= PAR_MIN_BYTES, "{bytes} bytes take one thread");
+    let words = needle("zebrafinch planted");
+    let matcher = Matcher::new(&words);
+    let find =
+        |&(key, doc): &(&String, &Arc<Doc>)| doc.find(&words, &matcher).map(|m| (key.clone(), m));
+    let mut many = par_filter_map(&refs, find);
+    let mut one: Vec<_> = refs.iter().filter_map(find).collect();
+    many.sort_by(|a, b| a.0.cmp(&b.0));
+    one.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(many.len(), 400_usize.div_ceil(13));
+    assert_eq!(many, one);
+    // Below the bound the pass stays on this thread and still finds every doc.
+    assert_eq!(par_filter_map(&refs[..26], find).len(), 2);
+}

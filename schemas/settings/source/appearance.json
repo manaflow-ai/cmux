@@ -483,7 +483,7 @@
         {
           "key": "customize.doctorNotice",
           "name": "customizeDoctorNotice",
-          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off (the default since Leo 2026-11-25: \"did we remove these by default yet\", \"make it stop showing the customization not applied/reviewd and shit popup tosts\"): no toast; Settings' doctor card shows the findings inline and the CLI still lists them. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
           "title": {
             "key": "settings.customize.doctorNotice",
             "text": "Customization notices"
@@ -497,7 +497,7 @@
             "type": "CmuxConfigSnapshot",
             "prefixed": true
           },
-          "default": true,
+          "default": false,
           "keywords": [
             "customize",
             "customization",

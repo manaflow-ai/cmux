@@ -164,7 +164,7 @@
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"color","property":"background","values":{"rgb(0 0 0 / 0.55)":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"color","property":"color","values":{"#fff":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"easing","property":"animation","values":{"cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"26px":2,"1px":5,"var(--cv-bullet-size, 5px)":1,"36px":1,"12px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"26px":2,"1px":4,"var(--cv-bullet-size, 5px)":1,"36px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"min-height","values":{"160px":1,"120px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"radius","property":"border-radius","values":{"var(--cv-code-radius, 5px)":1,"2px":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"bottom","values":{"6px":1}}
@@ -190,7 +190,7 @@
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"margin","values":{"2px":10}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"margin-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"margin-top","values":{"2px":1,"10px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"outline","values":{"1.5px":13}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"outline","values":{"1.5px":12}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"padding","values":{"2px":3,"10px":3}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"padding-block","values":{"2px":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"token-copy","property":"padding-inline","values":{"2px":1}}
@@ -535,7 +535,6 @@
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"token-copy","property":"outline","values":{"1.5px":1}}
 {"file":"agent-session/guest/guest.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"agent-session/guest/guest.css","kind":"token-copy","property":"outline","values":{"1.5px":4}}
-{"file":"apps/scene/scene.css","kind":"token-copy","property":"outline","values":{"1.5px":2}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"radius","property":"border-radius","values":{"3px":1}}
 {"file":"gallery/fixtures/SubagentTrayMotionStage.tsx","kind":"spacing","property":"gap","values":{"6px":1}}
@@ -662,12 +661,6 @@
 {"file":"pages/cloud/styles.css","kind":"spacing","property":"padding-top","values":{"14px":1,"6px":2}}
 {"file":"pages/cloud/styles.css","kind":"token-copy","property":"gap","values":{"2px":5}}
 {"file":"pages/cloud/styles.css","kind":"token-copy","property":"padding","values":{"2px":1}}
-{"file":"pages/coderouter/styles.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
-{"file":"pages/coderouter/styles.css","kind":"height","property":"height","values":{"8px":1}}
-{"file":"pages/coderouter/styles.css","kind":"height","property":"min-height","values":{"calc(var(--cmux-control-height) + 13px)":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"gap","values":{"6px":3,"4px 10px":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"margin","values":{"14px 0 5px":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 12px":1,"6px 18px 18px":1,"6px 0":1,"0 6px":1,"18px":1}}
 {"file":"pages/debug-settings/styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":1}}
 {"file":"pages/debug-settings/styles.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"22px":1,"18px":1,"14px":1,"10px":1}}
 {"file":"pages/debug-settings/styles.css","kind":"height","property":"min-height","values":{"26px":1}}

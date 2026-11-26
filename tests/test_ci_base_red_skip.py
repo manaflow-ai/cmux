@@ -138,6 +138,8 @@ class BaseRedSkip(unittest.TestCase):
     def test_workflows_wire_the_switch_and_full_ci(self):
         wired = {
             "cmux-next-guards.yml": ["tooling-tests"],
+            # ci/steps.toml's tooling-tests-N, the job's tt- steps on a feat-cmux-next pull request.
+            "pr-pipeline.yml": ["tooling-tests"],
             "cloud-journey-pr.yml": ["journey-staging"],
             "cmux-next.yml": ["cmux-next fast tier (cargo)", "cmux-next generated files"],
         }

@@ -930,6 +930,45 @@ git_q -C "$src" checkout -q --detach "$pending"
 request --tree-ready "$pending"
 ! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
 rm -f "$TMP/gh-runs"
+
+# An older tree (Leo, 2026-11-26: "cant we just accept the nightly using an older tui version"): a commit whose
+# tree is a confirmed 404 and that no run builds is promoted when the newest published tree within 24 h has its
+# daemon-capabilities.json (scripts/cmux-next/older-tree-for-tip.sh, the nightly's resolver asks the same), and
+# its own nightly.yml has the line and the script. No backfill: the request is the answer.
+git_q -C "$src" checkout -q -b older-tree "$pending"
+cp "$ROOT/scripts/cmux-next/older-tree-for-tip.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/plans/cmux-next"; echo '{"capabilities": ["a"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui six, published"
+olderbase=$(git -C "$src" rev-parse HEAD)
+publish "$olderbase"
+echo seven > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui seven, never published"
+older=$(git -C "$src" rev-parse HEAD)
+branch "$older"
+olderkey=$(key "$olderbase")
+RUN_ID=140 request --tree-ready "$older"
+[[ "$status" == 0 ]] && dispatched "$older" && ! backfilled \
+  || fail "a commit with an older matching published tree must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "older published tree ${olderkey:0:12} of ${olderbase:0:12}, same daemon-capabilities.json" <<<"$out" \
+  || fail "the request must name the older tree and its commit:" "$out"
+# The helper answers the nightly's resolver the same way: the tip is the build commit, the tree is the older one.
+helper=$(cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh 2>/dev/null)
+grep -qx "source_commit=$older" <<<"$helper" && grep -qx "key=$olderkey" <<<"$helper" && grep -qx "commit=$olderbase" <<<"$helper" \
+  && grep -qx "tree_from=$olderbase 1 0" <<<"$helper" || fail "older-tree-for-tip.sh must print the tip and the older tree:" "$helper"
+# The tip's own tree published: exit 3, the resolver takes it as before.
+git_q -C "$src" checkout -q --detach "$olderbase"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "a published own tree must exit 3, got $rc"
+git_q -C "$src" checkout -q older-tree
+# Another daemon-capabilities.json: no older tree serves this app, so it waits as before.
+echo '{"capabilities": ["a", "b"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo eight > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui eight, new capability"
+newcaps=$(git -C "$src" rev-parse HEAD)
+branch "$newcaps"
+RUN_ID=141 request --tree-ready "$newcaps"
+[[ "$status" == 0 ]] && ! dispatched "$newcaps" \
+  || fail "a commit whose capabilities no published tree matches must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not promoting ${newcaps:0:12}: the nightly cannot resolve" <<<"$out" || fail "the skip must say why:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A commit whose app is the one the feed already publishes is not requested: nothing that
@@ -1010,5 +1049,58 @@ request --sha nothex --release-compile-green
 [[ "$status" == 2 ]] || fail "a malformed --sha must exit 2, got $status:" "$out"
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
+
+# The tick's walk over many commits whose trees are not published reads origin once, not once a commit.
+# Regression: tick 45696501186 (2026-11-25) refused 35 such commits in 29 minutes, each call
+# making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
+real_git="$(command -v git)"
+mkdir -p "$TMP/gitlog"
+cat > "$TMP/gitlog/git" <<STUB
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+done
+exec "$real_git" "\$@"
+STUB
+chmod +x "$TMP/gitlog/git"
+git_q -C "$src" checkout -q --detach "$head"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head"
+for i in $(seq 1 12); do
+  echo "unpublished $i" > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "unpublished tree $i"
+done
+walk_tip=$(git -C "$src" rev-parse HEAD)
+branch "$walk_tip"
+rm -f "$TMP/gh-runs" "$TMP/gh-runs-json"
+walk() { # <tick cache>: the tick's loop, newest first; stops at a request
+  local c
+  : > "$TMP/git-network.log"; : > "$TMP/gh.log"; walked=0
+  for c in $(git -C "$src" rev-list --first-parent -n 12 "$walk_tip"); do
+    git_q -C "$src" checkout -q --detach "$c"
+    PATH="$TMP/gitlog:$PATH" GH_TICK_CACHE="$1" request --tree-ready "$c"
+    walked=$((walked + 1))
+    [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    ! grep -q '^requested nightly-next promotion' <<<"$out" || break
+  done
+}
+walk "$TMP/walk-tick-1"
+(( walked == 12 )) || fail "the walk must pass over every unpublished commit, walked $walked"
+grep -q "cannot resolve a published cmux-tui tree" <<<"$out" || fail "an unpublished commit must be refused:" "$out"
+! grep -q 'workflow run nightly.yml' "$TMP/gh.log" || fail "no unpublished commit may be promoted:" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c . "$TMP/git-network.log")" == 1 ]] \
+  || fail "a walk over 12 unpublished commits must read origin once, got:" "$(cat "$TMP/git-network.log")"
+# Once an older commit's tree is published the walk requests it, still reading and fetching origin once each.
+publish "$(git -C "$src" rev-parse "$walk_tip~5")"
+walk "$TMP/walk-tick-2"
+dispatched "$(git -C "$src" rev-parse "$walk_tip~5")" || fail "the walk must request the published commit:" "$out" "$(cat "$TMP/gh.log")"
+(( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 1 && $(grep -c '^fetch$' "$TMP/git-network.log") <= 1 )) \
+  || fail "the walk must read origin once and fetch at most once, got:" "$(cat "$TMP/git-network.log")"
+# Without GH_TICK_CACHE (a landing's single call) every call reads origin for itself.
+: > "$TMP/git-network.log"
+git_q -C "$src" checkout -q --detach "$walk_tip"
+PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
+PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
+(( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 2 )) || fail "without a tick cache each call reads origin:" "$(cat "$TMP/git-network.log")"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" checkout -q --detach "$head"
 : "$other"
 echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"

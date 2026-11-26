@@ -37,7 +37,7 @@ jobs:
     # here. Guard status counts the skip as fine only on such a pull request. The base is matched exactly: a pull
     # request into a stacked feat-cmux-next-* branch starts no pr-pipeline.yml run, so the job runs there.
     if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -95,7 +95,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -198,7 +198,9 @@ jobs:
 
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_run_guards.py
+        run: |
+          python3 tests/test_ci_run_guards.py
+          python3 tests/test_ci_tooling_steps.py
 
       - name: Validate push triggers name their branches
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -206,11 +208,18 @@ jobs:
 
       - name: Validate no new check first runs after the merge
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_post_merge_checks.py
+        run: |
+          python3 tests/test_ci_post_merge_checks.py
+          python3 tests/test_ci_post_merge_batch.py
+          python3 tests/test_ci_routed_jobs_check_needs.py
+          python3 tests/test_ci_oops_isolate.py
+          python3 tests/test_ci_piece_swap.py
 
       - name: Validate the step table
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_step_table.py
+        run: |
+          python3 tests/test_ci_step_table.py
+          python3 tests/test_indexnow_notification.py
 
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -339,6 +348,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
 
+      - name: Validate the head fail-fast of PR runs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_head_fail_fast.py
+
       - name: Validate the kit's base-red notice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_ios_kit_base_red.py
@@ -390,7 +403,13 @@ jobs:
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_macos_xcode_selection.py
+        run: |
+          python3 tests/test_ci_macos_xcode_selection.py
+          python3 tests/test_ci_mac_grants.py
+          python3 tests/test_mac_live_delivery.py
+          python3 tests/test_nightly_next_signer_pick.py
+          python3 tests/test_macos_cross_builds_have_go.py
+          python3 tests/test_nightly_job_sdkroot.py
 
       - name: Validate the CEF shim C++ tests run without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -432,7 +451,9 @@ jobs:
 
       - name: Validate canonical compile cache build root
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_canonical_build_root.py
+        run: |
+          python3 tests/test_ci_canonical_build_root.py
+          python3 tests/test_ci_cache_restore_receipt.py
 
       - name: Validate seeded macOS checkout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -978,6 +999,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the Team-signed tree's on-branch check spends no REST call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_team_signed_on_branch_check.py
+
       - name: Validate every build-fleet client call checks the client is installed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_ci_client_guarded.py
@@ -996,7 +1021,9 @@ jobs:
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_nightly_builder.py
+        run: |
+          python3 tests/test_nightly_builder.py
+          python3 tests/test_nightly_early_webviews.py
 
       - name: Validate shallow complexity comparison fetching
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1076,7 +1103,9 @@ jobs:
 
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_pr_runner_pool.py
+        run: |
+          python3 tests/test_ci_pr_runner_pool.py
+          python3 tests/test_cmux_next_pr_control_on_jit.py
 
       - name: Validate live runner reads leave the census publisher a reserve
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1288,6 +1317,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate every non-cone sparse checkout keeps .gitmodules
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
+
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -1310,7 +1343,10 @@ jobs:
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+        run: |
+          python3 tests/test_ci_required_checks_have_no_path_filters.py
+          python3 tests/test_ci_pr_trigger_paths.py
+          python3 tests/test_ci_pr_ran_line.py
 
       - name: Validate the CI quota hold gate stays on optional workflows only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1356,6 +1392,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate every push- or PR-started workflow has a concurrency group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
+
       - name: Validate pull_request tailnet joins are opt-in and same-repo only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
@@ -1378,7 +1418,10 @@ jobs:
 
       - name: Validate cmux-tui macOS routes avoid the nightly label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+        run: |
+          python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+          python3 tests/test_ci_tui_rerun_leg_rereads_pool.py
+          python3 tests/test_cmux_tui_fallback_lost_leg.py
 
       - name: Validate the cmux_next_ daemon-tests gate and its marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1449,6 +1492,10 @@ jobs:
       - name: Validate the submodule init cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_init_submodule.sh
+
+      - name: Validate ios-live person slots and supervision
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_person_slot.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2433,7 +2480,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2496,7 +2543,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2531,7 +2578,7 @@ jobs:
         group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2570,7 +2617,7 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

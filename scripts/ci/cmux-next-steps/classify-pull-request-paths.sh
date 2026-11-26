@@ -242,7 +242,11 @@ fi
 # vars.CI_PR_FAST_ONLY=0 turns this off. Last, so these lines win over every route above.
 if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "${PR_FAST_ONLY:-true}" == true \
   && ",$labels," != *,full-ci,* ]]; then
-  deferred=(swift_canary cmuxnext_swift mac_release macos generated swift daemon full fast_tier fast_tier_cargo)
+  deferred=(swift_canary cmuxnext_swift mac_release macos swift daemon full fast_tier fast_tier_cargo)
+  # Leo, 2026-11-25: "if like... it works on linux and is at least as fast if not faster, then we ought to just go
+  # ahead." Generated files runs on the Linux pool (generated-files-linux), so a pull request keeps it unless
+  # vars.CI_GENERATED_FILES_LINUX=0 sends it back to the Mac.
+  [[ "${GENERATED_LINUX:-true}" == true ]] || deferred+=(generated)
   [[ ",$labels," == *,dev-build,* ]] || deferred+=(scheme)
   printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
   echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"

@@ -318,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):

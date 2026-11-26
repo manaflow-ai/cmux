@@ -154,14 +154,12 @@ import Testing
     /// htop already running in a Mac pane of 120x40: the phone attaches into
     /// it, switches apps, locks, rotates and goes to another tab and back.
     /// None of it resizes the Mac: the page shows the Mac's grid (zoomed by
-    /// the screen). Typing text into htop fits it (exactly one resize); `q`
-    /// releases it; htop started again fits at once, before any frame of it
-    /// at the Mac's grid.
-    @Test func theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce() {
-        TerminalFitMemory.reset()
+    /// the screen). Typing into htop, quitting it and starting it again
+    /// resize nothing either (Leo, 2026-11-25: "do everything at parity on
+    /// the phone").
+    @Test func theAlternateScreenIsShownAtTheMacsGridAndNothingResizesTheMac() {
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
-        // Settings → Terminal → Zoom Full-Screen Apps on (off by default).
-        let session = TerminalProjectingSession(inner: mac, zooms: true)
+        let session = TerminalProjectingSession(inner: mac)
         var grids: [(columns: Int, alternate: Bool)] = []
         var alternate = false
         var claim = Debounce()
@@ -222,7 +220,7 @@ import Testing
         viewing["arrow keys"] = settle("arrow keys")
         session.send(Data("abc".utf8))
         let typed = settle("type abc into htop")
-        let fittedColumns = grids.last?.columns
+        let typedColumns = grids.last?.columns
         session.send(Data("q".utf8))
         let quit = settle("q (htop exits)")
         let before = grids.count
@@ -234,11 +232,12 @@ import Testing
         for (name, resizes) in viewing {
             #expect(resizes == 0, "\(name) resized the Mac: \(mac.resizeLog)")
         }
-        #expect(typed == 1, "typing text into htop fits it once: \(mac.resizeLog)")
-        #expect(fittedColumns == 54, "fitted at the phone's columns: \(grids)")
-        #expect(quit == 1, "htop exiting releases it: \(mac.resizeLog)")
-        #expect(again == 1, "htop again fits at once: \(mac.resizeLog)")
-        #expect(macGridFrames == 0, "no htop frame at the Mac's grid before the remembered fit: \(grids)")
+        #expect(typed == 0, "typing into htop resized the Mac: \(mac.resizeLog)")
+        #expect(typedColumns == 120, "htop stays at the Mac's columns, scaled: \(grids)")
+        #expect(quit == 0, "htop exiting resized the Mac: \(mac.resizeLog)")
+        #expect(again == 0, "htop again resized the Mac: \(mac.resizeLog)")
+        #expect(mac.ptyResizes == 0, "the Mac pane kept 120x40: \(mac.resizeLog)")
+        #expect(macGridFrames >= 1, "htop again shows at the Mac's grid: \(grids)")
     }
 
     /// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone

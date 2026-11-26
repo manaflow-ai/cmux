@@ -148,6 +148,7 @@ import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import { mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn, isToolCommand } from "../toolMentions";
+import { withFolderCommands, skillsFirst, folderChats } from "./folderCommands";
 import {
   applyCommand,
   insertsText,
@@ -223,6 +224,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// gesture still opens the setup window and the prompt stays (CMUX-682).
   /// `late`: the send resumed after a wait (files read, dictation ended, setup done): hold and say why only.
   holdsSend?(text: string, place: ComputerUsePlace, late?: boolean): boolean;
+  /// A chat's last command list as acpmux keeps it (direct.ts `sessionCommands`): the New Tab's `/`
+  /// menu lists the person's newest chat in its folder until its own deferred chat answers.
+  readChatCommands?(sessionId: string): Promise<SlashCommand[]>;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -1084,7 +1088,8 @@ export function NewTabScreen(props: Props) {
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
-    const skills = agent === listed ? snapshot.commands : undefined;
+    // The list the menu showed, a kept chat's included, so a skill picked from it goes as Codex reads it.
+    const skills = agent === listed ? slashCommands : undefined;
     const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
@@ -1261,9 +1266,17 @@ export function NewTabScreen(props: Props) {
   const commandQuery = commandAt?.query;
   // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
   // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
+  // Until the agent's deferred chat answers (its start can take seconds), the list of the person's
+  // newest chat of that agent in this folder, which acpmux keeps (folderCommands.ts). Skills first, A to Z.
+  const keptKey = `${harness ?? ""}\u0000${chatFolder ?? ""}`;
+  const [keptRead, setKeptRead] = useState<{ key: string; commands: SlashCommand[] }>();
+  const keptCommands = keptRead?.key === keptKey ? keptRead.commands : undefined;
   const slashCommands = useMemo(
-    () => (snapshot.commands ?? []).filter((command) => !isToolCommand(command)),
-    [snapshot.commands],
+    () =>
+      skillsFirst(
+        withFolderCommands(snapshot.commands ?? [], keptCommands).filter((command) => !isToolCommand(command)),
+      ),
+    [snapshot.commands, keptCommands],
   );
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const commandOpening = commandAt !== undefined;
@@ -1275,6 +1288,30 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);
+  // The kept list is read as the menu opens, once per opening: the chat list is looked at only
+  // then (from a ref), never on each change to it, so busy chats cost nothing while it stays open.
+  // The newest chats of that agent there go first; one with no list yet (a deferred chat that never
+  // started, this page's own included) gives way to the next, and an empty answer is never kept.
+  const readChatCommands = props.readChatCommands;
+  const keptReadFor = keptRead?.key;
+  const sessionsNow = useRef(snapshot.sessions);
+  sessionsNow.current = snapshot.sessions;
+  useEffect(() => {
+    if (!commandOpening || !readChatCommands || keptReadFor === keptKey) return;
+    const chats = folderChats(sessionsNow.current, harness, chatFolder);
+    if (chats.length === 0) return;
+    let current = true;
+    void (async () => {
+      for (const chat of chats) {
+        const commands = await readChatCommands(chat).catch(() => [] as SlashCommand[]);
+        if (!current) return;
+        if (commands.length > 0) return setKeptRead({ key: keptKey, commands });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [commandOpening, readChatCommands, keptReadFor, keptKey, harness, chatFolder]);
   const commandMatches = useMemo(
     () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
     [commandAt, menuCommands],
@@ -2013,8 +2050,14 @@ export function NewTabScreen(props: Props) {
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || fieldElement()?.contains(event.target as Node)) return;
-    // The mic and Send at the row's end (Claude Code's split) keep their own press.
-    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
+    // A press in a menu a chip portals out (React bubbles it here) is the menu's, not the row's.
+    if (!event.currentTarget.contains(event.target as Node)) return;
+    // The row's controls (+, the chips, the mic and Send) keep their own press; the gaps between them focus the field.
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, [role='button'], [aria-haspopup], a, input, select, .acpmux-newtab-plus")
+    )
+      return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
@@ -2511,6 +2554,8 @@ export function NewTabScreen(props: Props) {
           slash list behind +, so it offers those rows of the registry only. */}
       <ComposerPlusMenu
         className={`acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        // The card's + is in the bar under the field: its menu opens down, over the page, not over the field.
+        {...(split ? { menuSide: "bottom" as const } : {})}
         entries={composerPlusRegistry({
           translate: t,
           canCapture: false,
@@ -2951,7 +2996,6 @@ export function NewTabScreen(props: Props) {
               focusFromRow(event);
             }}
           >
-            {split && attachmentPicker}
             {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
               none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
             <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
@@ -3031,9 +3075,22 @@ export function NewTabScreen(props: Props) {
                 shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
               {!shell && attachmentView !== "strip" && inline.chips}
             </div>
-            {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
-              the mic and Send end the field's row and the empty box is one line tall, as the chat
-              composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
+            {/* The card's bar, under the field (Lucas 2026-11-25, newtab-composer-lab "Unified Card"): +, the
+              quiet row (the mode, model and effort), then the mic and Send, one grid row (screen.css), in the
+              order they read and tab. */}
+            {split && attachmentPicker}
+            {split && Chips && (
+              <div className="nt-foot" onPointerDownCapture={touch}>
+                <ComposerFoot ref={foot} plain={plainFooter}>
+                  <ChipsSlot
+                    chips={Chips}
+                    snapshot={chipSnapshot}
+                    {...(chipFolder ? { cwd: chipFolder } : {})}
+                    onAddAgent={openSetup}
+                  />
+                </ComposerFoot>
+              </div>
+            )}
             {split && pickers}
           </div>
           {fixFromLink && props.onFixFromLink && (
@@ -3069,20 +3126,6 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
-            and Send. Folder and computer head the box (above). */}
-        {split && Chips && (
-          <div className="nt-foot" onPointerDownCapture={touch}>
-            <ComposerFoot ref={foot} plain={plainFooter}>
-              <ChipsSlot
-                chips={Chips}
-                snapshot={chipSnapshot}
-                {...(chipFolder ? { cwd: chipFolder } : {})}
-                onAddAgent={openSetup}
-              />
-            </ComposerFoot>
-          </div>
-        )}
         {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
             Aside's New Tab draws them; it steps aside while the suggestions show. */}
         {pill && (
@@ -3179,7 +3222,8 @@ export function NewTabScreen(props: Props) {
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
-          hostGlass={false}
+          // One material with the box (composerStates.css, ONE MATERIAL FAMILY): the App's popover glass,
+          // with its cover, as Popover draws by default (#50119).
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}

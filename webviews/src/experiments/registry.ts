@@ -14,6 +14,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { forumCallLook } from "../agent-session/acpmux/conversation/forumCall.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
@@ -133,7 +134,6 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
-import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -201,6 +201,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
+  forumCallLook,
   tableActionsPlace,
   expandRowLook,
   backgroundReactionLook,
@@ -282,7 +283,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
-  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,
