@@ -63,10 +63,9 @@ test("a classic pane gets the hint on pane.js alone and its frame sites still re
     sourcemap: "external",
     metafile: true,
     logLevel: "silent",
-    absWorkingDir: root,
   });
   const outputs = result.metafile.outputs;
-  const entryOut = Object.keys(outputs).find((output) => path.resolve(root, output) === outfile)!;
+  const entryOut = Object.keys(outputs).find((output) => path.resolve(output) === outfile)!;
   const staticOut = (outputs[entryOut]!.imports ?? [])
     .filter((item) => item.kind === "import-statement" && !item.external)
     .map((item) => item.path);
@@ -76,8 +75,8 @@ test("a classic pane gets the hint on pane.js alone and its frame sites still re
   await classicScript({
     outdir,
     outputs,
-    staticOut: staticOut.map((output) => path.resolve(root, output)),
-    entryOut: path.resolve(root, entryOut),
+    staticOut,
+    entryOut,
     maps: true,
   });
   await addCompileHints([outfile]);
