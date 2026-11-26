@@ -18,7 +18,7 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
-/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// Claude Code's switch for its to-do tools (TaskCreate, TaskUpdate) in a `-p`
 /// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
 const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
@@ -403,13 +403,11 @@ fn build_harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
-        // `-p` session only when asked, and has no TodoWrite there: without
-        // them a chat keeps no list for the agent pane's checklist
-        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
-        if get(TODO_TOOLS_ENV).is_none() {
-            cmd.env(TODO_TOOLS_ENV, "1");
-        }
+        // Claude Code 2.1 offers its to-do tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there. cmux shows
+        // no agent to-do list (`todo_tools.rs`), so the switch is never on,
+        // whatever the profile, the login or the daemon's env set.
+        cmd.env_remove(TODO_TOOLS_ENV);
         // Claude Code's own cross-session messaging (ListAgents, SendMessage to other sessions,
         // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
         // daemon started it, and a message it holds shows nowhere; an agent here messages others
