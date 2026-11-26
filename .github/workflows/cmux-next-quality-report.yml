@@ -58,10 +58,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           sparse-checkout-cone-mode: false
 
       # This short-lived read is used immediately to make the sticky issue's UTC history the daily marker.
@@ -259,7 +255,7 @@ jobs:
           GH_TOKEN: ${{ (steps.hq-read-bot.outputs.token || steps.hq-read.outputs.token) }}
         run: |
           set -euo pipefail
-          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --status completed -L 1 \
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --branch nightly-next --status completed -L 1 \
             --json databaseId -q '.[0].databaseId')"
           [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
 

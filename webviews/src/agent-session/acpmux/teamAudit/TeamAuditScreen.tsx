@@ -380,11 +380,6 @@ function Breakdown({
       )}
       <div className="cst-status" aria-live="polite">
         {status}
-        {read.result?.kind === "failed" && (
-          <button type="button" className="cst-link" onClick={read.retry}>
-            {t("ledger.retry")}
-          </button>
-        )}
       </div>
     </div>
   );

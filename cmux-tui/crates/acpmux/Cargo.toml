@@ -167,7 +167,8 @@ cmux-tui-platform.workspace = true
 # SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
 cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
-# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
+# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`),
+# and the model picker's lists, served stale while a probe refreshes them (`hub/model_lists.rs`).
 cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
@@ -349,6 +350,11 @@ required-features = ["sim"]
 [[test]]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
+required-features = ["hub-carrier"]
+
+[[test]]
+name = "pair_matrix_desktop"
+path = "tests/pair_matrix_desktop.rs"
 required-features = ["hub-carrier"]
 
 # Relay re-homing: the relay a host serves on dies and the host and its dialers move to the next.

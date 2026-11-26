@@ -3,7 +3,7 @@ import { formatSlackMessage, isOwnSlackMessage, postSlackMessage, slackEnabled, 
 import { sha256Hex } from "../ingress/verify.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
 import { declared } from "../do-stub.ts"
-import { SLACK_ALLOWANCE_MAX_SECONDS, SLACK_METER_SCHEMA, SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, recordSlackSender, setSlackAllowance, slackAllowance, slackMayWake, slackSpend, validSlackAllowance, type SlackSender } from "./slack-meter.ts"
+import { SLACK_ALLOWANCE_MAX_SECONDS, SLACK_METER_SCHEMA, SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, recordSlackSender, setSlackAllowance, slackAllowance, slackMayWake, slackNames, slackSpend, validSlackAllowance, type SlackSender } from "./slack-meter.ts"
 
 /**
  * `senderIsOwner`: whether the Slack sender is the Chief's owner, as cmux-platform said. `inbound.isOwner` here is
@@ -45,7 +45,7 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const text = formatSlackMessage(committed)
   // RFD 0123, Plan and billing: who this message's awake time counts against; a non-owner past the day's allowance
   // still reaches the conversation (the owner sees it) and rides along with the next turn, but wakes nothing.
-  const sender: SlackSender = { slackTeamId: i.slackTeamId, slackUserId: i.slackUserId, senderIsOwner: w.senderIsOwner ?? i.isOwner, cmuxTeamId: i.cmuxTeamId, ownerUserId: i.ownerUserId }
+  const sender: SlackSender = { slackTeamId: i.slackTeamId, slackUserId: i.slackUserId, senderIsOwner: w.senderIsOwner ?? i.isOwner, cmuxTeamId: i.cmuxTeamId, ownerUserId: i.ownerUserId, slackUserName: i.slackUserName }
   recordSlackSender(b.sql, value.message_id, sender)
   const wake = slackMayWake(b.sql, sender, Date.now())
   // Preserve provenance even if an ordinary wake already loaded this message as context.
@@ -68,7 +68,8 @@ export async function slackAwake(b: ChiefBrainDO, o: { set?: number | null; days
     setSlackAllowance(b.sql, o.set)
   }
   const days = Math.min(Math.max(Math.floor(o.days), 1), 31)
-  return { ok: true as const, allowance_seconds: slackAllowance(b.sql), default_seconds: SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, max_seconds: SLACK_ALLOWANCE_MAX_SECONDS, days, senders: slackSpend(b.sql, Date.now(), days) }
+  const senders = slackSpend(b.sql, Date.now(), days)
+  return { ok: true as const, allowance_seconds: slackAllowance(b.sql), default_seconds: SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, max_seconds: SLACK_ALLOWANCE_MAX_SECONDS, days, senders, names: slackNames(b.sql, senders) }
 }
 
 /** Called after ConversationDO committed an owner/Chief reply. Claim before sending: no replay can resend it. */
