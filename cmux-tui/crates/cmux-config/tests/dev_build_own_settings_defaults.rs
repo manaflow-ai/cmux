@@ -74,15 +74,17 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
 
 #[test]
 fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
-    // NIGHTLY and stable pass nothing: the schema's default.
+    // NIGHTLY and stable pass nothing: the schema's default (on for every build since #48532, Aziz
+    // 2026-11-20: a phone signed in to the same account already lists the Mac).
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    // A value the row refuses and a key no row has are ignored.
-    let odd =
-        build_defaults_from(Some(r#"{"mobile.allowIPhoneConnections":"yes","no.such.key":1}"#));
+    assert_eq!(row.value, Some(json!(true)));
+    assert_eq!(row.default, Some(json!(true)));
+    assert!(!row.customized);
+    // A value the row refuses and a key no row has are ignored: the schema's default stands.
+    let odd = build_defaults_from(Some(r#"{"updates.automatic":"yes","no.such.key":1}"#));
     let state = state(schema(&odd), "{}");
-    let row = state.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    assert_eq!(row.default, Some(json!(false)));
+    let row = state.get(&Target::Key(AUTOMATIC.into())).row.expect("the row");
+    assert_eq!(row.value, Some(json!("download")));
+    assert_eq!(row.default, Some(json!("download")));
 }

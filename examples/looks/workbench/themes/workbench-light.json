@@ -38,7 +38,7 @@
   "appearance.metrics.dividerThickness": 1,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#eceef2",
+  "appearance.surfaces.sidebar.color": "#f3f4f7",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.sectionLook": "lines",
   "appearance.surfaces.agentPane.color": "#f6f7f9",
