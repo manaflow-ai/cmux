@@ -225,6 +225,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
 
 [[test]]
+path = "tests/test_ci_fast_track.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/fast_track.py (the fast-track class) and its use in scripts/ci/pr_router.py; run python3 -m unittest tests/test_ci_fast_track.py yourself after editing either or risk_tier.py's RULES."
+
+[[test]]
 path = "tests/test_ci_fetch_complexity_base.py"
 lane = "linux-guard"
 
@@ -829,11 +834,6 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_settings_catalog_keys.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_settings_catalog_keys.py"
-
-[[test]]
 path = "tests/test_ci_self_hosted_downloads_are_fresh.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Fails when a job on a self-hosted selector downloads an artifact into a relative directory (a persistent worker keeps an earlier job's files there) instead of ${{ runner.temp }}; run python3 tests/test_ci_self_hosted_downloads_are_fresh.py yourself after adding a download-artifact step (a few seconds, no build)."
@@ -841,6 +841,11 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Fails when a
 [[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_settings_catalog_keys.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_settings_catalog_keys.py"
 
 [[test]]
 path = "tests/test_ci_setup_bun_cache_layout.py"
@@ -1069,8 +1074,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_lint_ios_conventions_scope.py"
 lane = "linux-guard"
