@@ -584,6 +584,9 @@ libc = "0.2"
 # already links mio with these features.
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
+# SIMD UTF-8 validation for ghostty-vt's neutral-run scan; already in the
+# graph via tokio-websockets and encoding_rs, so no new transitive code.
+simdutf8 = "0.1.5"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
 # the Dioxus CLI that sends the patches (dx 0.7.10).
