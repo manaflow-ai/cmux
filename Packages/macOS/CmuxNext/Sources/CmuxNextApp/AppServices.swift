@@ -264,7 +264,7 @@ final class AppServices {
     /// Each divider drag's input-to-first-frame time, one line a drag beside the focus log (``TransitionFrameLog``,
     /// `scripts/cmux-next/frame_timing.py`); always on: a drag costs one 1-point layer display and one line off-main.
     private(set) lazy var frameTiming: TransitionFrameLog? = FocusLogWriter.folder(tag: environment.tag).map {
-        TransitionFrameLog(directory: $0, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
+        TransitionFrameLog(directory: $0, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "", workCounts: { CEFEngine.dragWorkCounts })
     }
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).

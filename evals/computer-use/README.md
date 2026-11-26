@@ -95,6 +95,16 @@ success, every check's detail, refused, refusal_correct, background_safe,
 steps, turns, tokens, cost, wall time, error, the pre-registration digest) and
 keeps the agent's raw stream in `out/logs/<run>/`.
 
+Each row also splits its time (`cueval/waterfall.py`): `startup_s` (reset plus the
+agent booting to its init event), the step sums `model_s` (think before each
+call), `screenshot_s` (look calls' latency less settle), `action_s` (acting
+calls' latency less settle), `settle_s` (the server's `waited_ms`), `encode_s`
+(only when the server's result reports `timing.encode_ms`; null otherwise), and
+`final_s` (last tool result to exit, plus the check, also as `check_s`), with the
+per-step list in `step_waterfall`. A failed row names one `fail_cause`:
+timeout, max_turns, tcc_refused, model_error, harness_error, missed_refusal,
+wrong_refusal, background_unsafe, wrong_target or verify_mismatch.
+
 ## Arms
 
 - `cua-driver-0.38.0`: trycua/cua tag `cua-driver-rs-v0.38.0` (commit
