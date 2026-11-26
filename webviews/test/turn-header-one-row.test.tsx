@@ -266,6 +266,13 @@ test("a notice steered in while the agent works keeps the turn's clock at the pr
   // A notice after the agent's reply, with no call between, still starts a stretch of its own.
   const woke = [...steered.slice(0, 3), steered[4]!, steered[5]!, steered[6]!];
   expect(header(ended([...woke, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  // So does one after a call a history page placed after the reply, though it started before it.
+  const paged = [...steered.slice(0, 3), call("sw-early", 299_000, [run("sw-early-1", "rg Reply")]), ...woke.slice(3)];
+  expect(header(ended([...paged, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  // Reopened mid-turn, the calls already read fold away (`readAtOpen`), yet the clock still counts
+  // from the prompt: they were the agent at work.
+  const reopened = steered.slice(0, -1).map((each) => (each.kind === "activity" ? { ...each, readAtOpen: 1 } : each));
+  expect(header(live(reopened, 402_000), "sw")!.at).toBe(0);
 });
 
 test("a run's summary line keeps its phrases in the order they came as the run grows", () => {
