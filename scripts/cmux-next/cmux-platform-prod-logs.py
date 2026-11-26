@@ -108,7 +108,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.attach_after_bind",
+    # One line per create or start pass (cmux-platform src/server/cloud/CloudCore.ts createTrace): the ms at which each
+    # step ended. Kept as TRACE_STEPS only (trace_fields), so a never_bound create says which step it last reached.
+    "cloud.create.submit",
+    "cloud.create.trace",
     "cloud.create.trace_unsent",
+    "cloud.start.submit",
+    "cloud.start.trace",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
     "cloud.fork_snapshot_delete_failed",
@@ -304,10 +310,114 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
-# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
-PUBLIC_BOOLS = ("lacks", "shared", "host")
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
+# cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+
+# The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
+# ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+TRACE_STEPS = frozenset({
+    "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
+    "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
+    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit",
+})
+
+
+def trace_steps(steps):
+    """A trace's steps as {listed step: ms}; a non-int or unlisted step is dropped."""
+    if not isinstance(steps, dict):
+        return None
+    out = {k: v for k, v in steps.items() if k in TRACE_STEPS and base.typed(INT, v) is not None}
+    return dict(sorted(out.items(), key=lambda kv: kv[1]))
+
+
+# cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
+# bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
+# an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
+BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
+UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
+CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
+HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+# The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                        r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
+
+
+def probe_facts(out):
+    """The typed facts of a bind probe's out text, in NeverBoundProbe.ts's order: dns api then edge, https api then
+    edge. Every value is a fixed word, a band or a small int."""
+    facts = {}
+    dns, https = [], []
+    for raw in out.splitlines():
+        ln = raw.strip()
+        if ln in ("bind_file=present", "bind_file=missing"):
+            facts["bind_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("uptime_s="):
+            try:
+                up = float(ln.split("=", 1)[1])
+            except ValueError:
+                continue
+            if up >= 0:
+                facts["uptime"] = next((band for limit, band in UPTIME_BANDS if up < limit), "ge900s")
+        elif ln.startswith("nameservers="):
+            facts["nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n])
+        elif ln.startswith("route="):
+            facts["route"] = "default" if ln.split("=", 1)[1].strip() else "none"
+        elif ln.startswith("dns ") and "=" in ln:
+            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
+        elif ln.startswith("https "):
+            err = CURL_ERROR.search(ln)
+            code = HTTP_CODE.search(ln)
+            if err:
+                https.append(f"curl_{int(err.group(1))}")
+            elif code and code.group(1) != "000":
+                https.append(int(code.group(1)))
+            else:
+                https.append("no_answer")
+        elif ln == "curl=absent":
+            https = ["curl_absent", "curl_absent"]
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            facts["bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            facts["host_service"] = v if v in HOST_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            facts["journal"] = "absent"
+    for name, got in (("dns", dns), ("https", https)):
+        for target, v in zip(("api", "edge"), got):
+            facts[f"{name}_{target}"] = v
+    return facts
+
+
+def bind_probe(p):
+    """bind_probe's typed projection: outcome, ms, exit, truncated, the provider error code and probe_facts."""
+    if not isinstance(p, dict):
+        return None
+    out = {"outcome": p.get("outcome") if p.get("outcome") in BIND_PROBE_OUTCOMES else "other"}
+    for k in ("ms", "exit"):
+        v = base.typed(INT, p.get(k))
+        if v is not None:
+            out[k] = v
+    if isinstance(p.get("truncated"), bool):
+        out["truncated"] = p["truncated"]
+    if "error" in p:
+        out["error"] = base.typed(TOKEN, p["error"]) or True
+    if isinstance(p.get("out"), str):
+        out.update(probe_facts(p["out"]))
+    return out
 
 
 # cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
@@ -349,92 +459,6 @@ def idle_kept(j):
     return out
 
 
-# cloud.machine.start_overdue's never_bound probe (cmux-platform NeverBoundProbe.ts, #2170): the guest's own answer, one
-# `key=value` fact per line. Only these shapes leave it, each as a fixed token or a number; a nameserver, a route, a
-# DNS answer and a peer address are the guest's network and never print (only whether there was one).
-PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
-PROBE_HTTPS = re.compile(r"^https (\S+) (.*)$")
-PROBE_TIMES = (("connect_s", "connect_ms"), ("tls_s", "tls_ms"), ("total_s", "total_ms"))
-# The bind agent's own state (cmux-platform NeverBoundProbe.ts guestAgentLines): fixed tokens only.
-PROBE_AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
-                              r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
-PROBE_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
-BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
-
-
-def bind_probe(p):
-    """The never_bound probe's typed projection: outcome, ms, exit, error code, and from the guest's lines its uptime,
-    whether the bind file is there, how many nameservers, whether a default route, whether the API and edge hosts
-    resolve, and each HTTPS request's status, curl error number and timings. The guest's free text never prints."""
-    out = {}
-    o = p.get("outcome")
-    out["probe"] = o if o in PROBE_OUTCOMES else "other"
-    for k in ("ms", "exit"):
-        v = base.typed(INT, p.get(k))
-        if v is not None:
-            out[f"probe_{k}"] = v
-    e = base.typed(TOKEN, p.get("error"))
-    if e is not None:
-        out["probe_error"] = e
-    text = p.get("out")
-    if not isinstance(text, str):
-        return out
-    dns = []
-    https = []
-    for raw in text.splitlines():
-        ln = raw.strip()
-        if ln.startswith("uptime_s="):
-            try:
-                out["probe_uptime_s"] = max(0, min(999_999, int(float(ln[len("uptime_s="):]))))
-            except ValueError:
-                pass
-        elif ln in ("bind_file=present", "bind_file=missing"):
-            out["probe_bind_file"] = ln.split("=", 1)[1]
-        elif ln.startswith("nameservers="):
-            out["probe_nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n.strip()])
-        elif ln.startswith("route="):
-            out["probe_route"] = bool(ln.split("=", 1)[1].strip())
-        elif ln.startswith("dns ") and "=" in ln:
-            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
-        elif ln == "curl=absent":
-            out["probe_curl"] = "absent"
-        elif ln in ("bound_file=present", "bound_file=missing"):
-            out["probe_bound_file"] = ln.split("=", 1)[1]
-        elif ln.startswith("host_service="):
-            v = ln.split("=", 1)[1]
-            out["probe_host_service"] = v if v in PROBE_SERVICE else ("none" if not v else "other")
-        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
-            out["probe_noise_identity"] = min(999, int(ln.split("=", 1)[1]))
-        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
-            out["probe_agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
-        elif ln.startswith("agent_bind="):
-            v = ln.split("=", 1)[1]
-            out["probe_agent_bind"] = v if PROBE_AGENT_BIND.match(v) else "other"
-        elif ln == "journal=absent":
-            out["probe_journal"] = "absent"
-        else:
-            m = PROBE_HTTPS.match(ln)
-            if m:
-                https.append(m.group(2))
-    # The probe asks the API origin's host first, then the coderouter edge's (neverBoundProbeCommand).
-    for name, answer in zip(("api", "edge"), dns):
-        out[f"probe_{name}_dns"] = answer
-    for name, rest in zip(("api", "edge"), https):
-        fields = dict(kv.split("=", 1) for kv in rest.split() if "=" in kv)
-        code = fields.get("http", "")
-        if code.isdigit() and len(code) == 3:
-            out[f"probe_{name}_http"] = int(code)
-        curl = re.search(r"curl: \((\d{1,3})\)", rest)
-        if curl:
-            out[f"probe_{name}_curl"] = int(curl.group(1))
-        for src, dst in PROBE_TIMES:
-            try:
-                out[f"probe_{name}_{dst}"] = max(0, min(999_999, round(float(fields[src]) * 1000)))
-            except (KeyError, ValueError):
-                pass
-    return out
-
-
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -456,10 +480,16 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
+    if msg in TRACE_MSGS:
+        steps = trace_steps(j.get("steps"))
+        if steps is not None:
+            out["steps"] = steps
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
-    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and isinstance(j.get("bind_probe"), dict):
-        out.update(bind_probe(j["bind_probe"]))
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and "bind_probe" in j:
+        probe = bind_probe(j["bind_probe"])
+        if probe is not None:
+            out["bind_probe"] = probe
     if "error" in j:
         out["error"] = True
     return out, None
