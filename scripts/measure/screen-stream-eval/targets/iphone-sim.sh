@@ -219,6 +219,10 @@ json.dump({
 }, open(sys.argv[2], "w"))
 EOF
     ;;
+  # For iphone-link (same app and simulator, the rd/1 link viewer): the booted, installed iPhone's
+  # udid, and the marker's fractions.
+  ensure-sim) ensure_sim ;;
+  fractions) fractions ;;
   window-view | window-report) echo "iphone-sim: latency only (caps: latency-only)" >&2; exit 2 ;;
   *) echo "iphone-sim.sh: unknown verb $verb" >&2; exit 2 ;;
 esac
