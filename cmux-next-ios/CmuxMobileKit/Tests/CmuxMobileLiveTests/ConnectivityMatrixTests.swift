@@ -631,7 +631,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// gone): minting a token fails with 401. The person must be asked to
     /// sign in again, not shown "Reconnecting…" forever.
     @MainActor @Test func cellPairingRevokedToken() async throws {
+        #if os(Linux)
+        struct RefusedToken: LinkServiceFailure { let status = 401 }
+        let failure = RefusedToken()
+        #else
         let failure = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #endif
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }

@@ -442,7 +442,7 @@ extension LiveAPI {
 
 /// What a person reads for a failed service call: never the HTTP status, the code
 /// or the type. The service's own message shows when it reads as a sentence.
-extension LiveAPI.Failure: LocalizedError {
+extension LiveAPI.Failure: LocalizedError, LinkServiceFailure {
     public var errorDescription: String? {
         switch status {
         case 401: return "Your session expired. Sign in again."
