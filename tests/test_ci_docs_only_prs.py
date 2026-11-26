@@ -51,8 +51,6 @@ REQUIRED = {
 # workflow -> why a docs-only pull request still starts it. Each entry must still start for some sample below.
 ALLOWED: dict[str, str] = {
     **REQUIRED,
-    "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
-                                "the workflow when the status is missing), about two minutes on Linux",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
     "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
                                    "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
@@ -382,8 +380,8 @@ class Fallback(unittest.TestCase):
 
     calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
     feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
-    # A pr-router callee (web-validation.yml, #48775) starts on its own only into main: into feat-cmux-next the
-    # router calls it, so the fallback never does.
+    # web-validation.yml (#48775) starts on its own only into main: a feat-cmux-next pull request does not run it
+    # (pr-router.yml dropped its caller), so the fallback never calls it there.
     main_only = sorted(n for n, c in calls.items() if c["branches"] == ["main"])
 
     def plan(self, event, files, runs=(), since=1000.0):
