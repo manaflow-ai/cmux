@@ -31,7 +31,7 @@
 //! ([`CmuxAgentPaneBytes`]) belongs to the caller, who frees it with
 //! [`cmux_agent_pane_policy_bytes_free`].
 
-use crate::canonical::canonical_digest;
+use crate::canonical::{canonical_digest, canonical_json};
 use crate::check::{Checked, FrameState, GesturePick, PaneScope, check_frame, own_prompt_id};
 use crate::data::policy;
 use crate::error::Refusal;
@@ -45,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 5;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -183,6 +183,9 @@ impl Pane {
 ///   turn's label ([`own_prompt_id`]).
 /// - `canonical_digest` `{value}`: `{"digest": hex|null}`, the sha256 of the
 ///   value's canonical JSON ([`canonical_digest`]); null when it has none.
+/// - `canonical_json` `{value}`: `{"json": text|null}`, the value's canonical
+///   JSON text ([`canonical_json`]), the bytes `canonical_digest` hashes; null
+///   when it has none.
 /// - `service_wait` `{process_alive, socket_accepts}`: `{"state":
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
@@ -217,6 +220,10 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
         "canonical_digest" => {
             let value = request.get("value").ok_or(ERR_INVALID)?;
             Ok(json!({"digest": canonical_digest(value)}))
+        }
+        "canonical_json" => {
+            let value = request.get("value").ok_or(ERR_INVALID)?;
+            Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
@@ -361,6 +368,31 @@ pub extern "C" fn cmux_agent_pane_policy_abi_version() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_agent_pane_policy_new() -> *mut CmuxAgentPanePolicy {
     Box::into_raw(Box::new(CmuxAgentPanePolicy { pane: Pane::new() }))
+}
+
+/// The strict duplicate-key verdict on one page frame ([`crate::json_keys`]):
+/// 0 clean, 1 malformed (also: not UTF-8, empty), 2 an object with two equal
+/// keys, [`ERR_NULL`] for a null `text` with a nonzero length, [`ERR_PANIC`].
+/// No handle and no allocation: the host runs it on every frame.
+///
+/// # Safety
+///
+/// `text` is null with `text_len` 0, or points at `text_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_agent_pane_policy_json_keys_verdict(
+    text: *const u8,
+    text_len: usize,
+) -> i32 {
+    guarded(|| {
+        // SAFETY: forwarded from the caller.
+        let Some(bytes) = (unsafe { input(text, text_len) }) else { return ERR_NULL };
+        let Ok(text) = std::str::from_utf8(bytes) else { return 1 };
+        match crate::json_keys::verdict(text) {
+            crate::json_keys::Verdict::Clean => 0,
+            crate::json_keys::Verdict::Malformed => 1,
+            crate::json_keys::Verdict::Duplicate => 2,
+        }
+    })
 }
 
 /// Frees a handle from [`cmux_agent_pane_policy_new`]. Null is ignored.
