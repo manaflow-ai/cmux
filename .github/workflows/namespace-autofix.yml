@@ -40,7 +40,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -49,7 +49,7 @@ jobs:
       # This workflow is pull_request_target on purpose. Only this base-revision
       # copy of the helper is executed; the PR tree is treated as data.
       - name: Checkout trusted base helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           # One commit each: the job reads base files, diffs two trees and commits on the PR head, none of
@@ -152,21 +152,35 @@ jobs:
             --jq '.[] | select(.status != "removed") | .filename' > "$listed"; then
             echo "::warning::Listing the PR's files through the API failed (see above); using git's merge-base diff instead."
             merge_base=""
+            fetch_failed=""
             for deepen in 100 400 1600 6400; do
               merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
               [ -z "$merge_base" ] || break
               # One fetch per side: given both at once, git deepened only one of them.
-              git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA" || break
-              git fetch --no-tags --quiet --deepen="$deepen" origin "$HEAD_SHA" || break
+              # The head goes through refs/pull/N/head, as above: a fork PR's raw
+              # head SHA may not be fetchable from origin.
+              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA"; then
+                fetch_failed="deepening base $BASE_SHA by $deepen"; break
+              fi
+              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"; then
+                fetch_failed="deepening the PR head by $deepen"; break
+              fi
             done
             [ -n "$merge_base" ] || merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
             if [ -z "$merge_base" ]; then
               # Refuse, never skip: a skipped autofix would read as clean.
-              echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun once the API quota resets."
+              if [ -n "$fetch_failed" ]; then
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, whose fetch failed while $fetch_failed (above). Rerun the job."
+              else
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun once the API quota resets."
+              fi
               exit 1
             fi
             echo "Merge base: $merge_base"
-            git diff --no-renames --name-only --diff-filter=d "$merge_base" "$HEAD_SHA" > "$listed"
+            # quotePath off: git otherwise prints non-ASCII paths quoted and
+            # escaped ("Packages/\303\251.swift"), which the API never does and
+            # the Packages/ filter below would silently drop.
+            git -c core.quotePath=false diff --no-renames --name-only --diff-filter=d "$merge_base" "$HEAD_SHA" > "$listed"
           fi
           awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' "$listed" \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"

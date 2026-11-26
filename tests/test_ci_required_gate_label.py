@@ -10,7 +10,9 @@ refused the merge on base-branch policy.
 So every job behind a required check leads with a label no other job asks for, `cmux-gcp-gate-jit-x64`. The
 fleet reconciler serves it with one-job VMs only (no cloud identity, deleted after the job), ahead of every PR
 label, under its own cap sized to the gates' volume and with runners kept warm, so a required check starts
-however deep the PR backlog is. `vars.CI_GATE_SKIP_FLEET=1` turns the label off and leaves the old selector.
+however deep the PR backlog is. The label is written out as a literal: the `vars.CI_GATE_SKIP_FLEET` switch and
+the CI_TRUSTED_RUNNER selector behind it were frozen to the label they resolved to (the switch was unset), so no
+variable picks a gate job's runner.
 
 The two CLA workflows are pinned byte for byte by scripts/ci/validate-cla-policy.rb, which runs from the base
 branch, so they move in steps: the validator first admits the gate selector (CLA_GATE_RUNNER_EXPRESSION) and
@@ -23,7 +25,6 @@ listed job reports, or any other job on the label, fails.
 """
 from __future__ import annotations
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -38,6 +39,7 @@ from required_status_checks import REQUIRED_CHECKS  # noqa: E402
 GATE_LABEL = "cmux-gcp-gate-jit-x64"
 FORK_BRANCH = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 GATE_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_LABEL + "' || "
+GATE_VALUE = FORK_BRANCH + "'" + GATE_LABEL + "' }}"
 # (workflow file, job) -> the required check it reports, or the required check it gates (a job the reporting
 # job needs: the check cannot start before it ends).
 GATE_JOBS = {
@@ -64,7 +66,7 @@ STAGED = {
 # cmux-linux`) for every own-branch Linux job, with the pickers ... deleted now"); only the fleet-wide
 # CI_OVERFLOW_LINUX switch every cmux-linux job carries stays ahead of it.
 POOL_LABEL = "cmux-linux"
-POOL_SELECTOR = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
+POOL_VALUE = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
 POOL_JOBS = {
     ("merge-group-policy-checks.yml", "cla-assistant"),
     ("merge-group-policy-checks.yml", "cla-policy-guard"),
@@ -138,10 +140,7 @@ class RequiredGateLabelTest(unittest.TestCase):
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
-                if (name, job_id) in POOL_JOBS:
-                    self.assertEqual(value, POOL_SELECTOR)
-                    continue
-                self.assertTrue(value.startswith(FORK_BRANCH + GATE_OPERAND), value)
+                self.assertEqual(value, POOL_VALUE if (name, job_id) in POOL_JOBS else GATE_VALUE)
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -164,22 +163,13 @@ class RequiredGateLabelTest(unittest.TestCase):
         found = {(name, job_id) for name, job_id, job in all_jobs() if GATE_LABEL in runs_on(job)}
         self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - POOL_JOBS)
 
-    def test_the_switch_leaves_the_previous_selector(self) -> None:
-        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED) - POOL_JOBS):
+    def test_no_gate_job_reads_a_variable_for_its_runner(self) -> None:
+        # A gate job's runner is a literal: a variable in front of it could move a required check back behind the
+        # PR backlog, or a trusted-token job onto a shared runner. The overflow switch is the one exception.
+        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
             with self.subTest(workflow=name, job=job_id):
-                after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
-                self.assertNotIn(GATE_LABEL, after)
-                self.assertTrue(after.startswith(FORK_BRANCH), after)
-                self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
-
-    def test_the_operand_refuses_a_shared_or_variable_label(self) -> None:
-        operand = re.compile(re.escape(GATE_OPERAND))
-        for bad in ("vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || ",
-                    "vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || ",
-                    "vars.CI_GATE_SKIP_FLEET != '1' && vars.GATE_RUNNER || ",
-                    "'cmux-gcp-gate-jit-x64' || "):
-            with self.subTest(operand=bad):
-                self.assertIsNone(operand.match(bad))
+                value = runs_on(load(name)["jobs"][job_id]).replace("vars.CI_OVERFLOW_LINUX || ", "", 1)
+                self.assertNotRegex(value, r"vars\.|fromJSON")
 
 
 if __name__ == "__main__":
