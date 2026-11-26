@@ -260,8 +260,10 @@ pub(super) fn start_resource_wait(
     let worker_mux = mux.clone();
     let worker_canceled = canceled.clone();
     let worker_id = id.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-terminal-wait".into())
+        .stack_size(super::RESOURCE_WORKER_STACK_BYTES)
+        .spawn(move || {
             let _registration = ResourceWaitWorkerGuard {
                 mux: worker_mux.clone(),
                 client,

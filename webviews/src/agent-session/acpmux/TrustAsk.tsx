@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
+import { Undo } from "./conversation/icons";
 import { useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 import { trustSubject, trustedLabel } from "./trustAskModel";
+import "./conversation/cardFit.css";
 /// The folder trust question among the chat's permission asks, above the composer. It says what
 /// is trusted (the repository and every worktree of it, or the folder), what trusting allows, and
 /// offers Trust repo (the common case, first), Only this folder, and Not now; then the answer with
@@ -73,26 +75,53 @@ export function TrustAsk({
   // After Not now, Trust repo only where that answer lives (`trust.rs`: the folder's own answer,
   // then its worktree's, then its repository's). Else Trust records the folder, which answers first.
   const retrustsRepo = offersRepo && (subject.viaRepo || subject.atRoot);
+  // The receipt's words, which name the folder or repository: cut to the line in a narrow pane, whole
+  // on hover.
+  const untrustedText = owned
+    ? t("trust.untrustedPrivate")
+    : (subject.viaRepo || subject.atRoot) && repo
+      ? t("trust.notTrustedRepo", { agent, repo })
+      : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder });
+  const receiptText =
+    ask.state === "decided" && ask.level === "trusted"
+      ? owned
+        ? t("trust.trustedPrivate")
+        : trustedLabel(t, ask)
+      : untrustedText;
+  const undo = t("trust.undo");
+  const undoButton = (disabled?: boolean) => (
+    <button
+      type="button"
+      className="acpmux-trust-ask-action"
+      title={undo}
+      aria-label={undo}
+      disabled={disabled}
+      onClick={onUndo}
+    >
+      <Undo size={14} />
+      <span className="cv-fit-label">{undo}</span>
+    </button>
+  );
   return (
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
-    // waited on it (Leo, 2026-10-21).
+    // waited on it (Leo, 2026-10-21). It is a fit row (cardFit.css) but not a size container: the
+    // composer's stack sizes it to its content, which inline-size containment collapsed (the gallery
+    // measured it 34px wide). Its words keep 12em and the answers wrap under them when they don't fit.
     <div
-      className="acpmux-trust-ask"
+      className="acpmux-trust-ask cv-fit-row"
       data-asking={asking || undefined}
       data-recovery={recovery || undefined}
       aria-live="polite"
     >
       {ask.state === "decided" && ask.level === "untrusted" ? (
         <>
-          <span className={recovery ? "acpmux-trust-ask-body" : "acpmux-trust-ask-text"}>
-            <span className="acpmux-trust-ask-text">
-              {owned
-                ? t("trust.untrustedPrivate")
-                : (subject.viaRepo || subject.atRoot) && repo
-                  ? t("trust.notTrustedRepo", { agent, repo })
-                  : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
-            </span>
+          <span
+            className={recovery ? "acpmux-trust-ask-body" : "acpmux-trust-ask-text cv-fit-text"}
+            // tooltip-allow: the receipt names a folder or repository cut to the line; its whole text is the tooltip
+            title={recovery ? undefined : untrustedText}
+          >
+            <span className="acpmux-trust-ask-text">{untrustedText}</span>
             {answers && onContinueWithoutFolder && (
               <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
             )}
@@ -101,7 +130,7 @@ export function TrustAsk({
             )}
             {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
-          <span className="acpmux-trust-ask-actions">
+          <span className="acpmux-trust-ask-actions cv-fit-actions">
             {!answers ? null : retrustsRepo ? (
               <button
                 type="button"
@@ -143,31 +172,21 @@ export function TrustAsk({
                     {t("trust.continueReadOnlyLabel")}
                   </button>
                 )}
-                <button type="button" className="acpmux-trust-ask-action" disabled={continuing} onClick={onUndo}>
-                  {t("trust.undo")}
-                </button>
+                {undoButton(continuing)}
               </>
             )}
           </span>
         </>
       ) : ask.state === "decided" ? (
         <>
-          <span className="acpmux-trust-ask-text">
-            {ask.level === "trusted"
-              ? owned
-                ? t("trust.trustedPrivate")
-                : trustedLabel(t, ask)
-              : owned
-                ? t("trust.untrustedPrivate")
-                : (subject.viaRepo || subject.atRoot) && repo
-                  ? t("trust.notTrustedRepo", { agent, repo })
-                  : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
+          <span
+            className="acpmux-trust-ask-text cv-fit-text"
+            // tooltip-allow: the receipt names a folder or repository cut to the line; its whole text is the tooltip
+            title={receiptText}
+          >
+            {receiptText}
           </span>
-          {answers && (
-            <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
-              {t("trust.undo")}
-            </button>
-          )}
+          {answers && <span className="acpmux-trust-ask-actions cv-fit-actions">{undoButton()}</span>}
         </>
       ) : ask.state === "remote" ? (
         <span className="acpmux-trust-ask-text">{t("trust.remote")}</span>
@@ -216,7 +235,7 @@ export function TrustAsk({
             )}
           </span>
           {answers && (
-            <span className="acpmux-trust-ask-actions">
+            <span className="acpmux-trust-ask-actions cv-fit-actions">
               {offersRepo ? (
                 <>
                   <button

@@ -4,13 +4,16 @@
 //! outside the app's terminals (an ssh shell), has no app around it and none
 //! named in its environment, so it said "no cmux app found" while NIGHTLY ran
 //! on that Mac. Then the NIGHTLY control socket that answers is the app: its
-//! own path (`~/.local/state/cmux/cmux-nightly.sock`) or the old `/tmp` one,
+//! own path (`~/.local/state/cmux-next/cmux-nightly.sock`), the one in classic's
+//! `~/.local/state/cmux` or the old `/tmp` one an app from before a move uses,
 //! only when exactly one of them answers, and the CLI says so once on stderr.
 //! A named route (`--app-socket`, `--socket`, `--session`, the app terminal's
 //! environment) never comes here.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+use cmux_agent_pane_policy::build_identity;
 
 use crate::app_identity::AppIdentity;
 
@@ -38,7 +41,7 @@ pub(super) fn nightly(home: &Path) -> Option<PathBuf> {
 }
 
 /// Where an untagged cmux NIGHTLY listens: the path it uses now, then the
-/// `/tmp` path an app from before the move uses.
+/// paths an app from before a move uses (classic's state folder, `/tmp`).
 pub(super) fn candidates(home: &Path) -> Vec<PathBuf> {
     let nightly = AppIdentity {
         bundle_id: Some(NIGHTLY_BUNDLE_ID.to_owned()),
@@ -50,7 +53,8 @@ pub(super) fn candidates(home: &Path) -> Vec<PathBuf> {
     let Some(old) = nightly.build().control_socket(home) else { return Vec::new() };
     let mut paths = Vec::new();
     if let Ok(name) = old.strip_prefix("/tmp") {
-        paths.push(home.join(".local/state/cmux").join(name));
+        paths.push(build_identity::socket_state_dir(home).join(name));
+        paths.push(home.join(build_identity::SOCKET_STATE_DIR_BEFORE).join(name));
     }
     paths.push(old);
     paths

@@ -21,10 +21,17 @@ impl Translator {
                             .and_then(Value::as_bool)
                             == Some(true);
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
+                        let mut request = initialize_request(suggestions);
+                        if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": 5}]));
+                        }
+                        if self.plugin_hook_home.get().is_some() {
+                            super::hook_callback::add_tool_hooks(&mut request);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
@@ -80,10 +87,12 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
-                        // A new turn (not a steer into this one): the task list ages a turn
-                        // (`task_plan.rs`).
-                        if !steer {
-                            self.task_plan.lock().await.begin_turn();
+                        // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
+                        if p.pointer("/prompt/0/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.trim_start().starts_with("/clear"))
+                        {
+                            self.dedupe.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -628,6 +637,18 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
+    // Harness magic `dedupe` (`dedupe.rs`): no `onFailure`, so a callback that fails lets the call
+    // run.
+    #[cfg(unix)]
+    if super::dedupe::enabled()
+        && let Some(hooks) = request.pointer_mut("/hooks/PreToolUse").and_then(Value::as_array_mut)
+    {
+        hooks.push(json!({
+            "matcher": super::dedupe::DEDUPE_MATCHER,
+            "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
+            "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
+        }));
+    }
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

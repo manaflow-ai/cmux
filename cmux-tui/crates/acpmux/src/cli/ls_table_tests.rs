@@ -75,6 +75,27 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        // Paused: acpmux continues it by itself, and says when (`hub/pause_state.rs`).
+        (
+            json!({"state": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "API Error: Repeated 529 Overloaded errors"},
+                   "retry": {"attempt": 2, "of": 4, "reason": "capacity", "nextAt": 1_795_560_060_000_u64,
+                             "promptId": "p", "turnId": "t"}}),
+            "idle",
+            "paused: capacity, resumes 22:41Z",
+        ),
+        (
+            json!({"rateLimitedUntil": 1_795_560_060_000_u64}),
+            "running",
+            "paused: rate limit, resumes 22:41Z",
+        ),
+        // Stranded: failed, and nothing will continue it.
+        (
+            json!({"state": "idle", "status": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "No space left on device (os error 28)"}}),
+            "idle",
+            "stranded: disk",
+        ),
         (
             json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
             "running",
@@ -160,6 +181,24 @@ fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(out.lines().next().unwrap().starts_with("NAME  HOST"), "{out}");
     assert!(out.contains("b     huge-blue"), "{out}");
     assert!(out.contains("a     -"), "{out}");
+}
+
+/// A row from the send relay's kept listing (`ls_far.rs`) has a peer, its `asOfMs` and no link
+/// state: it shows its own state, never `peer down` (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`: 2,000 of 2,000 such rows read so).
+#[test]
+fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
+    let kept = |state: &str| {
+        with(
+            lane(&format!("gcp-agent-lane-2/{state}")),
+            json!({"peer": "gcp-agent-lane-2", "asOfMs": NOW - 30_000, "state": state, "status": state}),
+        )
+    };
+    let out = compact(&[kept("running"), kept("ready")]);
+    assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
+    let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
+    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
 }
 
 #[test]

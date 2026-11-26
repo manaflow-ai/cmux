@@ -46,6 +46,9 @@ typedef struct CmuxLaunchWindowInput {
   uint8_t appearance;  // 0 light, 1 dark
   uint8_t appearance_follows_system;
   uint8_t fullscreen;
+  // Record v3, after the v2 fields: the window's sidebar width in points;
+  // 0 means unknown. A zero-initialised input writes 0.
+  double sidebar_width;
 } CmuxLaunchWindowInput;
 
 typedef struct CmuxLaunchSidebarInput {
@@ -66,13 +69,17 @@ bool cmux_launch_record_write(const char *path,
                               const char *session_socket_path);
 // cmux_launch_record_write that also records the daemon registry id the
 // windows belong to (record v3); cmux_launch_record_write writes it empty.
+// written_at_ms is wall-clock Unix milliseconds when the caller built the
+// record, the daemon launch snapshot's clock; 0 means unknown.
+// cmux_launch_record_write stamps the current time.
 bool cmux_launch_record_write_registry(const char *path,
                                        const CmuxLaunchWindowInput *windows,
                                        uintptr_t window_count,
                                        const CmuxLaunchSidebarInput *sidebars,
                                        uintptr_t sidebar_count,
                                        const char *session_socket_path,
-                                       const char *registry_id);
+                                       const char *registry_id,
+                                       uint64_t written_at_ms);
 // Returns the record's window count and fills the first min(count, cap)
 // entries, front window first; out may be null when cap is 0. Returns 0 when
 // the record or any window is unusable, zeroing the entries it wrote.
