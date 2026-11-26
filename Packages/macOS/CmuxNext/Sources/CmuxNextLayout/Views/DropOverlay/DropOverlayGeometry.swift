@@ -76,87 +76,64 @@ public nonisolated struct DropOverlayFrame: Equatable, Sendable {
     }
 }
 
-/// Pure geometry of the overlay styles (flipped coordinates: y grows down),
-/// unit-tested without AppKit.
+/// Geometry of the overlay styles (flipped coordinates: y grows down). The
+/// rects are Rust's (cmux-layout-reducer `drop_overlay_geometry`,
+/// `drop_overlay_*`); a rect the reducer does not answer is empty, so nothing
+/// draws. The paths stay here: they are CoreGraphics drawing.
 public nonisolated enum DropOverlayGeometry {
     /// The two panes a split creates inside `region`: the incoming one on
     /// the zone's side and the existing one, each giving up half of `gap`.
     /// A center or column drop creates no second pane.
     public static func splitPreview(region: CGRect, zone: DropOverlayZone, gap: CGFloat) -> (incoming: CGRect, existing: CGRect?) {
-        let half = max(gap, 0) / 2
-        switch zone {
-        case .left, .right:
-            let width = max(region.width / 2 - half, 0)
-            let leading = CGRect(x: region.minX, y: region.minY, width: width, height: region.height)
-            let trailing = CGRect(x: region.maxX - width, y: region.minY, width: width, height: region.height)
-            return zone == .left ? (leading, trailing) : (trailing, leading)
-        case .top, .bottom:
-            let height = max(region.height / 2 - half, 0)
-            let upper = CGRect(x: region.minX, y: region.minY, width: region.width, height: height)
-            let lower = CGRect(x: region.minX, y: region.maxY - height, width: region.width, height: height)
-            return zone == .top ? (upper, lower) : (lower, upper)
-        case .center, .column:
-            return (region, nil)
-        }
+        let request = Wire.SplitPreviewRequest(region: Wire.Rect(region), zone: zone.rawValue, gap: Double(gap))
+        guard let reply = LayoutReducerJSON().call("drop_overlay_split_preview", request, as: Wire.SplitPreviewReply.self)
+        else { return (region, nil) }
+        return (reply.incoming.cgRect, reply.existing?.cgRect)
     }
 
     /// The insertion caret: on the line where the new divider appears for
     /// a split, along the tab strip (top edge) for a center drop, and down
     /// the middle of a column gap. `length` is a share of that edge.
     public static func insertionLine(region: CGRect, zone: DropOverlayZone, width: CGFloat, length: CGFloat) -> CGRect {
-        let share = min(max(length, 0), 1)
-        switch zone {
-        case .left, .right, .column:
-            let height = region.height * share
-            return CGRect(x: region.midX - width / 2, y: region.midY - height / 2, width: width, height: height)
-        case .top, .bottom:
-            let span = region.width * share
-            return CGRect(x: region.midX - span / 2, y: region.midY - width / 2, width: span, height: width)
-        case .center:
-            let span = region.width * share
-            return CGRect(x: region.midX - span / 2, y: region.minY + width, width: span, height: width)
-        }
+        Wire.rect("drop_overlay_insertion_line", Wire.InsertionLineRequest(region: Wire.Rect(region), zone: zone.rawValue,
+                                                                            width: Double(width), length: Double(length)))
     }
 
     /// Edges a glow grows from: the side the new pane takes, every edge
-    /// for a center drop or a column gap.
+    /// for a center drop or a column gap. None when the reducer does not answer.
     public static func glowEdges(_ zone: DropOverlayZone) -> [CGRectEdge] {
-        switch zone {
-        case .left: [.minXEdge]
-        case .right: [.maxXEdge]
-        case .top: [.minYEdge]
-        case .bottom: [.maxYEdge]
-        case .center, .column: [.minXEdge, .maxXEdge, .minYEdge, .maxYEdge]
-        }
+        let reply = LayoutReducerJSON().call("drop_overlay_glow_edges", Wire.ZoneRequest(zone: zone.rawValue),
+                                             as: Wire.EdgesReply.self)
+        return reply?.edges.compactMap(Wire.edge(named:)) ?? []
     }
 
     /// A band of `depth` along `edge` of `rect` (flipped: minY is the top).
     public static func band(_ rect: CGRect, edge: CGRectEdge, depth: CGFloat) -> CGRect {
-        let depth = min(max(depth, 0), edge == .minXEdge || edge == .maxXEdge ? rect.width : rect.height)
-        return rect.divided(atDistance: depth, from: edge).slice
+        Wire.rect("drop_overlay_band", Wire.BandRequest(rect: Wire.Rect(rect), edge: Wire.edge(edge), depth: Double(depth)))
     }
 
     /// A card of `fraction` of the target's width (at most `maxWidth`) and
     /// `height`, centered in it and never larger than it.
     public static func insetCard(target: CGRect, fraction: CGFloat, maxWidth: CGFloat, height: CGFloat) -> CGRect {
-        let width = min(target.width * min(max(fraction, 0), 1), maxWidth, target.width)
-        let cardHeight = min(height, target.height)
-        return CGRect(x: target.midX - width / 2, y: target.midY - cardHeight / 2, width: width, height: cardHeight)
+        Wire.rect("drop_overlay_inset_card", Wire.InsetCardRequest(target: Wire.Rect(target), fraction: Double(fraction),
+                                                                    maxWidth: Double(maxWidth), height: Double(height)))
     }
 
     /// The tab pill at the target's top leading corner, inset by `inset`,
     /// `width` wide (at most the target's width less the insets).
     public static func tabPill(target: CGRect, width: CGFloat, height: CGFloat, inset: CGFloat) -> CGRect {
-        let pillWidth = max(min(width, target.width - inset * 2), 0)
-        let pillHeight = max(min(height, target.height - inset * 2), 0)
-        return CGRect(x: target.minX + inset, y: target.minY + inset, width: pillWidth, height: pillHeight)
+        Wire.rect("drop_overlay_tab_pill", Wire.TabPillRequest(target: Wire.Rect(target), width: Double(width),
+                                                                height: Double(height), inset: Double(inset)))
     }
 
     /// The card a morph starts from: centered on the pointer, `width` wide
-    /// with a 3:2 aspect.
+    /// with a 3:2 aspect. A point at the pointer when the reducer does not answer.
     public static func morphStart(pointer: CGPoint, width: CGFloat) -> CGRect {
-        let height = (width * 2 / 3).rounded()
-        return CGRect(x: pointer.x - width / 2, y: pointer.y - height / 2, width: width, height: height)
+        let request = Wire.MorphStartRequest(pointer: Wire.Point(x: Double(pointer.x), y: Double(pointer.y)), width: Double(width))
+        guard let reply = LayoutReducerJSON().call("drop_overlay_morph_start", request, as: Wire.RectReply.self) else {
+            return CGRect(origin: pointer, size: .zero)
+        }
+        return reply.rect.cgRect
     }
 
     /// Everything in `bounds` except the rounded `hole` (even-odd fill).

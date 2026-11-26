@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextLayout
 
 /// Why a drop target cannot take the dragged tabs. The zone does not
 /// highlight and the drop springs back (`TabDropPreview.highlights`).
@@ -29,22 +30,14 @@ public nonisolated enum TabDropVerdict: Hashable, Sendable {
 }
 
 nonisolated extension TabDragResolver {
-    /// The verdict for `kind`. `accepts` is `verdict == .accept`.
+    /// The verdict for `kind`: the tabs' own strip place and their own
+    /// workspace stay; a column before the first, a group on a dock and a
+    /// new workspace for a tab that stays put are refused (Rust's
+    /// `tab_drag_rule_verdict`). A stay when the reducer does not answer:
+    /// the drop changes nothing.
     public static func verdict(_ kind: TabDropKind, context: TabDragContext) -> TabDropVerdict {
-        switch kind {
-        case .strip(let strip, let index, let group):
-            return context.isOwnPlace(strip: strip, index: index, groupID: group) ? .stay : .accept
-        case .newSplit:
-            // Every tab of the source pane on its own edge splits behind them (`splitsBehind`).
-            return .accept
-        case .newColumn(_, let after):
-            return after == nil ? .refuse(.columnBeforeFirst) : .accept
-        case .newDock:
-            return context.isGroupDrag ? .refuse(.groupDock) : .accept
-        case .newWorkspace:
-            return context.sourceStaysPut ? .refuse(.staysPut) : .accept
-        case .workspace(let id):
-            return id == context.sourceWorkspaceID ? .stay : .accept
-        }
+        let request = Wire.VerdictRequest(kind: Wire.Kind(kind), context: Wire.Context(context))
+        let reply = LayoutReducerJSON().call("tab_drag_rule_verdict", request, as: Wire.VerdictReply.self)
+        return reply?.tabDropVerdict ?? .stay
     }
 }

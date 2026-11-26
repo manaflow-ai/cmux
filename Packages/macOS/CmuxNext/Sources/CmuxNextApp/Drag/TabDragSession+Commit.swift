@@ -265,7 +265,9 @@ extension TabDragSession {
         guard let content = window?.onScreenContent(holdingScreen: screenID),
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let column = screen.layout.columns.first(where: { $0.id.rawValue == after }),
-              let anchor = column.root.panes.last(where: { $0.rawValue != avoiding }) ?? screen.layout.panes.first(where: { $0.rawValue != avoiding }),
+              let id = TabMoveRules().columnAnchor(column: column.root.panes.map(\.rawValue), screen: screen.layout.panes.map(\.rawValue),
+                                                 avoiding: avoiding),
+              let anchor = (column.root.panes + screen.layout.panes).first(where: { $0.rawValue == id }),
               let handle = content.handles.panes[anchor],
               let pane = content.daemon.store.pane(handle) else { return nil }
         return (pane, content.handles.columns[column.id])

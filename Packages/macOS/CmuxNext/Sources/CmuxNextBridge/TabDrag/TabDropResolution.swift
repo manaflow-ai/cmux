@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import CoreGraphics
+import CmuxNextLayout
 
 /// What the drag shows at the pointer now.
 public nonisolated enum TabDropPreview: Hashable, Sendable {
@@ -48,24 +49,27 @@ nonisolated extension TabDragResolver {
     /// (`proposal`, nil when none did). The outcome is the preview's: an
     /// accepted target commits its outcome; a stay, a refusal or no answer
     /// commits nothing. `insideWindow` is false outside every app window.
+    /// Rust's `tab_drag_rule_resolve`; no preview and a cancel when the
+    /// reducer does not answer.
     public static func resolve(_ proposal: TabDropProposal?, insideWindow: Bool, screenPoint: CGPoint,
                                context: TabDragContext) -> TabDropResolution {
-        guard insideWindow else {
-            return TabDropResolution(preview: .newWindow(screenPoint: screenPoint),
-                                     outcome: outcome(for: nil, insideWindow: false, screenPoint: screenPoint, context: context))
+        let request = Wire.ResolveRequest(kind: proposal.map { Wire.Kind($0.kind) },
+                                          refusedReason: proposal?.refusedReason,
+                                          insideWindow: insideWindow,
+                                          point: Wire.Point(screenPoint),
+                                          context: Wire.Context(context))
+        guard let reply = LayoutReducerJSON().call("tab_drag_rule_resolve", request, as: Wire.ResolveReply.self),
+              let outcome = reply.outcome.tabDragOutcome
+        else { return TabDropResolution(preview: .none, outcome: .cancel) }
+        let preview: TabDropPreview? = switch reply.preview {
+        case "target": proposal.map(TabDropPreview.target)
+        case "stay": proposal.map(TabDropPreview.stay)
+        case "refused": proposal.flatMap { proposal in reply.refusal?.refusal.map { .refused(proposal, $0) } }
+        case "new_window": .newWindow(screenPoint: screenPoint)
+        case "none": TabDropPreview.none
+        default: nil
         }
-        guard let proposal else { return TabDropResolution(preview: .none, outcome: .cancel) }
-        if let reason = proposal.refusedReason {
-            return TabDropResolution(preview: .refused(proposal, .surface(reason)), outcome: .cancel)
-        }
-        switch verdict(proposal.kind, context: context) {
-        case .accept:
-            return TabDropResolution(preview: .target(proposal),
-                                     outcome: outcome(for: proposal, insideWindow: true, screenPoint: screenPoint, context: context))
-        case .stay:
-            return TabDropResolution(preview: .stay(proposal), outcome: .cancel)
-        case .refuse(let refusal):
-            return TabDropResolution(preview: .refused(proposal, refusal), outcome: .cancel)
-        }
+        guard let preview else { return TabDropResolution(preview: .none, outcome: .cancel) }
+        return TabDropResolution(preview: preview, outcome: outcome)
     }
 }
