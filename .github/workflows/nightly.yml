@@ -34,6 +34,10 @@ on:
     # `decide`). A burst of merges between two ticks becomes one build of the
     # newest commit.
     - cron: "2,17,32,47 * * * *"
+    # A separate schedule identity makes the daily catch-up independent of
+    # GitHub's delivery delay. It is an app tick with the input comparison
+    # bypassed, so one delayed run still publishes the current main HEAD.
+    - cron: "5 8 * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -47,7 +51,7 @@ on:
         default: false
         type: boolean
       build_only:
-        description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
+        description: Measure the unsigned arm64 nightly build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
         required: false
         default: false
         type: boolean
@@ -231,7 +235,7 @@ jobs:
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
-            // A build-only run measures the unsigned universal app build (cold
+            // A build-only run measures the unsigned arm64 app build (cold
             // or warm cache) and stops there: no helper, signing, notarization,
             // dSYM upload, or publication, so it is safe to dispatch from a
             // branch. It always builds the production workload, so the fast
@@ -239,15 +243,18 @@ jobs:
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
             const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
-            // Nightly ships one universal DMG for downloads plus one thin DMG per
-            // architecture for updates. Browsers cannot tell Apple silicon from
-            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
-            // feed stay universal; the app's feed resolver moves every install
-            // onto its architecture's feed at the first update check.
-            // A manually dispatched fast build is a branch-dogfood artifact only.
-            // It deliberately produces one Apple silicon DMG and never publishes
-            // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // Nightly builds and publishes Apple silicon (arm64) only. Intel
+            // (x86_64) and universal builds ship from the stable release
+            // (release.yml) only. The x86_64, universal and legacy `appcast.xml`
+            // feeds, and the `cmux-nightly-{x86_64,universal}-macos.dmg` and
+            // `cmux-nightly-macos.dmg` aliases, are frozen at the last build
+            // that had them: publish never rewrites them, and the asset prune
+            // keeps the builds they point at. The app's feed resolver moves
+            // every install onto its own architecture's feed, so an Intel Mac
+            // reads only the frozen x86_64 feed and is never offered an arm64
+            // build. A manually dispatched fast build is a branch-dogfood
+            // artifact only and never publishes to the shared NIGHTLY release.
+            const variants = ['arm64'];
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
@@ -368,20 +375,26 @@ jobs:
             // The same read counts main app builds in flight. Leo, 2026-11-25: "shouldnt we have
             // like a 10 or 15 or 20 or 30 minute timer per?". A tick starts at most one build every
             // 15 minutes, and while MAX_IN_FLIGHT main runs are already building, the tick builds
-            // nothing: the next tick takes the newest commit. Lookup failures build, as above.
+            // nothing: the next tick takes the newest commit. Any incomplete
+            // read skips this tick so it cannot undercount the cap.
+            const mainTickSchedule = context.eventName === 'schedule' &&
+              ['2,17,32,47 * * * *', '5 8 * * *'].includes(context.payload?.schedule);
+            const dailyBackstopSchedule = context.payload?.schedule === '5 8 * * *';
             let duplicateOfRun = null;
             const inFlight = [];
+            let inFlightUnknown = false;
             const maxInFlight = Number(process.env.MAX_IN_FLIGHT);
             if (
-              context.eventName === 'schedule' &&
-              context.payload?.schedule !== '17 */6 * * *' &&
+              mainTickSchedule &&
               isMainRef && !forceBuild && !buildOnly && !seedOnly
             ) {
               try {
                 const seen = new Set();
-                for (const status of ['in_progress', 'queued', 'waiting', 'pending']) {
+                for (const status of ['in_progress', 'queued', 'requested', 'waiting', 'pending']) {
                   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                     owner, repo, workflow_id: 'nightly.yml', branch: 'main', status, per_page: 100,
+                  }, (response) => {
+                    return response.data;
                   });
                   for (const run of runs) {
                     if (seen.has(run.id) || run.id === context.runId || run.head_branch !== 'main' ||
@@ -390,15 +403,23 @@ jobs:
                     const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
                       owner, repo, run_id: run.id, per_page: 100,
                     });
-                    const building = jobs.find((job) => /^build-nightly-app/.test(job.name) &&
-                      (job.status !== 'completed' || job.conclusion === 'success'));
+                    // build-nightly-app does not exist until pick-nightly-app-runner finishes, and that
+                    // waits on a Mac runner. Before then the run's pick job is its build: both run only
+                    // when decide chose to build. Without it, runs of the same commit queued behind the
+                    // runner pool were invisible here, and every tick started another (11-25, five at once).
+                    const isLive = (job) => job.status !== 'completed' || job.conclusion === 'success';
+                    const appJobs = jobs.filter((job) => /^build-nightly-app/.test(job.name));
+                    const building = appJobs.length > 0
+                      ? appJobs.find(isLive)
+                      : jobs.find((job) => /^pick-nightly-app-runner/.test(job.name) && isLive(job));
                     if (!building) continue;
                     inFlight.push(run);
                     if (run.head_sha === headSha && !duplicateOfRun) duplicateOfRun = run;
                   }
                 }
               } catch (error) {
-                core.warning(`Could not look for a duplicate nightly run; building: ${error.message}`);
+                inFlightUnknown = true;
+                core.warning(`Could not finish enumerating main nightly runs for the timer cap; skipping this tick: ${error.message}`);
               }
             }
             let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
@@ -406,6 +427,7 @@ jobs:
             const overInFlightCap = shouldBuild && Number.isFinite(maxInFlight) && maxInFlight > 0 &&
               inFlight.length >= maxInFlight;
             if (overInFlightCap) shouldBuild = false;
+            if (inFlightUnknown && shouldBuild) shouldBuild = false;
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
             // It is named here because the build-input check below leaves it
@@ -430,15 +452,12 @@ jobs:
               !forceBuild &&
               !buildOnly &&
               // A person asking for this revision by hand gets it. The 15-minute
-              // tick is judged like a push, except the 08:17 UTC tick (08:15 to
-              // 08:29), which still publishes main HEAD every day. That keeps one
-              // daily build as a backstop, so a path this check wrongly
-              // classifies costs at most a day of staleness.
+              // The dedicated 08:05 UTC schedule is the daily backstop. Its
+              // schedule identity survives GitHub delivery delay, so it still
+              // publishes main HEAD even when the run starts late.
               context.eventName !== 'workflow_dispatch' &&
-              (context.eventName !== 'schedule' ||
-                (context.payload?.schedule === '2,17,32,47 * * * *' &&
-                  !(new Date(Date.now()).getUTCHours() === 8 &&
-                    Math.floor(new Date(Date.now()).getUTCMinutes() / 15) === 1)))
+              (!mainTickSchedule || !dailyBackstopSchedule) &&
+              !scheduledCacheOnly
             ) {
               try {
                 const { data } = await github.rest.repos.compareCommitsWithBasehead({
@@ -526,6 +545,8 @@ jobs:
               decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
             } else if (scheduledCacheOnly) {
               decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The 15-minute schedule is the app run.';
+            } else if (inFlightUnknown) {
+              decisionReason = 'Skipping this tick: the Actions API did not return a complete main-run list for the timer cap. The next 15-minute tick retries the newest main commit.';
             } else if (unchangedBuildInputs) {
               decisionReason =
                 `Skipping this build: nothing that reaches the app changed since ${nightlySha.slice(0, 7)} ` +
@@ -1041,7 +1062,7 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      - name: Refresh universal nightly compilation cache
+      - name: Refresh nightly compilation cache (arm64)
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -1050,7 +1071,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
-            ARCHS="arm64 x86_64" \
+            ARCHS="arm64" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
@@ -1316,7 +1337,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -1357,13 +1378,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p nightly-helper
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64
-          else
-            ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64 x86_64
-          fi
+          # Nightly ships arm64 only; the universal helper is a stable-release build.
+          ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
+          lipo nightly-helper/ghostty -verify_arch arm64
 
       - name: Upload Ghostty CLI helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1385,7 +1402,7 @@ jobs:
   # PR runs (run 44627211268). The key-free Linux control jobs take cmux-gcp-nightly-x64. A re-run takes Blacksmith.
   pick-nightly-app-runner:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -1457,7 +1474,7 @@ jobs:
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
     # !cancelled(): a failed or skipped picker leaves its outputs empty and the build takes the
     # literal label below; it never skips the build.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *')"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')"
     # Owned minis first. Attempt 1 of a push or schedule run on main takes one
     # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
     # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
@@ -1653,11 +1670,13 @@ jobs:
       - name: Build nightly app (Release)
         run: |
           set -euo pipefail
+          # Nightly ships arm64 only (Intel and universal ship from the stable
+          # release). ONLY_ACTIVE_ARCH stays NO on the full build so the arm64
+          # slice builds even on a runner whose active arch differs.
+          archs="arm64"
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            archs="arm64"
             only_active="YES"
           else
-            archs="arm64 x86_64"
             only_active="NO"
           fi
           # Let xcodebuild fan out across the host. The two whole-module Swift
@@ -1854,7 +1873,7 @@ jobs:
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
   resolve-nightly-cmux-tui-client:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -1890,7 +1909,7 @@ jobs:
   # stays on Blacksmith: never an owned label. Every step continues on error, so the job ends green.
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
@@ -1933,7 +1952,7 @@ jobs:
   # included, keeps Blacksmith. Signing and verify stay on Blacksmith (pick-classic-sign-runner).
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
@@ -1994,7 +2013,7 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner, pick-classic-prepare-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'"
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
@@ -2247,7 +2266,7 @@ jobs:
     needs: [decide, build-nightly-app, prepare-nightly-variant, pick-classic-sign-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *') && needs.decide.outputs.build_only != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'"
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     permissions:
       contents: read
@@ -3095,7 +3114,7 @@ jobs:
     # Published paths are completed by auto-resume-nightly-notarization after
     # Apple accepts every exact DMG. This job remains only for private branch
     # artifacts, where no Apple ticket or release publication is involved.
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -3202,20 +3221,12 @@ jobs:
           set -euo pipefail
           cd nightly-out
           ls -l
-          for variant in arm64 x86_64; do
-            [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
-            [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
-          done
-          # `cmux-nightly-macos.dmg` and `appcast.xml` are the download and feed
-          # every pre-existing link and install uses. They stay universal: the
-          # universal variant generates appcast.xml itself, and installs move to
-          # their architecture's feed on the next update check.
-          [ "$NIGHTLY_LEGACY_VARIANT" = "universal" ] || { echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2; exit 1; }
-          [ -f "${CHANNEL_DMG_PREFIX}-universal.dmg" ] || { echo "universal variant DMG missing" >&2; exit 1; }
-          [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
-          cp "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg"
-          # Compatibility feed for nightlies older than the unified appcast.
-          cp appcast.xml appcast-universal.xml
+          # Nightly builds arm64 only. `cmux-nightly-macos.dmg`, `appcast.xml`,
+          # `appcast-universal.xml` and the x86_64 DMG and feed are frozen at the
+          # last build that produced them (stable ships Intel and universal), so
+          # nothing here writes them.
+          [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
+          [ -f "appcast-arm64.xml" ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
@@ -3233,8 +3244,7 @@ jobs:
           Published commit: \`${NOTES_HEAD}\`.
           **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
           - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          - Intel and universal builds ship from the stable release; the Intel and universal nightly downloads and feeds stay at their last build.
           EOF
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
@@ -3285,8 +3295,6 @@ jobs:
           python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
@@ -3294,15 +3302,9 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
             --github-output "$GITHUB_OUTPUT" \
             --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --feed nightly-out/appcast-arm64.xml
 
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true'
@@ -3338,7 +3340,9 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          # Nightly is arm64 only: the x86_64, universal and legacy feeds keep
+          # their last build and are never rewritten here.
+          for appcast in appcast-arm64.xml; do
             python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \

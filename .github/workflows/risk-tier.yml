@@ -35,13 +35,19 @@ env:
 
 jobs:
   evidence:
-    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
-    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
-    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
-    # check, so the newest finished run is always a real verdict.
-    name: risk evidence
+    # Every event grades except a label added or removed that is not risk:human-ok or risk:waived:
+    # those two are the only labels risk_tier.py reads, so no other label can change the verdict,
+    # and grading again on each one cost a runner start per label event (risk evidence was 6.5k
+    # runner-min over about 3,600 runs in 6 h on 2026-11-25). A skipped job named `risk evidence`
+    # would be the newest check of that name and read as a pass, so the skipped label run is named
+    # `risk evidence label (ignored)` and the newest `risk evidence` stays a real verdict. Its own
+    # concurrency group keeps it from cancelling a grading run in flight. The unit tests live in
+    # risk-tier-tests.yml for the same reason. A newer event cancels an older grading run;
+    # gh-merge-green refuses a cancelled check, so the newest finished run is always a real verdict.
+    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived') }}
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && 'risk evidence label (ignored)' || 'risk evidence' }}
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
