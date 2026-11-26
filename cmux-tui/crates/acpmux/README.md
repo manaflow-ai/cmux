@@ -564,7 +564,14 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
-`usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
+A Claude Code chat runs with the autocompact its person chose (`--autocompact`,
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `autoCompactWindow` in a
+Claude settings file), else Claude Code's own. `agents.claudeAutocompactWindow` (tokens) in the
+cmux settings file names a window acpmux starts such a chat, and a terminal's `claude`, with when
+nothing of theirs decides it; unset, the default, acpmux adds none (`harness_limits.rs`).
+
+`usageWarnings` (`{"subagentsPerHour": 40}`, the default, and `"autocompactCap": true` to warn on
+a Claude chat with no autocompact cap, off by default because Claude Code ships with none; with no
 `contextTokens` each session is held to its own window: its autocompact cap, else its model's
 window, else 400000 when acpmux knows neither, and `"contextTokens": N` sets one line for every
 session; 0 or false turns a rule off): a session whose usage breaks a rule gets
@@ -1755,6 +1762,7 @@ Extensions:
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
+| `session/signature {sessionIds}` | Each id's dot glyph, at most 512 ids: `{signatures: {<id>: {seed, variant, accent, drift, dots: [{x, y, r, phase}]}}}`. A pure function of the id (cmux-wallpaper `signature.rs`, the particles wallpaper's variants), so an unknown id gets one too; read-only, never forwarded. |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
