@@ -1,0 +1,346 @@
+diff --git a/webviews/src/agent-session/acpmux/App.tsx b/webviews/src/agent-session/acpmux/App.tsx
+index 6029b38d2bc9..3a34da3da389 100644
+--- a/webviews/src/agent-session/acpmux/App.tsx
++++ b/webviews/src/agent-session/acpmux/App.tsx
+@@ -39,7 +39,6 @@ import {
+   type AcpmuxRow,
+   type AcpmuxSnapshot,
+   linkUp,
+-  sameConnection,
+   SINCE_DIVIDER,
+ } from "./model";
+ import {
+@@ -837,13 +836,7 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
+   const after = next as unknown as Record<string, unknown>;
+   const keys = Object.keys(after);
+   if (keys.length !== Object.keys(before).length) return -1;
+-  for (const key of keys)
+-    if (
+-      key !== "rows" &&
+-      !Object.is(before[key], after[key]) &&
+-      !(key === "connection" && sameConnection(before[key], after[key]))
+-    )
+-      return -1;
++  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
+   if (streamingRowBlocked()) return -1;
+   const at = textOnlyRow(drawn.rows, next.rows);
+   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
+diff --git a/webviews/src/agent-session/acpmux/liveSummary.ts b/webviews/src/agent-session/acpmux/liveSummary.ts
+index 4d16520755c5..aa9f3d8481ed 100644
+--- a/webviews/src/agent-session/acpmux/liveSummary.ts
++++ b/webviews/src/agent-session/acpmux/liveSummary.ts
+@@ -10,7 +10,7 @@
+ // through the pane, whose summary is then the truth again (an entry names the summary it moved on
+ // from, so a newer drawn summary simply no longer matches it).
+ import { useSyncExternalStore } from "react";
+-import { sameConnection, type AcpmuxSnapshot } from "./model";
++import type { AcpmuxSnapshot } from "./model";
+ 
+ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
+ 
+@@ -52,13 +52,7 @@ export function usageOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean
+   const after = next as unknown as Record<string, unknown>;
+   const keys = Object.keys(after);
+   if (keys.length !== Object.keys(before).length) return false;
+-  for (const key of keys)
+-    if (
+-      key !== "summary" &&
+-      !Object.is(before[key], after[key]) &&
+-      !(key === "connection" && sameConnection(before[key], after[key]))
+-    )
+-      return false;
++  for (const key of keys) if (key !== "summary" && !Object.is(before[key], after[key])) return false;
+   return sameButUsage(drawn.summary, next.summary);
+ }
+ 
+diff --git a/webviews/src/agent-session/acpmux/liveThought.test.ts b/webviews/src/agent-session/acpmux/liveThought.test.ts
+index 2b6bd20b77e4..df5a88fcbb5c 100644
+--- a/webviews/src/agent-session/acpmux/liveThought.test.ts
++++ b/webviews/src/agent-session/acpmux/liveThought.test.ts
+@@ -74,52 +74,3 @@ test("thought fast path rejects a shaped item with different text", () => {
+ 
+   expect(thoughtOnly(previous, next)).toBeUndefined();
+ });
+-
+-const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "go" } as AcpmuxRow;
+-const closedWork = (open: boolean): AcpmuxRow =>
+-  ({ id: "worked-prompt", version: 1, at: 1, kind: "worked", turnPhase: "running", foldOpen: open }) as AcpmuxRow;
+-const line: AcpmuxRow = { id: "thinking-live", version: 1, at: 1, kind: "thinking" } as AcpmuxRow;
+-
+-test("thought fast path takes a thought the running turn's closed fold hides", () => {
+-  const first: AcpmuxActivity = { kind: "thought", text: "Read", startedAt: 1, endedAt: 2 };
+-  const second: AcpmuxActivity = { ...first, text: "Read the helper", endedAt: 3 };
+-  const third: AcpmuxActivity = { ...second, text: "Read the helper first", endedAt: 4 };
+-  const previous = snapshot([prompt, row("hidden-thought", first, 1)]);
+-  const next = snapshot([prompt, row("hidden-thought", second, 2)]);
+-  markOneRowChange(next.rows, previous.rows, 1);
+-  // The transcript drew the prompt, its closed "Working for" and the live line: no row of the work.
+-  drewThoughts([prompt, closedWork(false), line]);
+-
+-  // Without the pane's drawn rows it cannot tell what the hidden row holds.
+-  expect(thoughtOnly(previous, next)).toBeUndefined();
+-  const change = thoughtOnly(previous, next, previous.rows);
+-  expect(change).toEqual({ id: "hidden-thought", before: first, after: second });
+-  liveThought.set(change!.id, change!.before, change!.after);
+-
+-  // The next chunk moves on from the store's thought while the pane still holds the first.
+-  const later = snapshot([prompt, row("hidden-thought", third, 3)]);
+-  markOneRowChange(later.rows, next.rows, 1);
+-  expect(thoughtOnly(next, later, previous.rows)).toEqual({ id: "hidden-thought", before: second, after: third });
+-});
+-
+-test("thought fast path redraws a hidden thought once the fold is open or the row draws", () => {
+-  const first: AcpmuxActivity = { kind: "thought", text: "Plan", startedAt: 1, endedAt: 2 };
+-  const second: AcpmuxActivity = { ...first, text: "Plan the change", endedAt: 3 };
+-  const previous = snapshot([prompt, row("fold-thought", first, 1)]);
+-  const next = snapshot([prompt, row("fold-thought", second, 2)]);
+-  markOneRowChange(next.rows, previous.rows, 1);
+-
+-  // An open fold draws the run: the hidden path never takes it.
+-  drewThoughts([prompt, closedWork(true), line]);
+-  expect(thoughtOnly(previous, next, previous.rows)).toBeUndefined();
+-  // A transcript that drew the row with another thought than the client's: the row must draw.
+-  drewThoughts([prompt, closedWork(false), row("fold-thought", { ...first, text: "Other" }, 5), line]);
+-  expect(thoughtOnly(previous, next, previous.rows)).toBeUndefined();
+-  // A turn summary between the prompt and the row: an ended stretch's runs draw.
+-  const summary = { id: "summary", version: 1, at: 1, kind: "turnSummary" } as AcpmuxRow;
+-  const endedBefore = snapshot([prompt, summary, row("fold-thought", first, 1)]);
+-  const endedNext = snapshot([prompt, summary, row("fold-thought", second, 2)]);
+-  markOneRowChange(endedNext.rows, endedBefore.rows, 2);
+-  drewThoughts([prompt, closedWork(false), summary, line]);
+-  expect(thoughtOnly(endedBefore, endedNext, endedBefore.rows)).toBeUndefined();
+-});
+diff --git a/webviews/src/agent-session/acpmux/liveThought.ts b/webviews/src/agent-session/acpmux/liveThought.ts
+index ead38b85fa96..3b69c266b165 100644
+--- a/webviews/src/agent-session/acpmux/liveThought.ts
++++ b/webviews/src/agent-session/acpmux/liveThought.ts
+@@ -74,54 +74,18 @@ export const liveThought = {
+ 
+ /// The thought item each live-turn row of the transcript drew last, by row id (`drewThoughts`).
+ let drawn = new Map<string, AcpmuxActivity>();
+-/// The running turn's work folded out of sight under its closed "Working for" (turns.ts
+-/// `shapeLiveTurn`, liveTurnWork `folded`): the prompt that opened it and every row id the
+-/// transcript drew after it. A row of that turn the transcript did not draw is hidden in the fold,
+-/// and a thought growing in it stays hidden: only the person opening the fold shows it, and that
+-/// draws the pane again.
+-let folded: { readonly prompt: string; readonly shown: ReadonlySet<string> } | undefined;
+-/// What the transcript drew of the running turn: each row's last item when it is a thought, and
+-/// whether its work is folded away. Read from the end back to the turn's prompt, so O(the running
+-/// turn's rows), not the chat's.
++/// What the transcript drew of the running turn: each row's last item when it is a thought. Read
++/// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
+ export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
+   const next = new Map<string, AcpmuxActivity>();
+-  const shown = new Set<string>();
+-  let closed = false;
+-  let prompt: string | undefined;
+   if (rows)
+     for (let index = rows.length - 1; index >= 0; index -= 1) {
+       const row = rows[index]!;
+-      if (row.kind === "user") {
+-        prompt = row.id;
+-        break;
+-      }
+-      shown.add(row.id);
+-      if (row.kind === "worked" && row.turnPhase === "running" && row.foldOpen === false) closed = true;
++      if (row.kind === "user") break;
+       const last = row.kind === "activity" ? row.items?.at(-1) : undefined;
+       if (last && isThought(last)) next.set(row.id, last);
+     }
+   drawn = next;
+-  folded = closed && prompt !== undefined ? { prompt, shown } : undefined;
+-}
+-
+-/// The thought the pane's drawn rows (`paneRows`) hold for row `id` at `index` when that row is
+-/// hidden in the running turn's closed fold (`folded`), else undefined. The row must come after the
+-/// fold's prompt with no turn summary between (an ended stretch's runs draw), and draw no row.
+-function hiddenThought(
+-  rows: readonly AcpmuxRow[],
+-  index: number,
+-  id: string,
+-  paneRows: readonly AcpmuxRow[] | undefined,
+-): AcpmuxActivity | undefined {
+-  if (!folded || !paneRows || folded.shown.has(id)) return undefined;
+-  const held = paneRows[index];
+-  if (!held || held.id !== id) return undefined;
+-  for (let at = index - 1; at >= 0; at -= 1) {
+-    const row = rows[at]!;
+-    if (row.kind === "turnSummary") return undefined;
+-    if (row.kind === "user") return row.id === folded.prompt ? held.items?.at(-1) : undefined;
+-  }
+-  return undefined;
+ }
+ 
+ const ROW_KEYS = new Set(["version", "items"]);
+@@ -153,14 +117,10 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
+ /// The row whose last thought alone grew from `previous` to `next`, with that thought before and
+ /// now, else undefined. The client tells which row changed (rowChanges.ts), so this reads that row
+ /// alone: O(its items). Only a thought the transcript draws as the client holds it (`drewThoughts`)
+-/// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn), or
+-/// one the running turn's closed "Working for" hides, as the pane's drawn rows (`paneRows`) hold it.
+-/// That one drew the whole pane for each chunk of a thought nobody sees (Leo, 2026-11-26: "Why
+-/// should non visible thing even affect the renderer thread anyways?").
++/// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn).
+ export function thoughtOnly(
+   previous: AcpmuxSnapshot,
+   next: AcpmuxSnapshot,
+-  paneRows?: readonly AcpmuxRow[],
+ ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
+   const index = oneRowChangeFrom(next.rows, previous.rows);
+   if (index === undefined || !sameButRows(previous, next)) return undefined;
+@@ -180,16 +140,15 @@ export function thoughtOnly(
+   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
+   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
+   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
+-  // A thought the closed fold hides stays hidden as it grows: no row draws it, so it draws nothing.
+-  const drawnNow = drawnThought(now.id, drawn.get(now.id) ?? hiddenThought(next.rows, index, now.id, paneRows));
++  const drawnNow = drawnThought(now.id);
+   if (!sameThought(drawnNow, before)) return undefined;
+   return { id: now.id, before, after };
+ }
+ 
+-/// The thought the transcript drew for row `id` (`shown`: the one in its rows, or the one the pane
+-/// holds for a row its fold hides), or the newer one this store gave that row since (a chunk after
+-/// a chunk).
+-function drawnThought(id: string, shown: AcpmuxActivity | undefined): AcpmuxActivity | undefined {
++/// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
++/// gave that row since (a chunk after a chunk).
++function drawnThought(id: string): AcpmuxActivity | undefined {
++  const shown = drawn.get(id);
+   const entry = entries.get(id);
+   return entry && entry.epoch === epoch && sameThought(entry.from, shown) ? entry.to : shown;
+ }
+diff --git a/webviews/src/agent-session/acpmux/liveToolOutput.ts b/webviews/src/agent-session/acpmux/liveToolOutput.ts
+index a09dd5abea1c..50e01e186fe0 100644
+--- a/webviews/src/agent-session/acpmux/liveToolOutput.ts
++++ b/webviews/src/agent-session/acpmux/liveToolOutput.ts
+@@ -13,7 +13,7 @@
+ // the pane as before (`redraw`), and once that commits the entries made before it go (`settle`):
+ // its rows are the truth again. The store holds one entry per call updated since the pane drew.
+ import { useMemo, useSyncExternalStore } from "react";
+-import { sameConnection, type AcpmuxActivity, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
++import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
+ import { outputShapesRows } from "./conversation/toolGroups";
+ import { stripAnsi } from "./conversation/toolOutputModel";
+ import { oneRowChangeFrom } from "./rowChanges";
+@@ -358,8 +358,6 @@ export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolea
+     // object is new each time, while `lastSeq` and `forkSeqs` remain the same. Treat that
+     // value-equivalent projection as unchanged so row-local streams stay on their fast path.
+     if (key === "settled" && sameSettled(before[key], after[key])) continue;
+-    // Each event names itself in `connection`; one name draws as another (model.ts `sameConnection`).
+-    if (key === "connection" && sameConnection(before[key], after[key])) continue;
+     return false;
+   }
+   return true;
+diff --git a/webviews/src/agent-session/acpmux/model.ts b/webviews/src/agent-session/acpmux/model.ts
+index 4f1056636f3b..4b9f5520bdfc 100644
+--- a/webviews/src/agent-session/acpmux/model.ts
++++ b/webviews/src/agent-session/acpmux/model.ts
+@@ -1275,28 +1275,6 @@ export function linkUp(connection: string): boolean {
+   return connection !== "disconnected" && !connection.startsWith("connecting");
+ }
+ 
+-/// Whether `connection` is only the name of the event the client last drew from (direct.ts
+-/// `emitInFrame(event.kind)`: "tool_call", "claude.system.task_progress"): the link is up and
+-/// nothing failed. What reads it draws the same for any two of them; only the Inspector names it.
+-function quietConnection(connection: string): boolean {
+-  return (
+-    linkUp(connection) &&
+-    connection !== "debug" &&
+-    connection !== "fork failed" &&
+-    !connection.startsWith("failed") &&
+-    !/^(error|failed)(:|$)/i.test(connection)
+-  );
+-}
+-
+-/// Whether two snapshots' `connection` draw the same: equal, or both only the name of an event
+-/// (`quietConnection`). A snapshot that differs from the drawn one only there need not draw the
+-/// pane (pane/paneSnapshot.ts; Leo, 2026-11-26: "Why should non visible thing even affect the
+-/// renderer thread anyways?"). O(its length).
+-export function sameConnection(before: unknown, after: unknown): boolean {
+-  if (before === after) return true;
+-  return typeof before === "string" && typeof after === "string" && quietConnection(before) && quietConnection(after);
+-}
+-
+ /** Incremental journal attribution for the Session Info "Where the time went" chart. */
+ export type AcpmuxTimeCategory = {
+   id: string;
+diff --git a/webviews/src/agent-session/acpmux/pane/paneSnapshot.ts b/webviews/src/agent-session/acpmux/pane/paneSnapshot.ts
+index c234fa5e6ddf..f90369a608c7 100644
+--- a/webviews/src/agent-session/acpmux/pane/paneSnapshot.ts
++++ b/webviews/src/agent-session/acpmux/pane/paneSnapshot.ts
+@@ -65,7 +65,7 @@ import { perfReporter } from "../perfReporter";
+ import { frameTally } from "../conversation/frameTally";
+ import { reconciledProject } from "../newtab/startHint";
+ import { streamingRow, streamingRowBlocked } from "../streamingRow";
+-import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
++import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+ import { liveThought, thoughtOnly } from "../liveThought";
+ import { liveSummary, usageOnly } from "../liveSummary";
+ import { pageLanes } from "../schedule/lanes";
+@@ -1312,7 +1312,7 @@ export function paneSnapshotEffect({
+           // Only a thought grew: the row that draws it reads it (liveThought.ts).
+           const thought =
+             drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+-              ? thoughtOnly(received, next, drawn.rows)
++              ? thoughtOnly(received, next)
+               : undefined;
+           if (thought) {
+             liveThought.set(thought.id, thought.before, thought.after);
+@@ -1324,18 +1324,6 @@ export function paneSnapshotEffect({
+             liveSummary.set(drawn.summary!, next.summary!);
+             return;
+           }
+-          // Only the event's name moved (`connection`, direct.ts names each snapshot by the event it
+-          // drew from): nothing draws it but the Inspector, so the pane keeps what it drew (Leo,
+-          // 2026-11-26: "Why should non visible thing even affect the renderer thread anyways?").
+-          if (
+-            drawn &&
+-            received &&
+-            !streamingRowBlocked() &&
+-            !pendingPaneDraw.pending &&
+-            received.rows === next.rows &&
+-            sameButRows(received, next)
+-          )
+-            return;
+           streamingRow.clear();
+           liveSummary.clear();
+           toolOutputEpoch.current = liveToolOutput.redraw();
+diff --git a/webviews/src/agent-session/acpmux/sameConnection.test.ts b/webviews/src/agent-session/acpmux/sameConnection.test.ts
+deleted file mode 100644
+index d414e0b2d34f..000000000000
+--- a/webviews/src/agent-session/acpmux/sameConnection.test.ts
++++ /dev/null
+@@ -1,32 +0,0 @@
+-import { expect, test } from "bun:test";
+-import type { AcpmuxSnapshot } from "./model";
+-import { sameConnection } from "./model";
+-import { sameButRows } from "./liveToolOutput";
+-
+-test("two events' names draw the same connection", () => {
+-  expect(sameConnection("tool_call", "claude.system.task_progress")).toBe(true);
+-  expect(sameConnection("response", "response")).toBe(true);
+-});
+-
+-test("a change of link or a failure is never the same connection", () => {
+-  for (const changed of [
+-    "disconnected",
+-    "connecting",
+-    "connecting: retry 2",
+-    "failed",
+-    "failed: boom",
+-    "error: x",
+-    "fork failed",
+-    "debug",
+-  ])
+-    expect(sameConnection("tool_call", changed)).toBe(false);
+-  expect(sameConnection("failed: a", "failed: b")).toBe(false);
+-});
+-
+-test("a snapshot that only names another event is the same but its rows", () => {
+-  const rows: AcpmuxSnapshot["rows"] = [];
+-  const drawn = { rows, connection: "tool_call", isWorking: true } as unknown as AcpmuxSnapshot;
+-  expect(sameButRows(drawn, { ...drawn, connection: "plan" })).toBe(true);
+-  expect(sameButRows(drawn, { ...drawn, connection: "disconnected" })).toBe(false);
+-  expect(sameButRows(drawn, { ...drawn, connection: "plan", isWorking: false })).toBe(false);
+-});
