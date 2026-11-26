@@ -11,6 +11,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 // Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
 setDefaultTimeout(60_000);
@@ -135,6 +136,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
         />,
       ),
     );
+    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const rail = () => document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     const list = () => document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
@@ -208,6 +210,7 @@ for (const how of ["hover", "focus"] as const)
           />,
         ),
       );
+      await railFrame();
       const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
       const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       const rail = () => host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
@@ -287,6 +290,7 @@ async function pointerOnRail(sessionId: string) {
       />,
     ),
   );
+  await railFrame();
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
   const bottom = scroller.scrollTop;
@@ -440,6 +444,7 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
         />,
       ),
     );
+    await railFrame();
     const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const end = scroller.scrollTop;
     expect(end).toBeGreaterThan(0);

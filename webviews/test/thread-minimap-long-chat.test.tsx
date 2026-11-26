@@ -7,6 +7,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -137,6 +138,7 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    await railFrame();
     const ticks = () => [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     const tick = (index: number) => document.querySelector<HTMLElement>(`[data-tick="${index}"]`);
@@ -224,7 +226,7 @@ test("older turns arriving above keep focus on the focused prompt's tick", async
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   try {
     await show(span(300, 2000));
     const latest = document.querySelector<HTMLElement>(`[data-tick="${2000 - 300 - 1}"]`)!;
@@ -258,7 +260,7 @@ test("a rail scrolled to the end of a long chat shows every tick of a short one 
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   try {
     await show(span(0, 2000), "long-switch-a");
     // It opens at the latest message, the list scrolled to its end.
@@ -281,6 +283,7 @@ test("each drawn tick is a list item that names its place among every prompt", a
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    await railFrame();
     /// An element's role, its own or its tag's.
     const roleOf = (node: Element) =>
       node.getAttribute("role") ?? ({ OL: "list", UL: "list", LI: "listitem" } as Record<string, string>)[node.tagName];
@@ -317,6 +320,7 @@ test("a clicked tick keeps focus while the chat scrolls it out of the rail's win
         />,
       ),
     );
+    await railFrame();
     // A pointer click on the latest prompt's tick: it takes focus as a clicked button does, which
     // neither grows it nor opens the card (no keyboard focus, no hover, no card hold it drawn).
     const clicked = document.querySelector<HTMLElement>(`[data-tick="1999"]`)!;
@@ -371,7 +375,7 @@ test("after earlier turns go, streaming does no search of the ticks, and the car
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   try {
     const chat = span(0, 2000);
     await show(chat);
@@ -418,7 +422,7 @@ test("a focused tick that goes away with its chat is not held drawn when the cha
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   try {
     const long = span(0, 2000);
     await show(long, "long-away-a");
@@ -457,7 +461,7 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
@@ -499,7 +503,7 @@ test("a keyboard-focused tick whose rail hides comes back with no tick held and 
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
@@ -549,6 +553,7 @@ test("a scrolled rail hidden for lack of room comes back at its place, its rows 
         />,
       ),
     );
+    await railFrame();
     // It opens at the latest message, the rail's list scrolled to its end.
     const before = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     expect(before.scrollTop).toBeGreaterThan(1000);

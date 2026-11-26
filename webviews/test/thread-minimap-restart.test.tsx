@@ -9,6 +9,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -150,7 +151,7 @@ test("the rail's rows on the next open are the index's, not the summary's count"
           {...(props as object)}
         />,
       ),
-    );
+    ).then(railFrame);
   let root = createRoot(document.getElementById("root")!);
   try {
     await draw(root, { promptCount: 35 });
@@ -189,7 +190,7 @@ test("a rail mounting with its chat paints at once; one appearing in a drawn cha
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   const rail = () => document.querySelector<HTMLElement>(".acpmux-minimap__rail");
   const root = createRoot(document.getElementById("root")!);
   try {

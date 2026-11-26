@@ -11,6 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -145,7 +146,7 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   };
   try {
     let reply = "Streaming";
@@ -201,7 +202,7 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   try {
     await render(rows);
     const ticks = () =>
@@ -414,7 +415,7 @@ test("through the transcript: another chat, then the same chat replaced and cut,
           expanded={new Set()}
         />,
       ),
-    );
+    ).then(railFrame);
   const expected = (prefix: string, count: number) =>
     Array.from({ length: count }, (_, index) => `Message ${index + 1} of ${count}: ${prefix} ${index}`);
   try {
