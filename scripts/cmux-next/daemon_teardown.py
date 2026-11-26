@@ -26,8 +26,9 @@ import time
 
 
 def app_binary_for_tag(tag: str) -> str | None:
-    """The tagged app's bundled cmux-tui, from its running process."""
-    out = subprocess.run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/MacOS/cmux DEV"], capture_output=True, text=True).stdout.split()
+    """The tagged app's bundled cmux-tui, from a running process of its bundle (any of them: the first `.app/` of its
+    path is the bundle, and a bench build's executable is not `cmux DEV`)."""
+    out = subprocess.run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/"], capture_output=True, text=True).stdout.split()
     if not out:
         return None
     comm = subprocess.run(["ps", "-o", "comm=", "-p", out[0]], capture_output=True, text=True).stdout.strip()

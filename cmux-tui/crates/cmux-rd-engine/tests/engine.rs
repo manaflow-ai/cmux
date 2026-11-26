@@ -1126,3 +1126,36 @@ fn ultra_holds_four_fifths_of_the_probed_capacity_under_its_ceiling() {
     let (fast, _) = probed(Some(1));
     assert_eq!(fast, 150_000_000);
 }
+
+#[test]
+fn jittered_ack_rtt_sizes_the_window_for_the_long_round_trips() {
+    // A socket carrier on a jittery path: round trips alternate between 10 ms and 70 ms. A
+    // window sized from the shortest (two frames) closes on every long round trip, so a
+    // 60 fps stream halves and each held frame waits out the round trip on the host.
+    let mut e = engine();
+    let damage = Rect { x: 0, y: 0, width: 8, height: 8 };
+    let mut now = 0;
+    let mut req = e.start(now).expect("first");
+    for i in 0..8 {
+        send(&mut e, &req, i == 0, 1_000, now);
+        let rtt = if i % 2 == 0 { 10_000 } else { 70_000 };
+        now += rtt;
+        e.on_datagram(
+            &feedback(&Feedback { acked_frame: req.frame, ..Feedback::default() }),
+            true,
+            now,
+        );
+        now += 20_000;
+        req = e.damage(0, damage, now).expect("acked frame frees the gate");
+    }
+    send(&mut e, &req, false, 1_000, now);
+    assert_eq!(e.ack_rtt_us(), Some(10_000), "the floor stays the shortest round trip");
+    e.update_frames_in_flight_from_rtt(None);
+    // frames_in_flight_for(70 ms, 60 fps) is 6: the one just sent and five more.
+    for _ in 0..5 {
+        now += 17_000;
+        let next = e.damage(0, damage, now).expect("the window covers a 70 ms round trip");
+        send(&mut e, &next, false, 1_000, now);
+    }
+    assert!(e.damage(0, damage, now + 17_000).is_none(), "window stays bounded");
+}

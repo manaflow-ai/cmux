@@ -56,6 +56,7 @@ FIRST_PARTY_GPL = {
     "cmux-bookmarks-core",
     "cmux-cloud-start-core",
     "cmux-tab-discard",
+    "cmux-browser-rules",
     "cmux-cloud-config",
     "cmux-cloud-environment",
     "cmux-build-space",
@@ -67,12 +68,15 @@ FIRST_PARTY_GPL = {
     "cmux-keymap",
     "cmux-launch-image",
     "cmux-pane-pictures",
+    "cmux-acpmux-remote-wire",
+    "cmux-screenshots",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
     "cmux-terminal-prediction",
+    "cmux-url-input",
     "cmux-window-rules",
 }
 

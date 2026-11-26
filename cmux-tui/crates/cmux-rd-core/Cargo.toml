@@ -10,6 +10,11 @@ description = "cmux remote desktop engine core: FEC, packetizer, reassembly, flo
 [lints]
 workspace = true
 
+[features]
+# The screen viewer core's C ABI (`screen_kit::ffi`) for the Swift apps:
+# cmux-rd-ffi turns it on for the Mac's app library, cmux-mobile-ffi for iOS's.
+c-abi = []
+
 [dependencies]
 cmux-rd-proto = { path = "../cmux-rd-proto" }
 
