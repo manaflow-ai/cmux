@@ -7,7 +7,7 @@ const connected: SlackConnection = {
 };
 const disconnected = { connected: false, teams: [] };
 function harness(reply: (method: string, op: string) => unknown | Promise<unknown>) {
-  const calls: Array<{ op: string; method?: string; url?: string }> = [];
+  const calls: Array<{ op: string; method?: string; url?: string; configToken?: string }> = [];
   const controller = new SlackConnectionController({
     async call<R>(op: string, params: unknown): Promise<R> {
       const args = params as { method?: string; url?: string };
