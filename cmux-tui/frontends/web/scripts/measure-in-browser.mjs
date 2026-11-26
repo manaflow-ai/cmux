@@ -1,6 +1,10 @@
 // Drive headless Chrome over CDP against a cmux page served by the daemon:
 // first paint, time to a live terminal, keystroke-to-echo, screenshots.
-// usage: node scripts/measure-in-browser.mjs URL OUTDIR [RUNS]  (needs google-chrome)
+// usage: node scripts/measure-in-browser.mjs URL OUTDIR [RUNS]  (needs google-chrome,
+// or CMUX_CHROME_HEADLESS_SHELL)
+// With ?terminal=ghostty in URL it measures the ghostty-web terminal: that one
+// paints to a canvas, so it reads the host's screen text and observes the
+// host's data-writes attribute, which ticks once per chunk the emulator parsed.
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,8 +21,12 @@ const port = 9300 + Math.floor(Math.random() * 500);
 // The profile's history holds the URL with its token: it is removed on exit.
 const profile = mkdtempSync(join(tmpdir(), "webproto-chrome-"));
 process.on("exit", () => rmSync(profile, { recursive: true, force: true }));
+const ghostty = /[?&]terminal=ghostty\b/i.test(url);
+const screenText = ghostty
+  ? "(document.querySelector('.ghostty-terminal-host')?.cmuxScreenText?.() ?? '')"
+  : "(document.querySelector('.render-grid')?.innerText ?? '')";
 const chrome = spawn(
-  "google-chrome",
+  process.env.CMUX_CHROME_HEADLESS_SHELL || process.env.CMUX_CHROME || "google-chrome",
   [
     "--headless=new",
     `--remote-debugging-port=${port}`,
@@ -90,8 +98,7 @@ await s("Page.navigate", { url });
 let ready;
 for (let i = 0; i < 300; i++) {
   ready = await evaluate(`(() => {
-    const grid = document.querySelector('.render-grid');
-    const text = grid?.innerText ?? '';
+    const text = ${screenText};
     return { fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
       dcl: performance.getEntriesByType('navigation')[0]?.domContentLoadedEventEnd ?? null,
       connected: !!document.querySelector('.connect-shell') ? null : performance.now(),
@@ -117,7 +124,11 @@ await s("Page.captureScreenshot", { format: "png" }).then((r) =>
 
 // Focus the terminal input, then measure keydown -> grid text update -> next frame.
 await evaluate(`(() => {
-  const input = document.querySelector('.render-input') || document.querySelector('.render-terminal-host');
+  const input = ${
+    ghostty
+      ? "document.querySelector('.ghostty-terminal-host')"
+      : "document.querySelector('.render-input') || document.querySelector('.render-terminal-host')"
+  };
   input?.focus();
   window.__echo = [];
   window.__mark = null;
@@ -127,7 +138,8 @@ await evaluate(`(() => {
     const start = window.__mark; window.__mark = null;
     const dom = performance.now();
     requestAnimationFrame(() => setTimeout(() => window.__echo.push({ dom: dom - start, paint: performance.now() - start }), 0));
-  }).observe(document.querySelector('.render-grid'), { subtree: true, childList: true, characterData: true });
+  }).observe(document.querySelector(${JSON.stringify(ghostty ? ".ghostty-terminal-host" : ".render-grid")}),
+    ${ghostty ? "{ attributes: true, attributeFilter: ['data-writes'] }" : "{ subtree: true, childList: true, characterData: true }"});
   return !!input;
 })()`);
 const typeKey = async (ch) => {
@@ -169,7 +181,7 @@ await sleep(800);
 await s("Page.captureScreenshot", { format: "png" }).then((r) =>
   writeFileSync(join(outDir, "02-typed.png"), Buffer.from(r.data, "base64")),
 );
-const gridText = await evaluate("document.querySelector('.render-grid')?.innerText ?? ''");
+const gridText = await evaluate(screenText);
 
 const stats = (xs) => {
   const v = [...xs].sort((a, b) => a - b);
@@ -185,6 +197,7 @@ const stats = (xs) => {
 };
 const result = {
   url: url.replace(/#token=.*/, "#token=<redacted>"),
+  renderer: ghostty ? "ghostty-web" : "default",
   firstLoad,
   keyToDom: stats(echo.map((e) => e.dom)),
   keyToPaint: stats(echo.map((e) => e.paint)),
