@@ -16449,6 +16449,9 @@
       "/answers": {
         "ty": "json"
       },
+      "/forkCheckpoint": {
+        "ty": "json"
+      },
       "/optionId": {
         "ty": "string",
         "nullable": true

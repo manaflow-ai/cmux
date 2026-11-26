@@ -15,6 +15,7 @@ export async function mountComponent(
   context: StageContext,
 ): Promise<void> {
   await installPaneStrings();
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   applyAgentTheme(context.agentTheme as never);
   installChipHost(state.chipHost);
   if (entry.pane) document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
