@@ -114,6 +114,6 @@ final class CloudChatsFlowUITests: XCTestCase {
         ergo("wait", "nothing drawn", reason: true, eta: true)
         XCTAssertEqual(words.count, 0, "the Cloud wait still says it is connecting\n\(app.debugDescription)")
         XCTAssertTrue(failed.exists, "the timeout state\n\(app.debugDescription)")
-        ergo("state", "Couldn't connect, with its cause and Retry", reason: true)
+        ergo("state", "Couldn't connect, with its cause and no Retry (it reconnects on its own)", reason: true)
     }
 }
