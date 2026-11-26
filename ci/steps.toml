@@ -694,17 +694,24 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
-# Every on-disk format a cmux-tui build leaves for the next build ships its migration (Leo, 2026-11-24,
+# Every on-disk format a build leaves for the next build ships its migration (Leo, 2026-11-24,
 # ask-1f9e8b7422: "we need to make sure in the future these kinds of cutovers always have proper migrations.").
-# The registry is cmux-tui/persisted-formats/formats.toml; the cmux_next_persisted_* Rust tests load its fixtures
-# through the real readers (the cmux_next_ daemon tests step). Seconds.
+# Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
+# (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
+# retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
+# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant in cmux-tui is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
+  "persisted-formats/**",
+  "Packages/**",
+  "cmux-next-ios/**",
+  "webviews/src/**",
+  "schemas/settings/**",
   "scripts/ci/persisted_formats.py",
   "tests/test_ci_persisted_formats.py",
   "tests/git_fixture_env.py",
@@ -1739,6 +1746,7 @@ about = "the cmux_next_ daemon tests of the cmux-tui workspace members that name
 needs = ["rust", "zig"]
 inputs = [
   "cmux-tui/**",
+  "schemas/settings/**",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/cmux-next/cargo-locks.py",
   "scripts/ci/cmux-tui-test-target.sh",
