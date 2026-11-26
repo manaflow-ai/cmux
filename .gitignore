@@ -20,6 +20,7 @@ ios/Config/AppStoreConnect.local.plist
 .ci-source-packages/
 .ci-reload-derived-data/
 .glaeda/
+.app-token-spread/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
