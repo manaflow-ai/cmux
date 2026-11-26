@@ -676,6 +676,10 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
+    /// resize is still on its way (the demo's `attach` phase). Set, the page
+    /// keeps a ``TerminalAttachTrace`` from its view loading on.
+    var demoFinalGrid: (() -> (columns: Int, rows: Int, inFlight: Bool))?
     /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
     /// PTY), nil while a size change is on its way (the settle probe).
     @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
