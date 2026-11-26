@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextAgentPane
@@ -28,6 +29,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
+    var wallpaperBadge: AccountWallpaperBadge? // shows the signed-in account on its own art view's badge (`AppServices.wallpaperBadge`)
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = PaneContentAreaView()
     private(set) weak var content: NSView?
