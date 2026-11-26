@@ -53,42 +53,6 @@ pub(super) fn handle(
         // The phone's pages: a tool call past it goes with its output cut, marked with the
         // record's size and seq, and is read whole on the person's tap (`hub/tool_output_cut.rs`).
         .cutting_tool_output(tool_output_max(params));
-    if pattern == Some(crate::journal_replay::REPLAY_MATCH) {
-        let (last, created) = s.read_meta(|meta| (meta.last_seq, meta.created_at));
-        let replay_filter = filter.clone().matching(None);
-        let replay = crate::journal_replay::read(|after, limit| {
-            let page = hub
-                .events_page(&s.id, after, None, limit, None, false, &replay_filter)
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            let page_through = if page.has_more { newest_seq(&page.events) } else { last };
-            Ok(crate::journal_replay::JournalPage {
-                events: page.events,
-                has_more: page.has_more,
-                page_through,
-            })
-        })
-        .map_err(|error| RpcError::internal(error.to_string()))?;
-        let plan = crate::journal_replay::reduce(&replay.events, (), |_, _| {});
-        let transitions: Vec<Value> = plan
-            .transitions
-            .iter()
-            .map(|transition| json!({"seq": transition.seq, "at": transition.at, "time": transition.time}))
-            .collect();
-        let events = values(&s.id, replay.events);
-        return Ok(json!({
-            "events": events,
-            "hasMore": false,
-            "lastSeq": last,
-            "pageThrough": last,
-            "createdAt": created,
-            "replay": {
-                "pages": replay.pages,
-                "fetched": replay.fetched,
-                "duplicates": replay.duplicates,
-                "transitions": transitions,
-            },
-        }));
-    }
     // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.

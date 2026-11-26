@@ -132,6 +132,8 @@ pub mod github_session_env;
 pub mod god_fixture;
 pub mod hypervisor;
 pub mod install_share;
+/// Bounded journal reads reduced once into timestamped replay states.
+pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -375,8 +377,6 @@ pub mod transfer_service;
 pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
-/// Bounded journal reads reduced once into timestamped replay states.
-pub mod journal_replay;
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;

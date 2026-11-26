@@ -15,10 +15,9 @@ type Page = { events: EventRecord[]; hasMore: boolean; pageThrough?: number };
 
 function clientWithPages(pages: (after: number) => Page) {
   const requests: { afterSeq: number; limit: number }[] = [];
-  const client = directClientStub();
-  Object.assign(client as unknown as Record<string, unknown>, {
+  const client = directClientStub({
     typed: async (_method: string, params: { afterSeq: number; limit: number }) => {
-      requests.push(params);
+      requests.push({ afterSeq: params.afterSeq, limit: params.limit });
       return pages(params.afterSeq);
     },
   });

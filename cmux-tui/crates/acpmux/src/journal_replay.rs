@@ -7,16 +7,13 @@
 //! [`ReplayPlan`] stores timestamped states, allowing a frame renderer to seek by replay time
 //! without reading or reducing the journal again.
 
-use anyhow::{Result, anyhow};
-use std::collections::{BTreeMap, btree_map::Entry};
+use anyhow::Result;
+use std::collections::BTreeMap;
 
 use crate::store::EventRecord;
 
 /// The maximum number of records requested from one journal page.
 pub const PAGE_SIZE: usize = 400;
-
-/// Internal `_acpmux/events` marker used by the session replay recorder.
-pub const REPLAY_MATCH: &str = "__cmux_replay_schedule__";
 
 /// A page returned by a cursor-based journal reader.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,137 +28,167 @@ pub struct JournalPage {
     pub page_through: u64,
 }
 
-/// The unique, ordered records collected from a journal and the work spent collecting them.
-#[derive(Debug, Clone, PartialEq)]
-pub struct JournalReplay {
-    pub events: Vec<EventRecord>,
+/// Counts the source work independently of the encoder's frame rate.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct Work {
     pub pages: usize,
+    pub largest_page: usize,
     pub fetched: usize,
     pub duplicates: usize,
+    pub reduced: usize,
+    pub first_seq: Option<u64>,
+    pub last_seq: Option<u64>,
 }
 
-/// Read all pages after cursor zero, advancing only through the server watermark or a returned
-/// record. A page that claims more data without advancing is rejected instead of looping forever.
-pub fn read<F>(mut fetch: F) -> Result<JournalReplay>
+/// Fold one bounded page at a time. Older records may overlap a previous page. An unseen
+/// record behind an acknowledged watermark would invalidate states already emitted.
+pub fn read<F, V>(mut fetch: F, mut visit: V) -> Result<Work>
 where
     F: FnMut(u64, usize) -> Result<JournalPage>,
+    V: FnMut(EventRecord),
 {
     let mut cursor = 0;
-    let mut pages = 0;
-    let mut fetched = 0;
-    let mut duplicates = 0;
-    let mut by_seq = BTreeMap::new();
-
+    let mut seen = std::collections::HashSet::new();
+    let mut work = Work::default();
     loop {
         let page = fetch(cursor, PAGE_SIZE)?;
-        if page.events.len() > PAGE_SIZE {
-            return Err(anyhow!(
-                "journal replay page has {} records, exceeds bound {}",
-                page.events.len(),
-                PAGE_SIZE
-            ));
-        }
-        pages += 1;
-        fetched += page.events.len();
-        let mut next = page.page_through.max(cursor);
+        anyhow::ensure!(page.events.len() <= PAGE_SIZE, "oversize journal page");
+        work.pages += 1;
+        work.fetched += page.events.len();
+        work.largest_page = work.largest_page.max(page.events.len());
+        let mut next = cursor.max(page.page_through);
+        let mut ordered = BTreeMap::new();
         for event in page.events {
-            if event.seq == 0 {
+            anyhow::ensure!(event.seq > 0, "zero journal sequence");
+            next = next.max(event.seq);
+            if !seen.insert(event.seq) {
+                work.duplicates += 1;
                 continue;
             }
-            next = next.max(event.seq);
-            match by_seq.entry(event.seq) {
-                Entry::Vacant(slot) => {
-                    slot.insert(event);
-                }
-                Entry::Occupied(_) => {
-                    duplicates += 1;
-                }
-            }
+            anyhow::ensure!(
+                event.seq > cursor,
+                "unseen record {} behind cursor {cursor}",
+                event.seq
+            );
+            ordered.insert(event.seq, event);
+        }
+        for (seq, event) in ordered {
+            work.first_seq.get_or_insert(seq);
+            work.last_seq = Some(seq);
+            work.reduced += 1;
+            visit(event);
         }
         if !page.has_more {
-            break;
+            return Ok(work);
         }
-        if next <= cursor {
-            return Err(anyhow!("journal replay cursor did not advance past {cursor}"));
-        }
+        anyhow::ensure!(next > cursor, "journal replay cursor did not advance past {cursor}");
         cursor = next;
     }
-
-    Ok(JournalReplay { events: by_seq.into_values().collect(), pages, fetched, duplicates })
 }
 
-/// The state reached after one journal record at a replay timestamp.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReplayTransition<S> {
-    /// The journal sequence that produced this state.
-    pub seq: u64,
-    /// The record's wall-clock timestamp.
-    pub at: u64,
-    /// Milliseconds from the first record after long idle gaps are shortened.
-    pub time: u64,
-    pub state: S,
+/// Only text that fits the preview is kept. The event journal still holds each full payload.
+#[derive(Clone, Default, PartialEq, serde::Serialize)]
+pub struct Screen {
+    pub status: String,
+    pub prompt: String,
+    pub reply: String,
+    pub tool: String,
 }
 
-/// A replay reduced once into scheduled state transitions.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReplayPlan<S> {
-    pub initial: S,
-    pub transitions: Vec<ReplayTransition<S>>,
-    pub duration: u64,
+fn visible(text: &str) -> String {
+    const COLUMNS: usize = 640;
+    match text.char_indices().rev().nth(COLUMNS - 1) {
+        Some((start, _)) if start > 0 => format!("…{}", &text[start..]),
+        _ => text.to_owned(),
+    }
 }
 
-impl<S: Clone> ReplayPlan<S> {
-    /// The state visible at replay time `time`. This is a binary search over stored transitions,
-    /// so seeking and animation do not reread the journal or invoke the reducer.
-    pub fn state_at(&self, time: u64) -> S {
-        let mut low = 0;
-        let mut high = self.transitions.len();
-        while low < high {
-            let middle = (low + high) / 2;
-            if self.transitions[middle].time <= time {
-                low = middle + 1;
-            } else {
-                high = middle;
+impl Screen {
+    fn apply(&mut self, event: &EventRecord) {
+        let msg = &event.msg;
+        let update = msg.pointer("/params/update");
+        match (event.dir.as_str(), event.kind.as_str()) {
+            ("mux", "status") => {
+                if let Some(status) = msg["status"].as_str() {
+                    self.status = visible(status);
+                }
             }
+            ("mux", "user_message") => {
+                if let Some(prompt) = msg["text"].as_str() {
+                    self.prompt = visible(prompt);
+                    self.reply.clear();
+                    self.tool.clear();
+                }
+            }
+            ("mux", "turn_result") => {
+                self.status = visible(msg["status"].as_str().unwrap_or("completed"))
+            }
+            ("in", _) => {
+                let Some(update) = update else { return };
+                match update["sessionUpdate"].as_str() {
+                    Some("agent_message_chunk") => {
+                        if let Some(text) = update.pointer("/content/text").and_then(|v| v.as_str())
+                        {
+                            self.reply = visible(&format!("{}{}", self.reply, visible(text)));
+                        }
+                    }
+                    Some("tool_call" | "tool_call_update") => {
+                        if let Some(label) =
+                            update["title"].as_str().or(update["toolCallId"].as_str())
+                        {
+                            self.tool = visible(label);
+                            if let Some(status) = update["status"].as_str() {
+                                self.tool = visible(&format!("{} ({status})", self.tool));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
-        low.checked_sub(1)
-            .map_or_else(|| self.initial.clone(), |index| self.transitions[index].state.clone())
     }
 }
 
-/// Fold ordered journal records into timestamped states. The reducer is called exactly once per
-/// record in `events`, and every state is retained for scheduled frame lookup.
-pub fn reduce<S, F>(events: &[EventRecord], initial: S, mut reducer: F) -> ReplayPlan<S>
-where
-    S: Clone,
-    F: FnMut(&mut S, &EventRecord),
-{
-    const IDLE_GAP_MS: u64 = 2_000;
-    let mut state = initial.clone();
-    let mut transitions = Vec::with_capacity(events.len());
-    let mut previous_at = None;
-    let mut time = 0;
-    for event in events {
-        if let Some(previous) = previous_at {
-            time += event.at.saturating_sub(previous).min(IDLE_GAP_MS);
+#[derive(serde::Serialize)]
+pub struct Transition {
+    pub time: u64,
+    pub seq: u64,
+    pub state: Screen,
+}
+
+#[derive(Default, serde::Serialize)]
+pub struct ReplayPlan {
+    pub duration: u64,
+    pub transitions: Vec<Transition>,
+    #[serde(skip)]
+    previous_at: Option<u64>,
+    #[serde(skip)]
+    screen: Screen,
+}
+
+impl ReplayPlan {
+    /// Apply a record once. Repeated or invisible states need no new frame.
+    pub fn apply(&mut self, event: EventRecord) {
+        if let Some(previous) = self.previous_at.replace(event.at) {
+            self.duration =
+                self.duration.saturating_add(event.at.saturating_sub(previous).min(2_000));
         }
-        previous_at = Some(event.at);
-        reducer(&mut state, event);
-        transitions.push(ReplayTransition {
-            seq: event.seq,
-            at: event.at,
-            time,
-            state: state.clone(),
-        });
+        self.screen.apply(&event);
+        if self.transitions.last().is_none_or(|s| s.state != self.screen) {
+            self.transitions.push(Transition {
+                time: self.duration,
+                seq: event.seq,
+                state: self.screen.clone(),
+            });
+        }
     }
-    ReplayPlan { initial, transitions, duration: time }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::cell::{Cell, RefCell};
 
     fn event(seq: u64, at: u64) -> EventRecord {
         EventRecord {
@@ -183,47 +210,69 @@ mod tests {
     }
 
     #[test]
-    fn reads_bounded_pages_and_deduplicates_the_boundary() {
-        let asks = RefCell::new(Vec::new());
-        let replay = read(|after, limit| {
-            asks.borrow_mut().push((after, limit));
-            match after {
-                0 => Ok(page(&[1, 2], true, 2)),
-                2 => Ok(page(&[2, 3], false, 3)),
-                _ => unreachable!("unexpected cursor {after}"),
-            }
-        })
+    fn sorts_deduplicates_and_consumes_an_empty_filtered_page() {
+        let mut asks = Vec::new();
+        let mut values = Vec::new();
+        let work = read(
+            |after, limit| {
+                asks.push((after, limit));
+                Ok(match after {
+                    0 => page(&[2, 1], true, 0),
+                    2 => page(&[], true, 8),
+                    8 => {
+                        let mut overlap = page(&[2, 9], false, 9);
+                        overlap.events[0].msg = json!("duplicate");
+                        overlap
+                    }
+                    _ => unreachable!(),
+                })
+            },
+            |e| values.push((e.seq, e.msg)),
+        )
         .unwrap();
-        assert_eq!(replay.events.iter().map(|event| event.seq).collect::<Vec<_>>(), [1, 2, 3]);
-        assert_eq!(replay.pages, 2);
-        assert_eq!(replay.fetched, 4);
-        assert_eq!(replay.duplicates, 1);
-        assert_eq!(*asks.borrow(), [(0, PAGE_SIZE), (2, PAGE_SIZE)]);
+        assert_eq!(asks, [(0, 400), (2, 400), (8, 400)]);
+        assert_eq!(values, [(1, json!({"seq":1})), (2, json!({"seq":2})), (9, json!({"seq":9}))]);
+        assert_eq!((work.fetched, work.duplicates, work.reduced), (4, 1, 3));
     }
 
     #[test]
-    fn rejects_a_page_that_cannot_advance_its_cursor() {
-        let error = read(|after, _| Ok(page(&[after], true, after))).unwrap_err();
-        assert!(error.to_string().contains("did not advance"));
-    }
-
-    #[test]
-    fn reducer_runs_once_and_state_lookup_is_scheduled() {
-        let events = [event(1, 10), event(2, 5), event(3, 5), event(4, 10_000)];
-        let calls = Cell::new(0);
-        let plan = reduce(&events, 0_u64, |state, event| {
-            calls.set(calls.get() + 1);
-            *state = event.seq;
-        });
-        assert_eq!(calls.get(), events.len());
-        assert_eq!(
-            plan.transitions.iter().map(|step| step.time).collect::<Vec<_>>(),
-            [0, 0, 0, 2_000]
+    fn refuses_incomplete_or_out_of_contract_history() {
+        assert!(
+            read(|_, _| Ok(page(&[], true, 0)), |_| {})
+                .unwrap_err()
+                .to_string()
+                .contains("did not advance")
         );
-        assert_eq!(plan.duration, 2_000);
-        assert_eq!(plan.state_at(0), 3);
-        assert_eq!(plan.state_at(1_999), 3);
-        assert_eq!(plan.state_at(2_000), 4);
-        assert_eq!(plan.state_at(u64::MAX), 4);
+        assert!(read(|_, _| Ok(page(&[1; PAGE_SIZE + 1], false, 1)), |_| {}).is_err());
+        assert!(
+            read(
+                |after, _| Ok(if after == 0 { page(&[3], true, 3) } else { page(&[2], false, 3) }),
+                |_| {}
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn unique_visual_transitions_span_all_pages() {
+        let mut plan = ReplayPlan::default();
+        let work = read(
+            |after, limit| {
+                let end = (after + limit as u64).min(10_000);
+                let mut batch = page(&(after + 1..=end).collect::<Vec<_>>(), end < 10_000, end);
+                for record in &mut batch.events {
+                    record.msg =
+                        json!({"status": if record.seq == 10_000 { "done" } else { "running" }});
+                }
+                Ok(batch)
+            },
+            |record| plan.apply(record),
+        )
+        .unwrap();
+        assert_eq!((work.reduced, work.pages, work.largest_page), (10_000, 25, 400));
+        assert_eq!(plan.transitions.len(), 2);
+        assert_eq!(plan.transitions[0].state.status, "running");
+        assert_eq!(plan.transitions[1].state.status, "done");
+        assert_eq!(plan.duration, 999_900);
     }
 }
