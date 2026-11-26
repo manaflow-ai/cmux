@@ -2066,7 +2066,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     }
 
     let l = liveness.lock().unwrap();
-    let window_s = k.window.as_secs();
+    // The window the leg held, not the knob: `rfd0050` holds at least its `WINDOW_MIN`.
+    let window_s = until.saturating_duration_since(killed_at).as_secs();
     let gone = |g: Option<f64>, tracked: bool| -> Value {
         match (tracked, g) {
             (false, _) => json!("not tracked"),
