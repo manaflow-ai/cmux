@@ -147,7 +147,7 @@ fn a_peer_that_cannot_connect_is_an_error_with_the_reason() {
 }
 
 #[test]
-fn a_peer_down_for_days_is_offline_with_how_to_remove_it_not_an_error() {
+fn a_peer_down_for_days_is_offline_with_a_plain_detail_not_an_error() {
     // 2026-11-14: four lane VMs, retired and stopped for a week, sat at the top of a
     // dogfood list as "not working" with a retry countdown that never moved.
     let mut src = sources();
@@ -161,9 +161,47 @@ fn a_peer_down_for_days_is_offline_with_how_to_remove_it_not_an_error() {
     let lane = device(&listing, "peer:retired-lane");
     assert_eq!(lane.state, State::Offline, "{lane:?}");
     let detail = lane.detail.as_deref().unwrap_or_default();
-    assert!(detail.contains("cmux device remove retired-lane"), "{detail}");
-    assert!(!detail.contains("2519s"), "no frozen countdown: {detail}");
+    assert_eq!(detail, "Not reachable for over a day; tried again hourly.", "no frozen countdown");
+    // The app's rows show `detail` too: a CLI command in it is a command they cannot run.
+    assert!(!detail.contains("cmux device remove"), "{detail}");
+    assert_eq!(serde_json::to_value(lane).unwrap()["parked"], true, "{lane:?}");
     assert_eq!(device(&listing, "peer:vm-1").state, State::Error, "a fresh failure stays an error");
+}
+
+#[test]
+fn a_peer_parked_after_failing_for_a_day_keeps_its_last_error_in_the_detail() {
+    // Offline hides a failure that lasted over a day (a dead key, a refused login): the reason
+    // it failed stays readable beside "tried again hourly".
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "old-box", "url": "ssh://old-box", "state": "reconnecting",
+        "connected": false, "parked": true,
+        "error": "ssh: Permission denied (publickey)"
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let old = device(&listing, "peer:old-box");
+    assert_eq!(old.state, State::Offline, "{old:?}");
+    assert_eq!(
+        old.detail.as_deref(),
+        Some(
+            "Not reachable for over a day; tried again hourly. Last error: ssh: Permission denied (publickey)"
+        ),
+    );
+    let fresh = device(&listing, "peer:vm-1");
+    assert_eq!(serde_json::to_value(fresh).unwrap().get("parked"), None, "{fresh:?}");
+}
+
+#[test]
+fn only_the_cli_says_how_to_remove_a_parked_peer() {
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "retired-lane", "url": "ssh://retired-lane", "connected": false, "parked": true
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let line = super::cli_detail(device(&listing, "peer:retired-lane")).unwrap_or_default();
+    assert!(line.ends_with("If it is gone for good: cmux device remove retired-lane"), "{line}");
+    let failing = device(&listing, "peer:vm-1");
+    assert_eq!(super::cli_detail(failing), failing.detail, "a failing peer prints its error as is");
 }
 
 #[test]
