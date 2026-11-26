@@ -32,7 +32,7 @@ fn web_cas_parses_its_options() {
         "/b",
     ]))
     .unwrap();
-    let AppCommand::WebCas(Command::Fetch(fetch)) = parsed else { panic!("{parsed:?}") };
+    let Some(AppCommand::WebCas(Command::Fetch(fetch))) = parsed else { panic!("{parsed:?}") };
     assert_eq!(fetch.base, DEFAULT_BASE);
     assert_eq!(fetch.manifest.hex(), ID);
     assert_eq!(fetch.have, vec![Path::new("/a"), Path::new("/b")]);
