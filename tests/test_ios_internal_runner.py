@@ -253,7 +253,7 @@ class ArchiveSource(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             def git(cwd, *args, input=None):
-                return subprocess.check_output(["git", "-c", "uploadpack.allowFilter=true", *args],
+                return subprocess.check_output(["git", *args],
                                                cwd=cwd, text=True, input=input).strip()
 
             git(root, "init", "-q", "seed")
@@ -298,6 +298,7 @@ class ArchiveSource(unittest.TestCase):
                     src = root / mode
                     git(root, "init", "-q", mode)
                     git(src, "remote", "add", "origin", mirror.as_uri())
+                    git(src, "config", "remote.origin.uploadpack", "git -c uploadpack.allowFilter=true upload-pack")
                     args = []
                     if mode == "sparse":
                         git(src, "sparse-checkout", "set", "--no-cone", "--stdin", input=patterns)
@@ -310,8 +311,8 @@ class ArchiveSource(unittest.TestCase):
                 self.assertTrue((src / catalog).is_file())
                 self.assertEqual((src / media).exists(), mode == "full")
                 self.assertEqual((src / "web/unrelated.bin").exists(), mode == "full")
-                size = sum(p.stat().st_size for p in (src / ".git/objects/pack").glob("*.pack"))
-                print(f"archive fixture {sha} {mode}: {elapsed:.3f}s, {size} pack bytes")
+                size = sum(p.stat().st_size for p in (src / ".git/objects").rglob("*") if p.is_file())
+                print(f"archive fixture {sha} {mode}: {elapsed:.3f}s, {size} object bytes")
                 if mode != "full":
                     self.assertLess(size, 2**20)
 
