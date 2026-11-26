@@ -12,7 +12,9 @@ at 05:46:49.60; run 45756842046 (04:44Z) failed on ultra1-glaeda-1 (job 13972055
 (job 139699238706) with setup-bun's "Unexpected HTTP response: 403"; more from 01:13Z to 01:50Z.
 
 So the fetch carries the job token the way actions/checkout does: an `http.extraheader` passed through
-`GIT_CONFIG_COUNT` in the step's environment, masked, never written to `.git/config`. And setup-bun's
+`GIT_CONFIG_COUNT` in the step's environment, masked, never written to `.git/config`, and the
+`git_fetch_retry.py` curl sends it from a 0600 file (that half landed on feat-cmux-next separately, in
+f70ada22's history, citing the same runs). And setup-bun's
 downloads mostly stop: `~/.bun/bin/bun` is shared by a Mac's runner instances and workflows pinning other
 versions swap it, so before setup-bun the restore step keeps the bun it finds under
 `~/.bun/cmux-versions/VERSION` and puts the pinned one back from there, where setup-bun takes it with no
