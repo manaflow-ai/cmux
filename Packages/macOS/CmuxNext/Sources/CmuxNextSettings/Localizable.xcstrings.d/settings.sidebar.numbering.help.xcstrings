@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.numbering.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل العناصر: الصفحة الرئيسية هي Command-1. مساحات العمل فقط: أول مساحة عمل هي Command-1."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svaka stavka: Početna je Command-1. Samo radni prostori: prvi radni prostor je Command-1."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle elementer: Hjem er Command-1. Kun arbejdsområder: det første arbejdsområde er Command-1."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Einträge: Home ist Command-1. Nur Arbeitsbereiche: Der erste Arbeitsbereich ist Command-1."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every Item: Home is Command-1. Workspaces Only: the first workspace is Command-1."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los elementos: Inicio es Command-1. Solo espacios de trabajo: el primer espacio de trabajo es Command-1."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tous les éléments : Accueil est Command-1. Espaces de travail uniquement : le premier espace de travail est Command-1."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutti gli elementi: Home è Command-1. Solo spazi di lavoro: il primo spazio di lavoro è Command-1."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべての項目: ホームが Command-1。ワークスペースのみ: 最初のワークスペースが Command-1。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ធាតុទាំងអស់៖ ទំព័រដើមគឺ Command-1។ តែកន្លែងធ្វើការ៖ កន្លែងធ្វើការដំបូងគឺ Command-1។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 항목: 홈이 Command-1입니다. 작업 공간만: 첫 작업 공간이 Command-1입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle elementer: Hjem er Command-1. Bare arbeidsområder: det første arbeidsområdet er Command-1."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie elementy: Strona główna to Command-1. Tylko obszary robocze: pierwszy obszar roboczy to Command-1."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos os itens: Início é Command-1. Somente espaços de trabalho: o primeiro espaço de trabalho é Command-1."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все элементы: Главная — Command-1. Только рабочие пространства: первое рабочее пространство — Command-1."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทุกรายการ: หน้าหลักคือ Command-1 เฉพาะพื้นที่ทำงาน: พื้นที่ทำงานแรกคือ Command-1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm öğeler: Ana Sayfa Command-1'dir. Yalnızca çalışma alanları: ilk çalışma alanı Command-1'dir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі елементи: Головна — Command-1. Лише робочі простори: перший робочий простір — Command-1."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi mục: Trang chủ là Command-1. Chỉ không gian làm việc: không gian làm việc đầu tiên là Command-1."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有项目：主页是 Command-1。仅工作区：第一个工作区是 Command-1。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有項目：首頁是 Command-1。僅工作區：第一個工作區是 Command-1。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

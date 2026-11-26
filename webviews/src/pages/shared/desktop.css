@@ -311,6 +311,7 @@ body {
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
+  /* one-material-allow: the tooltip's fallback for a page that loads no glass.css; on .ui-glass (Tooltip.tsx, titleTooltips.ts) glass.css's .ui-tooltip.ui-glass replaces this fill, frost and shadow with the glass's, so one material either way */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -390,6 +391,7 @@ body {
 
 .ui-hint {
   border-width: var(--tooltip-rim-width);
+  /* one-material-allow: the toolbar hint's fallback for a page that loads no glass.css; on .ui-glass (LazyCard) glass.css's .ui-hint.ui-card.ui-glass replaces it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);

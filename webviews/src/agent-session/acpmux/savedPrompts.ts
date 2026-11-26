@@ -6,6 +6,7 @@
 // keeps one copy for the page: read when the `/` menu opens (once per opening, never per key) and
 // after each save, so a prompt saved in another chat shows the next time the menu opens here.
 import { useSyncExternalStore } from "react";
+import { sameValue } from "./session-info/sameValue";
 import type { SlashCommand } from "./slashCommands";
 
 export type SavedPrompt = {
@@ -85,7 +86,9 @@ export function refreshSavedPrompts(): Promise<void> {
     (reply) => {
       if (via !== transport) return;
       if (at !== changes) return void (stale = true);
-      prompts = promptsFrom(reply);
+      const next = promptsFrom(reply);
+      if (sameValue(prompts, next)) return;
+      prompts = next;
       emit();
     },
     () => undefined,
@@ -155,9 +158,15 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 const snapshot = () => prompts;
+const emptyPrompts: readonly SavedPrompt[] = [];
+const emptySnapshot = () => emptyPrompts;
+const noSubscription = () => () => {};
 /// The list as the page holds it now (outside render).
 export const savedPromptsNow = (): readonly SavedPrompt[] => prompts;
-export const useSavedPrompts = (): readonly SavedPrompt[] => useSyncExternalStore(subscribe, snapshot, snapshot);
+export function useSavedPrompts(menuOpen: boolean): readonly SavedPrompt[] {
+  const read = menuOpen ? snapshot : emptySnapshot;
+  return useSyncExternalStore(menuOpen ? subscribe : noSubscription, read, read);
+}
 /// Tests and galleries: the list as if acpmux had answered it.
 export function seedSavedPrompts(next: readonly SavedPrompt[]): void {
   prompts = [...next];

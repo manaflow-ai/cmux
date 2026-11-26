@@ -545,6 +545,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -693,14 +694,25 @@ jobs:
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
+      # The published client of this tree, else (the tree is unpublished) the client set
+      # built here, as reload.sh does for an nx-remote build. On feat-cmux-next most
+      # trees never get a commit-addressed client: a newer push supersedes the
+      # artifacts run, so run 45582901653 (d4633cd5) stopped at "no published
+      # cmux-tui client". reload.sh's pin fetch then takes CMUX_TUI_CLIENT_LOCAL.
       - name: Install the matching published cmux-tui client
         if: env.CMUX_PROOF_BUILD != 'published'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
-          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
+          if ! client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)" \
+            || ! git diff --quiet "$client_commit" HEAD -- cmux-tui ghostty ghostty-next; then
+            echo "::notice::no published cmux-tui client for $(git rev-parse --short HEAD)'s tree; building the client set here"
+            if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+            client="$(scripts/cmux-next/build-cmux-tui-client.sh --print-path)"
+            echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+            exit 0
+          fi
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
           env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" --arch native \

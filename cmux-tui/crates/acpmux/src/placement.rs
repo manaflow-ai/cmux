@@ -50,6 +50,8 @@ pub(crate) mod move_targets;
 pub mod run_vm;
 pub mod sub_fork;
 pub mod sub_fork_run;
+pub mod work_place;
+pub mod work_wire;
 
 /// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
 pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
