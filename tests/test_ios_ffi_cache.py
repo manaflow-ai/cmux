@@ -6,6 +6,7 @@ checkout, 285 s of a ~350 s build phase on an AWS M4 Pro, though the FFI's input
 1846 feat-cmux-next commits over three days. Run: python3 -I THIS.
 """
 import json
+import shutil
 import re
 import os
 import pathlib
@@ -393,6 +394,97 @@ class FFICacheTest(unittest.TestCase):
         p, calls, summary = self.run_block("import sys; sys.exit(3)\n", build_body="exit 5")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("CmuxMobileLinkFFI.xcframework build failed", p.stderr)
+
+
+RESTORE = ROOT / "cmux-next-ios/rust/scripts/restore-ios-patch-lock.sh"
+BUILD = ROOT / "cmux-next-ios/rust/scripts/build-xcframework.sh"
+
+LOCK = 'version = 4\n\n[[package]]\nname = "nix"\nversion = "0.26.4"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n'
+PATCHED = 'version = 4\n\n[[package]]\nname = "nix"\nversion = "0.26.4"\n'
+NEWER = LOCK + '\n[[package]]\nname = "zstd"\nversion = "0.13.4"\n'
+
+
+def sh_quiet(cwd, *args):
+    subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
+
+
+class RestorePatchLock(unittest.TestCase):
+    """A build-xcframework.sh killed mid-build (a CI step timeout reaps it without its EXIT trap) left Cargo.lock
+    patched, and the next `cargo fetch --locked` failed "cannot update the lock file" (cmux#49999's ios job,
+    2026-11-26). restore-ios-patch-lock.sh, which both entry points run first, puts the checked-in lock back."""
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.ws = self.tmp / "cmux-next-ios/rust"
+        (self.ws / "scripts").mkdir(parents=True)
+        shutil.copy(RESTORE, self.ws / "scripts" / RESTORE.name)
+        self.lock = self.ws / "Cargo.lock"
+        self.saved = self.ws / "target/ios-patches/Cargo.lock.orig"
+        sh_quiet(self.tmp, "git", "init", "-q")
+        sh_quiet(self.tmp, "git", "config", "user.email", "t@example.com")
+        sh_quiet(self.tmp, "git", "config", "user.name", "t")
+
+    def commit_lock(self, text):
+        self.lock.write_text(text)
+        sh_quiet(self.tmp, "git", "add", "-A")
+        sh_quiet(self.tmp, "git", "commit", "-qm", "lock")
+
+    def save(self, text):
+        self.saved.parent.mkdir(parents=True, exist_ok=True)
+        self.saved.write_text(text)
+
+    def run_helper(self):
+        p = subprocess.run(["bash", str(self.ws / "scripts" / RESTORE.name)], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stderr
+
+    def test_a_killed_build_s_patched_lock_is_put_back(self):
+        self.commit_lock(LOCK)
+        self.save(LOCK)
+        self.lock.write_text(PATCHED)
+        self.assertIn("put back", self.run_helper())
+        self.assertEqual(self.lock.read_text(), LOCK)
+        self.assertFalse(self.saved.exists())
+
+    def test_a_saved_lock_from_an_older_checkout_is_dropped_not_restored(self):
+        # target/ outlives a reused CI workspace; the new checkout's committed lock stays.
+        self.commit_lock(NEWER)
+        self.save(LOCK)
+        self.assertIn("dropped", self.run_helper())
+        self.assertEqual(self.lock.read_text(), NEWER)
+        self.assertFalse(self.saved.exists())
+
+    def test_a_lock_with_uncommitted_edits_is_never_overwritten(self):
+        self.commit_lock(LOCK)
+        self.save(NEWER)  # saved before the patch, with an edit nobody committed
+        self.lock.write_text(PATCHED)
+        self.run_helper()
+        self.assertEqual(self.lock.read_text(), PATCHED)
+
+    def test_no_saved_lock_is_a_no_op(self):
+        self.commit_lock(LOCK)
+        self.assertEqual(self.run_helper(), "")
+        self.assertEqual(self.lock.read_text(), LOCK)
+
+    def test_a_saved_lock_equal_to_the_checkout_s_is_cleared(self):
+        self.commit_lock(LOCK)
+        self.save(LOCK)
+        self.run_helper()
+        self.assertEqual(self.lock.read_text(), LOCK)
+        self.assertFalse(self.saved.exists())
+
+
+class EntryPointsCallIt(unittest.TestCase):
+    def test_build_xcframework_restores_before_its_locked_fetch_and_on_signals(self):
+        text = BUILD.read_text()
+        self.assertLess(text.index("restore-ios-patch-lock.sh"), text.index("cargo fetch --locked"))
+        for line in ("trap 'exit 129' HUP", "trap 'exit 130' INT", "trap 'exit 143' TERM"):
+            self.assertIn(line, text)
+        self.assertIn('rm -f "$rust_dir/target/ios-patches/Cargo.lock.orig"', text)
+
+    def test_ios_ffi_cache_restores_before_its_locked_fetch(self):
+        text = HELPER.read_text()
+        self.assertLess(text.index("restore-ios-patch-lock.sh"), text.index('"cargo", "fetch", "--locked"'))
 
 
 if __name__ == "__main__":

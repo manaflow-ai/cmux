@@ -39,7 +39,9 @@ done
 # names libc items (sockaddr_ctl, AF_SYS_CONTROL, SYSPROTO_*) that current libc
 # no longer exports for iOS. For the iOS builds only, patch nix with a copy
 # that defines them itself (the Darwin values). The checked-in Cargo.lock is
-# restored afterwards; host builds and tests use stock nix.
+# restored afterwards; host builds and tests use stock nix. A run killed before
+# that restore (a CI step timeout) leaves the patched lock: put it back first.
+bash "$rust_dir/scripts/restore-ios-patch-lock.sh"
 cargo fetch --locked
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 nix_src="$(ls -d "$cargo_home"/registry/src/*/nix-0.26.4 2>/dev/null | head -1)"
@@ -79,8 +81,17 @@ pub mod darwin_ctl {
 }
 RUST
 cp Cargo.lock "$rust_dir/target/ios-patches/Cargo.lock.orig"
-restore_lock() { cp "$rust_dir/target/ios-patches/Cargo.lock.orig" "$rust_dir/Cargo.lock"; }
+# The saved copy exists only while the lock is patched; restore-ios-patch-lock.sh reads
+# a leftover one as a killed run's.
+restore_lock() {
+  cp "$rust_dir/target/ios-patches/Cargo.lock.orig" "$rust_dir/Cargo.lock"
+  rm -f "$rust_dir/target/ios-patches/Cargo.lock.orig"
+}
 trap restore_lock EXIT
+# An untrapped signal ends bash without its EXIT trap: exit through it instead.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 ios_patch=(--config "patch.crates-io.nix.path=\"$patched\"")
 
 for target in "${targets[@]}"; do
@@ -91,7 +102,7 @@ for target in "${targets[@]}"; do
 done
 
 restore_lock
-trap - EXIT
+trap - EXIT HUP INT TERM
 
 # Bindings come from the host library (uniffi library mode).
 cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib
