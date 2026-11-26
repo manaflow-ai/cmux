@@ -466,8 +466,7 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
 /// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
-    let binary =
-        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let binary = crate::login_env::cmux_cli();
     let mut command = tokio::process::Command::new(binary);
     command
         .args(["window", "screenshot", "--out"])

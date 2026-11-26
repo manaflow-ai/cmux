@@ -69,8 +69,7 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
 /// when it failed.
 pub(crate) async fn run(params: &Value) -> Result<Value, String> {
     let args = argv(params.get("run").unwrap_or(&Value::Null))?;
-    let binary =
-        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let binary = crate::login_env::cmux_cli();
     let mut command = tokio::process::Command::new(binary);
     command.kill_on_drop(true).args(&args).stdin(std::process::Stdio::null());
     if let Some(socket) = std::env::var_os("CMUX_SOCKET_PATH").filter(|v| !v.is_empty()) {
