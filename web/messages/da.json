@@ -5773,5 +5773,13 @@
     "unavailableTitle": "Vi kunne ikke bekræfte dit login",
     "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
     "retry": "Prøv igen"
+  },
+  "analyticsConsent": {
+    "label": "Analyse",
+    "message": "Må vi bruge analyse til at se, hvordan siden bruges? Intet indsamles, og der sættes ingen analysecookie, medmindre du tillader det.",
+    "privacy": "Privatlivspolitik",
+    "accept": "Tillad",
+    "decline": "Nej tak",
+    "settings": "Analyseindstillinger"
   }
 }

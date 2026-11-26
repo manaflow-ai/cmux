@@ -132,7 +132,14 @@ jobs:
             git show "$BASE_SHA:$path" > "$path"
           done
 
-          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+          # The PR's own files (GitHub's merge-base diff), never `git diff BASE_SHA
+          # HEAD_SHA`: that two-dot diff against base's tip also lists every file
+          # base changed since the branch point, and the fix then rewrote and
+          # pushed the PR's stale copies of them (#55382). Both checkouts are
+          # depth 1, so there is no merge-base here to diff against.
+          GH_TOKEN="$APP_TOKEN" gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+            --jq '.[] | select(.status != "removed") | .filename' \
             | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"
           if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then

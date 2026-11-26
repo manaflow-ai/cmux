@@ -5776,5 +5776,13 @@
     "unavailableTitle": "无法确认你的登录",
     "unavailableBody": "我们的登录服务繁忙。请等待几秒钟后再次打开邀请。你无需重新登录。",
     "retry": "重试"
+  },
+  "analyticsConsent": {
+    "label": "分析",
+    "message": "我们可以使用分析来了解网站的使用情况吗？除非你允许，否则不会收集任何信息，也不会设置分析 Cookie。",
+    "privacy": "隐私政策",
+    "accept": "允许",
+    "decline": "不用了",
+    "settings": "分析设置"
   }
 }

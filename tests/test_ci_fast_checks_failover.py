@@ -182,6 +182,16 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertNotIn("/home/runner", text)
         self.assertIn("${{ runner.temp }}/fast-checks-cache", text)
 
+    def test_owned_dependency_cache_uses_the_setup_download_directories(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        cache = workflow.split("      - name: Restore fast-check dependencies on fleet runners\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("!startsWith(needs.admit.outputs.runner, 'blacksmith-')", cache)
+        for path in ("cargo/registry/cache", "bun"):
+            self.assertIn("${{ runner.temp }}/fast-checks-cache/" + path + "\n", cache)
+        for lockfile in ("Cargo.lock", "bun.lock", "bun.lockb"):
+            self.assertIn(f"'.fast-checks-checkout/**/{lockfile}'", cache)
+        self.assertNotIn("fast-checks-cache/target", cache)
+
     def test_the_hosted_check_catches_hosted_labels(self) -> None:
         for bad in ("runs-on: ubuntu-latest",
                     "runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-latest' || 'blacksmith-32vcpu-ubuntu-2404' }}",

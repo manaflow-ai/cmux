@@ -1,29 +1,33 @@
 name: Cloud journey (production, hourly)
 
 # The NEXT Cloud journey (scripts/cmux-next/cloud-journey.ts) against production: sign in as the production agent
-# test account, create a machine, pass a Claude login the way the Mac app does (CloudCredentialTransfer's preflight,
-# fs/write and installer), start Claude Code under acpmux, send a chat, read the reply back, delete the machine.
+# test account, create a machine, pass the selected agent login the way the Mac app does (CloudCredentialTransfer's preflight,
+# fs/write and installer), start the selected agent under acpmux, send a chat, read the reply back, delete the machine.
 #
-# Two models:
+# Three scheduled rows:
 # - stub, every hour: everything is real (account, machine, acpmux, the Claude Code binary, the login copy) except
 #   the model endpoint, the shared model stub (tests/fixtures/model-stub) on the machine's loopback. The login
 #   passed is a made-up setup-token shape. The reply must carry the stub's nonce, every model request must carry the
 #   passed login (the credential hop), and one Bash tool call must make the round trip. No Claude secret is used.
 #   probe.json is the cmuxterm-hq probes.py row `cloud-chat-replies-production` (ok with the send-to-reply ms).
-# - real, every six hours (the canary): CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (the journey's own login), else the
-#   repository's CLAUDE_CODE_OAUTH_TOKEN, and the real model.
+# - real Claude, every six hours (the canary): CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (the journey's own login), else
+#   the repository's CLAUDE_CODE_OAUTH_TOKEN, and the real model.
+# - real Codex, every six hours (when CODEX_AUTH_JSON is set): the test account's ChatGPT device login and the real
+#   model. An unset secret records a skipped row without creating a machine.
 #
 # Both models play the app's part on a warm spare first (--preclaim-login, with the cmux-tui the job builds): the
 # login is copied on the spare's cloud.spare.ready, as the app's SpareReady path, so after the claim the login step is
 # only the post-bind check when the receipt says installed (probe.json login_path: receipt or copy).
 #
-# A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
-# Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
-# environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (same environment), else the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
-# environment's staging pair and the repository's Claude token; production names stay intact.
-# They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
-# from its output.
+# A red run opens one issue per agent/model row, or rewrites the open one's body; the next green run of that row closes it.
+# Sign-in: no stored password (Leo, 2026-11-04, hq#7076). The job's GitHub OIDC token (id-token: write) goes to the
+# API's POST /v1/auth/github-actions (backend/apps/api/src/ci-session.ts on feat-cmux-next), which opens a short Stack
+# session of the production agent test account only for a token whose repository, ref (refs/heads/main), workflow
+# (this file at main), event and sub (this job's environment, cmux-next-cloud-journey) match its production
+# CI_SESSION_TRUST row exactly. The real model takes CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (that environment), else the
+# repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
+# environment's staging pair and the repository's Claude token. Tokens reach the one run step through env; the journey
+# sends them only in headers and request bodies and scrubs them from its output.
 #
 # The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
 # the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
@@ -38,6 +42,7 @@ on:
     # ~37 (goals/cloud-first-reply-p95-journey.md in cmuxterm-hq). The six-hourly tick above stays the canary that
     # finds the quota again after a reset.
     - cron: "47 1-5,7-11,13-17,19-23 * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       model:
@@ -45,6 +50,11 @@ on:
         type: choice
         options: [stub, real]
         default: stub
+      agent:
+        description: agent for a manual real run (Claude or Codex)
+        type: choice
+        options: [claude, codex]
+        default: claude
       preclaim:
         description: "Staging only: measure the shipped spare-ready preclaim login path"
         type: boolean
@@ -76,13 +86,28 @@ env:
 jobs:
   journey:
     # Only main's own definition gets the production account: the schedule, or a dispatch of main. A dispatch of
-    # another branch would run that branch's copy of this file with the environment's secrets.
+    # another branch would run that branch's copy of this file with the environment's secrets (and the API's trust
+    # row refuses any other ref's OIDC token anyway).
     if: github.repository_owner == 'manaflow-ai' && !inputs.preclaim && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
     strategy:
       fail-fast: false
       matrix:
-        model: [stub, real]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+        include:
+          - agent: claude
+            model: stub
+            crons: ["17 * * * *"]
+          - agent: claude
+            model: real
+            crons: ["47 */6 * * *", "47 1-5,7-11,13-17,19-23 * * *"]
+          - agent: codex
+            model: real
+            crons: ["47 */6 * * *"]
+          # Codex on the stub every 15 minutes: a fresh machine's Codex must have its code-mode host and make the
+          # stub's tool call (2026-11-25: every Cloud Codex tool call failed to spawn the host).
+          - agent: codex
+            model: stub
+            crons: ["7,22,37,52 * * * *"]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
     environment: cmux-next-cloud-journey
@@ -91,11 +116,14 @@ jobs:
       issues: write
       # The red-journey step lists recent cmux VM production deploys (gh run list / view).
       actions: read
+      # The OIDC token the journey signs in with (no stored password).
+      id-token: write
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
-      # This leg runs on the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
-      SELECTED: ${{ (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
+      # Each row runs on the ticks its own crons list names (an exact element match, so the 15-minute Codex stub tick
+      # never starts the real Claude canary and spends its quota). A dispatch runs the row its inputs name.
+      SELECTED: ${{ (github.event_name == 'schedule' && contains(matrix.crons, github.event.schedule)) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model && inputs.agent == matrix.agent) }}
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
@@ -113,8 +141,10 @@ jobs:
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      # The extra hourly real tick runs only after a real run that read a reply; a quota skip (the weekly limit),
-      # or any other red, leaves the next real sample to the six-hourly canary.
+      # The extra hourly real tick runs only after a real run that read a reply (its probe.json has a first_text mark);
+      # a quota skip (the weekly limit) leaves the next real sample to the six-hourly canary. A run that read a reply
+      # but went red on a later step (run 45571173365: first text in 10.1 s, then the cold create booted at another
+      # size) still proves the login has quota: reading the step's conclusion skipped every hourly sample after it.
       - name: Gate the hourly real tick on the newest real run
         id: gate
         if: env.SELECTED == 'true' && github.event.schedule == '47 1-5,7-11,13-17,19-23 * * *'
@@ -129,13 +159,22 @@ jobs:
             [ "$id" = "${{ github.run_id }}" ] && continue
             c="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name | test("real")) | .steps[]
               | select(.name == "Cloud journey (prod, real model)") | .conclusion][0] // ""')" || break
-            case "$c" in success|failure|cancelled|timed_out) verdict="$c (run $id)"; break ;; esac
+            case "$c" in success|failure|cancelled|timed_out) ;; *) continue ;; esac
+            # Did it read a reply? The journey's probe.json carries first_text. Its artifact is cloud-journey-prod-claude-real
+            # since the Codex rows (#56076); runs before that named it cloud-journey-prod-real.
+            art="$(gh api "repos/$GH_REPO/actions/runs/$id/artifacts" \
+              --jq '[.artifacts[] | select(.name == "cloud-journey-prod-claude-real" or .name == "cloud-journey-prod-real") | .id][0] // ""')" || break
+            replied=no
+            if [ -n "$art" ] && gh api "repos/$GH_REPO/actions/artifacts/$art/zip" > "$RUNNER_TEMP/real-probe.zip" \
+                && unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json | grep -q '"first_text"'; then replied=yes; fi
+            verdict="$c, reply $replied (run $id)"; break
           done
           echo "newest real run: ${verdict:-none found}"
-          if [ "${verdict%% *}" = success ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; else
+          case "$verdict" in *"reply yes"*) echo "skip=false" >> "$GITHUB_OUTPUT" ;; *)
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Hourly real tick skipped: the newest real run did not read a reply (${verdict:-none found})." >> "$GITHUB_STEP_SUMMARY"
-          fi
+            ;;
+          esac
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
@@ -174,6 +213,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           workspaces: cmux-tui
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
@@ -194,18 +234,18 @@ jobs:
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           bun-version: "1.4.4"
-      - name: Cloud journey (prod, ${{ matrix.model }} model)
+      - name: Cloud journey (prod, ${{ matrix.agent == 'codex' && 'codex, ' || '' }}${{ matrix.model }} model)
         id: journey
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         # Leaves the job time to upload the artifact and open the issue.
         timeout-minutes: 25
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           # The journey's own Claude login first (a cmux-next-cloud-journey environment secret, as backend.yml's
           # journey-production reads it): the repository's CLAUDE_CODE_OAUTH_TOKEN is shared with claude.yml and
           # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && matrix.model == 'real' && secrets.CODEX_AUTH_JSON || '' }}
+          AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
           CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
           # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
@@ -215,24 +255,31 @@ jobs:
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
           mkdir -p "$out"
+          if [ "$AGENT" = codex ] && [ "$MODEL" = real ] && [ -z "${CODEX_AUTH_JSON:-}" ]; then
+            printf '%s\n' '| result | step | ms | detail |' '|---|---|---:|---|' '| skip | pass Codex login | 0 | CODEX_AUTH_JSON is unset; no production machine was created |' > "$out/summary.md"
+            echo "Codex production row skipped: CODEX_AUTH_JSON is unset" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           probe=cloud-chat-replies-production
-          [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
+          if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
+          home_chat_args=()
+          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
           # --cmux: execs and the carrier dial (the app's own connect over the machine's relay slot) go through the
           # cmux-tui this job built, so the hourly run times the connect the app makes, not only connect_info.
-          bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
-            --preclaim-login "$CMUX_TUI" --cmux "$CMUX_TUI"
+          bun scripts/cmux-next/cloud-journey.ts --backend prod --sign-in oidc --agent "$AGENT" --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
+            --preclaim-login "$CMUX_TUI" --spare-wait 180 --cmux "$CMUX_TUI" "${home_chat_args[@]}"
           code=$?
-          { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Production, $AGENT, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
       - name: Keep the step table and the probe row
         if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cloud-journey-prod-${{ matrix.model }}
+          name: cloud-journey-prod-${{ matrix.agent }}-${{ matrix.model }}
           path: ${{ runner.temp }}/cloud-journey
           if-no-files-found: ignore
           retention-days: 3
-      # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
+      # One issue per row (agent and model): opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
       - name: Open, update or close the red-journey issue
         if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
@@ -240,11 +287,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           OUTCOME: ${{ steps.journey.outcome }}
-          MODEL: ${{ matrix.model }}
+          # Claude rows keep their earlier labels ("stub model", "real model"), so an issue already open under that
+          # title is still the one a green run closes; the Codex row is "codex, real model".
+          MODEL: ${{ matrix.agent == 'claude' && format('{0} model', matrix.model) || format('{0}, {1} model', matrix.agent, matrix.model) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          title="Cloud journey (production, $MODEL model) is red"
+          title="Cloud journey (production, $MODEL) is red"
           open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
             --jq "map(select(.title == \"$title\"))[0].number // \"\"")"
           if [ "$OUTCOME" = success ]; then
@@ -273,11 +322,11 @@ jobs:
           section=""
           if [ -n "$rollouts" ]; then
             section="$(printf '\n**Warning: production rolled out in the 6 hours before this red.** A rollout is the first suspect (a changed connection protocol or image the shipped app does not speak yet):\n\n%s\nNot listed: cmux-platform deploys, which this job cannot read.\n' "$rollouts")"$'\n'
-            echo "::warning title=Red after a rollout::the production Cloud journey ($MODEL model) is red within 6 h of a cmux VM production deploy"
+            echo "::warning title=Red after a rollout::the production Cloud journey ($MODEL) is red within 6 h of a cmux VM production deploy"
             { echo; echo "### Rolled out in the 6 hours before this red"; echo; printf '%s' "$rollouts"; } >> "$GITHUB_STEP_SUMMARY"
           fi
           # shellcheck disable=SC2016 # backticks are Markdown, not a command
-          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n%s\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$section" "$(date -u +%Y-%m-%dT%H:%MZ)")"
+          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n%s\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$section" "$(date -u +%Y-%m-%dT%H:%MZ)")"
           if [ -n "$open" ]; then
             # A body edit notifies no one, so a rollout this issue has not named yet also gets one comment.
             seen="$(gh issue view "$open" --json body,comments --jq '[.body, .comments[].body] | join("\n")' || true)"
@@ -301,7 +350,7 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: cmux-next-vm-image-dev
     permissions:
