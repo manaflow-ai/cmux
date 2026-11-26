@@ -649,6 +649,7 @@ fn ensure_workspace(
         None,
         None,
         &workspace_mutation,
+        false,
     )?;
     Ok(())
 }

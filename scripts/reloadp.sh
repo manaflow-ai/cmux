@@ -89,7 +89,7 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 if pgrep -f "${APP_PATH}/Contents/MacOS/cmux" >/dev/null; then
-  echo "the old ${APP_PATH} did not exit within 10s of pkill" >&2
+  echo "the old ${APP_PATH} did not exit within 10s of the signal" >&2
   exit 1
 fi
 
