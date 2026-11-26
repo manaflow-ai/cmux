@@ -38,6 +38,7 @@ struct ChatComposer: View {
     /// field's own height (the transcript's inset leaves it out).
     var fieldRef: ComposerFieldRef?
     @State private var showPhotos = false
+    @AppStorage(ComposerFooterFactsMode.key) private var footerFactsMode = ComposerFooterFactsMode.off.rawValue
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
@@ -358,6 +359,8 @@ struct ChatComposer: View {
                     if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                    // RFD 0130: live counters (or an info mark) opening the Session card; off by default.
+                    ComposerFooterFactsView(facts: store.footerFacts, mode: .stored(footerFactsMode))
                 }
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
