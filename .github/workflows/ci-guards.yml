@@ -256,7 +256,9 @@ jobs:
 
       - name: Validate fast checks prefetch SwiftPM binary artifacts
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+        run: |
+          python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+          python3 tests/test_ci_swiftpm_prefetch_shared_cache.py
 
       - name: Validate fast checks refuse cargo -p of a crate outside its workspace
         if: ${{ matrix.group == 'ci' }}
