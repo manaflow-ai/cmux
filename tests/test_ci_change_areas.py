@@ -472,7 +472,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
-        " && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+        " && 'ubuntu-24.04'"  # a fork PR takes hosted Ubuntu by literal (#56554)
         " || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
@@ -3380,6 +3380,13 @@ def test_every_setup_bun_step_declares_a_version() -> None:
                 continue
             found += 1
             tail = lines[index + 1:index + 7]
+            # `with: *name` reuses an earlier `with: &name` block (cmux-next.yml's *bun-with): read that block
+            for candidate in tail:
+                alias = re.match(r"^\s+with:\s*\*([A-Za-z0-9_-]+)\s*$", candidate)
+                if alias:
+                    anchor = next(i for i, l in enumerate(lines) if re.search(rf"with:\s*&{re.escape(alias.group(1))}\s*$", l))
+                    tail = lines[anchor + 1:anchor + 7]
+                    break
             versions = [
                 match.group(1)
                 for candidate in tail
