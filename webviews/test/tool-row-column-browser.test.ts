@@ -233,7 +233,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         // A finished call stays in its run while the live line reads Thinking (#37635): live or
         // finished, the run lists every call, each on its own row.
         const steps = fixture.locator("[data-mixed-tool-steps]");
-        const step = ":scope > .cv-step > .cv-tool";
+        const step = ":scope > .cv-step > .cv-tool, :scope > .cv-step > .cv-tool-with-visual > .cv-tool";
         await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
         expect(await steps.locator(".is-run").count()).toBe(0);
         // One row pitch: --cv-tool-row-height (22px plus --cv-row-air since #50376), read off the run.
@@ -255,17 +255,21 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
             icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
           })),
         );
+        expect(geometry).toHaveLength(5);
         for (let at = 0; at < geometry.length; at++) {
           expect(geometry[at]!.icon).toBe("visible");
           expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
           if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - pitch)).toBeLessThanOrEqual(0.5);
         }
         expect(Math.abs(pitch - ROW_METRIC.height)).toBeLessThanOrEqual(0.5);
-        await steps.getByRole("button", { name: "Find the retry handler" }).click();
+        const retry = steps.getByRole("button", { name: "Find the retry handler" });
+        await retry.click();
         // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
         expect(await steps.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
         expect(await steps.textContent()).not.toContain('"pattern"');
         if (!working) {
+          // Opening the preceding result can move the capture outside the step window.
+          await retry.click();
           // Closed, the capture's screenshot is the small image at its row's edge.
           const edge = steps.getByRole("img", { name: "Capture the repaired screen" });
           await edge.waitFor();
