@@ -243,7 +243,7 @@ public final class ArtifactsPageProvider: PageProvider {
     public static var title: String { t("artifacts.tab.title", "Artifacts") }
 
     static var unreachable: String {
-        t("artifacts.unreachable", "Artifacts could not be reached. Check that you are signed in and online, then try again.")
+        t("artifacts.unreachable", "Artifacts could not be reached. Check that you are signed in and online.")
     }
 
     static var signedOut: String {
@@ -255,7 +255,7 @@ public final class ArtifactsPageProvider: PageProvider {
     }
 
     static var failed: String {
-        t("artifacts.failed", "Artifacts could not be loaded. Try again.")
+        t("artifacts.failed", "Artifacts could not be loaded.")
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {

@@ -14,6 +14,7 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
+            if operation == "cloud_computer_status_live" { return nil } // not a move event
             if operation == "cloud_move_place_view" {
                 let state = ["failed": "failed", "live": "live"][events.last ?? ""] ?? "moving"
                 return Data(#"{"state":"\#(state)","n":\#(events.count)}"#.utf8)
@@ -219,6 +220,48 @@ import Testing
         let out = Data(" M a.txt\0R  new.txt\0old.txt\0?? b.txt\0".utf8)
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: out) == 3)
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: Data()) == 0)
+    }
+
+    /// A home folder kept in git (a dotfiles `~/.git`): the move's count of a folder there is the repository's tracked
+    /// changes; listing its untracked files would read every folder of the home folder (LAUNCH-NO-TCC-PROMPTS). A
+    /// repository of its own below the home folder still counts its untracked files.
+    @Test func dirtyFilesInTheHomeFoldersRepositoryCountTrackedChangesOnly() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("dirty-home-\(UUID().uuidString)", isDirectory: true)
+        let tools = home.appendingPathComponent("tools", isDirectory: true)
+        let app = home.appendingPathComponent("code/app", isDirectory: true)
+        for folder in [tools, app, home.appendingPathComponent("Pictures/Photos Library.photoslibrary")] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: home) }
+        func git(_ folder: URL, _ arguments: String...) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", folder.path, "-c", "user.name=t", "-c", "user.email=t@e.test", "-c", "commit.gpgsign=false",
+                                 "-c", "core.hooksPath=/dev/null"] + arguments
+            process.environment = ProcessInfo.processInfo.environment.merging(
+                ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]) { _, ours in ours }
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0, "git \(arguments) in \(folder.path)")
+        }
+        try git(home, "init", "--quiet")
+        try Data("export A=1\n".utf8).write(to: home.appendingPathComponent(".zshrc"))
+        try git(home, "add", ".zshrc")
+        try git(home, "commit", "--quiet", "-m", "dotfiles")
+        try Data("export A=2\n".utf8).write(to: home.appendingPathComponent(".zshrc"))
+        for file in ["notes.txt", "tools/run.py", "Pictures/Photos Library.photoslibrary/Photos.sqlite"] {
+            try Data("x".utf8).write(to: home.appendingPathComponent(file))
+        }
+        try git(app, "init", "--quiet")
+        try Data("x".utf8).write(to: app.appendingPathComponent("new.rs"))
+
+        #expect(await CloudPlaceFlows.dirtyFiles(in: tools.path, homePath: home.path) == 1)
+        #expect(await CloudPlaceFlows.dirtyFiles(in: home.path, homePath: home.path) == 1)
+        #expect(await CloudPlaceFlows.dirtyFiles(in: app.path, homePath: home.path) == 1)
+        // Another home folder: this repository's untracked files count (`notes.txt`, `tools/`, `Pictures/`, `code/`).
+        #expect(await CloudPlaceFlows.dirtyFiles(in: tools.path, homePath: app.path) == 5)
     }
 
     @Test func evacuationShowsEachChatsStateAndCancelDropsTheQueue() throws {

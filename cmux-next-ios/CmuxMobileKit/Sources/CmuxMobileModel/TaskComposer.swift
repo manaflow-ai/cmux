@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// Where a New Task runs: an agent chat, or the agent's own CLI in a terminal (classic's tasks).
 public enum TaskLaunch: String, Hashable, Sendable, Codable, CaseIterable {
@@ -54,63 +57,17 @@ public struct AgentTask: Hashable, Sendable {
     /// The command a terminal launch types into the new workspace's shell (zsh or bash, the
     /// Mac's default shells): `cd` to the folder and, only if that worked, the agent's CLI with its
     /// model and the prompt, the uploaded attachments' paths after it. Nil for an agent with no
-    /// known CLI. Every value is one ANSI-C quoted word (`$'…'`), so nothing in it runs: quotes and
-    /// backslashes are escaped, line breaks are `\n`, control characters are dropped. Options
-    /// are `--flag=value` and the prompt comes after `--`, so a value starting with `-` is never
-    /// taken for an option.
+    /// known CLI. The quoting and flag rules are Rust's `task_terminal_line`
+    /// (cmux-mobile-link-ffi `task_composer.rs`): every value one ANSI-C quoted word, so nothing
+    /// in it runs. Nil off iOS too, where the Rust library is not linked (only tests build there).
     public func terminalLine(folder: String? = nil, attachmentPaths: [String] = []) -> String? {
-        var text = prompt
-        if !attachmentPaths.isEmpty {
-            text += "\n\nAttached files (read them):\n" + attachmentPaths.joined(separator: "\n")
-        }
-        let quoted = Self.ansiQuoted(text)
-        let model = model.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }.map(Self.ansiQuoted)
-        let modelFlag = model.map { " --model=\($0)" } ?? ""
-        let command: String
-        switch family {
-        case "claude":
-            // The mode and effort as Claude Code's own flags.
-            let modeFlag = mode.map { " --permission-mode=\(Self.ansiQuoted($0))" } ?? ""
-            let effortFlag = effort.map { " --effort=\(Self.ansiQuoted($0))" } ?? ""
-            command = "claude" + modelFlag + effortFlag + modeFlag + " -- " + quoted
-        case "codex":
-            // The effort as Codex's config override (`-c key=value`).
-            let effortFlag = effort.map { " -c " + Self.ansiQuoted("model_reasoning_effort=\($0)") } ?? ""
-            command = "codex" + modelFlag + effortFlag + " -- " + quoted
-        default: return nil
-        }
-        guard let folder else { return command + "\n" }
-        return "cd -- \(Self.folderWord(folder)) && " + command + "\n"
+        #if os(iOS)
+        taskTerminalLine(launch: TaskTerminalLaunch(prompt: prompt, model: model, family: family, effort: effort, mode: mode,
+                                                    folder: folder, attachmentPaths: attachmentPaths))
+        #else
+        nil
+        #endif
     }
-
-    /// A folder as one shell word: `~/x` keeps its `~` (expanded by the shell), the rest is quoted.
-    static func folderWord(_ folder: String) -> String {
-        if folder == "~" { return "~" }
-        if folder.hasPrefix("~/") { return "~/" + ansiQuoted(String(folder.dropFirst(2))) }
-        return ansiQuoted(folder)
-    }
-
-    /// `$'…'` with `\\`, `\'`, `\n` and `\t` escaped; control characters (C0, DEL, C1) and the
-    /// bidirectional overrides dropped. Other format characters stay (the joiners Persian,
-    /// Indic scripts and emoji need), as nothing in a quoted word acts on them.
-    static func ansiQuoted(_ text: String) -> String {
-        var out = "$'"
-        for scalar in text.unicodeScalars {
-            switch scalar {
-            case "\\": out += "\\\\"
-            case "'": out += "\\'"
-            case "\n": out += "\\n"
-            case "\t": out += "\\t"
-            default:
-                if scalar.properties.generalCategory == .control || bidiControls.contains(scalar.value) { continue }
-                out.unicodeScalars.append(scalar)
-            }
-        }
-        return out + "'"
-    }
-
-    /// U+202A–202E and U+2066–2069: they reorder what a terminal shows, not what runs.
-    static let bidiControls: Set<UInt32> = [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069]
 }
 
 /// A file attached in New Task (any kind): uploaded to the task's folder on the Mac and named
@@ -137,16 +94,11 @@ public struct TaskImage: Hashable, Sendable, Identifiable {
         self.data = data
     }
 
-    /// The MIME type from the bytes' signature; nil for a format agents don't take.
-    public var mimeType: String? {
-        guard data.count >= 12 else { return nil }
-        let bytes = [UInt8](data.prefix(12))
-        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
-        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
-        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
-        if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]), bytes[8...11] == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
-        return nil
-    }
+    #if os(iOS)
+    /// The MIME type from the bytes' signature (Rust's `task_image_mime_type`); nil for a format
+    /// agents don't take.
+    public var mimeType: String? { taskImageMimeType(head: Data(data.prefix(12))) }
+    #endif
 }
 
 /// A Cloud machine New Task can run on, as a connected Mac lists it (Cloud chats reach the phone
@@ -260,21 +212,29 @@ public struct TaskDraft: Hashable, Sendable {
         case unavailable
     }
 
+    #if os(iOS)
     /// A tap on `harness`'s row: picks it, or unpicks it unless it is the last. With no pick,
     /// the agent the task would start (`fallback`, shown checked) becomes a real pick first.
+    /// The rules are Rust's `task_pick_toggle`; a kept agent keeps its settings.
     @discardableResult
     public mutating func toggle(_ harness: AgentHarnessChoice, fallback: AgentHarnessChoice?) -> PickChange {
-        guard harness.canStart else { return .unavailable }
-        if picks.isEmpty, let fallback { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name, family: fallback.family)] }
-        if let index = picks.firstIndex(where: { $0.harness == harness.id }) {
-            guard picks.count > 1 else { return .keptLast }
-            picks.remove(at: index)
-            return .removed
+        let result = taskPickToggle(picks: picks.map(\.harness), harness: harness.id, canStart: harness.canStart,
+                                    fallback: fallback?.id, limit: UInt32(Self.agentLimit))
+        let kept = Dictionary(picks.map { ($0.harness, $0) }, uniquingKeysWith: { first, _ in first })
+        picks = result.picks.map { id in
+            if let pick = kept[id] { return pick }
+            let choice = id == harness.id ? harness : fallback
+            return TaskAgentPick(harness: id, name: choice?.name, family: choice?.family)
         }
-        guard picks.count < Self.agentLimit else { return .atLimit }
-        picks.append(TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family))
-        return .added
+        switch result.change {
+        case .added: return .added
+        case .removed: return .removed
+        case .keptLast: return .keptLast
+        case .atLimit: return .atLimit
+        case .unavailable: return .unavailable
+        }
     }
+    #endif
 
     /// Another Mac: its agents are its own, so the picks go (the folder is checked against its list).
     public mutating func chooseMac(_ macID: String) {

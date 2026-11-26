@@ -485,6 +485,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
             live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
@@ -519,6 +520,13 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
@@ -527,6 +535,8 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -538,6 +548,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }

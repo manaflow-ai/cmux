@@ -25,6 +25,7 @@ const ROWS: [AcpmuxLink, string | null, string, boolean][] = [
   ["authFailed", "offline", "Sign-in needed", false],
   ["updateRequired", "offline", "Update required", false],
   ["paused", null, "", false],
+  ["idle", "connected", "Connected", false],
 ];
 
 test("the renderer draws every acpmux link state, one dot each", () => {

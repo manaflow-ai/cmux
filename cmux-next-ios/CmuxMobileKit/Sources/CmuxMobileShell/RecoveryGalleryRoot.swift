@@ -183,7 +183,7 @@ public struct RecoveryGalleryRoot: View {
     private var states: some View {
         VStack(spacing: 0) {
             EmptyState(symbol: "wifi.exclamationmark", title: "Couldn't load this Mac's Home.",
-                       message: "Check that the Mac is awake and online.", retry: {})
+                       message: "Check that the Mac is awake and online.")
             Divider()
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -240,7 +240,7 @@ public struct RecoveryGalleryRoot: View {
                 }
                 .padding(.horizontal, 20)
                 galleryLabel("Timed out")
-                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.") {}
+                CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.", autoRetry: AutoRetry())
                     .frame(height: 300)
                 galleryLabel("No Mac")
                 CloudChatsConnectMac {}
@@ -424,7 +424,8 @@ public struct RecoveryGalleryRoot: View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
             ConnectionBanner(.signedOut, retry: {})
-            FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
+            // retry-prompt-ok: signing in again is the person's step
+            FailureCard(title: "This device was signed out", message: "Sign in again to load your teams.", actionTitle: "Sign In") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {
                 Text("The simulator closed on your Mac.").font(.footnote).foregroundStyle(.secondary)

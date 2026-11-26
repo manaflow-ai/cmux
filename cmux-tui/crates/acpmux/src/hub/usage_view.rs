@@ -122,6 +122,10 @@ pub(crate) struct UsageCache {
     warm: Arc<AtomicBool>,
     /// A pass started behind a read is queued or running: another read starts none.
     behind: AtomicBool,
+    /// The catalog's prices and windows, built once per catalog in use: every turn's end reads
+    /// its chat's usage, and rebuilding them from the whole catalog each time was 8.5% of a
+    /// host's CPU in a 2,000-chat prompt burst (coord-sim fan-in ramp, 2026-11-25).
+    models: StdMutex<Option<(Arc<crate::catalog::Catalog>, Arc<Models>)>>,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
     /// one that ran, over the sources it says.
     #[cfg(test)]
@@ -142,6 +146,7 @@ impl Default for UsageCache {
             dirty: AtomicBool::new(false),
             warm: Arc::new(AtomicBool::new(false)),
             behind: AtomicBool::new(false),
+            models: StdMutex::new(None),
             #[cfg(test)]
             passes: Default::default(),
             #[cfg(test)]
@@ -355,10 +360,13 @@ impl Hub {
                 argv,
                 env,
             };
-            // The window acpmux started it with when the person set none (`harness_limits::lift_claude`).
-            if claude_stdio && crate::usage_stats::claude_autocompact_unset(&source) {
-                let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
-                source.env.insert(key.into(), value.into());
+            // The window acpmux started it with when the person set none and the settings name
+            // one (`harness_limits::lift_claude`).
+            if claude_stdio
+                && let Some((key, value)) = crate::harness_limits::claude_autocompact_window()
+                && crate::usage_stats::claude_autocompact_unset(&source)
+            {
+                source.env.insert(key.into(), value);
             }
             sources.push((m.id.clone(), source));
         }
@@ -367,6 +375,21 @@ impl Hub {
 
     /// Reads one chat's usage and leaves it to run: its turn ended, so its spend changed. The
     /// next list that asks for usage reads too, however soon, so it never misses this turn.
+    /// [`Models`] of the catalog in use, rebuilt only when the catalog is replaced (a new
+    /// catalog is a new `Arc`; the one held here keeps its address from being reused).
+    fn usage_models(&self) -> Arc<Models> {
+        let catalog = self.catalog.current();
+        let mut held = self.usage_stats.models.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((of, models)) = held.as_ref()
+            && Arc::ptr_eq(of, &catalog)
+        {
+            return models.clone();
+        }
+        let models = Arc::new(Models::from_catalog(&catalog));
+        *held = Some((catalog, models.clone()));
+        models
+    }
+
     pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
         // Its stats are stale until this read writes them: one write, whatever is cached.
         self.usage_stats.stats().invalidate(UsageTag::Chat(session.id.clone()));
@@ -394,7 +417,7 @@ impl Hub {
         // Only a turn's own read keeps its chat's handle, to announce it; a whole pass resolves
         // what changed in the session map, so it builds no map of its candidates.
         let own = if whole { Vec::new() } else { sessions };
-        let models = Models::from_catalog(&self.catalog.current());
+        let models = self.usage_models();
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.

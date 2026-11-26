@@ -158,6 +158,28 @@ it("allows CPU growth while paused but leaves failed disk growth intact", async 
   expect(t.upstream.callsTo("DELETE", /./)).toHaveLength(0);
 });
 
+it("waits for a starting VM to run before growing its disk, and refuses one that never does", async () => {
+  const t = await harness();
+  const booting = t.addVm("team_alpha", "starting");
+  const stuck = t.addVm("team_alpha", "starting");
+  const key = await t.addKey("team_alpha", ["vm:write"]);
+  const real = t.upstream.vms.get(booting.upstreamId);
+  if (real === undefined) throw new Error("missing fixture");
+  let reads = 0;
+  t.upstream.resizeReplies.set(stuck.upstreamId, () => { throw new Error("a VM that never ran was resized"); });
+  const original = t.upstream.fetch;
+  t.upstream.fetch = async (request) => {
+    if (request.method === "GET" && request.url.endsWith(`/v5/vms/${booting.upstreamId}`) && (reads += 1) === 3) real.state = "running";
+    return original(request);
+  };
+  const grown = await resize(t, key, booting.vmId, { diskMib: 65536 });
+  expect(grown.status).toBe(200);
+  expect(await grown.json()).toMatchObject({ resources: { diskMib: 65536 } });
+  expect(reads).toBeGreaterThanOrEqual(3);
+  expect((await resize(t, key, stuck.vmId, { diskMib: 65536 })).status).toBe(409);
+  expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${stuck.upstreamId}/resize$`))).toHaveLength(0);
+});
+
 it.each([400, 404, 409, 429, 503])("reports provider failure %s without deleting the VM or reflecting its body", async (status) => {
   const t = await harness();
   const owned = t.addVm("team_alpha");
