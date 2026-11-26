@@ -27,6 +27,7 @@ macro_rules! classes {
             $($(#[$doc])* $name,)*
         }
 
+        #[cfg(test)]
         impl Class {
             /// Every class, in declaration order.
             pub(super) const ALL: &'static [Class] = &[$(Class::$name,)*];
@@ -271,7 +272,9 @@ fn keep_new_machine(outcome: Outcome, made: Option<String>) -> Outcome {
         (Outcome::Done(mut answer), Some(id))
             if at(&answer, "machine_id").as_str() == Some(id.as_str()) =>
         {
-            answer["new_machine"] = json!(true);
+            if let Some(fields) = answer.as_object_mut() {
+                fields.insert("new_machine".to_owned(), json!(true));
+            }
             Outcome::Done(answer)
         }
         (outcome, _) => outcome,
@@ -282,7 +285,9 @@ fn keep_new_machine(outcome: Outcome, made: Option<String>) -> Outcome {
 fn annotate(outcome: Outcome, reruns: u32) -> Outcome {
     match outcome {
         Outcome::Done(mut answer) => {
-            answer["recovered_reruns"] = json!(reruns);
+            if let Some(fields) = answer.as_object_mut() {
+                fields.insert("recovered_reruns".to_owned(), json!(reruns));
+            }
             Outcome::Done(answer)
         }
         Outcome::Failed { mut error, exit } => {
