@@ -152,6 +152,18 @@ fn the_rows_file_keeps_its_newer_half_past_the_bound() {
 }
 
 #[test]
+fn a_rows_file_whose_middle_splits_a_character_is_bounded_without_a_panic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("run-vm.jsonl");
+    // Two ASCII bytes, then 4-byte characters: the byte midpoint (105 of 211) lands inside one.
+    let text = format!("ab{}\n{{\"n\":1}}\n", "𝄞".repeat(50));
+    assert!(!text.is_char_boundary(text.len() / 2), "the fixture must split a character");
+    std::fs::write(&path, &text).unwrap();
+    super::super::run_vm::bound_rows(&path, 10);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"n\":1}\n");
+}
+
+#[test]
 fn a_rows_program_is_its_first_word_never_an_assignment_or_arguments() {
     use super::super::run_vm::program_of;
     assert_eq!(program_of("TOKEN=s3cret /usr/bin/cargo build").as_deref(), Some("cargo"));
