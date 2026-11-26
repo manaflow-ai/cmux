@@ -219,7 +219,13 @@ class WebValidationTests(unittest.TestCase):
                 block = workflow[start:] if next_job < 0 else workflow[start:next_job]
                 self.assertIn("uses: actions/cache@", block)
                 self.assertIn("path: ~/.bun/install/cache", block)
-                self.assertIn(f"hashFiles('{lockfile}')", block)
+                # One shared key for every Bun job (bun-web-shared-v1): the runners share one
+                # ~/.bun/install/cache, so per-workflow keys stored the same 1.17 GB folder four
+                # times and pushed the repo's Actions cache past its 10 GB cap.
+                self.assertIn("key: bun-web-shared-v1-", block)
+                key_hash = re.search(r"key: bun-web-shared-v1-.*hashFiles\(([^)]*)\)", block)
+                self.assertIsNotNone(key_hash)
+                self.assertIn(f"'{lockfile}'", key_hash.group(1))
 
     def test_webviews_tests_run_on_a_runner_that_starts_jobs_at_widths_that_fit_it(self):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
