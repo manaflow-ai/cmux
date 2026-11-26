@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -816,7 +817,12 @@ def _job_ifs(text: str) -> dict:
     return out
 
 
-def _trigger_types(text: str, event_name: str) -> str:
+def _trigger_types(text: str, event_name: str, name: str = "") -> str:
+    """The workflow's own pull request trigger types, or, for a pr-router callee (scripts/ci/pr_router.json: no
+    pull_request trigger of its own into feat-cmux-next), the types the router starts it on."""
+    callees = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"]
+    if event_name == "pull_request" and name in callees:
+        return json.dumps(callees[name]["types"])
     block = re.search(rf"^  {event_name}:\n((?:    .*\n|\s*\n)*)", text, re.M)
     assert block, f"no {event_name} trigger"
     types = re.search(r"^    types:\s*(\[[^\]]*\]|(?:\n      - .*)+)", block.group(1), re.M)
@@ -854,7 +860,7 @@ class GatedWorkflowTests(unittest.TestCase):
                     continue
                 self.assertIn(expected, condition, f"{name}: job {job}")
                 self.assertNotIn("github.event.pull_request.draft != true ||", condition, f"{name}: job {job}")
-            types = _trigger_types(text, event_name)
+            types = _trigger_types(text, event_name, name)
             self.assertIn("ready_for_review", types, name)
             self.assertIn("labeled", types, name)
 
@@ -863,7 +869,7 @@ class GatedWorkflowTests(unittest.TestCase):
             text = (self.WORKFLOWS / name).read_text()
             for job, condition in _job_ifs(text).items():
                 self.assertIn(draft_tier_condition(event_name), condition or "", f"{name}: job {job}")
-            self.assertIn("ready_for_review", _trigger_types(text, event_name), name)
+            self.assertIn("ready_for_review", _trigger_types(text, event_name, name), name)
 
     def test_the_cmux_next_router_drops_the_cargo_fast_tier_on_a_cheap_head(self) -> None:
         """A later line of an output wins: the cheap tier's fast_tier_cargo=false follows the cargo route's line."""
