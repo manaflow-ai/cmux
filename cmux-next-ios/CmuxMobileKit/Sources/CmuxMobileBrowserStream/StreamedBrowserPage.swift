@@ -21,6 +21,8 @@ public struct StreamedBrowserPage: View {
     /// A JavaScript prompt's answer while its alert shows.
     @State private var promptText = ""
     @Environment(\.openURL) private var openURL
+    /// A failed open is opened again on its own; one quiet line past the bound.
+    @State private var autoRetry = AutoRetry()
 
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
@@ -51,6 +53,19 @@ public struct StreamedBrowserPage: View {
                     // The link is coming back: a chip over the last frame, not a sentence (Leo,
                     // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
                     linkChip(chip)
+                } else if model.openFailed, !autoRetry.isQuietLineShown {
+                    // Opened again on its own (AutoRetry): the loading line stays until the quiet bound.
+                    status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
+                } else if model.openFailed {
+                    // Still failing past the quiet bound: why, and one quiet line (no Retry).
+                    VStack(spacing: 8) {
+                        Text(reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     status(reason)
                 }
@@ -120,6 +135,7 @@ public struct StreamedBrowserPage: View {
         }
         .onChange(of: keyboard) { _, shown in if !shown { raisedForField = false } }
         .onDisappear { model.setVisible(false) }
+        .autoRetry(autoRetry, failing: model.openFailed) { await model.reconnectAnswered() }
         // The page's `<select>`: its options in a sheet. Swiping it away cancels; the page
         // closing the popup itself closes the sheet.
         .sheet(item: Binding(get: { model.selectMenu }, set: { [shown = model.selectMenu?.token] next in
@@ -177,6 +193,8 @@ public struct StreamedBrowserPage: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            // retry-prompt-ok: Reopen takes the page back from another device, or evicts another page the
+            // Mac stopped this one for; the person chooses which one wins.
             Button("Reopen") { model.reopen() }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("browser.reopen")
