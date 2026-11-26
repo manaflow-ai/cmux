@@ -5,16 +5,17 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { installDom } from "../settings/testDom";
-import { createStrings } from "../shared/i18n";
-import { makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
-import { OnboardingPage } from "./Onboarding";
-import { OPS, type OnboardingState } from "./ops";
-import { OnboardingStore } from "./store";
-import { restoreWrites } from "./walk";
+import type { OnboardingState } from "./ops";
 
 const restore = installDom();
 afterAll(restore);
+const { createStrings } = await import("../shared/i18n");
+const { makeItYoursState } = await import("./fixtures");
+const { OnboardingPage } = await import("./Onboarding");
+const { OPS } = await import("./ops");
+const { OnboardingStore } = await import("./store");
+const { restoreWrites } = await import("./walk");
 const strings = createStrings(table, ["en"]);
 
 async function mount(introWalk = true) {
