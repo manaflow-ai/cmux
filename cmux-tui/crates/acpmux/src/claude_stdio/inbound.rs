@@ -99,6 +99,14 @@ impl Translator {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
                     *self.session_id.lock().await = Some(s.to_owned());
                 }
+                // A durable cron this conversation made in an earlier process (`loops.rs`).
+                if let (Some(cwd), Some(s)) = (
+                    line.get("cwd").and_then(Value::as_str),
+                    line.get("session_id").and_then(Value::as_str),
+                ) && let Some(goal) = self.durable_loops(cwd, s).await
+                {
+                    out.push(upd(goal));
+                }
                 if let Some(m) = line.get("model").and_then(Value::as_str) {
                     *self.model.lock().await = m.to_owned();
                 }
