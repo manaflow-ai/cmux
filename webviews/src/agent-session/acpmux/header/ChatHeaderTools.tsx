@@ -98,6 +98,7 @@ import {
 /// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
 /// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
 export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
+  ((globalThis as any).__rc ??= {})["header"] = (((globalThis as any).__rc["header"] as number) ?? 0) + 1; // PLCE-DEBUG
   const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
   return <ChatHeaderToolsMemo {...stable} />;
 }

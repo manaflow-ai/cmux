@@ -251,9 +251,11 @@ async function run(): Promise<Reading> {
     measuring = true;
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
+    const rcBefore = await page.evaluate(() => JSON.stringify((globalThis as any).__rc)); // PLCE-DEBUG
     const wallBefore = performance.now();
     await page.waitForTimeout(SECONDS * 1000);
     const taskAfter = await taskSeconds(cdp);
+    console.log("RC", rcBefore, await page.evaluate(() => JSON.stringify((globalThis as any).__rc)), "sent", sent); console.log("MISS", await page.evaluate(() => JSON.stringify((globalThis as any).__miss))); console.log("TW", await page.evaluate(() => JSON.stringify((globalThis as any).__tw))); console.log("DT", await page.evaluate(() => JSON.stringify((globalThis as any).__dt))); // PLCE-DEBUG
     const wallMs = performance.now() - wallBefore;
     if (PROFILE) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, "replay", wallMs);
     const pageEnd = await page.evaluate(() => performance.now());

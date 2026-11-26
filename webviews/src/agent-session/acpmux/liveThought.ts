@@ -77,6 +77,7 @@ let drawn = new Map<string, AcpmuxActivity>();
 /// What the transcript drew of the running turn: each row's last item when it is a thought. Read
 /// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
 export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
+  { const g = globalThis as any; if (rows) { const tail: string[] = []; for (let i = rows.length - 1; i >= 0 && tail.length < 8; i -= 1) { const r = rows[i] as any; tail.push(`${r.kind}${r.streaming ? "*" : ""}:${r.items ? r.items.length + "/" + (r.items.at(-1)?.kind ?? "?") + (r.items.at(-1)?.tool ? "T" : "") : ""}`); if (r.kind === "user") break; } g.__dt ??= {}; const k = tail.join(" < "); g.__dt[k] = (g.__dt[k] ?? 0) + 1; } } // PLCE-DEBUG
   const next = new Map<string, AcpmuxActivity>();
   if (rows)
     for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -123,25 +124,25 @@ export function thoughtOnly(
   next: AcpmuxSnapshot,
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
-  if (index === undefined || !sameButRows(previous, next)) return undefined;
+  if (index === undefined || !sameButRows(previous, next)) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r1"] = (g.__tw["r1"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   const row = previous.rows[index];
   const now = next.rows[index];
-  if (!row || !now || row.id !== now.id || now.kind !== "activity" || now.streaming !== true) return undefined;
-  if (!sameExcept(row, now, ROW_KEYS)) return undefined;
+  if (!row || !now || row.id !== now.id || now.kind !== "activity" || now.streaming !== true) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r2"] = (g.__tw["r2"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
+  if (!sameExcept(row, now, ROW_KEYS)) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r3"] = (g.__tw["r3"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   const was = row.items;
   const items = now.items;
-  if (!was || !items || was.length !== items.length || !items.length) return undefined;
+  if (!was || !items || was.length !== items.length || !items.length) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r4"] = (g.__tw["r4"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   const last = items.length - 1;
-  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return undefined;
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r5"] = (g.__tw["r5"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   const before = was[last]!;
   const after = items[last]!;
-  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return undefined;
-  if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text)) return undefined;
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r6"] = (g.__tw["r6"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
+  if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text)) { const g = globalThis as any; g.__tw ??= {}; g.__tw["r7"] = (g.__tw["r7"] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  if (!sameThought(drawnNow, before)) return undefined;
+  if (!sameThought(drawnNow, before)) { const g = globalThis as any; g.__tw ??= {}; const sh = drawn.get(now.id); const en = entries.get(now.id); const k = `r8:has=${sh ? 1 : 0}:ids=${drawn.size}:shownEqBefore=${sh === before ? 1 : 0}:shownTextEq=${sh?.text === before.text ? 1 : 0}:shownPrefix=${sh && before.text.startsWith(sh.text) ? 1 : 0}:entry=${en ? 1 : 0}:entEpoch=${en ? (en.epoch === epoch ? 1 : 0) : "-"}:entToEqBefore=${en?.to === before ? 1 : 0}`; g.__tw[k] = (g.__tw[k] ?? 0) + 1; return undefined; } // PLCE-DEBUG
   return { id: now.id, before, after };
 }
 

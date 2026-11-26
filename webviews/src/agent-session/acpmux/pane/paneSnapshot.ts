@@ -1324,6 +1324,7 @@ export function paneSnapshotEffect({
             liveSummary.set(drawn.summary!, next.summary!);
             return;
           }
+          { const g = globalThis as any; const b = (received ?? {}) as any; const n = next as any; const ks = Object.keys(n).filter((key) => !Object.is(b[key], n[key])).sort().join(","); const r = `${g.__lastKind}|${ks}|pend=${pendingPaneDraw.pending ? 1 : 0}|blk=${streamingRowBlocked() ? 1 : 0}|drawn=${drawn ? 1 : 0}`; g.__miss ??= {}; g.__miss[r] = (g.__miss[r] ?? 0) + 1; } // PLCE-DEBUG
           streamingRow.clear();
           liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();

@@ -999,6 +999,7 @@ function newTabStartFailureOf(error: unknown, harness?: string): Omit<NewTabStar
 }
 
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
+  { const g = globalThis as any; g.__rc ??= {}; const k = "pane:" + (g.__lastKind ?? "?"); g.__rc[k] = (g.__rc[k] ?? 0) + 1; g.__lastKind = "(again)"; } // PLCE-DEBUG
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");

@@ -8,6 +8,7 @@ export type CpuProfile = {
 /// Prints the functions with the most self and inclusive time per second of a profiled window.
 /// Inclusive time counts each pane-source frame once per sample, however deep it recurses.
 export function printProfile(profile: CpuProfile, label: string, wallMs: number): void {
+  if (process.env.PROFILE_DUMP) require("node:fs").writeFileSync(process.env.PROFILE_DUMP, JSON.stringify(profile));
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const self = new Map<string, number>();
   (profile.samples ?? []).forEach((id, index) => {
