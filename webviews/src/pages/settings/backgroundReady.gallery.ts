@@ -21,6 +21,7 @@ export default settingsPageEntry({
   title: "Settings Stay Ready in the Background",
   area: "Settings",
   height: 620,
+  covers: ["page:cmux.settings"],
   anchors: [{ selector: row }],
   variants: {
     off: value(undefined, "The default: Off. No quit stays and no launch starts hidden."),
