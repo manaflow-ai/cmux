@@ -505,6 +505,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -1829,6 +1830,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -2271,6 +2273,15 @@ jobs:
       - name: Set up pinned Rust
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A disk floor before any cache lands: a reused pool workspace ran out of disk 14 min into
+      # the build (No space left on device, an ld Bus error; run 45737327859), which left 35
+      # feat-cmux-next commits with no published tree. Frees this workspace's leftover target,
+      # else fails in seconds so the retry runs elsewhere (scripts/ci/cmux-tui-test-target.sh floor).
+      - name: Make room for the cargo build (disk floor)
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        timeout-minutes: 5
+        run: scripts/ci/cmux-tui-test-target.sh floor
 
       - name: Cache cargo build
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
@@ -3995,6 +4006,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -5437,6 +5449,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -5944,6 +5957,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 

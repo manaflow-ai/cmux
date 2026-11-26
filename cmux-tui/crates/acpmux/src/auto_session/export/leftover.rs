@@ -111,7 +111,7 @@ pub(crate) async fn apply(leftover: &Leftover) -> Result<(), String> {
 /// `discard`: the patch file goes.
 pub(crate) async fn discard(leftover: &Leftover) {
     let path = Path::new(&leftover.path).to_path_buf();
-    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+    let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
 }
 
 #[cfg(all(test, unix))]
