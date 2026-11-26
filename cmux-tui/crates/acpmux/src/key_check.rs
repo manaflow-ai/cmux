@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 /// How long the provider has to answer before the key is saved unasked.
+// timeout: an advisory provider check; past it the verdict is Unreachable and the key is saved anyway.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// What the provider said about a key.

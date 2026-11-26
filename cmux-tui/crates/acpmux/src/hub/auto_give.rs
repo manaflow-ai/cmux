@@ -11,6 +11,7 @@ use super::*;
 
 /// How long a turn that was told to stop may take to end before the give is called off: what a
 /// move by hand allows a turn it interrupted.
+// timeout: a stopped turn that has not ended by then calls off the automatic give; the chat keeps running where it is.
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// The log record of a move that did not happen: `{to, why, text}`, `text` for the person.

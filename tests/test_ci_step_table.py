@@ -972,7 +972,8 @@ class PipelineTest(unittest.TestCase):
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        listing = next(s for s in wf["jobs"]["linux"]["steps"] if s.get("name") == "List the changed paths")
+        self.assertIn("git diff --name-only --no-renames -z ", listing["run"])
         with tempfile.TemporaryDirectory() as tmp:
             listed = Path(tmp) / "paths"
             listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())

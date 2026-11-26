@@ -66,6 +66,13 @@ REQUIRED_CONTEXTS = frozenset().union(*REQUIRED_CONTEXTS_BY_BASE.values())
 EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("backend-migrations.yml", "pull_request_target"): (ALL, "publishes the required `backend migrations "
         "applied` in every suite, and a retarget (main <-> feat-cmux-next) re-judges it"),
+    ("cloud-resume-matrix.yml", "pull_request"): (frozenset({"body"}), "opt-in by the `resume-matrix: run` or "
+        "`resume-matrix: full` body line (its plan job skips an edit that leaves the body alone); advisory, no "
+        "required context"),
+    ("cloud-wake-echo.yml", "pull_request"): (frozenset({"body"}), "opt-in by the `wake-echo: run` body line (its "
+        "job skips an edit that leaves the body alone); advisory, no required context"),
+    ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
+        "body lines (its jobs skip a body edit that touches neither); advisory, warn-only"),
     ("classic-api-guard.yml", "pull_request"): (frozenset({"body", "base"}), "this copy starts on its "
         "own only into main, into feat-cmux-next through pr-router.yml: re-runs when the `Classic API change:` line or the base moves; "
         "into feat-cmux-next a skip reads the same as a warning"),

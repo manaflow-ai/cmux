@@ -470,6 +470,7 @@ const SESSION_TIMEOUT: Duration = Duration::from_secs(10);
 // timeout: a stuck daemon fails these kinds instead of hanging the CLI.
 const DAEMON_READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// The whole scrollback scan's budget: terminals past it are named under `incomplete`.
+// timeout: a scan budget, not a failure; terminals past it are listed under `incomplete`.
 const SCROLLBACK_BUDGET: Duration = Duration::from_secs(6);
 /// Find-bar pages read per terminal (8192 rows each) before moving on.
 const SCROLLBACK_PAGES: usize = 16;

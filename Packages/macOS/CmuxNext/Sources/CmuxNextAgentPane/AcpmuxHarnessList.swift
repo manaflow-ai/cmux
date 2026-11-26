@@ -63,6 +63,7 @@ extension AcpmuxEnvironment {
 
     /// The daemon's `_acpmux/harnesses` answer as JSON (cmux-cloud-start-core `hybrid_gui` reads
     /// it); nil when the daemon does not answer within `deadline`.
+    // timeout: an optional catalog read on a local socket; past it the caller goes on without the catalog (nil), nothing fails.
     public nonisolated func harnessCatalog(deadline: Duration = .seconds(1)) async -> Data? {
         guard let answer = try? await AcpmuxStatusClient.harnesses(socketPath: socketPath, deadline: deadline) else { return nil }
         return try? JSONSerialization.data(withJSONObject: answer.value)
