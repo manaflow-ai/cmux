@@ -2,6 +2,14 @@
 
 use super::*;
 
+tokio::task_local! {
+    /// Set while a link that heard nothing for this long dials its replacement
+    /// (`dial_replacement!`): the hub dial then skips a kept circuit just as silent
+    /// (`HubCarrier::dial_past_silent`, `peer_hub.rs`). `open_first` races its paths in this
+    /// task, so the hub dial sees it.
+    pub(super) static REPLACING_SILENT: Duration;
+}
+
 impl Peer {
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
@@ -16,6 +24,7 @@ impl Peer {
         // The wait goes out as `nextRetryAt` (`park_at_start`), never as a countdown in the
         // error text, which is read long after it was written (a frozen "retry in 2519s").
         if !self.retry_immediately.load(Ordering::SeqCst)
+            && !self.idle_parked()
             && let Some(wait) = self.with_link(|l| l.park_at_start(crate::store::now_ms()))
         {
             let reason = "peer unreachable for over a day; retried hourly".to_owned();
@@ -32,13 +41,15 @@ impl Peer {
         }
         self.watch_tailnet();
         let mut immediate_redial = false;
-        while !self.stop.load(Ordering::SeqCst) {
+        // A peer nothing uses waits here instead of dialing (`peer_demand.rs`).
+        while !self.stop.load(Ordering::SeqCst) && self.await_demand().await {
             crate::gauges::bump(&crate::gauges::links().link_dials);
             if immediate_redial {
                 crate::gauges::bump(&crate::gauges::links().link_redials);
             }
             let outcome = self.connect_once(&mut out_rx).await;
-            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
+            let restarting =
+                matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching | LinkEnd::Idle));
             let was_ready = self.link().is_ready();
             let notice = self.finish_link(outcome, &mut backoff);
             // A ready link that just died (a dropped network, a wake from sleep) redials at once:
@@ -105,6 +116,9 @@ impl Peer {
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        if matches!(&outcome, Ok(LinkEnd::Idle)) {
+            return self.idle_ended();
+        }
         if matches!(&outcome, Ok(LinkEnd::Switching)) {
             // Another path of this peer answers: like a restart, its rows stay usable and the
             // next connect runs at once, but the remote's tokens are still good, and the backoff
@@ -643,6 +657,18 @@ impl Peer {
         // answers first wins: a frame here drops the dial, the dial opening first moves the link
         // to it (`LinkEnd::Switching`, no outage). The link drops as before when the dial fails,
         // or at twice the budget.
+        //
+        // A frame is not an answer: the first frames after a blackout are the backlog the peer
+        // wrote into it, and everything sent after them (the content the person waits for) sits
+        // behind them on that ladder. At duress (a chat streaming 20 chunks each 250 ms, a 5 s
+        // blackout) the first one came 1.2 s after the blackout, the content B sent at its end
+        // 3.0 s (direct) to 3.9 s (relay) after it, while a replacement opened and replayed by
+        // 1.3 s (job ce049556). So only a pong for a ping sent after the dial began drops it:
+        // the peer wrote that pong after everything before it, so the link is current again.
+        // On the std clock: a ping's stamp (`carriers::ping_stamp`) is, and its pong carries it.
+        let mut replacing_since: Option<std::time::Instant> = None;
+        // A frame came on this link while its replacement dialed: a dial that fails then keeps it.
+        let mut heard_while_replacing = false;
         let mut replacing: Option<
             std::pin::Pin<
                 Box<
@@ -653,22 +679,54 @@ impl Peer {
                 >,
             >,
         > = None;
+        // Dial a replacement for a link silent `$silent` while it still reads. The hub dial in it
+        // skips a kept circuit as silent (`REPLACING_SILENT`): that circuit is the stalled one.
+        macro_rules! dial_replacement {
+            ($silent:expr, $why:expr) => {{
+                let silent: Duration = $silent;
+                tracing::info!(peer = %self.name, "silent {}ms, {}; dialing a replacement while this link still reads", silent.as_millis(), $why);
+                let gate = crate::peer_dial_gate::global();
+                replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), REPLACING_SILENT.scope(silent, self.open_first()))));
+                replacing_since = Some(std::time::Instant::now());
+                heard_while_replacing = false;
+            }};
+        }
+        // `replace_after` (off by default) passed, the budget not yet: dial the replacement now;
+        // the budget still decides the drop.
+        macro_rules! replace_early {
+            ($silent:expr, $silence:expr, $now:expr) => {{
+                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) =
+                    ($silent, $silence, $now);
+                if replacing.is_none() && self.may_replace() {
+                    dial_replacement!(
+                        silent,
+                        format!(
+                            "past its {}ms replace setting",
+                            timings.replace_at(silence).as_millis()
+                        )
+                    );
+                }
+                silence_due = Some(now + silence.saturating_sub(silent));
+            }};
+        }
         // The budget ran out (`$silent`, measured as the drop rule measures it): drop the link, or
         // keep it while a replacement dials.
         macro_rules! out_of_silence {
             ($silent:expr, $silence:expr, $now:expr) => {{
-                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) = ($silent, $silence, $now);
+                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) =
+                    ($silent, $silence, $now);
                 let cap = silence.saturating_mul(2);
                 if replacing.is_none() && silent < cap && self.may_replace() {
-                    tracing::info!(peer = %self.name, "silent {}ms, past its {}s budget; dialing a replacement while this link still reads", silent.as_millis(), silence.as_secs());
-                    let gate = crate::peer_dial_gate::global();
-                    replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first())));
+                    dial_replacement!(silent, format!("past its {}s budget", silence.as_secs()));
                 }
                 if replacing.is_some() && silent < cap {
                     silence_due = Some(now + (cap - silent));
                 } else {
                     self.with_silence(|b| b.dropped(now));
-                    break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                    break Err(self.deadline_passed(format!(
+                        "peer stopped answering ({}s without a frame)",
+                        silent.as_secs()
+                    )));
                 }
             }};
         }
@@ -966,6 +1024,8 @@ impl Peer {
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent.saturating_sub(late) >= silence {
                         out_of_silence!(silent, silence, now);
+                    } else if silent.saturating_sub(late) >= timings.replace_at(silence) {
+                        replace_early!(silent, silence, now);
                     }
                 }
                 // The replacement dialed for a silent link (`replacing`) opened first.
@@ -976,6 +1036,12 @@ impl Peer {
                             *self.replacement.lock_or_recover() = Some(opened);
                             break Ok(LinkEnd::Switching);
                         }
+                        Err(e) if heard_while_replacing => {
+                            tracing::info!(peer = %self.name, "a replacement did not open ({e}); the link answers again, so it stays");
+                            replacing = None;
+                            replacing_since = None;
+                            silence_due = None;
+                        }
                         Err(e) => {
                             let now = tokio::time::Instant::now();
                             self.with_silence(|b| b.dropped(now));
@@ -984,10 +1050,14 @@ impl Peer {
                     }
                 }
                 due = ping.tick() => {
+                    self.paths_tick();
+                    // Unused for `IDLE_CLOSE_AFTER`: it closes, and the next use dials again.
+                    if self.link().is_ready() && listed && self.idle_due() {
+                        break Ok(LinkEnd::Idle);
+                    }
                     // The selector moved the session to a faster path: the link moves while no
                     // request is out on it, and its list is in (one read after ready has no
                     // request out between its pages).
-                    self.paths_tick();
                     if self.link().is_ready() && listed && self.switch_due() {
                         break Ok(LinkEnd::Switching);
                     }
@@ -1011,8 +1081,13 @@ impl Peer {
                     let late = now.saturating_duration_since(due);
                     if silent.saturating_sub(late) >= silence {
                         out_of_silence!(silent, silence, now);
+                    } else if replacing.is_none() && silent.saturating_sub(late) >= timings.replace_at(silence) {
+                        replace_early!(silent, silence, now);
                     } else {
-                        let left = silence.saturating_sub(silent.saturating_sub(late));
+                        // The next deadline: the replace setting's while no replacement dials,
+                        // else the budget's.
+                        let due_at = if replacing.is_none() { timings.replace_at(silence) } else { silence };
+                        let left = due_at.saturating_sub(silent.saturating_sub(late));
                         silence_due = (left < timings.ping_every).then(|| now + left);
                     }
                     if silent >= timings.ping_every {
@@ -1043,10 +1118,7 @@ impl Peer {
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
-                    if replacing.take().is_some() {
-                        tracing::info!(peer = %self.name, "the silent link answered again; its replacement dial is dropped");
-                        silence_due = None;
-                    }
+                    heard_while_replacing |= replacing.is_some();
                     wake_probe = None;
                     request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
@@ -1079,12 +1151,21 @@ impl Peer {
                                 let now = tokio::time::Instant::now();
                                 self.with_silence(|b| b.answered_in(now.saturating_duration_since(at), now));
                             }
+                            if let (Some(rtt), Some(since)) = (rtt, replacing_since)
+                                && rtt <= since.elapsed()
+                                && replacing.take().is_some()
+                            {
+                                tracing::info!(peer = %self.name, "the silent link answered a ping sent after its replacement dial began; the dial is dropped");
+                                replacing_since = None;
+                                silence_due = None;
+                            }
                             continue;
                         }
                         _ => continue,
                     };
                     // A v2 frame of the peer's list stream goes to this link's mirror.
                     if crate::link_v2::is_frame_line(&text) {
+                        self.received.add_kind("list", text.len());
                         self.mirror_frame(link, text);
                         continue;
                     }
@@ -1096,6 +1177,19 @@ impl Peer {
                         Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
                         Err(_) => continue,
                     };
+                    self.received.add_kind(match &msg {
+                        Message::Notification { method, .. } => method.as_str(),
+                        Message::Response { .. } => "reply",
+                        Message::Request { .. } => "request",
+                    }, text.len());
+                    // A large row patch, by the fields it carries (three levels): which part of a
+                    // row a backed-up link spends its bytes on. Small patches are not walked.
+                    if text.len() > 4096
+                        && let Message::Notification { method: m, params: Some(p) } = &msg
+                        && m == method::MUX_SESSION_PATCH
+                    {
+                        self.received.add_patch_fields(&p["patch"]);
+                    }
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();
@@ -1133,6 +1227,7 @@ impl Peer {
                                     continue;
                                 }
                             }
+                            self.note_link_activity(&m);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
@@ -1150,6 +1245,7 @@ impl Peer {
                                     && let Some(high) = highwater.get_mut(id)
                                 {
                                     *high = (*high).max(seq);
+                                    self.received.add_gated(text.len());
                                     continue;
                                 }
                                 drop(highwater);
