@@ -12,6 +12,8 @@ Each rewrite leaves Apple builds byte-for-byte equivalent:
     HTTPURLResponse, URLProtocol, ...) gets `#if canImport(FoundationNetworking)
     import FoundationNetworking #endif` after its Foundation import, because
     swift-corelibs-foundation keeps those types in that module.
+  * `import CoreGraphics` gets wrapped in `#if canImport(CoreGraphics)`:
+    swift-corelibs-foundation defines CGFloat, CGPoint, CGSize and CGRect.
   * `import os` / `import OSLog` / `import os.log` gets wrapped in
     `#if canImport(os)`; the file still needs a Linux path for what it used
     (OSAllocatedUnfairLock has a module-internal stand-in, see
@@ -54,6 +56,9 @@ def rewrite(text: str) -> str:
                 continue
             if module in OS_MODULES:
                 out += ["#if canImport(os)", line, "#endif"]
+                continue
+            if module == "CoreGraphics":
+                out += ["#if canImport(CoreGraphics)", line, "#endif"]
                 continue
             if module == "Foundation" and foundation_at is None:
                 foundation_at = len(out)
