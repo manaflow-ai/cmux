@@ -403,6 +403,42 @@ fn sparse_patterns_are_sent() {
     assert_eq!(snapshot(&f.work), before);
 }
 
+/// What the plan reads in one git each (one rev-parse, one config, one cat-file, the listings it
+/// already makes) comes out as the separate calls read it: the stash and bases from the refs, a
+/// URL that only names GitHub once rewritten, `core.sparseCheckout` spelled `yes`, and the
+/// `.gitattributes` files untracked first, as one `ls-files --cached --others` listed them.
+#[test]
+fn what_the_plan_reads_together_comes_out_as_read_apart() {
+    let f = Fixture::new();
+    write(&f.work.join("a/.gitattributes"), "*.psd filter=lfs\n");
+    git(&f.work, &["add", "a/.gitattributes"]);
+    git(&f.work, &["commit", "-q", "-m", "attributes"]);
+    git(&f.work, &["push", "-q", "origin", "HEAD:main"]);
+    let head = git(&f.work, &["rev-parse", "HEAD"]);
+    write(&f.work.join("z/.gitattributes"), "*.png filter=lfs\n");
+    write(&f.work.join("README.md"), "stashed change\n");
+    git(&f.work, &["stash", "push", "-q"]);
+    let stash = git(&f.work, &["rev-parse", "refs/stash"]);
+    git(&f.work, &["remote", "set-url", "origin", "gh:acme/widget"]);
+    git(&f.work, &["config", "url.https://github.com/.insteadOf", "gh:"]);
+    git(&f.work, &["config", "core.sparseCheckout", "yes"]);
+    let info = PathBuf::from(git(&f.work, &["rev-parse", "--git-path", "info"]));
+    write(&f.work.join(info).join("sparse-checkout"), "/*\n");
+
+    let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
+    assert_eq!(planned.params.repo, "acme/widget");
+    assert_eq!(planned.params.head, head);
+    assert_eq!(planned.params.head_ref.as_deref(), Some("refs/heads/main"));
+    // HEAD is pushed and tracked: every base is HEAD, named once.
+    assert_eq!(planned.bases, vec![head.clone()]);
+    assert_eq!(planned.params.stash.as_deref(), Some(stash.as_str()));
+    assert_eq!(planned.params.sparse.as_deref(), Some("/*\n"));
+    assert_eq!(planned.lfs_attributes, ["z/.gitattributes", "a/.gitattributes"]);
+    let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
+    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/stash"]), stash);
+    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/head"]), head);
+}
+
 #[test]
 fn lfs_attributes_are_noticed() {
     let f = Fixture::new();

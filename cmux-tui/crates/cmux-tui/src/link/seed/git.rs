@@ -1,11 +1,13 @@
 //! Every git call of the seed plan. Each one turns off fsmonitor, refuses
 //! implicit bare repositories, reads no system config, runs no hook, starts
-//! no background gc, signs nothing and reads nothing from stdin. Caller
-//! environment that would point git at another repository, index or object
-//! store is dropped; the plan sets its own where it needs one.
+//! no background gc, signs nothing and reads nothing from stdin but what
+//! [`output_fed`] gives it. Caller environment that would point git at
+//! another repository, index or object store is dropped; the plan sets its
+//! own where it needs one.
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 /// git with the plan's fixed settings and no `-C` or `--git-dir` yet.
 fn base() -> Command {
@@ -66,9 +68,34 @@ pub(super) fn bare(git_dir: &Path) -> Command {
 
 /// stdout of a successful run, else git's stderr (or why it did not run).
 pub(super) fn output(command: &mut Command) -> Result<Vec<u8>, String> {
+    finish(command, |command| command.output())
+}
+
+/// [`output`] of a run fed `input` on stdin (`cat-file --batch-check`, `update-ref --stdin`):
+/// one git answering many questions instead of one git each.
+pub(super) fn output_fed(command: &mut Command, input: &[u8]) -> Result<Vec<u8>, String> {
+    finish(command, |command| {
+        let mut child =
+            command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        // Fed from a thread: git may answer before it has read every line, and a full stdout
+        // pipe would then stall a writer that waits for git to read.
+        let mut stdin = child.stdin.take().expect("stdin is piped");
+        let input = input.to_vec();
+        let feeder = std::thread::spawn(move || stdin.write_all(&input));
+        let out = child.wait_with_output()?;
+        // git that exits early (a bad line) closes its stdin; its stderr says why.
+        let _ = feeder.join();
+        Ok(out)
+    })
+}
+
+fn finish(
+    command: &mut Command,
+    run: impl FnOnce(&mut Command) -> std::io::Result<Output>,
+) -> Result<Vec<u8>, String> {
     let out = {
         let name = super::super::spans::git_name(command.get_args());
-        super::super::spans::time(&name, || command.output())
+        super::super::spans::time(&name, || run(command))
     }
     .map_err(|error| format!("cannot run git: {error}"))?;
     if out.status.success() {
