@@ -6,6 +6,7 @@ import {
   localAgentLogin,
   signsInRemotely,
   terminalSignIn,
+  harnessLoginAgent,
 } from "./cloudAgentLogin";
 import { peerAgentLoginFromStatus } from "./environments";
 
@@ -58,6 +59,13 @@ test("a chat on the person's own machine (not Cloud) gets the one-click sign-in 
 
 test("a Codex chat on another machine gets the card too", () => {
   expect(cloudAgentLogin(options({ elsewhere: true }, "codex").login)?.agent).toBe("codex");
+});
+
+test("an Antigravity chat on Cloud signs in with Gemini's key, the key Cloud's Gemini gateway serves it with", () => {
+  expect(harnessLoginAgent("antigravity")).toBe("gemini");
+  expect(harnessLoginAgent("gemini")).toBe("gemini");
+  expect(harnessLoginAgent("pi")).toBeUndefined();
+  expect(cloudAgentLogin(options({ machineID: "vm-1", elsewhere: true }, "antigravity").login)?.agent).toBe("gemini");
 });
 
 test("a Cloud chat keeps its card", () => {
