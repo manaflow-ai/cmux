@@ -22,9 +22,10 @@ pub const PROMPT_BYTE_LIMIT: usize = 4000;
 /// The most tabs read.
 pub const TAB_LIMIT: usize = 12;
 
-/// What one tab shows.
+/// What one tab shows, externally tagged as Swift's synthesized `Codable` writes it
+/// (`{"chat": {"title": ..., "prompts": [...]}}`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Tab {
     /// An agent chat: its title and newest prompts.
     Chat {

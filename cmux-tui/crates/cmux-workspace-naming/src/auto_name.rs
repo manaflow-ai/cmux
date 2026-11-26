@@ -15,9 +15,10 @@ pub enum Variant {
     Persist,
 }
 
-/// What the front tab offers a name.
+/// What the front tab offers a name, externally tagged as Swift's synthesized `Codable` writes
+/// it (`{"browser": {"title": ..., "off_the_record": false}}`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Front {
     /// A web page.
     Browser {
@@ -42,7 +43,8 @@ pub enum Front {
     },
     /// A terminal (or anything else read as a new workspace's tab).
     Terminal {
-        /// The tab.
+        /// The tab (Swift's unlabeled `terminal(Tab)` writes it as `_0`).
+        #[serde(rename = "_0")]
         tab: Tab,
     },
 }

@@ -9,15 +9,15 @@ fn call(op: &str, request: Value) -> Value {
 }
 
 fn terminal(title: Option<&str>, cwd: Option<&str>) -> Value {
-    json!({"kind": "terminal", "tab": {"kind": "terminal", "title": title, "cwd": cwd}})
+    json!({"terminal": {"_0": {"kind": "terminal", "title": title, "cwd": cwd}}})
 }
 
 fn chat(user_name: Option<&str>, title: Option<&str>) -> Value {
-    json!({"kind": "chat", "user_name": user_name, "title": title})
+    json!({"chat": {"user_name": user_name, "title": title}})
 }
 
 fn browser(title: &str) -> Value {
-    json!({"kind": "browser", "title": title})
+    json!({"browser": {"title": title}})
 }
 
 fn label(named: Value, front: Value, anchor: Value) -> Value {
@@ -88,11 +88,7 @@ fn chats_and_terminals_label_unnamed_workspaces() {
     );
     assert_eq!(label(w(), Value::Null, Value::Null), Value::Null);
     assert_eq!(
-        label(
-            w(),
-            json!({"kind": "browser", "title": "Secret", "off_the_record": true}),
-            Value::Null
-        ),
+        label(w(), json!({"browser": {"title": "Secret", "off_the_record": true}}), Value::Null),
         "Secret"
     );
     let off = call("label", json!({"enabled": false, "named": w(), "front": browser("GitHub")}));
@@ -123,7 +119,7 @@ fn persisted(front: Value, named: Value, persist: Value, enabled: bool, variant:
 }
 
 fn titled_chat() -> Value {
-    json!({"kind": "chat", "title": "Fix the sidebar drag", "generated_title": "Fix the sidebar drag"})
+    json!({"chat": {"title": "Fix the sidebar drag", "generated_title": "Fix the sidebar drag"}})
 }
 
 #[test]
@@ -273,7 +269,7 @@ fn activity(tabs: Value) -> Value {
 
 #[test]
 fn activity_asks_haiku_and_falls_back_to_the_default_small_model() {
-    let reply = activity(json!([{"kind": "browser", "title": "Docs"}]));
+    let reply = activity(json!([{"browser": {"title": "Docs"}}]));
     assert_eq!(reply["params"]["model"], "claude-haiku-5-5");
     assert_eq!(reply["params"]["harness"], "claude");
     assert_eq!(reply["params"]["maxTokens"], 24);
@@ -286,36 +282,32 @@ fn activity_asks_haiku_and_falls_back_to_the_default_small_model() {
 #[test]
 fn activity_lists_chats_terminals_and_pages() {
     let reply = activity(json!([
-        {"kind": "chat", "title": "Fix login", "prompts": ["Second ask", "Third ask", "Fourth ask"]},
-        {"kind": "terminal", "folder": "/Users/me/web", "title": "npm test"},
-        {"kind": "browser", "title": "Login · Docs"},
+        {"chat": {"title": "Fix login", "prompts": ["Second ask", "Third ask", "Fourth ask"]}},
+        {"terminal": {"folder": "/Users/me/web", "title": "npm test"}},
+        {"browser": {"title": "Login · Docs"}},
     ]));
     let prompt = reply["prompt"].as_str().unwrap();
     assert!(prompt.starts_with("Name this workspace in 2 to 5 words from what its tabs show.\n"));
     assert!(prompt.ends_with(
         "Tabs:\n- Agent chat: Fix login\n  - asked: Second ask\n  - asked: Third ask\n  - asked: Fourth ask\n- Terminal in /Users/me/web: npm test\n- Web page: Login · Docs"
     ));
-    let empty = activity(
-        json!([{"kind": "browser"}, {"kind": "chat"}, {"kind": "terminal", "title": " \n"}]),
-    );
+    let empty = activity(json!([{"browser": {}}, {"chat": {}}, {"terminal": {"title": " \n"}}]));
     assert_eq!(empty["empty"], true);
     assert_eq!(empty["tabs"], json!([]));
 }
 
 #[test]
 fn activity_reads_one_tab_as_snippets() {
-    let tab =
-        call("activity_tab", json!({"tab": {"kind": "terminal", "folder": " ", "title": "a\n b"}}));
-    assert_eq!(tab["tab"], json!({"kind": "terminal", "folder": null, "title": "a b"}));
-    let none =
-        call("activity_tab", json!({"tab": {"kind": "chat", "title": "\t", "prompts": [" "]}}));
+    let tab = call("activity_tab", json!({"tab": {"terminal": {"folder": " ", "title": "a\n b"}}}));
+    assert_eq!(tab["tab"], json!({"terminal": {"folder": null, "title": "a b"}}));
+    let none = call("activity_tab", json!({"tab": {"chat": {"title": "\t", "prompts": [" "]}}}));
     assert_eq!(none["tab"], Value::Null);
 }
 
 #[test]
 fn the_prompt_stays_under_the_completion_limit() {
     let prompt = "界".repeat(120);
-    let tab = json!({"kind": "chat", "title": "Chat", "prompts": [prompt, prompt, prompt]});
+    let tab = json!({"chat": {"title": "Chat", "prompts": [prompt, prompt, prompt]}});
     let reply = activity(Value::Array(vec![tab; 14]));
     let text = reply["prompt"].as_str().unwrap();
     assert!(text.len() <= 4000);
