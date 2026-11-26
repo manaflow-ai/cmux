@@ -54,6 +54,7 @@ fn startup_deadline_waits_for_ssh_authentication() {
         ssh_bootstrap: SshBootstrapOptions {
             auto_install: false,
             upgrade: false,
+            forced_command: false,
             attempt_timeout: startup_timeout,
         },
     })
