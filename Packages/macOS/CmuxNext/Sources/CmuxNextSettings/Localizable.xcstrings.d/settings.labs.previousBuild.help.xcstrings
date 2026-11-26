@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.previousBuild.help" : {
+      "comment" : "Settings > Advanced > Labs > Go Back to Previous Build: what the toggle does. Updates is the name of the Settings card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اعرض الإصدار الذي احتفظ به cmux قبل آخر تحديث في بطاقة التحديثات، مع زر للعودة إليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži verziju koju je cmux zadržao prije posljednjeg ažuriranja na kartici Ažuriranja, s dugmetom za povratak na nju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis det build, cmux gemte før den seneste opdatering, på kortet Opdateringer med en knap til at gå tilbage til det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt auf der Karte „Updates“ den Build, den cmux vor dem letzten Update behalten hat, mit einer Taste zum Zurückkehren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra en la tarjeta Actualizaciones la compilación que cmux guardó antes de la última actualización, con un botón para volver a ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche sur la carte Mises à jour la version que cmux a conservée avant la dernière mise à jour, avec un bouton pour y revenir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra nella scheda Aggiornamenti la build che cmux ha conservato prima dell’ultimo aggiornamento, con un pulsante per tornarci."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前回のアップデート前に cmux が保持したビルドを「アップデート」カードに表示し、そのビルドに戻すボタンを付けます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញកំណែដែល cmux បានរក្សាទុកមុនការធ្វើបច្ចុប្បន្នភាពចុងក្រោយ នៅលើកាតបច្ចុប្បន្នភាព ជាមួយប៊ូតុងដើម្បីត្រឡប់ទៅវាវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "마지막 업데이트 전에 cmux가 보관한 빌드를 업데이트 카드에 표시하고, 그 빌드로 되돌리는 버튼을 제공합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis versjonen cmux beholdt før siste oppdatering på Oppdateringer-kortet, med en knapp for å gå tilbake til den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje na karcie Aktualizacje wersję zachowaną przez cmux przed ostatnią aktualizacją, z przyciskiem powrotu do niej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra no cartão Atualizações a versão que o cmux guardou antes da última atualização, com um botão para voltar a ela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает на карточке «Обновления» сборку, сохранённую cmux перед последним обновлением, с кнопкой возврата к ней."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงบิลด์ที่ cmux เก็บไว้ก่อนการอัปเดตครั้งล่าสุดบนการ์ดอัปเดต พร้อมปุ่มสำหรับย้อนกลับไปใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux’un son güncellemeden önce sakladığı sürümü Güncellemeler kartında, ona geri dönmek için bir düğmeyle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує на картці «Оновлення» збірку, яку cmux зберіг перед останнім оновленням, із кнопкою повернення до неї."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị bản dựng cmux đã giữ lại trước lần cập nhật gần nhất trên thẻ Cập nhật, kèm nút để quay lại bản đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在“更新”卡片上显示 cmux 在上次更新前保留的版本，并提供返回该版本的按钮。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在「更新」卡片上顯示 cmux 在上次更新前保留的版本，並提供返回該版本的按鈕。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

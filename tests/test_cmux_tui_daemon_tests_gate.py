@@ -121,8 +121,8 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
             "cmux-next-daemon-macos-shadow.yml", ""))
         doc = shadow_workflow()
-        self.assertEqual(set(doc["on"]), {"push", "workflow_dispatch"})
-        self.assertEqual(doc["on"]["push"]["branches"], ["feat-cmux-next"])
+        # workflow_dispatch only since 2026-11-21 (ci-time-map: nothing waits for it).
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
         self.assertEqual(doc["permissions"], {})
         self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
         shadow = doc["jobs"][SHADOW]
@@ -130,7 +130,8 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertFalse(shadow["name"].startswith("cmux_next_ daemon tests"))
         run = flat(step(shadow, "cargo test the macOS-only daemon tests")["run"])
         for test in MAC_ONLY_TESTS:
-            self.assertIn(f"--test {test}", run)
+            # cmux-tui's integration tests are one binary since #56928: idle_wakeups is a module of `--test it`.
+            self.assertTrue(f"--test {test}" in run or f"--test it -- {test}::" in run, test)
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
         runs_on = sole_runs_on(shadow_workflow()["jobs"][SHADOW])
@@ -184,6 +185,91 @@ class DaemonTestsGateTests(unittest.TestCase):
                            RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
                 subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
                 self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
+
+    def test_the_job_frees_its_own_build_need_before_the_caches_land(self) -> None:
+        # Six cold runs on 2026-11-26 lost their pool runner "No space left on device" in cargo test: the
+        # pool's start hook cleans only under one job's need (17 GiB) and this build writes a ~20 GiB target.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        names = [s.get("name") for s in daemon["steps"]]
+        free = step(daemon, "Free this job's build need on a pool runner")
+        self.assertLess(names.index(free["name"]), names.index("Cache cargo build"))
+        self.assertLess(names.index(free["name"]), names.index("Make room for the cargo build (disk floor)"))
+        self.assertEqual(free["continue-on-error"], "true")
+        self.assertIn("steps.marked.outputs.marked != 'true'", free["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = Path(tmp) / "seen"
+            hook = Path(tmp) / "cmux-disk-floor.sh"
+            hook.write_text(f'#!/usr/bin/env bash\necho "$1 $CMUX_DISK_JOB_BYTES" > {seen}\nexit 3\n', encoding="utf-8")
+            hook.chmod(0o755)
+            run = free["run"].replace("/opt/cmux-disk-floor.sh", str(hook))
+            env = dict(os.environ, GITHUB_WORKSPACE=tmp)
+            subprocess.run(["bash", "-e", "-c", run], env=env, check=True, capture_output=True)
+            phase, need = seen.read_text(encoding="utf-8").split()
+            self.assertEqual(phase, "started")
+            self.assertGreater(int(need), 17 << 30)
+            # Off the pool (no hook) the step does nothing and passes.
+            subprocess.run(["bash", "-e", "-c", free["run"].replace("/opt/cmux-disk-floor.sh", str(Path(tmp) / "absent"))],
+                           env=env, check=True, capture_output=True)
+
+
+
+TARGET_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-test-target.sh"
+# A fake df: the target's disk shows FREE_KIB_WITH_TARGET while cmux-tui/target exists, FREE_KIB_WITHOUT after.
+FAKE_DF = """#!/usr/bin/env bash
+path="${@: -1}"
+if [[ -d "$FAKE_REPO/cmux-tui/target" ]]; then kib="$FREE_KIB_WITH_TARGET"; else kib="$FREE_KIB_WITHOUT"; fi
+[[ "$path" == "$FAKE_REPO"* ]] || kib="$FREE_KIB_TMP"
+echo "Filesystem 1024-blocks Used Available Capacity Mounted"
+echo "fake 999999999 1 $kib 1% /"
+"""
+GIB = 1024 * 1024
+
+
+class DaemonTestsDiskFloorTests(unittest.TestCase):
+    """Run 45737327859 (2026-11-26): a reused pool workspace ran out of disk 14 min into the build."""
+
+    def floor(self, with_target: int, without: int, tmp: int) -> tuple[subprocess.CompletedProcess, bool]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            (repo / "scripts" / "ci").mkdir(parents=True)
+            (repo / "scripts" / "ci" / "cmux-tui-test-target.sh").write_text(TARGET_SCRIPT.read_text(encoding="utf-8"))
+            (repo / "cmux-tui" / "target" / "debug" / "incremental").mkdir(parents=True)
+            (repo / "cmux-tui" / "rust-toolchain.toml").write_text("[toolchain]\n")
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "df").write_text(FAKE_DF)
+            (bin_dir / "df").chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_REPO=str(repo),
+                       FREE_KIB_WITH_TARGET=str(with_target * GIB), FREE_KIB_WITHOUT=str(without * GIB),
+                       FREE_KIB_TMP=str(tmp * GIB), TMPDIR=str(Path(tmpdir) / "elsewhere"),
+                       GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmux")
+            env.pop("CARGO_TARGET_DIR", None)
+            result = subprocess.run(["bash", str(repo / "scripts" / "ci" / "cmux-tui-test-target.sh"), "floor"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            return result, (repo / "cmux-tui" / "target").is_dir()
+
+    def test_enough_disk_keeps_the_warm_target(self) -> None:
+        result, kept = self.floor(with_target=80, without=80, tmp=80)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(kept)
+
+    def test_a_full_disk_drops_the_leftover_target_and_builds(self) -> None:
+        result, kept = self.floor(with_target=3, without=60, tmp=80)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(kept, result.stdout)
+
+    def test_a_disk_still_full_after_cleaning_fails_fast(self) -> None:
+        result, _ = self.floor(with_target=3, without=5, tmp=80)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("under the floor", result.stderr)
+
+    def test_the_job_runs_the_floor_before_any_cache_restore(self) -> None:
+        names = [s.get("name") for s in jobs()["cmux-next-daemon-tests"]["steps"]]
+        floor = names.index("Make room for the cargo build (disk floor)")
+        self.assertLess(floor, names.index("Cache cargo build"))
+        self.assertLess(floor, names.index("Restore the cargo build from the CI cache bucket"))
+        self.assertIn("cmux-tui-test-target.sh floor", step(jobs()["cmux-next-daemon-tests"], names[floor])["run"])
+
 
 if __name__ == "__main__":
     unittest.main()

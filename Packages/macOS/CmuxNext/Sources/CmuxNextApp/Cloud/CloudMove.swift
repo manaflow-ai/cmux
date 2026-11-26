@@ -187,7 +187,7 @@ struct CloudMove {
             let registry = services.registry, again = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
         }
-        var title = CloudMoveStrings.retry
+        var title = CloudMoveStrings.retry  // retry-prompt-ok: moving a chat copies its files and may pick or make a paid Cloud machine; the person retries or lets the toast go
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
         if let toastID { Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title) }
         // The card says the failure: a toast the move's machine update left up goes.
@@ -391,14 +391,14 @@ struct CloudMove {
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
-        // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
-        // record that may be stale (paused behind the app) is read again first.
-        try CloudHandlers.requireAttachableState(session)
+        // A paused machine (idle auto-pause) resumes on this attach; a live one connects; a pause or resume in flight is
+        // waited out (Rust's settle, ask-259986a6c4). A record that may be stale (paused behind the app) is read again first.
+        try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
         // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
         // (cloud.machine.upsert or its own read of that machine), never a list read from here.
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
-            try CloudHandlers.requireAttachableState(session)
+            try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let up = await session.linkUp(within: CloudStartSession.connectWait)
@@ -441,7 +441,7 @@ struct CloudMove {
 
     /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too); one window at a time; `working`: a run's progress (``CmuxToast/working``).
     static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil,
-                      retryTitle: String = CloudMoveStrings.retry, working: Bool = false) {
+                      retryTitle: String = CloudMoveStrings.retry, working: Bool = false) {  // retry-prompt-ok: a Cloud move or bring-back retry copies files and moves the chat; the person chooses it
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let action = retry == nil ? nil : CmuxToast.Action(title: retryTitle)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration, oneWindow: true, working: working), in: window)

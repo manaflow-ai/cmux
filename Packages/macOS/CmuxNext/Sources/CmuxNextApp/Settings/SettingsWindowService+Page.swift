@@ -33,7 +33,7 @@ extension SettingsWindowService {
             // harness_placement: raw legacy preference; the web shares its fallback policy with the model picker.
             section("build") { _ in ["dev_build": .bool(DevTools.isEnabled), "harness_placement": .string(AgentPaneTunables.harnessPlacement.value.rawValue)] },
             section("rooms") { $0.rooms.map { ["rooms": .array($0.map(\.hostJSON))] } ?? ["rooms": .null] },
-            section("machines") { window in ["machines": .array(window.machines.map { window.vmHostRow($0.machineHostJSON, id: $0.id) })] },
+            section("machines") { window in ["machines": .array(window.machines.map { window.services.peerAutoCloud.row(window.vmHostRow($0.machineHostJSON, id: $0.id), host: window.services.machines.sshSession($0.id)?.host.destination.host, socket: window.services.agentLanes.socketPath) })] },
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
             section("devices") { ["devices": (try? JSONValue.parse($0.services.devices.pageData(phones: $0.services.iphone.devicePhones))) ?? .null] },
             // This Mac's one-line join consent (labs.machineJoin): null unless joined.

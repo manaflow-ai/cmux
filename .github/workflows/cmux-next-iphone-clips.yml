@@ -48,6 +48,7 @@ jobs:
             scripts/cmux-next/media/tour.py
             release-notes/next/highlights
             release-notes/next/clips
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # As the media workflow's route job plans its clips (the same window, limit and published check).
@@ -86,6 +87,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/cmux-next/media/whats-new-clips.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Record
@@ -163,6 +165,7 @@ jobs:
             scripts/cmux-next/media/whats-new-clips.py
             scripts/cmux-next/media/tour.py
             release-notes/next/clips
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

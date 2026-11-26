@@ -142,8 +142,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -174,7 +179,9 @@ jobs:
       # units need; the runner image has none (run 44004680060: no bus after 30 s).
       - name: Install the share's display server
         if: inputs.share
-        run: sudo apt-get install -y xvfb dbus-user-session
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s xvfb dbus-user-session >/dev/null 2>&1; then echo "xvfb dbus-user-session: already installed"; else sudo apt-get install -y xvfb dbus-user-session; fi
 
       - name: Build cmux-rd
         id: cmuxrd

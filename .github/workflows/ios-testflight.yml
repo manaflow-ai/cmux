@@ -454,6 +454,7 @@ jobs:
             .github/workflows/ios-testflight.yml
             ios/scripts/fetch-testflight-notes-history.sh
             scripts/ci/ios_upload_batch_decision.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Batch INTERNAL uploads by iOS commit count and age

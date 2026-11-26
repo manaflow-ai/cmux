@@ -151,6 +151,36 @@ test("a turn that finishes while the reader is at the bottom is not marked new",
   expect(hold.spans(nextEnded, 0, "s:9", false, false)).toHaveLength(0);
 });
 
+// Leo, 2026-11-25: "idk why it even happened in the first place for new to appear at the bottom".
+test("news that comes in while the reader is at the latest row is read: no line, no count", () => {
+  const hold = new SinceTurnHold();
+  const rows = [reply("Earlier."), summary(), line()];
+  expect(hold.spans(rows, 2, "s:7", false, true)).toHaveLength(0);
+  // Another agent writes, then a turn runs and ends, all with the reader pinned to the tail.
+  const message = [...rows, fromAgent("Heads up from lane B")];
+  expect(sinceNews(message, 2, hold.spans(message, 2, "s:7", false, true))).toBe(false);
+  const turn = [...message, row("user", { text: "go" }), reply("Working"), fromAgent("Another one")];
+  const mid = hold.spans(turn, 2, "s:7", true, true);
+  expect(sinceNews(turn, 2, mid)).toBe(false);
+  const ended = [...turn, reply("Done."), summary()];
+  const held = hold.spans(ended, 2, "s:7", false, true);
+  expect(sinceNews(ended, 2, held)).toBe(false);
+  expect(sinceCount(ended, 2, undefined, held)).toBe(0);
+  // Scrolled away, what comes in next is new, and only that.
+  const away = [...ended, fromAgent("While you were up there")];
+  const later = hold.spans(away, 2, "s:7", false, false);
+  expect(sinceCount(away, 2, undefined, later)).toBe(1);
+});
+
+test("what was under the line when it was placed stays news when more comes in at the bottom", () => {
+  const hold = new SinceTurnHold();
+  const rows = [line(), fromAgent("Missed while away"), reply("Also missed")];
+  hold.spans(rows, 0, "s:7", false, true);
+  const more = [...rows, fromAgent("Seen as it came")];
+  const held = hold.spans(more, 0, "s:7", false, true);
+  expect(sinceCount(more, 0, undefined, held)).toBe(2);
+});
+
 test("the running turn starts after the last turn's end, never above the line", () => {
   expect(runningTurnFrom([reply(), summary(), line(), reply()], 2)).toBe(3);
   expect(runningTurnFrom([line(), reply(), summary(), row("user"), reply()], 0)).toBe(3);

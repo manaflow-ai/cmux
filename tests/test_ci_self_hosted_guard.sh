@@ -109,13 +109,12 @@ check_ios_runner_routing() {
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer
   # (a bot's re-run the picker's own Blacksmith retry, bot_retry_runs_on).
-  # mobile-core-package needs no simulator, so it reads package_runs_on. The
-  # dispatch input comes first; the cmux-next lane then asks for owned
-  # (tests/test_ci_pr_runner_pool.py pins the whole expression).
+  # The mobile-core packages test on Linux (mobile-core-linux), so no macOS
+  # job reads package_runs_on.
   # ios-simulator-build reads build_runs_on (the sim-first label when one is
   # idle), falling back to runs_on.
   if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
-     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+     grep -Fq "needs.runner.outputs.package_runs_on" "$IOS_FILE"; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
@@ -1018,7 +1017,7 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py) is fork-only too:
   # a fork takes hosted Ubuntu, never an owned host (check_no_hosted_runs_on.py agrees).
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|(github[.]event_name == 'pull_request' [&][&] )?github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
   local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The nightly's secret-holding Linux jobs (signer, publication, promotion, release notes, dSYMs, deltas,
   # notarization polls, the tag permission probe) take the one-job cmux-gcp-nightly-jit-x64 label on every
@@ -1195,11 +1194,11 @@ jobs:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
   h:
-    # A placement script's label inputs become runs-on: a fork pull
-    # request's hosted ubuntu-24.04 hid here until 2026-11-19 (Leo: "Fuck GitHub").
+    # A placement script's label inputs become runs-on: a hosted ubuntu-24.04
+    # hid here until 2026-11-19 (Leo: "Fuck GitHub"). A fork's literal is the fork branch, not this.
     env:
-      SIDE_LABEL: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
-      FLEET_LINUX: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
+      SIDE_LABEL: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
+      FLEET_LINUX: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:

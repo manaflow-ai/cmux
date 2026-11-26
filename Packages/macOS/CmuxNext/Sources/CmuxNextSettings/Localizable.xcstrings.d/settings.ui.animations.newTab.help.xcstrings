@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.ui.animations.newTab.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A new tab grows into its place in the tab bar. Off shows it there at once."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しいタブはタブバーの位置で広がります。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنمو علامة التبويب الجديدة في مكانها في شريط علامات التبويب. عند الإيقاف تظهر فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova kartica raste na svom mjestu u traci kartica. Isključeno je odmah prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En ny fane vokser frem på sin plads i fanelinjen. Fra viser den der med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein neuer Tab wächst an seinem Platz in der Tableiste. Aus zeigt ihn dort sofort."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una pestaña nueva crece en su lugar de la barra de pestañas. Desactivado la muestra al instante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un nouvel onglet s’ouvre à sa place dans la barre d’onglets. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una nuova scheda cresce al suo posto nella barra delle schede. Disattivato la mostra subito."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងថ្មីលូតលាស់នៅកន្លែងរបស់វាក្នុងរបារផ្ទាំង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 탭은 탭 막대의 자기 자리에서 자라납니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En ny fane vokser inn på plassen sin i fanelinjen. Av viser den der med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowa karta wyrasta na swoim miejscu na pasku kart. Wyłączone pokazuje ją od razu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma nova aba cresce no seu lugar na barra de abas. Desativado a mostra na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новая вкладка вырастает на своём месте в панели вкладок. Выключено показывает её сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บใหม่จะขยายในตำแหน่งของมันบนแถบแท็บ ปิดจะแสดงทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni sekme sekme çubuğundaki yerinde büyür. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нова вкладка виростає на своєму місці на панелі вкладок. Вимкнено показує її одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tab mới mở ra tại vị trí của nó trên thanh tab. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新标签页在标签栏中的位置展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新分頁在分頁列中的位置展開。關閉後立即顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -9,10 +9,10 @@ A Linux x64 picker (a size pool `fromJSON(vars.RUNNER_POOLS).linux_N`, `vars.LIN
 vendor `<N>vcpu-ubuntu-2404` label, the overflow switch, `CI_TRUSTED_RUNNER`, the gate runner variable or
 the old fleet label) becomes:
 
-    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || 'cmux-linux' }}
 
 A fork repository and a fork pull request never reach an owned host: a fork pull request takes
-GitHub-hosted Ubuntu, a literal (cmuxterm-hq docs/design/ci-v2.md step 8; no repository variable picks it). Nightly and release pins
+GitHub-hosted Ubuntu, a literal (no repository variable picks it). Nightly and release pins
 (`cmux-gcp-nightly-*`, `cmux-gcp-lane-build-x64`, `CI_RELEASE_PIN_SLOT`, the darwin cross build lane, a
 caller's `inputs.*` override) keep their branch, after the fork branch; only the size fallback goes.
 
@@ -45,9 +45,7 @@ LABEL = "cmux-linux"
 OWNER_GUARD = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
            " && 'ubuntu-24.04'")
-# The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
-OVERFLOW = "vars.CI_OVERFLOW_LINUX"
-CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
+CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
