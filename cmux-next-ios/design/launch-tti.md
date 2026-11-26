@@ -11,6 +11,9 @@ log line. Every build has them; their cost is a fixed set of names taken once.
 | Mark | When |
 |---|---|
 | `app_init` | the App's `init` began (dyld, static initializers and UIKit before it) |
+| `app_init_done` | the App's `init` returned (its migrations, Keychain and auth setup) |
+| `did_finish_launching` | the app delegate's `didFinishLaunching` began |
+| `root_init` | the first `RootView` was built (the scene's first body, its store) |
 | `first_frame` | the first SwiftUI frame (the launch mark) was presented |
 | `shell_frame` | the signed-in shell's first frame was presented |
 | `workspaces_list_frame` | the Workspaces list's first frame with a row was presented (with the list rig, a seeded `ws-sN` row) |

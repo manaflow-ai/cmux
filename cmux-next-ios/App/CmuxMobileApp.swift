@@ -99,6 +99,7 @@ struct CmuxMobileApp: App {
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
+        LaunchMarks.shared.mark("app_init_done")
     }
 
     var body: some Scene {
