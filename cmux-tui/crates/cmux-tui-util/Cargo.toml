@@ -17,6 +17,8 @@ test-support = []
 [dependencies]
 arc-swap.workspace = true
 cmux-config.workspace = true
+# strip_jsonc, shared with the phone host (cmux-next-ios cmux-mobile-host).
+cmux-json.workspace = true
 cmux-tui-platform.workspace = true
 getrandom.workspace = true
 libc.workspace = true

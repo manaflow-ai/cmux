@@ -648,6 +648,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
 
@@ -682,6 +689,7 @@ dependencies = [
  "cmux-bundle",
  "cmux-deadline",
  "cmux-fault",
+ "cmux-json",
  "cmux-message-preview",
  "cmux-mobile-link",
  "cmux-output-paint",
@@ -793,6 +801,7 @@ dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
+ "cmux-mobile-tailnet",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
