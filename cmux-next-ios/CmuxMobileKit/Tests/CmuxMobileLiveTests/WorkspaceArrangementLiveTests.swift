@@ -147,6 +147,8 @@ import Testing
         #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true]) == nil)
     }
 
+    // The group order is Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links it.
+    #if os(iOS)
     /// The tree takes the Mac's groups from `list-personal`.
     @Test func treeCarriesGroups() throws {
         var tree = try DaemonTree(reply: WorkspaceArrangementLiveTests.reply, macID: "m")
@@ -156,4 +158,5 @@ import Testing
         #expect(tree.workspaces.map { $0.group?.id } == ["grp_1", nil, nil])
         #expect(tree.workspaces.map(\.sidebarIndex) == [2, 0, 1])
     }
+    #endif
 }
