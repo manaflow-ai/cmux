@@ -205,10 +205,11 @@ def owned_gcp(label: object) -> bool:
 
 
 # The Freestyle Linux rung's label (pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
-# same-repository job. Blacksmith's runners never take it. It leads an x64 pool whose jobs need no fresh machine and
-# fit 8 vCPU, with the owned GCP label after it and a Blacksmith x64 member after both (spec_problems()): a full
-# Freestyle rung moves to GCP, and a full GCP pool moves to Blacksmith (label_evidence()'s full mark). GCP and
-# Freestyle form the pool's owned prefix in either order, each at most once. Leo, 2026-11-19: "We still keep
+# same-repository job. Blacksmith's runners never take it. It follows the owned GCP lead in an x64 pool whose jobs
+# need no fresh machine and fit 8 vCPU, with a Blacksmith x64 member after both (spec_problems()): a full GCP pool
+# moves to Freestyle, and a full Freestyle rung moves to Blacksmith (label_evidence()'s full mark). GCP and
+# Freestyle form the pool's owned prefix in either order, each at most once; .github/runners.json puts GCP first
+# because the same jobs took 9.4 min a run on Freestyle against 5.0 on GCP (2026-11-25/26, its linux pool's why). Leo, 2026-11-19: "We still keep
 # Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] I don't know why you guys are
 # fixated on GCP when we literally have the partnership with Freestyle. We could use Freestyle. [...] So we should
 # just be able to size them accordingly."
