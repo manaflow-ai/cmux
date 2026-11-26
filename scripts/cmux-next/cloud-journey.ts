@@ -4260,7 +4260,7 @@ export function keepBearerFresh(api: Api, signIn: () => Promise<{ access: string
       secrets.push(s.access, s.refresh);
       api.bearer = s.access;
       for (const env of api.tokenEnvs) env.CMUX_CLOUD_ACCESS_TOKEN = s.access;
-    }, (e: Error) => log(`bearer refresh failed, the old token kept: ${e.message}`));
+    }, (e: Error) => log(`token renewal failed, the old token kept: ${e.message}`));
   }, everyMs);
   timer.unref();
   return () => clearInterval(timer);
@@ -4821,6 +4821,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
+  // Stops the install token's renewal; cleanup calls it before the revoke, after which every challenge is refused
+  // (run 45820934296's kill-src and random drills logged 403 challenge refused once the install was revoked).
+  let stopInstallRenewal: () => void = () => {};
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
@@ -4857,6 +4860,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (journeyInstall) {
       const own: string = journeyInstall;
       journeyInstall = null;
+      stopInstallRenewal();
       const t0 = Date.now();
       await api.op("install.revoke", { install: own }, `${tag}-install-revoke`).then(
         () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
@@ -5029,7 +5033,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts) and nothing renewed it:
     // run 45798168813's off-src drill read connect_info 16.5 min after the mint and got 401 auth.unauthenticated, so
     // the move never ran. Mint again from the install's own key on the same timer the Stack bearer uses.
-    keepBearerFresh(installApi, async () => {
+    stopInstallRenewal = keepBearerFresh(installApi, async () => {
       const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: install.user, install: install.id }, {});
       if (ch.status !== 200) throw new Error(`install challenge HTTP ${ch.status} ${short(ch.body)}`);
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
