@@ -62,8 +62,5 @@ Open-Meteo answers (`preview/fixtures.ts`).
 
 - The web scene renderer has no weather glyphs (its icon pack maps few SF Symbols), so the New Tab
   draws a neutral fallback for the sky symbols; the native sidebar draws the SF Symbols.
-- No gradients and no multicolor symbols in the scene: the sky is one color, a lone sun is yellow
-  and every other symbol white.
 - A store app is unverified, so installing it grants no `net:` scope even though the install sheet
   lists them; the person allows network access in Settings > Apps first.
-- The host passes the locale without its region (`en`), so units fall back to the place's country.
