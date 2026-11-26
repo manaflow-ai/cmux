@@ -402,15 +402,15 @@ pub(crate) fn read_ledger(home: &std::path::Path) -> Vec<StoppedGroup> {
 pub(crate) fn write_ledger(home: &std::path::Path, groups: &[StoppedGroup]) -> std::io::Result<()> {
     let path = home.join(LEDGER);
     if groups.is_empty() {
-        return match std::fs::remove_file(&path) {
+        return match crate::home_fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
     }
-    std::fs::create_dir_all(home)?;
+    crate::home_fs::create_dirs(home)?;
     let tmp = home.join(format!("{LEDGER}.tmp"));
-    std::fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
-    std::fs::rename(&tmp, &path)
+    crate::home_fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
+    crate::home_fs::rename(&tmp, &path)
 }
 
 /// Whether a process of group `pgid` is still in `scope` under `manager` (`manager_dir`): a

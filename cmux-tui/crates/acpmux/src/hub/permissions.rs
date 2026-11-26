@@ -79,11 +79,17 @@ impl Hub {
         let stop = self.scope.token();
         // Its current value counts: a loop that first runs after the close sees it (#41081 F2).
         let mut closed = session.closed.subscribe();
+        // Between items the loop holds the chat weakly: an idle chat may leave memory
+        // (`evict.rs`), and its own sender goes with it, which ends `rx` and this loop.
+        let weak = Arc::downgrade(&session);
+        let own = session.inbound_tx().downgrade();
+        drop(session);
         loop {
-            self.clone().inbound_items(session.clone(), &mut rx, &stop, &mut closed).await;
+            self.clone().inbound_items(&weak, &own, &mut rx, &stop, &mut closed).await;
             if stop.is_cancelled() {
                 return;
             }
+            let Some(session) = weak.upgrade() else { return };
             let mut slot = session.inbound_rx().lock().await;
             if session.status() == SessionStatus::Closed
                 && rx.is_empty()
@@ -105,12 +111,15 @@ impl Hub {
 
     async fn inbound_items(
         self: Arc<Self>,
-        session: Arc<Session>,
+        weak: &std::sync::Weak<Session>,
+        own: &mpsc::WeakSender<Inbound>,
         rx: &mut mpsc::Receiver<Inbound>,
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed, session.inbound_tx()).await {
+        while let Some(item) = next_inbound(rx, stop, closed, own).await {
+            // Held for this item only (see `inbound_loop`).
+            let Some(session) = weak.upgrade() else { return };
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
@@ -2212,16 +2221,17 @@ const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(
 
 /// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat is
 /// closed (its current value counts, not only a change) with nothing queued and no producer
-/// left besides the chat's own sender `own` (#41081 F1 F2).
+/// left besides the chat's own sender (`own`, held weakly) (#41081 F1 F2).
 async fn next_inbound(
     rx: &mut mpsc::Receiver<Inbound>,
     stop: &tokio_util::sync::CancellationToken,
     closed: &mut tokio::sync::watch::Receiver<bool>,
-    own: &mpsc::Sender<Inbound>,
+    own: &mpsc::WeakSender<Inbound>,
 ) -> Option<Inbound> {
     loop {
         let is_closed = *closed.borrow_and_update();
-        if is_closed && rx.is_empty() && !producers_live(own) {
+        // The chat's own sender counts as one; with the chat gone it counts none.
+        if is_closed && rx.is_empty() && own.strong_count() <= 1 {
             return None;
         }
         let recheck = async {

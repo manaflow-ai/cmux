@@ -103,10 +103,9 @@ enum TopPages {
     }
 
     /// The provider of internal page `id`: a registered one, else an app's
-    /// page registered on first use (CodeRouter, `app:<id>` pages).
+    /// page registered on first use (`app:<id>` pages).
     static func provider(_ id: InternalPageID, services: AppServices) -> (any InternalPageProvider)? {
         if let provider = services.pages.provider(id) { return provider }
-        if id == .coderouter { return services.apps.pageProvider(appID: CodeRouterPageTab.appID) }
         let prefix = AppPanePage.pageID("").rawValue
         guard id.rawValue.hasPrefix(prefix) else { return nil }
         return services.apps.pageProvider(appID: String(id.rawValue.dropFirst(prefix.count)))

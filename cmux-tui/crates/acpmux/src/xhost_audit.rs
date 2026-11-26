@@ -36,13 +36,49 @@ pub fn path() -> PathBuf {
 }
 
 /// Append one line: `fields` (an object) with `at` (ms since the epoch), `dir` and this
-/// machine's name as `host`.
-pub fn record(dir: &str, mut fields: Value) {
+/// machine's name as `host`. Written before it returns: for a short-lived process (the CLI's
+/// send relay), whose line a background writer could lose at exit.
+pub fn record(dir: &str, fields: Value) {
+    write(stamp(dir, fields));
+}
+
+/// [`record`] from the daemon's request path: stamped now, written in order by one writer
+/// thread, so a fan-out of thousands of prompts never waits on the log's directory checks,
+/// opens and append on an async worker (2026-11-23, sessions-2000-attached: 2,969 blocking
+/// switches under `peer_forward::forward` in a 2,000-prompt round). Falls back to writing
+/// here when the thread cannot start.
+pub fn record_queued(dir: &str, fields: Value) {
+    static WRITER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<Value>>> =
+        std::sync::OnceLock::new();
+    let line = stamp(dir, fields);
+    let writer = WRITER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Value>();
+        std::thread::Builder::new()
+            .name("acpmux-xhost-audit".into())
+            .spawn(move || rx.into_iter().for_each(write))
+            .ok()
+            .map(|_| tx)
+    });
+    match writer {
+        Some(tx) => {
+            if let Err(std::sync::mpsc::SendError(line)) = tx.send(line) {
+                write(line);
+            }
+        }
+        None => write(line),
+    }
+}
+
+fn stamp(dir: &str, mut fields: Value) -> Value {
     if let Some(object) = fields.as_object_mut() {
         object.insert("at".into(), json!(crate::store::now_ms()));
         object.insert("dir".into(), json!(dir));
         object.entry("host").or_insert_with(|| json!(crate::pairing::machine_name()));
     }
+    fields
+}
+
+fn write(fields: Value) {
     if let Err(e) = append(&fields) {
         static SAID: std::sync::Once = std::sync::Once::new();
         SAID.call_once(|| {
@@ -194,6 +230,15 @@ mod tests {
         assert!(lines.len() as u64 > cap / one, "{}", lines.len());
         assert_eq!(std::fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_queued_line_is_stamped_when_recorded_not_when_written() {
+        let line = stamp("sent", json!({"to": "lane-2/chat"}));
+        assert_eq!(line["dir"], "sent");
+        assert!(line["at"].as_u64().is_some_and(|at| at > 0), "{line}");
+        assert!(line["host"].is_string(), "{line}");
+        assert_eq!(stamp("sent", json!({"host": "elsewhere"}))["host"], "elsewhere");
     }
 
     #[test]
