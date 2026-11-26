@@ -177,6 +177,7 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
+            eprintln!("DBG2 next client={client} {:?}", subscribed_event_name(&event));
             let mut value = match &event {
                 // The client applies none (SWITCH FRAMES SF-5); attach streams still carry it.
                 MuxEvent::ScrollChanged { .. } if scroll_on_attach => continue,
@@ -442,7 +443,9 @@ pub(super) fn subscribe_command(
                 MuxEvent::GitHubChanged { .. } => continue,
                 _ => subscribed_event_json(&event),
             };
+            eprintln!("DBG2 value client={client} {value}");
             if incognito.hides(&event_mux, client, &event, &mut value) {
+                eprintln!("DBG2 hidden client={client}");
                 continue;
             }
             // The mailbox filter named it by `subscribed_event_name`: the two agree.
@@ -459,11 +462,15 @@ pub(super) fn subscribe_command(
             {
                 continue;
             }
-            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+            eprintln!("DBG2 sending client={client} page={:?}", page_events.map(|p| p.len()));
+            let sent = writer.send_stream_backpressured(&value, &outbound_stream);
+            eprintln!("DBG2 sent client={client} {sent:?}");
+            if let Err(error) = sent {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                 break;
             }
         }
+        eprintln!("DBG2 exit client={client}");
         if events.overflowed() || transport_overflow {
             let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
         }
