@@ -225,12 +225,57 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         ).is_file()
 
 
+def test_source_only_fetches_with_token_and_skips_cargo(sha: str) -> None:
+    # Main's run 45760337662: the build phase's anonymous `git clone` of
+    # cmux-cua got 403 on an owned Mac. CI now runs --source-only with the
+    # run's token before xcodebuild; the header rides on the clone alone and
+    # never lands in the cache's git config.
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-source-only-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        environment = fake_tool_environment(root, sha)
+        git_log = root / "git-auth.log"
+        real_git = root / "bin" / "git"
+        real_git.rename(root / "bin" / "git-fake")
+        write_executable(
+            real_git,
+            f"""#!/bin/bash
+header=""
+for ((i = 0; i < ${{GIT_CONFIG_COUNT:-0}}; i++)); do
+  key="GIT_CONFIG_KEY_$i"
+  value="GIT_CONFIG_VALUE_$i"
+  [[ "${{!key}}" == http.https://github.com/.extraheader ]] && header="${{!value}}"
+done
+printf '%s|%s\\n' "$1" "$header" >> "{git_log}"
+exec "{root / 'bin' / 'git-fake'}" "$@"
+""",
+        )
+        environment["CMUX_CUA_GIT_TOKEN"] = "test-token"
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), "--source-only", "--cache-dir", str(cache_dir)],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        source_dir = cache_dir / f"src-{sha}"
+        assert (source_dir / ".cmux-cua-managed-source").is_file()
+        lines = git_log.read_text().splitlines()
+        clone = [line for line in lines if line.startswith("clone|")]
+        assert clone == ["clone|AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46dGVzdC10b2tlbg=="], lines
+        # Local commands (checkout, clean, rev-parse) carry no header.
+        assert all(line.endswith("|") for line in lines if not line.startswith("clone|")), lines
+        assert not (root / "output").exists()
+        assert not list(cache_dir.glob("build-src-*"))
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
+    test_source_only_fetches_with_token_and_skips_cargo(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 
