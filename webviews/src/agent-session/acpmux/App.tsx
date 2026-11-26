@@ -235,6 +235,8 @@ import {
 import { toolSlashCommands } from "./toolMentions";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
+import { startFailureClearsByItself } from "./startFailure";
+import { useAutoRetry } from "./autoRetry";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
 import { autoCloudOn } from "./autoCloud";
@@ -5191,15 +5193,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxCard =
     viewedSandbox !== undefined ||
     (sandboxView !== undefined && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed"));
-  /// The newest read didn't answer and no card says so: a notice does (the chat's, or the New Tab
-  /// page's, where Sandboxed waits for a read that answers).
-  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard;
+  /// The newest read didn't answer and no card says so: the tab is read again on its own, on the
+  /// shared backoff (autoRetry.ts), with no Check again (Leo, 2026-11-22: "vacuous decisions like
+  /// that should be just done"); only once that has lasted does a notice (the chat's, or the New Tab
+  /// page's, where Sandboxed waits for a read that answers) say "Still checking…", with no button.
+  const [sandboxReading, setSandboxReading] = useState(false);
+  const { stillTrying: sandboxStillChecking } = useAutoRetry(
+    sandbox.unread && !sandboxCard,
+    () => {
+      setSandboxReading(true);
+      void sandbox.read().finally(() => setSandboxReading(false));
+    },
+    { busy: sandboxReading },
+  );
+  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard && sandboxStillChecking;
   const sandboxUnchecked = (
-    <output className="acpmux-switch-notice acpmux-folder-choice">
-      <span>{t("sandbox.unchecked")}</span>{" "}
-      <button type="button" className="acpmux-folder-choice-button" onClick={() => void sandbox.read()}>
-        {t("sandbox.checkAgain")}
-      </button>
+    <output className="acpmux-switch-notice acpmux-folder-choice" data-still-trying="">
+      <span>{t("sandbox.stillChecking")}</span>
     </output>
   );
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
@@ -6145,6 +6155,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (quick || cloudPreviewChat || !runChat) return undefined;
     const call = <T,>(use: (c: NonNullable<typeof directClient.current>) => Promise<unknown>) => {
       const c = directClient.current;
+      // retry-prompt-ok: "Try again in a moment": running a command elsewhere starts a machine and runs it there.
       return (c ? use(c) : Promise.reject(new Error(translate("runElsewhere.disconnected")))) as Promise<T>;
     };
     return {
@@ -9035,6 +9046,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       } catch (error) {
         // The chat the transcript would start in did not open: plain words, the host's in the log.
         console.warn("agent pane: importing a transcript failed", error);
+        // retry-prompt-ok: "Couldn't start the imported chat. Try again.": starting it makes a new chat session.
         setImportError(knownRefusalText(error) ?? t("composer.cmuxImportNotStarted"));
       }
     },
@@ -9988,6 +10000,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Use stays on the question as its Retry; the host's words go to the log.
         console.warn("agent pane: using the folder failed", error);
         setFolderAsk(
+          // retry-prompt-ok: using the folder again starts the chat there (a new session, the person's pick).
           (current) => current ?? { ...pending, error: knownRefusalText(error) ?? translate("startFolder.failed") },
         );
       },
@@ -10160,6 +10173,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
       ? chatLoginCommand(catalog, snapshot.switching.harness, harnessHealth)
       : undefined;
+  // A start that never reached the agent because the line to acpmux was down (startFailure.ts
+  // `startFailureClearsByItself`) starts again on its own, with no card and no Retry: there is no
+  // decision in it. Only one that lasts says "Still trying to start <agent>…" (SwitchNotice.tsx).
+  const switchFailedByItself =
+    snapshot.switching?.phase === "failed" && startFailureClearsByItself(snapshot.switching.code)
+      ? snapshot.switching
+      : undefined;
+  const { stillTrying: switchStillTrying } = useAutoRetry(
+    switchFailedByItself,
+    () => void callNative("chat.harness.retry").catch(() => undefined),
+    { busy: snapshot.switching?.phase === "starting" },
+  );
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -10218,6 +10243,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A deferred ask's caller (the folder menu) shows the failure with its Retry; one notice, not two.
         if (request?.deferPick) throw error;
         console.warn("agent pane: Choose Folder failed", error);
+        // retry-prompt-ok: choosing again opens the native folder chooser, a sheet the person must want.
         setFolderError(knownRefusalText(error) ?? translate("agentHome.chooseFailed"));
         return undefined;
       });
@@ -10460,6 +10486,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     startsElsewhere,
     chatSignIns,
     switchLoginCommand,
+    switchFailedByItself: switchFailedByItself !== undefined,
+    switchStillTrying,
     composerHandle,
     placeControl,
     healthStale,
