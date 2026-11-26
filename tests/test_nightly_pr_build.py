@@ -10,7 +10,9 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,6 +64,27 @@ class Route(unittest.TestCase):
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
 
+    def test_landing_routes_changed_inputs_without_the_full_tier(self) -> None:
+        name = "nightly-pr-build.yml"
+        callees = pr_router.load_manifest()
+        repo = {"full_name": "manaflow-ai/cmux"}
+        pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
+              "labels": [{"name": "ready-to-land"}]}
+        for action in ("synchronize", "labeled"):
+            event = {"action": action, "label": {"name": "ready-to-land"}, "pull_request": pr}
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            self.assertTrue(pr_router.head_tier.land_affected(tier))
+            for path, expected in ((npb.WORKFLOW, True), ("Packages/macOS/CmuxNext/Sources/X.swift", True),
+                                   ("docs/readme.md", False)):
+                with self.subTest(action=action, path=path):
+                    start, _ = pr_router.route(event, callees, [path], decided=tier)
+                    self.assertEqual(name in start, expected)
+        for changes in ({"draft": True}, {"labels": []}):
+            event = {"action": "synchronize", "pull_request": {**pr, **changes}}
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            start, _ = pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)
+            self.assertNotIn(name, start)
+
     def test_outer_router_admits_compile_and_helper_inputs(self) -> None:
         config = pr_router.load_manifest()["nightly-pr-build.yml"]
         for root in npb.HELPER_INPUTS:
@@ -80,6 +103,30 @@ class Keys(unittest.TestCase):
         self.assertEqual(sorted(first), sorted([*npb.ARCHS, "helpers"]))
         self.assertNotEqual(first["arm64"], first["x86_64"])
         self.assertEqual(first, npb.keys("HEAD"))
+
+    def test_source_head_can_predate_the_merge_ref_recipe(self) -> None:
+        # Keep this fixture independent of the checkout depth. The source commit has neither the
+        # reusable workflow nor the driver, while the merge-ref recipe adds both.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for args in (("git", "init", "-q"), ("git", "config", "user.email", "test@example.com"),
+                         ("git", "config", "user.name", "Nightly test")):
+                subprocess.run([*args, str(root)] if args[1] == "init" else [*args], cwd=root,
+                               check=True, capture_output=True)
+            (root / "README").write_text("source\n")
+            subprocess.run(["git", "add", "README"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-qm", "source"], cwd=root, check=True, capture_output=True)
+            source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / ".github/workflows/nightly-pr-build.yml").write_text("on: workflow_call\n")
+            (root / "scripts/ci/nightly_pr_build.py").write_text("# trusted recipe\n")
+            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-qm", "recipe"], cwd=root, check=True, capture_output=True)
+            recipe = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            keys = npb.keys(source, root, recipe_rev=recipe)
+        self.assertEqual(sorted(keys), sorted([*npb.ARCHS, "helpers"]))
+        self.assertTrue(all(keys.values()))
 
 
 class Workflow(unittest.TestCase):
@@ -102,6 +149,13 @@ class Workflow(unittest.TestCase):
         text = (ROOT / "scripts/cmux-next/check-release-compile.sh").read_text()
         self.assertIn("swift-size-opt.sh", text)
         self.assertIn("nightly-swift-defines.sh", text)
+
+    def test_gateway_job_keeps_the_runner_fallback_reachable(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
+        self.assertIsNotNone(match)
+        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
 
 
 if __name__ == "__main__":

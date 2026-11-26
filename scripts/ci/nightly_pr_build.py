@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """The NIGHTLY's own app compile and Rust helper builds, on a pull request (.github/workflows/nightly-pr-build.yml).
 
-Why: on 2026-11-25 a direct push (a3b465f1367) broke the cmux NEXT Nightly's app compile and the
-NIGHTLY went over 5 hours without publishing. The pull request checks compile the app in Debug or a
-plain Release; the Nightly compiles it with -DCMUX_BLOCKING_CHECKS, -Osize (hot targets at -O) and for
-arm64 and x86_64, and it builds its Rust helpers in release with their own features. Code that only
-those settings reject reached the Nightly first. This runs the Nightly's settings on the pull request,
+The ordinary pull request checks compile the app in Debug or plain Release. The Nightly uses
+-DCMUX_BLOCKING_CHECKS and -Osize (hot targets at -O) for arm64 and x86_64, and it builds its Rust
+helpers in release with their own features. This runs the Nightly's settings on the pull request,
 advisory: no rule requires its checks.
 
   route --base B --rev R
@@ -115,18 +113,25 @@ def git(*args: str, root: Path = ROOT) -> str:
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
-def helper_key(rev: str, root: Path = ROOT) -> str:
-    ids = job_input_fingerprint.object_ids(str(root), rev, list(HELPER_INPUTS))
+def helper_key(rev: str, root: Path = ROOT, recipe_rev: str | None = None) -> str:
+    recipe = recipe_rev or rev
+    source_inputs = [path for path in HELPER_INPUTS
+                     if path not in {"scripts/ci/nightly_pr_build.py", WORKFLOW}]
+    ids = job_input_fingerprint.object_ids(str(root), rev, source_inputs)
+    ids.update(job_input_fingerprint.object_ids(str(root), recipe,
+                                                ["scripts/ci/nightly_pr_build.py", WORKFLOW]))
     raw = json.dumps({"job": "nightly-pr-build-helpers", "inputs": ids, "helpers": HELPERS}, sort_keys=True)
     return "nightly-pr-build-helpers-" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def keys(rev: str, root: Path = ROOT) -> dict[str, str]:
+def keys(rev: str, root: Path = ROOT, recipe_rev: str | None = None) -> dict[str, str]:
     out = {}
     for arch in ARCHS:
-        key, _ = job_input_fingerprint.fingerprint(str(root), rev, "nightly-pr-build", [f"arch={arch}"])
+        key, _ = job_input_fingerprint.fingerprint(
+            str(root), rev, "nightly-pr-build", [f"arch={arch}"],
+            workflow_rev=recipe_rev, recipe_rev=recipe_rev)
         out[arch] = f"nightly-pr-build-{arch}-{key}"
-    out["helpers"] = helper_key(rev, root)
+    out["helpers"] = helper_key(rev, root, recipe_rev)
     return out
 
 
@@ -156,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--rev", default="HEAD")
     k = sub.add_parser("keys")
     k.add_argument("--rev", default="HEAD")
+    k.add_argument("--recipe-rev", help="workflow and driver revision, defaulting to --rev")
     sub.add_parser("helpers")
     args = parser.parse_args(argv)
     if args.command == "route":
@@ -164,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}={'true' if value else 'false'}")
         return 0
     if args.command == "keys":
-        print("keys=" + json.dumps(keys(args.rev), sort_keys=True, separators=(",", ":")))
+        print("keys=" + json.dumps(keys(args.rev, recipe_rev=args.recipe_rev), sort_keys=True, separators=(",", ":")))
         return 0
     return run_helpers()
 
