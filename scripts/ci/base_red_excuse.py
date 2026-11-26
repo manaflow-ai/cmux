@@ -1555,7 +1555,8 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                         matcher = _check_matcher(need, jobs[need], where)
                         under[need] = {kind_: [prefix + v for v in matcher[kind_]] for kind_ in ("exact", "prefixes")}
                         todo.extend(_needs(jobs, need, where))
-                out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items()))}
+                out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items())),
+                                    "reports": _needs_steps(jobs[job_id], where)}
                 continue
             triggers = doc.get(True, doc.get("on"))
             inputs = (triggers.get("workflow_call") or {}).get("inputs") if isinstance(triggers, dict) else None
@@ -1573,6 +1574,29 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 routes[need] = {"route": route, **_check_matcher(need, jobs[need], where)}
             out["routed"][name] = {"workflow": file, "job": job_id, "routes": routes}
     return out
+
+
+# A step reads its job's needs when an expression in it (`${{ ... }}`) names `needs` (`${{ toJSON(needs) }}`,
+# `${{ needs.x.result }}`). Each expression is cut out with str.split, so the read stays linear in the step's text.
+NEEDS_WORD = re.compile(r"(?<![\w.-])needs\b")  # the context itself: never `steps.needs-x` or `inputs.needs`
+
+
+def _reads_needs(text: str) -> bool:
+    """Whether an expression `${{ ... }}` in TEXT names `needs`."""
+    return any(NEEDS_WORD.search(part.split("}}", 1)[0]) for part in text.split("${{")[1:])
+
+
+def _needs_steps(job: dict, where: str) -> list[str]:
+    """The names of rollup JOB's steps that read its needs (_reads_needs of anything but the step's name and `if:`): the
+    only steps whose failure is the needs' (run_rollup_line). A step with no `name:` is left out, so its failure is
+    the rollup's own, and so is one that only names `needs` in its `if:` (a check of its own that runs on a need's
+    result)."""
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+        raise Refused(f"{where}: a rollup's steps are not a list of steps")
+    named = [(step.get("name"), step) for step in steps]  # step-name: classify
+    return sorted({name for name, step in named if isinstance(name, str) and name.strip()
+                   and _reads_needs(json.dumps({k: v for k, v in step.items() if k not in ("name", "if")}, default=str))})
 
 
 def _workflow(yaml, read, file: str) -> tuple[dict, dict]:
@@ -1634,7 +1658,9 @@ def rollups(repo: str = HOME_REPO) -> dict:
         run, routed = (data.get("run"), data.get("routed")) if isinstance(data, dict) else (None, None)
         ok = (isinstance(run, dict) and isinstance(routed, dict) and run and routed
               and all(isinstance(r, dict) and isinstance(r.get("under"), dict) and r["under"]
-                      and all(_matcher_ok(m) for m in r["under"].values()) for r in run.values())
+                      and all(_matcher_ok(m) for m in r["under"].values())
+                      and isinstance(r.get("reports"), list) and all(isinstance(n, str) and n for n in r["reports"])
+                      for r in run.values())
               and all(isinstance(r, dict) and isinstance(r.get("routes"), dict) and r["routes"]
                       and all(_matcher_ok(m) and (m.get("route") is None or isinstance(m.get("route"), str))
                               for m in r["routes"].values()) for r in routed.values()))
@@ -3595,11 +3621,53 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     return receipt
 
 
+# A merge-base receipt that reads "superseded" (2026-11-25): cmux#50979's head changed only Swift, its fleet receipt
+# failed on a cmux-tui crate the PR does not touch, and the merge-base fc7c32be read "superseded". That is the
+# controller's word for a push tip it will not check because a newer push tip is checked instead, whose check covers
+# this commit (fleet_compile_result.judge): no verdict about the merge-base at all, yet it was read as "the red is this
+# head's". The receipt that covers it decides, followed through its `superseded_by` tip; with no tip to follow the
+# receipts gave no base verdict, so GitHub is asked the same question (github_compile_red).
+COMPILE_RECEIPT_SUPERSEDED = "superseded"
+COMPILE_RECEIPT_SUPERSEDED_HOPS = 4
+
+
+class BaseReceiptNoVerdict(Refused):
+    """The merge-base's receipt says nothing about the merge-base itself and points at nothing to follow: no receipt
+    answer about the base, so the same question may be asked of GitHub (github_compile_red)."""
+
+
+def covering_compile_receipt(repo: str, merge_base: str, at_base: dict) -> tuple[dict | None, str]:
+    """(the receipt that covers MERGE_BASE, the sha it was read at), following AT_BASE's `superseded_by` tips while
+    each reads "superseded", at most COMPILE_RECEIPT_SUPERSEDED_HOPS of them. BaseReceiptNoVerdict when a receipt
+    names no covering tip, names one already followed, or the chain runs past that bound: the receipts gave no
+    verdict about MERGE_BASE."""
+    seen = [merge_base]
+    receipt, at = at_base, merge_base
+    for _ in range(COMPILE_RECEIPT_SUPERSEDED_HOPS):
+        tip = str((receipt or {}).get("superseded_by") or "")
+        if not re.fullmatch(r"[0-9a-f]{40}", tip):
+            raise BaseReceiptNoVerdict(f"the compile receipt of {at[:12]} reads superseded and names no covering tip "
+                                       f"to follow ({tip or 'no superseded_by'}): the receipts gave no verdict about "
+                                       f"the merge-base {merge_base[:12]}")
+        if tip in seen:
+            raise BaseReceiptNoVerdict(f"the compile receipts of {merge_base[:12]} are superseded in a cycle "
+                                       f"({' -> '.join(short[:12] for short in seen)} -> {tip[:12]}): no verdict "
+                                       "about the merge-base")
+        seen.append(tip)
+        receipt, at = compile_receipt(repo, tip), tip
+        if (receipt or {}).get("state") != COMPILE_RECEIPT_SUPERSEDED:
+            return receipt, at
+    raise BaseReceiptNoVerdict(f"the compile receipt of {merge_base[:12]} is superseded through "
+                               f"{COMPILE_RECEIPT_SUPERSEDED_HOPS} tips without a verdict "
+                               f"({' -> '.join(short[:12] for short in seen)}): no verdict about the merge-base")
+
+
 def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
                           evidence: "Evidence | None" = None) -> str:
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
-    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red, over EVIDENCE's
-    commits)."""
+    "fail", else Refused. A merge-base receipt that reads "superseded" is no verdict about the merge-base: the receipt
+    that covers it decides (covering_compile_receipt). When the receipts host is unreachable, or they gave no verdict
+    about the base at all, GitHub decides (github_compile_red, over EVIDENCE's commits)."""
     try:
         head = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
@@ -3615,9 +3683,17 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
         at_base = compile_receipt(repo, merge_base)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down, evidence)
+    covers = ""
+    if (at_base or {}).get("state") == COMPILE_RECEIPT_SUPERSEDED:
+        try:
+            at_base, at = covering_compile_receipt(repo, merge_base, at_base or {})
+        except (ReceiptUnreachable, BaseReceiptNoVerdict) as unanswered:
+            return github_compile_red(repo, base, sha, name, github, unanswered, evidence)
+        covers = f" (superseded: read at {at[:12]}, the push tip whose check covers it)"
     if (at_base or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
-                      f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
+                      f"on {base}{covers} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this "
+                      "head's")
     tip = evidence.tip(sha)
     now = ""
     if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
@@ -3628,7 +3704,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github,
             now = ""
     log_decider(f"'{name}' at {sha[:12]} was decided by the fleet's compile receipts")
     return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
-            f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+            f"{merge_base[:12]}'s on {base}{covers} (an inherited base red{now}; merge the base for a new verdict)")
 
 
 def log_decider(message: str) -> None:
@@ -3698,13 +3774,15 @@ def compile_pass_status_at(repo: str, sha: str, github) -> tuple[dict | None, di
 
 def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused,
                        evidence: "Evidence | None" = None) -> str:
-    """inherited_compile_red's question asked of GitHub while the receipts host is unreachable (DOWN): the audit line
+    """inherited_compile_red's question asked of GitHub when the receipts could not answer it (DOWN: the host
+    unreachable, or no verdict about the base): the audit line
     excusing NAME's compile red at SHA when GitHub's cmux-next/compile at SHA reads a real compile fail and the same
     status at the merge-base (else the newest of the BASE_STATUS_COMMITS newest BASE commits with one completed) reads
     the same fail, else Refused naming why. Reads: one status, one compare, at most BASE_STATUS_COMMITS + 2 more; no
     wait and no retry, so a GitHub that cannot answer refuses too. The base commits are EVIDENCE's
     (Evidence.status_commits: a stacked parent's head alone)."""
-    why = f"the receipts host is unreachable ({down})"
+    why = (f"the receipts gave no verdict about the base ({down})" if isinstance(down, BaseReceiptNoVerdict)
+           else f"the receipts host is unreachable ({down})")
     log_decider(f"'{name}' at {sha[:12]}: {why}; GitHub decides")
     head = compile_status_at(repo, sha, github) or {}
     said = head.get("description") or ""
@@ -3958,6 +4036,46 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, 
                       f"{', '.join(verdictless)} under them holds no verdict, which is what turned it red. This is "
                       f"not a verdict on this PR's red: {step}")
     raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
+
+
+# A red run rollup was named by no line of its own: judge() judged the failed jobs under it, and merge_hold covered the
+# rollup's name only by deriving the repo's rollups again in a process of its own, which named nothing when that
+# derivation failed or ran past its bound. hq#12466 at ffe04af7 (2026-11-17) was refused "never named 'Skill
+# documentation tests' as excused" although its one failed child, 'Skill test scope', was excused as a base red. Its
+# line says so only when (a) every failed job under its needs is excused, at least one, and (b) every step of its own
+# that failed reads its needs (the contract's "reports", _needs_steps). Anything else is refused: a rollup whose own
+# step failed beside its needs (a step-time check, a lint) is a red no child stands behind.
+def run_rollup_line(repo: str, rollup: dict, audit: list[str], jobs: list[dict]) -> str:
+    """The audit line naming red run rollup job ROLLUP excused, once judge() judged the failed jobs under it (JOBS, its
+    AUDIT lines so far); refused unless every failed child is excused and its own failed steps only report them."""
+    name = rollup.get("name", "")
+    contract = rollups(repo)["run"][name]
+    reports = contract.get("reports")
+    if not isinstance(reports, list):
+        raise Refused(f"'{name}': its rollups contract names no step that reports its needs; not excused")
+    own = failed_step_keys(rollup)
+    if not own:
+        raise Refused(f"'{name}': job {rollup.get('id')} shows no failed step, so what turned it red is unread")
+    beside = sorted(f"{step} ({conclusion})" for step, conclusion in own
+                    if step not in reports or conclusion != "failure")
+    if beside:
+        raise Refused(f"'{name}': its own step {', '.join(beside)} failed, which does not report its needs "
+                      f"({', '.join(reports) or 'none'}); no failed child stands behind it")
+    under = contract["under"]
+    children = sorted({job.get("name", "") for job in jobs
+                       if job.get("run_id") == rollup.get("run_id") and job.get("conclusion") == "failure"
+                       and any(matches(m, job.get("name", "")) for m in under.values())})
+    if not children:
+        raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) was judged")
+    said = {child: next((line for line in audit if line.startswith(f"excused '{child}'")), None) for child in children}
+    if not all(said.values()):
+        raise Refused(f"'{name}': its failed job(s) {', '.join(c for c, line in said.items() if line is None)} are "
+                      "not excused, so neither is it")
+    fixed = all(line.startswith(f"excused '{child}': fixed on base (") for child, line in said.items())
+    what = (f"run {rollup.get('run_id')} job {rollup.get('id')}: a rollup of the failed jobs under its needs, each "
+            f"judged above: {', '.join(map(repr, children))}; its failed step(s) "
+            f"{', '.join(sorted(step for step, _ in own))} only report them")[:700]
+    return f"excused '{name}': " + (f"fixed on base ({what})" if fixed else f"its jobs are excused ({what})")
 
 
 # A status-only check (2026-11-02, cmux#30294): a same-tree run reports its verdict as a commit status on the
@@ -5276,9 +5394,11 @@ def exact_sha(repo: str, sha: str, github) -> str:
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None, suites: SuiteChecks | None = None,
               ignored: list[str] | None = None, seen: dict | None = None,
-              evidence: "Evidence | None" = None) -> list[dict]:
+              evidence: "Evidence | None" = None, rollup_jobs: list[dict] | None = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
-    job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
+    job a newer run of its workflow passed adds its line to IGNORED (superseding_check). Each red run rollup job
+    (ci-status, Skill documentation tests) whose failed children are returned is added to ROLLUP_JOBS
+    (run_rollup_line)."""
     sha = exact_sha(repo, sha, github)
     jobs: dict[int, dict] = {}
     contexts: dict[int, list[str]] = {}  # the status contexts each job was judged for (status_job)
@@ -5349,6 +5469,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
             said = (None if rollup_has_failed_need(rollup["name"], children, repo)
                     else rollup_no_verdict(repo, rollup, github))
             validate_run_rollup(rollup["name"], children, repo, rollup, said)
+            if rollup_jobs is not None:
+                rollup_jobs.append(rollup)
     if checks:
         at_head = head_check_runs(repo, sha, github, seen)
         aggregate_jobs = []
@@ -5392,6 +5514,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
                     aggregate_runs.append((name, job))
+                    if rollup_jobs is not None:
+                        rollup_jobs.append(job)
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -9707,8 +9831,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # here as "no failed job found", and a merge check that asks about every head refused every green PR). A red
         # run or check that was named and shows no failed job is still refused below.
         return audit or [f"no red run or check named on {sha}: no failure to excuse"]
+    rollup_jobs: list[dict] = []
     jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit, suites=suites, ignored=audit,
-                     seen=run_reads, evidence=evidence)
+                     seen=run_reads, evidence=evidence, rollup_jobs=rollup_jobs)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
@@ -10077,6 +10202,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     window.append(red(run, found))
                 except BaseUnplaced:
                     pass  # an older verdict not placed adds nothing to compare; the window reads on
+    # A red run rollup is named by its own line once every failed job under its needs is excused (run_rollup_line).
+    named_rollups: set = set()
+    for rollup in rollup_jobs:
+        if rollup.get("id") not in named_rollups:
+            named_rollups.add(rollup.get("id"))
+            audit.append(run_rollup_line(repo, rollup, audit, jobs))
     # A status judged by its job (status_job) is named too, the way land-judge reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:
