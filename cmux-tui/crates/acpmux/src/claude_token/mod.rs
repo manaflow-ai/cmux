@@ -18,7 +18,8 @@ pub mod store;
 mod tests;
 
 use std::collections::HashMap;
-use std::os::fd::{AsRawFd as _, OwnedFd};
+#[cfg(unix)]
+use std::os::fd::AsRawFd as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,7 +43,7 @@ const ITEM_LABEL: &str = "cmux Claude Code token";
 
 struct Attempt {
     status: watch::Sender<Status>,
-    master: Arc<OwnedFd>,
+    master: Arc<pty::Master>,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     started: Instant,
@@ -79,6 +80,7 @@ fn random_id() -> Result<String, Failure> {
 
 /// The last line of what the child showed, for an error (it is never the token: the filter took
 /// that out first).
+#[cfg(unix)]
 fn last_line(shown: &[u8]) -> String {
     let text = pty::strip_ansi(shown);
     let text = String::from_utf8_lossy(&text);
@@ -253,15 +255,9 @@ impl Service {
             return Err(Failure::new("not_pending", "the attempt already ended"));
         }
         let master = entry.master.clone();
-        let written = tokio::task::spawn_blocking(move || {
-            let fd = master.as_raw_fd();
-            // Return on its own, a moment later: a terminal UI reads one chunk as a paste.
-            let typed = pty::write_all(fd, code.as_bytes());
-            std::thread::sleep(Duration::from_millis(150));
-            typed && pty::write_all(fd, b"\r")
-        })
-        .await
-        .unwrap_or(false);
+        let written = tokio::task::spawn_blocking(move || type_code(&master, code.as_bytes()))
+            .await
+            .unwrap_or(false);
         if written {
             Ok(())
         } else {
@@ -293,9 +289,36 @@ impl Service {
     }
 }
 
+/// Types `code`, then Return on its own a moment later (a terminal UI reads one chunk as a
+/// paste), into the child's terminal.
+#[cfg(unix)]
+fn type_code(master: &pty::Master, code: &[u8]) -> bool {
+    let fd = master.as_raw_fd();
+    let typed = pty::write_all(fd, code);
+    std::thread::sleep(Duration::from_millis(150));
+    typed && pty::write_all(fd, b"\r")
+}
+
+/// No attempt exists on Windows ([`pty::open_pty`] refuses there), so this is never reached.
+#[cfg(not(unix))]
+fn type_code(master: &pty::Master, _code: &[u8]) -> bool {
+    match *master {}
+}
+
+/// No attempt exists on Windows ([`pty::open_pty`] refuses there), so this is never reached.
+#[cfg(not(unix))]
+fn read_token(
+    entry: &Attempt,
+    _url_timeout: Duration,
+    _url_tx: &mut Option<oneshot::Sender<Result<Option<String>, Failure>>>,
+) -> Read {
+    match *entry.master {}
+}
+
 /// The child's output until its token: the link goes to `url_tx` once it is whole (within
 /// `url_timeout`), then the token is read (within [`ATTEMPT_TTL`]). It looks for a cancel every
 /// 100 ms.
+#[cfg(unix)]
 fn read_token(
     entry: &Attempt,
     url_timeout: Duration,

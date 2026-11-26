@@ -343,16 +343,17 @@ pub async fn job_main() -> anyhow::Result<()> {
 /// The Cloud link: `resume_machine`, then one ssh connection on the route the platform answers
 /// for a key made for this run.
 pub struct CloudLink {
-    pub request: cmux_cloud_api::Request,
+    pub request: super::sub_fork::CloudRequest,
     /// The key, known-hosts file and the ssh process live here for the run.
     dir: std::sync::Mutex<Option<tempfile::TempDir>>,
 }
 
 impl CloudLink {
-    pub fn new(request: cmux_cloud_api::Request) -> Self {
+    pub fn new(request: super::sub_fork::CloudRequest) -> Self {
         Self { request, dir: std::sync::Mutex::new(None) }
     }
 
+    #[cfg(unix)]
     fn failure(&self, f: cmux_cloud_api::Failure) -> String {
         cmux_cloud_api::scrub(cmux_cloud_api::answer_line(&Err(f)), &self.request)
     }
@@ -385,6 +386,19 @@ pub fn ssh_route(endpoint: &Value) -> Result<(String, u16, String, String), Stri
     ))
 }
 
+/// Windows: no Cloud request exists there ([`super::sub_fork::CloudRequest`]).
+#[cfg(not(unix))]
+impl ForkLink for CloudLink {
+    async fn start(&self, _fork: &str) -> Result<(), String> {
+        match self.request {}
+    }
+
+    async fn open(&self, _fork: &str, _job: &Job) -> Result<Lines, String> {
+        match self.request {}
+    }
+}
+
+#[cfg(unix)]
 impl ForkLink for CloudLink {
     async fn start(&self, fork: &str) -> Result<(), String> {
         cmux_cloud_api::machine_resume::resume_machine(&self.request, fork)

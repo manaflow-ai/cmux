@@ -10,6 +10,7 @@
 //! file goes back where it was. No file is deleted that the snapshot does not replace.
 
 use std::collections::HashSet;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
@@ -35,9 +36,30 @@ pub(super) struct Aside {
     moved: Vec<Moved>,
 }
 
+#[cfg(unix)]
 fn path_of(bytes: &[u8]) -> PathBuf {
     use std::os::unix::ffi::OsStrExt as _;
     PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// Git names paths in UTF-8 on Windows.
+#[cfg(not(unix))]
+fn path_of(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// Whether `meta`'s file is executable as git sees it. Windows has no exec bit (git there
+/// keeps the tree's), so the tree entry's own bit stands.
+#[cfg(unix)]
+fn executable(meta: &std::fs::Metadata, _entry: &Entry) -> bool {
+    meta.permissions().mode() & 0o111 != 0
+}
+
+/// Whether `meta`'s file is executable as git sees it. Windows has no exec bit (git there
+/// keeps the tree's), so the tree entry's own bit stands.
+#[cfg(not(unix))]
+fn executable(_meta: &std::fs::Metadata, entry: &Entry) -> bool {
+    entry.mode == "100755"
 }
 
 /// The tree of `head` with `patch` applied, in a scratch index: nothing the person sees changes.
@@ -87,7 +109,7 @@ fn same_as(root: &Path, file: &Path, entry: &Entry) -> bool {
     if !meta.is_file() {
         return false;
     }
-    let exec = meta.permissions().mode() & 0o111 != 0;
+    let exec = executable(&meta, entry);
     if exec != (entry.mode == "100755") || entry.mode == "120000" {
         return false;
     }
