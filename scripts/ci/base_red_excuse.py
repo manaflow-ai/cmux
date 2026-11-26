@@ -2801,7 +2801,12 @@ SETUP_ONLY_STEPS = {
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ci/lan_cache_fetch.py", "scripts/ensure-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
             "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
-            "scripts/install-axe-ci.sh", *XCODE_PINS),
+            "scripts/install-axe-ci.sh",
+            # ensure-ghosttykit.sh's Zig package prefetch (zig-fetch-all.sh): the package lock, its R2 mirror and
+            # cache, the archive seeder, and the release download helper behind them.
+            "scripts/cmux-next/zig-fetch-all.sh", "scripts/ci/zig-packages.lock", "scripts/ci/zig-packages-r2.sh",
+            "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/r2-cache.sh",
+            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
@@ -6119,6 +6124,10 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
+                  "schemas/tab-group-rules/",
+                  # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
+                  "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",

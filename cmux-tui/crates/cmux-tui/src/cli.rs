@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -208,6 +210,8 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
+mod vm_exec_input;
 #[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
@@ -1113,6 +1117,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
