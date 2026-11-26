@@ -74,13 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch, shell: LaunchShell),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshotRead, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
-        self.launchReads = launchReads; self.launchCleanup = launchCleanup
+        self.launchReads = launchReads; self.launchCleanup = launchCleanup; DebugTimings.markLaunch("main.delegate.fields") // after the stored properties' initial values
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
-        launchSettle = LaunchSettle(firstFrame: firstFrame)
+        launchSettle = LaunchSettle(firstFrame: firstFrame); DebugTimings.markLaunch("main.delegate.first_frame_gate")
         let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
-        self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        self.mainWork = mainWork; DebugTimings.markLaunch("main.delegate.main_work")
+        control = AppControl(mainWork: mainWork); DebugTimings.markLaunch("main.delegate.control")
         super.init()
     }
 
@@ -560,7 +560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
-        guard !services.accounts.github.finishCompletion(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
+        guard !SlackConnectedLink.handle(url, scheme: services.linkScheme, show: { try? services.settingsWindow.show(section: .accounts, route: $0) }), !services.accounts.github.finishCompletion(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
         Task { if await auth.callbackFailed(url) { try? services.settingsWindow.show(section: .accounts) } }
     }
 
