@@ -34,6 +34,30 @@ def git(*args: str, cwd: Path | None = None) -> str:
 
 
 class HotVerifyMirrorSeedTest(unittest.TestCase):
+    def _publisher_steps(self) -> tuple[dict, dict]:
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        steps = doc["jobs"]["publish"]["steps"]
+        action_index = next(i for i, step in enumerate(steps) if step.get("name") == "Checkout the publisher")
+        mirror_index = next(i for i, step in enumerate(steps) if step.get("name") == "Pool mirror: checkout the publisher")
+        self.assertEqual(mirror_index, action_index + 1)
+        return steps[action_index], steps[mirror_index]
+
+    def test_publisher_pool_mirror_replaces_blobless_action_checkout(self) -> None:
+        action, mirror = self._publisher_steps()
+        self.assertEqual(action["if"], "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}")
+        self.assertEqual(mirror["if"], "${{ startsWith(runner.name, 'cmux-runner-pool-') }}")
+        self.assertEqual(mirror["env"]["SPARSE"], action["with"]["sparse-checkout"])
+        run = mirror["run"]
+        for expected in (
+            "/var/lib/cmux-git/cmux.git/objects",
+            "objects/info/alternates",
+            "git fetch --no-tags --no-recurse-submodules --depth=1",
+            "git config core.sparseCheckout true",
+            "git checkout -q --detach \"$SHA\"",
+        ):
+            self.assertIn(expected, run)
+        self.assertNotIn("--filter", run)
+
     def test_every_drop_step_seeds_the_mirror(self) -> None:
         steps = drop_steps()
         self.assertEqual(len(steps), 4, [n for n, _ in steps])
