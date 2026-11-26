@@ -33,8 +33,10 @@ pub mod new_line;
 mod reconnect_wait;
 mod run;
 mod scheduler;
+mod start_wait;
 mod state;
 mod terminal;
+mod usage_reset;
 pub use run::run;
 
 /// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
@@ -202,6 +204,9 @@ pub struct App {
     pub show_system: bool,
     pub(crate) quit: bool,
     pub(crate) pending_select: Option<String>,
+    /// A draft's start that lost its daemon connection, run again after the reconnect
+    /// (`start_wait.rs`): the draft's id and the message it was sending.
+    pub(crate) start_after_reconnect: Option<(u64, String, Vec<PromptImage>)>,
     pub(crate) initial_empty_checked: bool,
     pub tick: u64,
     pub chrome: Chrome,

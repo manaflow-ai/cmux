@@ -86,8 +86,21 @@ class PrefetchSparseCheckout(unittest.TestCase):
         self.assertNotIn("Packages/macOS/CmuxNext/Sources/icon.png", want)
         self.assertNotIn("web/index.ts", want)
         self.assertIn("Packages/macOS/Other/Package.swift", want)
-        # The prefetch named every checked-out blob (one per distinct content), so the reapply fetched none lazily.
+        # The prefetch named every checked-out blob (one per distinct content), so widening fetched none lazily.
         self.assertRegex(out, rf"sparse prefetch: {len(set(want.values()))} blobs in 3 fetches")
+
+    def test_widen_after_sparse_checkout_was_disabled_in_this_worktree(self):
+        patterns = PATTERNS.read_text(encoding="utf-8")
+        want = self.tree(self.clone("plain", patterns))
+        work = self.clone("reused", "/scripts/ci/\n")
+        git(work, "sparse-checkout", "disable")
+        # actions/checkout enables non-cone sparsity in the repository config on reuse.
+        git(work, "config", "--local", "core.sparseCheckout", "true")
+        self.assertEqual(git(work, "config", "--bool", "core.sparseCheckout").strip(), "false")
+        subprocess.run(["bash", str(SCRIPT)], cwd=work, input=patterns, check=True, capture_output=True,
+                       text=True, env={**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3"})
+        self.assertEqual(self.tree(work), want)
+        self.assertEqual(git(work, "config", "--bool", "core.sparseCheckout").strip(), "true")
 
     def test_a_failed_chunk_fetch_is_tried_again_before_the_lazy_fallback(self):
         """A stalled or dropped pack (GitHub, 2026-11-25) costs one retry, not a one-by-one lazy fetch."""

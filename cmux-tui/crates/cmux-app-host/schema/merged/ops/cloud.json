@@ -1,6 +1,13 @@
 {
   "family": "cloud",
   "ops": {
+    "cloud.allotment.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a24f88a2f0799132"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -257,6 +264,11 @@
       "risk": "money",
       "digest": "ede6fe44ffcb2a4a"
     },
+    "cloud.machine.setup_desktop": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e8130d729b74d5ac"
+    },
     "cloud.machine.share_chat": {
       "source": "local",
       "class": "mutation",
@@ -317,10 +329,25 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.github_clone_token": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_complete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
     "cloud.owner.github_connect": {
       "source": "local",
       "class": "mutation",
       "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_list": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
     },
     "cloud.owner.github_repos": {
       "source": "local",

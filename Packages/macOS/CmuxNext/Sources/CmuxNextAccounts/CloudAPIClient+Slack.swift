@@ -45,4 +45,37 @@ extension CloudAPIClient {
         if let name { body["name"] = name }
         return try await sendData("POST", "/v1/slack/apps", body: body)
     }
+
+    /// RFD 0123's owner setting on the cmux API: `GET /v1/chiefs/<chief>/slack-awake?days=7` when `allowance` is nil,
+    /// else `PUT` with `{allowance_seconds}` (`.some(nil)`: back to the 2 h default). It goes as the person's own Stack
+    /// session, never this Mac's install token: the API takes only the owner's session for the PUT. Returns the reply's `value`.
+    @MainActor
+    public static func slackAwake(configuration: CloudConfiguration, auth: CloudAuth, chief: String,
+                                  allowance: Int?? = nil) async throws -> Data {
+        guard auth.isSignedIn else { throw CloudAPIError.notSignedIn }
+        let team = try auth.accessTokenTeam(requested: nil)
+        let client = workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access },
+                                    teamID: { team }, session: CloudOwnerAPIClient.transport, buildSpace: configuration.buildSpace)
+        return try await client.slackAwake(chief: chief, allowance: allowance)
+    }
+
+    /// One `slack-awake` read or write for `chief` (an `agent_` id; anything else never leaves the app).
+    public func slackAwake(chief: String, allowance: Int?? = nil) async throws -> Data {
+        guard chief.range(of: #"^agent_[0-9A-HJKMNP-TV-Z]{26}$"#, options: .regularExpression) != nil else {
+            throw CloudAPIError.transport("not a Chief id")
+        }
+        let path = "/v1/chiefs/\(chief)/slack-awake"
+        let reply: Data
+        switch allowance {
+        case .none: reply = try await sendData("GET", path + "?days=7")
+        case .some(let seconds):
+            let value: any Sendable = seconds.map { $0 as any Sendable } ?? NSNull()
+            reply = try await sendData("PUT", path, body: ["allowance_seconds": value])
+        }
+        // The API answers `{ok: true, value}`; the page reads only the value.
+        guard let object = try JSONSerialization.jsonObject(with: reply) as? [String: Any], let value = object["value"] as? [String: Any] else {
+            throw CloudAPIError.transport("unexpected slack-awake reply")
+        }
+        return try JSONSerialization.data(withJSONObject: value)
+    }
 }
