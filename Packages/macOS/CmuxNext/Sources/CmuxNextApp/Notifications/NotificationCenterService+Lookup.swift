@@ -168,30 +168,21 @@ extension NotificationCenterService {
         let muted = notificationKeys(of: workspace).muted
         guard attention.style != .none, !muted else { return [:] }
         let key = highlightKey(for: workspace)
-        let dismissed = dismissedHighlights[key] ?? 0
+        var shown: [String: TabModel] = [:]
+        var panes: [NotificationRings.ShownPane] = []
+        for pane in workspace.screens.flatMap(\.panes) {
+            guard let id = shownTab(pane) ?? self.shownTab(of: pane), let tab = pane.tabs.first(where: { $0.id == id }) else { continue }
+            shown[pane.id] = tab
+            panes.append(.init(pane: pane.id, tab: ringTab(tab, chatMachine: key.machine, finishes: tab.agentSession != nil, sight: true)))
+        }
         var marks: [LayoutPaneID: AttentionMark] = [:]
-        for screen in workspace.screens {
-            for pane in screen.panes {
-                guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                if readsOnSight(shown) { continue }
-                // A chat that is thinking, on any machine, rings nothing (Leo, 2026-11-06). One whose turn ended rings
-                // until the person goes into it, only with the opt-in agent chat ring (`notifications.attention.agentChats`).
-                if let chat = shown.agentSession, AgentTurnStateStore.shared.isWorking(chat, isChatMachine: { self.services?.machines.machineID(peer: $0) == key.machine }) { continue }
-                let agentChatLook = shown.agentSession != nil && attention.rings(agentChat: true)
-                if agentChatLook, key.machine == MachineRegistry.localID, let finished = agentFinished[shown.id] {
-                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished,
-                                                                 agentChat: true, quiet: quietAgentFinishes.contains(shown.id))
-                    continue
-                }
-                // An unread tab rings whatever kind it is, as its dot shows (cmux#34447): the
-                // agent chat setting covers the turn-end ring above, never an owner-held unread
-                // mark. A chat draws its own look when that is on, else the terminal look.
-                guard attention.rings(agentChat: agentChatLook),
-                      let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
-                // A marked tab with no notification has no source: the ring's own color.
-                let color = shown.hasUnread ? preferences.sources[source(of: shown)]?.color : nil
-                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChatLook)
-            }
+        for mark in NotificationRings.marks(local: key.machine == MachineRegistry.localID, dismissed: dismissedHighlights[key] ?? 0,
+                                            policy: ringPolicy(.focus), ringsTerminal: attention.rings(agentChat: false), panes: panes) {
+            guard let generation = UInt64(mark.generation) else { continue }
+            // A marked tab with no notification has no source: the ring's own color.
+            let color = mark.color == "agent" ? preferences.sources[.agent]?.color
+                : mark.color == "source" ? shown[mark.pane].flatMap { preferences.sources[source(of: $0)]?.color } : nil
+            marks[LayoutPaneID(mark.pane)] = AttentionMark(color: color, generation: generation, agentChat: mark.agentChat, quiet: mark.quiet)
         }
         return marks
     }
@@ -203,28 +194,13 @@ extension NotificationCenterService {
     /// dismissed. A mark's generation sits above every notification id, so its ring restarts.
     func unreadRing(of tab: TabModel, dismissed: UInt64) -> UInt64? {
         guard tab.showsUnread else { return nil }
-        if tab.hasUnread {
-            let generation = tab.notification?.notification.rawValue ?? 1
-            if generation > dismissed { return generation }
-        }
-        if tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[highlightKey(for: tab)] ?? 0) {
-            return Self.markRingBase | tab.markedUnreadGeneration
-        }
-        // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
-        // that request; a different owner-issued request rings again.
-        guard tab.attention != nil, !ringHides.isHidden(tab, owner: highlightKey(for: tab)) else { return nil }
-        return Self.markRingBase | Self.attentionRingBase | (tab.attentionGeneration & ~(Self.markRingBase | Self.attentionRingBase))
+        return NotificationRings.ring(ringTab(tab, finishes: false), dismissed: dismissed)
     }
 
-    /// The bit a marked tab's ring generation carries, apart from notification ids.
-    static let markRingBase: UInt64 = 1 << 63
-    /// The bit an agent's attention ring carries, apart from manual marks.
-    static let attentionRingBase: UInt64 = 1 << 62
-
     /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays). A tab a strip press holds is no look yet: it rings until the click's mouse-up blinks it out (cmux#46908).
-    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) && !viewHolds.contains(t.id) }
+    func readsOnSight(_ t: TabModel) -> Bool { NotificationRings.reads(.focus, ringTab(t, finishes: false, sight: true), turn: false, onSight: true, policy: ringPolicy(.focus)) }
     /// Going into `t`'s pane by `trigger` reads its ring: it clears every reason the ring draws for, an unread notification, a needs-you request, a mark (a click) and a finished turn (`turn`), by the policy.
-    func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences), finished = turn && agentFinished[t.id] != nil && t.agentSession != nil && DesignSettings.shared.attention.rings(agentChat: true); return (t.hasUnread || t.attention != nil || t.markedUnread || finished) && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (!t.markedUnread || trigger == .click) && (t.attention == nil || p.clears(trigger, for: .agent)) && (!finished || p.clears(trigger, for: .agent)) }
+    func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { NotificationRings.reads(trigger, ringTab(t, trigger, finishes: turn), turn: turn, onSight: false, policy: ringPolicy(trigger)) }
     /// The person went into ringing `pane` (a focus, a click) in the window they look at, its keys or a loading chat's page not attached yet: read it now (cmux#46908). A press on this pane reads it by its click, after a strip press holds it; one elsewhere (a sidebar row) is no look at it.
     func readOnEntry(_ pane: LayoutPaneID, click: Bool, in content: WorkspaceContentController) -> Bool {
         guard let services, services.appActiveSource(), click || NSApp?.currentEvent.map({ [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) && clickedTab(in: $0.window, at: $0.locationInWindow)?.pane == pane }) != true,
@@ -235,12 +211,13 @@ extension NotificationCenterService {
     /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
     /// ring is read on sight, maybe before `interacted(.focus)`): their ring blinks out. Forgets `workspace`'s entry reads.
     func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
-        guard case let onSight = !removed.isEmpty && DesignSettings.shared.attention.flashesOnEntry(.focus), !entryReads.isEmpty || onSight else { return [] }
-        var entered: Set<LayoutPaneID> = []
-        for pane in workspace.screens.flatMap(\.panes) {
-            if removed.contains(LayoutPaneID(pane.id)), pane.tabs.contains(where: { entryReads.contains($0.id) || onSight && readsOnSight($0) }) { entered.insert(LayoutPaneID(pane.id)) }
-            for tab in pane.tabs { entryReads.remove(tab.id) }
-        }
+        let flashes = DesignSettings.shared.attention.flashesOnEntry(.focus)
+        guard !entryReads.isEmpty || !removed.isEmpty && flashes else { return [] }
+        let all = workspace.screens.flatMap(\.panes)
+        let panes = all.filter { removed.contains(LayoutPaneID($0.id)) }.map { NotificationRings.EntryPane(pane: $0.id, tabs: $0.tabs.map { ringTab($0, finishes: false, sight: true) }) }
+        let entered = Set(NotificationRings.entered(removed: removed.map(\.rawValue), flashesOnFocus: flashes, anyEntryReads: !entryReads.isEmpty,
+                                                    policy: ringPolicy(.focus), panes: panes).map { LayoutPaneID($0) })
+        for tab in all.flatMap(\.tabs) { entryReads.remove(tab.id) }
         return entered
     }
 
@@ -256,15 +233,30 @@ extension NotificationCenterService {
         !attentionMarks(for: workspace).isEmpty
     }
 
-    private func highlightKey(for workspace: WorkspaceModel) -> HighlightKey {
+    func highlightKey(for workspace: WorkspaceModel) -> HighlightKey {
         let daemon = services?.machines.daemons.first { $0.store.workspace(id: workspace.id) === workspace }
         return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
                             session: daemon?.identity?.session, id: workspace.id)
     }
 
+    /// `t`'s facts under `trigger`, each read only where a rule can use it, so a tab no ring is drawn for observes no view
+    /// state. `chatMachine`: the machine whose agent turns count as `t`'s (the marks read a thinking chat); `finishes`: a
+    /// rule here reads its finished turn; `sight`: whether it is read on sight (the window walk of ``isViewed(_:)``).
+    func ringTab(_ t: TabModel, _ trigger: NotificationTrigger = .focus, chatMachine: String? = nil, finishes: Bool = true, sight: Bool = false) -> NotificationRings.Tab {
+        let key = t.markedUnread || t.attention != nil ? highlightKey(for: t) : nil
+        let working = chatMachine.flatMap { machine in t.agentSession.map { AgentTurnStateStore.shared.isWorking($0, isChatMachine: { self.services?.machines.machineID(peer: $0) == machine }) } } ?? false
+        return .init(t, trigger, dismissedMark: key.flatMap { t.markedUnread ? dismissedMarks[$0] : nil } ?? 0,
+                     attentionHidden: key.map { t.attention != nil && ringHides.isHidden(t, owner: $0) } ?? false, working: working,
+                     finished: finishes ? agentFinished[t.id] : nil, quiet: quietAgentFinishes.contains(t.id), viewed: sight && t.showsUnread && isViewed(t.id),
+                     held: viewHolds.contains(t.id), entryRead: entryReads.contains(t.id),
+                     clearsSource: t.hasUnread && NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: t)))
+    }
+
+    func ringPolicy(_ trigger: NotificationTrigger) -> NotificationRings.Policy { .init(trigger, prefs: preferences) }
+
     func hideAttentionRing(of tab: TabModel) { ringHides.hide(tab, owner: highlightKey(for: tab)) }
 
-    private func highlightKey(for tab: TabModel) -> HighlightKey {
+    func highlightKey(for tab: TabModel) -> HighlightKey {
         let daemon = services?.machines.daemon(forTab: tab)
         return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
                             session: daemon?.identity?.session, id: tab.id)
@@ -276,21 +268,23 @@ extension NotificationCenterService {
     /// where a daemon cannot take the read, until a newer notification or mark comes.
     func dismissHighlight(_ workspace: WorkspaceModel) {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let newest = tabs.filter(\.hasUnread).map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
         let key = highlightKey(for: workspace)
         // A restarted daemon has new notification IDs; discard only that machine's old session.
         dismissedHighlights = dismissedHighlights.filter { $0.key.machine != key.machine || $0.key.session == key.session }
         dismissedMarks = dismissedMarks.filter { $0.key.machine != key.machine || $0.key.session == key.session }
+        let plan = NotificationRings.dismissHighlight(local: key.machine == MachineRegistry.localID, flashesOnRead: DesignSettings.shared.attention.flashesOnRead,
+                                                      dismissed: dismissedHighlights[key] ?? 0, tabs: tabs.map { ringTab($0) })
         // Hide first (a refused read must not bring the ring back), then read and blink.
-        for tab in tabs where tab.showsUnread || agentFinished[tab.id] != nil {
-            if key.machine == MachineRegistry.localID, agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
-            if tab.markedUnread { dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration }
-            if tab.attention != nil { hideAttentionRing(of: tab) }
-            if DesignSettings.shared.attention.flashesOnRead { entryReads.insert(tab.id) }
+        for step in plan.steps where tabs.indices.contains(step.index) {
+            let tab = tabs[step.index]
+            if step.clearsTurn { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
+            if let mark = step.hidesMark { dismissedMarks[highlightKey(for: tab)] = mark }
+            if step.hidesAttention { hideAttentionRing(of: tab) }
+            if step.entryRead { entryReads.insert(tab.id) }
             readDismissed(tab)
         }
         if workspace.markedUnread, let services { WorkspaceUnreadMark.set(false, on: [workspace], machines: services.machines) }
-        if newest > (dismissedHighlights[key] ?? 0) { dismissedHighlights[key] = newest; note("highlight dismissed workspace=\(workspace.id) through=\(newest)") }
+        if let newest = plan.through { dismissedHighlights[key] = newest; note("highlight dismissed workspace=\(workspace.id) through=\(newest)") }
     }
 
     /// Reads `tab` on its own daemon: its notification (a remote one only with notification-ack-v1), manual mark and agent request.

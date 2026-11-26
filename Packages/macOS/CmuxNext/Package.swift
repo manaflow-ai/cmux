@@ -511,6 +511,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),

@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextNotifications
 
 /// Mark Workspace as Unread (`notification-mark-unread-v1`): a durable flag
 /// on the workspace in the daemon, apart from notification markers. The
@@ -12,10 +13,6 @@ enum WorkspaceUnreadMark {
 
     /// The value last sent per workspace id.
     private static var sent: [String: Sent] = [:]
-
-    /// How long a throttled send counts as in flight. Typing asks for a clear
-    /// on every keystroke until the echo lands; this sends one.
-    static let echoWindow: Duration = .seconds(2)
 
     /// Sets or clears the mark on each workspace, through the daemon whose
     /// tree holds it (a group can span this Mac and remote machines).
@@ -34,8 +31,9 @@ enum WorkspaceUnreadMark {
     }
 
     /// Sets or clears the mark on each workspace of `daemon` that needs it.
-    /// `throttled` (typing) holds back a repeat of a value sent within
-    /// `echoWindow`; a verb the user picks always goes out when it differs.
+    /// `throttled` (typing) holds back a repeat of a value sent within the
+    /// echo window (2 s, `notification_rings::ECHO_WINDOW_MS`: typing asks for a
+    /// clear on every keystroke until the echo lands; this sends one); a verb the user picks always goes out when it differs.
     static func set(_ marked: Bool, on workspaces: [WorkspaceModel], daemon: DaemonService, throttled: Bool = false,
                     now: ContinuousClock.Instant = .now) {
         guard daemon.supports(DaemonCapability.notificationMarkUnread.rawValue) else { return }
@@ -49,11 +47,10 @@ enum WorkspaceUnreadMark {
     /// Whether `marked` must go out for a workspace whose tree says `current`
     /// and whose last send was `last`. It goes out when the tree or the last
     /// send differs, so a clear asked for before a mark's echo arrives is not
-    /// dropped. Throttled, the same value sent within `echoWindow` counts as
-    /// still in flight.
+    /// dropped. Throttled, the same value sent within the echo window counts as
+    /// still in flight (cmux-window-rules `notification_rings::mark_needs_send`).
     static func needsSend(_ marked: Bool, _ current: Bool, last: Sent?, throttled: Bool, now: ContinuousClock.Instant) -> Bool {
-        if throttled, let last, last.marked == marked, now - last.at < echoWindow { return false }
-        return current != marked || (last.map { $0.marked != marked } ?? false)
+        NotificationRings.markSend(marked, current: current, last: last.map { ($0.marked, now - $0.at) }, throttled: throttled)
     }
 
     /// The workspace showing tab `tabID`.
