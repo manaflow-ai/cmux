@@ -40,6 +40,11 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
         return true
     }
 
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// air-blue 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
+
     override func accessibilityPerformPress() -> Bool {
         guard let onPress, Self.onMain("press") else { return false }
         MainActor.assumeIsolated { onPress() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
