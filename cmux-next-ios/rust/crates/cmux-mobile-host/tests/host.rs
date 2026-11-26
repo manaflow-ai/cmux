@@ -1433,7 +1433,7 @@ async fn resumable_upload_dedup_index_alias_preserves_outside_entry() {
     std::fs::create_dir(&outside).unwrap();
     let sentinel = outside.join(&hash);
     std::fs::write(&sentinel, b"outside").unwrap();
-    std::fs::remove_dir(&index).unwrap();
+    std::fs::remove_dir_all(&index).unwrap();
     symlink(&outside, &index).unwrap();
 
     let second =
