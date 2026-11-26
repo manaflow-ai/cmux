@@ -672,5 +672,57 @@ class CiWebLandTierTests(unittest.TestCase):
         self.assertIn("labeled", _trigger_types(ci, "pull_request"))
         self.assertIn('"ready-to-land"', _job_ifs(ci)["web"] or "")
 
+
+class LandHandoffOnlyTests(unittest.TestCase):
+    """land_handoff_only (the machine channel PR head build): only a land's own heads start it, never every
+    full-tier push of a PR that keeps ready-to-land or full-ci on (2026-11-26: 168 builds an hour, 17 merges)."""
+
+    CALLEES = {"mc.yml": {"types": ["opened", "synchronize", "reopened", "ready_for_review"],
+                          "land_handoff_only": True}}
+
+    def route(self, ev: dict, land_update: bool = False) -> list[str]:
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        return pr_router.route(ev, self.CALLEES, ["cmux-tui/src/a.rs"], decided=decided, land_update=land_update)[0]
+
+    def test_the_land_handoff_starts_it(self) -> None:
+        for label in ("ready-to-land", "full-ci"):
+            with self.subTest(label=label):
+                self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), ["mc.yml"])
+
+    def test_a_push_to_a_labeled_pr_does_not(self) -> None:
+        for labels in (("ready-to-land",), ("full-ci",), ()):
+            for action in ("synchronize", "opened", "reopened", "ready_for_review"):
+                with self.subTest(labels=labels, action=action):
+                    self.assertEqual(self.route(land_event(labels=labels, action=action)), [])
+
+    def test_another_label_does_not(self) -> None:
+        self.assertEqual(self.route(land_event(labels=("ready-to-land", "risk:low"), action="labeled",
+                                               added="risk:low")), [])
+
+    def test_lands_update_branch_head_starts_it(self) -> None:
+        self.assertEqual(self.route(land_event(labels=("ready-to-land",)), land_update=True), ["mc.yml"])
+
+    def test_land_update_head_needs_the_label_a_synchronize_and_githubs_merge(self) -> None:
+        old = head_tier.head_facts
+        try:
+            head_tier.head_facts = lambda ev: {"base_merge_only": True, "by_github": True}
+            self.assertTrue(pr_router.land_update_head(land_event(labels=("ready-to-land",)), self.CALLEES))
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("full-ci",)), self.CALLEES))
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",), action="opened"),
+                                                        self.CALLEES))
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",)), RouterTests.CALLEES))
+            head_tier.head_facts = lambda ev: {"base_merge_only": True, "by_github": False}
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",)), self.CALLEES))
+            head_tier.head_facts = lambda ev: {"base_merge_only": False, "by_github": True}
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",)), self.CALLEES))
+            head_tier.head_facts = lambda ev: None
+            self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",)), self.CALLEES))
+        finally:
+            head_tier.head_facts = old
+
+    def test_the_machine_channel_callee_is_land_handoff_only(self) -> None:
+        self.assertTrue(pr_router.load_manifest()["cmux-machine-channel.yml"].get("land_handoff_only"))
+
+
 if __name__ == "__main__":
     unittest.main()

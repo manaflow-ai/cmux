@@ -9,6 +9,8 @@
     "ready_for_review"
    ],
    "affects_why": "PR_HEAD_FAST_LANE (cmux-machine-channel.yml): a full-tier head (the land tier, once land-judge adds ready-to-land or full-ci; never a cheap or draft head) gets the Cloud machine channel's thin Linux pair built before merge, so the merge points the channel without its own cargo build. Its plan job builds only when the head's merge with the base changes the v2 tree key (scripts/cmux-next/cmux-tui-tree-inputs.txt, over a dozen roots and growing, so the key decides, not a path list), and only for this repository's heads.",
+   "land_handoff_only": true,
+   "land_handoff_only_why": "Built only on the land's own heads: the labeled event that adds ready-to-land or full-ci, or land's update-branch head of a ready-to-land PR. Both labels stay on a PR across later pushes (759 of 3,722 open PRs carried ready-to-land on 11-25), so gating on the full tier built about 168 PR heads an hour against about 17 merges (2026-11-26 04:47-06:05Z: 228 x86_64 + 221 aarch64 builds, 217 branches, 22 merges, about 2.5k machine-h/day).",
    "skip_docs_only": true
   },
   "cmux-next-size-budget.yml": {

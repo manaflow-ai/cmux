@@ -150,7 +150,8 @@ jobs:
           exit 1
 
   machine-channel-pr-head:
-    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build.
+    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build. Started only on a
+    # land's own heads (pr_router.json land_handoff_only), not on every full-tier push.
     name: machine channel PR head build
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') }}
