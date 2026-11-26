@@ -33,6 +33,8 @@
 //!   chat's subagent panes, opened one at a time, and the focus a click owes.
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
+//! - [`auto_namer`]: workspace auto-naming's bookkeeping (one live rename
+//!   per workspace, attempt numbers, retry marks) and the sidebar's held names.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
 //!   [`appearance`]: the smaller handlers' tables and refusals (which unread
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
@@ -49,8 +51,11 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding`]: the onboarding tool window's footer (the primary
+//!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
+pub mod auto_namer;
 pub mod browser;
 pub mod chat;
 pub mod close;
@@ -65,6 +70,7 @@ pub mod history;
 pub mod launch;
 pub mod notification_rings;
 pub mod notifications;
+pub mod onboarding;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
