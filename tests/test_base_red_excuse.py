@@ -3710,6 +3710,123 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
 
+PIPELINE_LINUX = "pr pipeline / linux"
+BASE_LINUX = "base linux"
+LINUX_STEP = "Run the routed linux steps (ci/steps.toml)"
+SINGLE_SIZE = ("FAIL: test_no_workflow_routes_to_a_single_size_blacksmith_label "
+               "(__main__.NoSingleSizePins.test_no_workflow_routes_to_a_single_size_blacksmith_label)")
+PERSISTED = "FAIL: test_repo_registry_is_clean (__main__.PersistedFormatsTest.test_repo_registry_is_clean)"
+
+
+def linux_log(job, *fails):
+    runs = [line for fail in fails for line in (fail, "Ran 10 tests in 0.100s", "FAILED (failures=1)")]
+    return log(job, LINUX_STEP, *runs, *(f"##[error]step {step} exited 1; see its log group"
+                                         for step in ("security-holes", "persisted-formats")[:len(fails)]),
+               "##[error]Process completed with exit code 1.")
+
+
+class PipelineLinuxBaseGitHub(FakeGitHub):
+    """PR run 45794762063 (2026-11-26): the head's pr-router.yml run 10 (workflow 7) failed 'pr pipeline / linux' on
+    tests/test_ci_no_single_size_pins.py, a base red. pr-router.yml runs on pull requests only, so it has no
+    feat-cmux-next run; the same ci/steps.toml linux steps run on base pushes as cmux-next-base-linux.yml's
+    'base linux' (BASE_CHECK_FOR): its run 40 at PUSHED_BASE_SHA, after the merge-base, failed the same test."""
+
+    def __init__(self, head=(SINGLE_SIZE,), base=(SINGLE_SIZE,)):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, PIPELINE_LINUX, LINUX_STEP),
+                     4: failed_job(4, 40, PUSHED_BASE_SHA, BASE_LINUX, LINUX_STEP)}
+        self.logs = {1: linux_log(PIPELINE_LINUX, *head), 4: linux_log(BASE_LINUX, *base)}
+        if not base:
+            self.jobs[4].update(conclusion="success", steps=[
+                {"name": LINUX_STEP, "status": "completed", "conclusion": "success"}])
+        self.base_runs = []
+        self.pushed_runs = [{"id": 40, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "failure" if base else "success", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-26T09:55:00Z"}]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if "/actions/workflows/cmux-next-base-linux.yml/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.pushed_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "pr router", "path": ".github/workflows/pr-router.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class PipelineLinuxBaseVerdict(unittest.TestCase):
+    """'pr pipeline / linux' is judged against cmux-next-base-linux.yml's 'base linux' (BASE_CHECK_FOR), test by
+    test, with the checked-in post-merge manifest (no batch suite takes it first)."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_the_mapping_is_the_base_push_run_of_the_same_step_table_job(self):
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                            PIPELINE_LINUX), ("cmux-next-base-linux.yml", BASE_LINUX))
+        self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/pr-router.yml"},
+                                             PIPELINE_LINUX))
+        self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                             "pr pipeline / web-browser"))
+
+    def test_a_linux_step_red_the_base_linux_run_shares_is_a_base_red(self):
+        gh = PipelineLinuxBaseGitHub()
+        text = self.judge(gh)
+        self.assertIn(f"excused '{PIPELINE_LINUX}'", text)
+        self.assertIn("run 40", text)
+        self.assertTrue([route for route in gh.routes if "cmux-next-base-linux.yml" in route], gh.routes)
+
+    def test_a_failing_test_the_base_does_not_share_blocks(self):
+        # The comparison is by failing test, not by the whole job: base linux red on another test excuses nothing.
+        gh = PipelineLinuxBaseGitHub(head=(SINGLE_SIZE, PERSISTED), base=(SINGLE_SIZE,))
+        with self.assertRaisesRegex(excuse.Refused, "1 failing test\\(s\\) pass or do not run on feat-cmux-next run 40: "
+                                    "test_repo_registry_is_clean"):
+            self.judge(gh)
+
+    def test_a_green_base_linux_run_blocks(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 40 \\(success\\), workflow "
+                                    "cmux-next-base-linux.yml"):
+            self.judge(PipelineLinuxBaseGitHub(base=()))
+
+    def test_each_base_check_for_entry_names_the_same_step_table_job_on_base_pushes(self):
+        yaml = excuse.yaml_module()
+        self.assertTrue(excuse.BASE_CHECK_FOR)
+        for (branch, pr_file, check), (base_file, base_check) in excuse.BASE_CHECK_FOR.items():
+            pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            # The PR check is '<caller name> / <callee job name>' of a pull-request-only caller.
+            callers = [(job, f"{job.get('name', job_id)} / ") for job_id, job in pr["jobs"].items()
+                       if isinstance(job, dict) and check.startswith(f"{job.get('name', job_id)} / ")
+                       and str(job.get("uses", "")).startswith("./.github/workflows/")]
+            self.assertEqual(len(callers), 1, check)
+            caller, prefix = callers[0]
+            callee = yaml.safe_load((excuse.WORKFLOWS.parent.parent / caller["uses"].removeprefix("./")).read_text())
+            callee_jobs = [job for job_id, job in callee["jobs"].items()
+                           if job.get("name", job_id) == check.removeprefix(prefix)]
+            pushed_jobs = [job for job_id, job in pushed["jobs"].items() if job.get("name", job_id) == base_check]
+            self.assertEqual((len(callee_jobs), len(pushed_jobs)), (1, 1), (check, base_check))
+
+            def step_table_jobs(job):
+                return {m for step in job.get("steps") or []
+                        for m in re.findall(r"ci/run run --job (\w[\w-]*)", str(step.get("run") or ""))}
+
+            # The same ci/steps.toml job, run by ci/run, on both sides.
+            self.assertTrue(step_table_jobs(callee_jobs[0]))
+            self.assertEqual(step_table_jobs(callee_jobs[0]), step_table_jobs(pushed_jobs[0]))
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
+            pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+            # No post-merge suite takes it first (batch_check), so the entry is the one read.
+            suites = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+            self.assertIsNone(excuse.batch_check(REPO, branch, pr_file, check, None) if suites else None)
+
+
 REPLAY = "web / react-apps-base-check (4)"
 HEAD_SHARD = "web / react-apps-check (4)"
 CAPSULES = "test/agent-pane-no-capsules.test.ts"
