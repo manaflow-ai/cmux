@@ -125,7 +125,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
+  // The Worker names its provider resources with the same environment its policy runs in.
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -447,7 +448,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

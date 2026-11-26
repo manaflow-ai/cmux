@@ -66,6 +66,9 @@ on:
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
       - "scripts/ci/ios_link_ffi_key.py"
+      # The pool phone's runner for the kit's simulator tests (the sim-linux steps run it at this commit).
+      - "scripts/ci/ios-sim-linux-test.sh"
+      - "scripts/ci/ios_sim_logic_xctestrun.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
@@ -132,6 +135,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
             scripts/ci/same_tree_reuse.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token

@@ -133,7 +133,7 @@ struct PinDragMotionTests {
         let rowHeight = top(below) - top(try #require(f.row("c1")))
         #expect(f.controller.beginPinDrag(at: start))
         let ghost = try #require(f.controller.pinDragState.ghost)
-        let grid = CGPoint(x: f.controller.tileRect(1).midX, y: f.controller.tileRect(1).midY)
+        let grid = CGPoint(x: f.controller.metrics.tileRect(1, count: 2).midX, y: f.controller.metrics.tileRect(1, count: 2).midY)
         let down = CGPoint(x: start.x, y: f.controller.rowRect(5).midY)
         var worst = 0.0
         var offsets: Set<String> = []
@@ -165,7 +165,7 @@ struct PinDragMotionTests {
         defer { CmuxSidebarView.reduceMotionOverride = nil }
         let f = Fixture()
         #expect(f.controller.beginPinDrag(at: try f.onTitle(of: "c1")))
-        let tile = f.controller.tileRect(1)
+        let tile = f.controller.metrics.tileRect(1, count: 2)
         f.controller.movePinDrag(to: CGPoint(x: tile.midX, y: tile.midY))
         // The rows settle where the preview put them (no spring still running), then the drop.
         for l in f.rows { l.removeAllAnimations() }
@@ -201,7 +201,7 @@ struct PinDragMotionTests {
             for l in f.rows + f.controller.tileLayers { animated += (l.animationKeys() ?? []).map { "\(l.conversationID ?? "-"):\($0)" } }
         }
         collect()
-        let tile = f.controller.tileRect(1)
+        let tile = f.controller.metrics.tileRect(1, count: 2)
         for i in 0...20 {
             let t = CGFloat(i) / 20
             f.controller.movePinDrag(to: CGPoint(x: 170 + (tile.midX - 170) * t, y: 300 + (tile.midY - 300) * t))

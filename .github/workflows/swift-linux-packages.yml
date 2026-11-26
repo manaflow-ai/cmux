@@ -120,9 +120,10 @@ jobs:
           persist-credentials: false
 
       # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
-      # zlib, and the image ships only their runtimes.
-      - name: Install python3, SQLite and zlib headers
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev
+      # zlib, and the image ships only their runtimes. CmuxNext's ChromiumRuntime tests pack and unpack
+      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils.
+      - name: Install python3, SQLite and zlib headers, xz
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key
@@ -150,8 +151,86 @@ jobs:
           restore-keys: |
             swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
 
+      # Why the fleet: on our own runs each listed suite is one fleet request for the kinds linux,mac
+      # (build-fleet ci_step_kinds.go). The controller runs it on a Linux step worker and spills it to a Mac
+      # only when no Linux worker takes it within --spill-after or its Linux run fails for a Linux reason,
+      # judged by the classifier the Mac fallbacks use; every spill is logged in /v1/sched/plan and
+      # /v1/sched/series. A fork's run, or a run that cannot reach the controller, runs the suites here
+      # and hands its failures to the mac-fallback job below.
+      - name: Fetch the fleet client from the controller
+        id: fleet
+        if: matrix.group == 'listed' && env.MAC_FALLBACK == '1'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CONTROLLER" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; exit 1; }
+          client="$RUNNER_TEMP/fleet-client"
+          mkdir -p "$client"
+          curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
+          python3 - "$client" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+          grep -q -- "'--kinds'" "$client/ci-client.py" || { echo "the controller's client has no --kinds yet"; exit 1; }
+          echo "client=$client" >> "$GITHUB_OUTPUT"
+
+      - name: Every listed suite as one fleet request (linux, then a Mac)
+        id: fleet-suites
+        if: matrix.group == 'listed' && steps.fleet.outputs.client != ''
+        env:
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CLIENT: ${{ steps.fleet.outputs.client }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/fleet-suites"
+          suite() {
+            local n="$1" dir="$2" targets="$3" status=0
+            python3 "$CLIENT/ci-client.py" run --class light --kinds linux,mac --spill-after 1800 \
+              --script scripts/ci/package-test-lane.sh --arg=suite --arg="$dir" --arg="$targets" \
+              --ref "$HEAD_SHA" --repo manaflow-ai/cmux --no-supersede \
+              --timeout 2400 --queue-timeout 2400 > "$RUNNER_TEMP/fleet-suites/$n.log" 2>&1 || status=$?
+            printf '%s\t%s\t%s\n' "$status" "$dir" "$targets" > "$RUNNER_TEMP/fleet-suites/$n.exit"
+          }
+          n=0
+          while read -r dir targets _; do
+            case "$dir" in ''|'#'*) continue ;; esac
+            n=$((n + 1))
+            while [ "$(jobs -rp | wc -l)" -ge 8 ]; do wait -n || true; done
+            suite "$n" "$dir" "$targets" &
+          done < scripts/ci/swift-linux-packages.txt
+          wait
+          status=0
+          echo "| Package | Targets | Fleet result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 "$n"); do
+            IFS=$'\t' read -r rc dir targets < "$RUNNER_TEMP/fleet-suites/$i.exit"
+            echo "::group::$dir ($targets): exit $rc"
+            cat "$RUNNER_TEMP/fleet-suites/$i.log"
+            echo "::endgroup::"
+            if [ "$rc" = 0 ]; then
+              echo "| \`$dir\` | $targets | pass |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=$dir::failed on the fleet (on Linux, and on a Mac when it spilled there); the log above names the worker"
+              echo "| \`$dir\` | $targets | failed |" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: package-test-lane.sh suite, every listed package
-        if: matrix.group == 'listed'
+        if: matrix.group == 'listed' && steps.fleet.outputs.client == ''
         run: |
           set -euo pipefail
           status=0
@@ -229,7 +308,7 @@ jobs:
           retention-days: 7
 
       - name: Save .build
-        if: success() && steps.handoff.outputs.handed != '1' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
+        if: success() && steps.handoff.outputs.handed != '1' && steps.fleet-suites.outcome != 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
