@@ -1,0 +1,20 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/ComposeAttachments.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/ComposeAttachments.swift
+@@ -127,7 +127,7 @@
+         l.cornerCurve = .continuous
+         l.masksToBounds = true
+         l.contentsGravity = .resizeAspectFill
+-        l.backgroundColor = UIColor(white: 1, alpha: 0.08).cgColor
++        l.backgroundColor = (Fixture.isLight ? Fixture.chipFill : UIColor(white: 1, alpha: 0.08)).cgColor  // cmux: themed on a light theme
+         let x = CALayer()
+         x.actions = none
+         x.opacity = 0
+@@ -171,7 +171,7 @@
+             for tile in files {
+                 guard let a = atts.first(where: { $0.id == tile.id }) else { continue }
+                 let r = tile.rect
+-                UIColor(white: 1, alpha: 0.06).setFill()
++                (Fixture.isLight ? Fixture.chipFill : UIColor(white: 1, alpha: 0.06)).setFill()  // cmux: themed on a light theme
+                 UIBezierPath(roundedRect: r, cornerRadius: Self.corner).fill()
+                 // Page icon: 30 x 40 pt, folded corner, the extension under the lines.
+                 let ic = CGRect(x: r.minX + 12, y: r.midY - 20, width: 30, height: 40)

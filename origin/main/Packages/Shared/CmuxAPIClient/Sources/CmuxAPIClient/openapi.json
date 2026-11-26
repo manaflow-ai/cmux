@@ -1,0 +1,85 @@
+{
+  "info": {
+    "title": "cmux API",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "openapi": "3.1.1",
+  "paths": {
+    "/account/me": {
+      "get": {
+        "operationId": "account.me",
+        "summary": "Get the authenticated account and plan",
+        "description": "Returns the signed-in user's id, primary email, resolved plan family (free or pro), and exact personal subscription plan (free, go, pro, or max).",
+        "tags": [
+          "Account"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "planId": {
+                      "enum": [
+                        "free",
+                        "pro"
+                      ],
+                      "type": "string"
+                    },
+                    "subscriptionPlanId": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "free",
+                            "go",
+                            "pro",
+                            "max"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isPro": {
+                      "type": "boolean"
+                    },
+                    "billingManagement": {
+                      "enum": [
+                        "stripe",
+                        "external",
+                        "none"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "email",
+                    "planId",
+                    "isPro",
+                    "billingManagement"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

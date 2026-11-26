@@ -1,0 +1,46 @@
+{
+  "id": "perm_toolu_multi",
+  "source": {
+    "harness": "claude",
+    "session": "sess_claude_1",
+    "permission": "perm_toolu_multi",
+    "agentName": "Claude Code",
+    "answerOption": "allow_once",
+    "rejectOption": "reject_once",
+    "toolCall": "toolu_multi"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "header": "Platforms",
+      "prompt": "Which platforms should the first release support?",
+      "options": [
+        {
+          "id": "macOS",
+          "label": "macOS",
+          "detail": "Native AppKit app."
+        },
+        {
+          "id": "iOS",
+          "label": "iOS",
+          "detail": "iPhone and iPad."
+        },
+        {
+          "id": "Linux",
+          "label": "Linux",
+          "detail": "Terminal client only."
+        },
+        {
+          "id": "Web",
+          "label": "Web",
+          "detail": "Read-only viewer in the browser."
+        }
+      ],
+      "multiSelect": true,
+      "allowsOther": true
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

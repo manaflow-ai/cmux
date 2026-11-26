@@ -1,0 +1,1926 @@
+{
+ "transcript.send": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -122.0,
+  "components": [
+   {
+    "delay": 0.0004,
+    "duration": 0.2999,
+    "bounce": 0.0,
+    "delta": -122.0
+   }
+  ],
+  "residual": {
+   "rms": 0.069,
+   "max": 0.235
+  },
+  "frames": 44,
+  "droppedTorn": []
+ },
+ "bubble.right": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": -0.0064,
+    "duration": 0.5265,
+    "bounce": 0.3011,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": []
+ },
+ "bubble.right.oneLine": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": 0.0016,
+    "duration": 0.5395,
+    "bounce": 0.3178,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": [],
+  "refit4": {
+   "date": "2026-10-11",
+   "method": "see bubble.width.oneLine refit4"
+  }
+ },
+ "bubble.width": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.05,
+    "duration": 0.4922,
+    "bounce": 0.1996,
+    "delta": -374.375
+   },
+   {
+    "delay": 0.0912,
+    "duration": 0.1933,
+    "bounce": 0.3558,
+    "delta": -377.625
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": [],
+  "refit": {
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
+  },
+  "refit2": {
+   "date": "2026-10-08",
+   "os": "macOS 27 (ComposeMetrics.macOS26 == false); macOS 26 uses bubble.width.macOS26 / bubble.scale.macOS26",
+   "method": "joint refit of bubble.width and bubble.scale on the five lossless macOS 27 send takes (send-typed-take1, send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1), Messages' frames 0.04-0.7 s after its first send frame, curve time = that + 14.3 ms; left edge = right edge (bubble.right from the field's right edge) - width x scale, plus bubble height x scale of the three 1-line drafts (soft L1). Start rect: the field (a start inset of 11.5 pt gives the same residuals; Messages' first frames under the glass are not measurable).",
+   "leftEdgeRmsPt": {
+    "85684b4": {
+     "typed": 12.1,
+     "1line": 9.8,
+     "2line": 11.5,
+     "unfocused": 7.8,
+     "2bubble": 9.2
+    },
+    "40e7ac0": {
+     "typed": 8.6,
+     "1line": 14.4,
+     "2line": 7.7,
+     "unfocused": 6.3,
+     "2bubble": 6.3
+    },
+    "this": {
+     "typed": 4.2,
+     "1line": 3.5,
+     "2line": 5.1,
+     "unfocused": 5.7,
+     "2bubble": 3.9
+    }
+   },
+   "heightRmsPt1Line": {
+    "before": [
+     1.3,
+     1.8,
+     1.7
+    ],
+    "this": [
+     0.9,
+     1.2,
+     1.2
+    ]
+   }
+  }
+ },
+ "bubble.width.oneLine": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.0038,
+    "duration": 0.4317,
+    "bounce": 0.2347,
+    "delta": -373.921
+   },
+   {
+    "delay": 0.0797,
+    "duration": 0.2204,
+    "bounce": 0.397,
+    "delta": -378.079
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": [],
+  "refit": {
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
+  },
+  "refit2": {
+   "date": "2026-10-08",
+   "os": "macOS 27 (ComposeMetrics.macOS26 == false); macOS 26 uses bubble.width.macOS26 / bubble.scale.macOS26",
+   "method": "joint refit of bubble.width and bubble.scale on the five lossless macOS 27 send takes (send-typed-take1, send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1), Messages' frames 0.04-0.7 s after its first send frame, curve time = that + 14.3 ms; left edge = right edge (bubble.right from the field's right edge) - width x scale, plus bubble height x scale of the three 1-line drafts (soft L1). Start rect: the field (a start inset of 11.5 pt gives the same residuals; Messages' first frames under the glass are not measurable).",
+   "leftEdgeRmsPt": {
+    "85684b4": {
+     "typed": 12.1,
+     "1line": 9.8,
+     "2line": 11.5,
+     "unfocused": 7.8,
+     "2bubble": 9.2
+    },
+    "40e7ac0": {
+     "typed": 8.6,
+     "1line": 14.4,
+     "2line": 7.7,
+     "unfocused": 6.3,
+     "2bubble": 6.3
+    },
+    "this": {
+     "typed": 4.2,
+     "1line": 3.5,
+     "2line": 5.1,
+     "unfocused": 5.7,
+     "2bubble": 3.9
+    }
+   },
+   "heightRmsPt1Line": {
+    "before": [
+     1.3,
+     1.8,
+     1.7
+    ],
+    "this": [
+     0.9,
+     1.2,
+     1.2
+    ]
+   }
+  },
+  "refit4": {
+   "date": "2026-10-11",
+   "method": "2026-10-11 (cx-3cb send-width): macOS 27 sends after a 1-line draft (Springs.Bubble: the field does not shrink; the base bubble.width and bubble.right are unchanged: gpui and rawmath read them for every send). bubble.width (2 springs and their share) and bubble.right refit on the four 1-line-draft lossless takes (send-1line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, typing-unfocused-take1), left and right edges on Messages' changed frames 0-0.8 s after its first send frame (its app-filtered capture: 54-59 changed frames in 0.8 s), soft L1, each take equal (tools/evidence/anim/sendfit/fit1.py, HI=0.8); model = Morph.swift geometry (the motion-gate harness within 0.19 pt), curve time = Messages' first send frame + 14.3 ms, no send phase. bubble.centerY and bubble.scale unchanged (the 2026-10-10 A/B found the 1-line top edge worse with refit3's). After a 1-line draft the bubble starts at max(31 pt field, its height): for a 1-line bubble (30 pt) the width curve moves the bottom edge 0.1 pt at most. Left edge rms/max pt 0-0.4 s (ours - Messages, model) before -> after: 1line 15.7/42.0 -> 6.8/17.7, 1line-unfocused 9.6/26.3 -> 4.5/15.5, 1line-2bubble 5.5/14.7 -> 3.2/5.7, typing-unfocused 7.2/23.8 -> 2.5/8.4; leave-one-out 9.2, 4.9, 3.6, 2.6; cost: 1line 0.17-0.4 s left rms 1.0 -> 2.8. Land time +9..+34 ms for bubbles under 130 pt wide, unchanged from 130 pt. tools/evidence/ANIMATIONS.md section 1."
+  }
+ },
+ "bubble.centerY": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0473,
+    "duration": 0.5314,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "residual": {
+   "maxPx": {
+    "T": 3.108,
+    "B": 5.19,
+    "L": 8.511
+   },
+   "frames": 32,
+   "method": "fit_flight_luma.py: centerY and scale refit on luma-measured T/B/L edges with the app geometry"
+  },
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ]
+ },
+ "bubble.scale": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0142,
+    "duration": 0.4298,
+    "bounce": 0.4773,
+    "delta": -0.3315
+   },
+   {
+    "delay": 0.097,
+    "duration": 0.5175,
+    "bounce": 0.082,
+    "delta": 0.3315
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ]
+ },
+ "field.top": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1933.1,
+  "to": 1999.1,
+  "components": [
+   {
+    "delay": 0.0048,
+    "duration": 0.3853,
+    "bounce": 0.1389,
+    "delta": 66.0
+   }
+  ],
+  "residual": {
+   "rms": 0.296,
+   "max": 0.78
+  },
+  "frames": 17,
+  "droppedTorn": [
+   4.65
+  ]
+ },
+ "field.opacity": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0595,
+    "duration": 0.035,
+    "bounce": 0.0,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": -0.43
+   },
+   {
+    "delay": 0.1035,
+    "duration": 0.004,
+    "bounce": 0.0,
+    "curve": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ],
+    "delta": -0.57
+   },
+   {
+    "delay": 0.1073,
+    "duration": 0.2578,
+    "bounce": 0.0,
+    "curve": [
+     0.4731,
+     0.0885,
+     0.4263,
+     0.5763
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.023
+  },
+  "frames": 56,
+  "droppedTorn": [],
+  "fit": {
+   "method": "field fill (median of x 140-165, y 1003-1018 pt, grey frames only) as a fraction between the background and the rest fill, at Messages' own new frames 67-358 ms after its first send frame; send-typed-take1 and send-typed-media-take1 (lossless, 120 Hz); curve time = our first send frame + 11.1 ms (ours-container take ffcontainer-send-typed-take80); every delay then +4.5 ms, because the render-server fade (field container layer) shows the curve at our first send frame + 15.6 ms (takes 84, rms 0.008), so the drop to 0 lands at +88 ms, midway between Messages' frames at +83 and +92 ms. Messages fades to 0.57 by +75 ms, drops to 0 between +83 and +92 ms, and is back by +350 ms. Was a two-spring fit on the lossy 54 fps original (rms 0.10 on these frames)."
+  }
+ },
+ "transcript.delivered": {
+  "event": "delivered",
+  "eventTime": 5.6658,
+  "unit": "px@2x",
+  "from": 0.004,
+  "to": -31.997,
+  "components": [
+   {
+    "delay": -0.0165,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -32.001
+   }
+  ],
+  "frames": 29,
+  "droppedTorn": [],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 135.0 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "transcript.read": {
+  "event": "read",
+  "eventTime": 6.602,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": 34.996,
+  "components": [
+   {
+    "delay": -0.0002,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": 34.996
+   }
+  ],
+  "frames": 28,
+  "droppedTorn": [
+   6.6333,
+   6.65,
+   6.7167,
+   6.8167
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 151.3 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "transcript.typing": {
+  "event": "typing",
+  "eventTime": 8.9699,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -70.0,
+  "components": [
+   {
+    "delay": -0.0296,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -70.0
+   }
+  ],
+  "frames": 37,
+  "droppedTorn": [],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 121.9 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "transcript.receive": {
+  "event": "receive",
+  "eventTime": 10.5667,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -62.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -62.0
+   }
+  ],
+  "frames": 78,
+  "droppedTorn": [
+   10.5667,
+   10.5833
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay 0 (was -0.0773, the old element's half-distance time 74.2 ms): Messages' rows move 1.0-1.1 pt (3.6-4.1 %) on their first changed frame (spring-truth eventfit.json: typing-unfocused-take1 text arrival, send-1line-take2 auto-reply); with -0.0773 ours moved 9.52 of 62 pt (15.4 %) on its first frame"
+  }
+ },
+ "bubble.opacity": {
+  "event": "send",
+  "unit": "opacity",
+  "from": 0.6002,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0226,
+    "duration": 0.1702,
+    "bounce": 0.0,
+    "curve": [
+     0.1783,
+     -0.0102,
+     1.0,
+     0.9296
+    ],
+    "delta": 0.3998
+   }
+  ],
+  "residual": {
+   "rms": 0.014,
+   "rms_before": 0.026
+  },
+  "fit": {
+   "method": "the flying bubble's fill alpha, (blue - 34) / 213 (the fill over the 34 grey underlay), every frame 0-0.25 s after the send response at tau + 0.0143 s (the bubble.width convention): before 75 ms the median of the body's non-text pixels (the whole bubble is inside the field); from 75 ms the brightest 4 pt row band's median, the part above the field top (the field glass tints the part still inside the field 20% toward the background: send-typed-take1 at 108 ms, 208 above, 172-175 inside; the whole-body median mixed the two and held the fit 10-15 levels low at 92-158 ms); glass-flash frames left out; one timing curve. rms_before is the previous fit (0.5994, 21.1 ms, 175.7 ms) on the same data",
+   "takes": [
+    "send-typed-take1",
+    "send-2line-take2",
+    "send-1line-unfocused-take2",
+    "send-1line-2bubble-take1"
+   ],
+   "os": "macOS 27 (lossless rig takes); macOS 26 keeps bubble.opacity.macOS26 (the original recording)"
+  }
+ },
+ "bubble.opacity.macOS26": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 0.59,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0927,
+    "duration": 0.1624,
+    "bounce": 0.1185,
+    "delta": 0.41
+   }
+  ],
+  "residual": {
+   "rms": 0.016,
+   "max": 0.038
+  },
+  "frames": 12,
+  "droppedTorn": [
+   4.7
+  ]
+ },
+ "transcript.insert": {
+  "event": "insert",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -156.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.2834,
+    "curve": [
+     0.4481,
+     0.1998,
+     0.6216,
+     1.0
+    ],
+    "delta": -156.0
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "120fps Test12": 2.664,
+    "120fps Test13": 2.181
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 8.187,
+    "one+v0": 8.187,
+    "curve": 2.664,
+    "two": 3.168
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  }
+ },
+ "transcript.receiveMedia": {
+  "event": "receive (photo)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -338.0,
+  "components": [
+   {
+    "delay": 0.0351,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -338.0
+   }
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 186.6 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "transcript.tapback": {
+  "event": "my tapback (rows above the part)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -55.0,
+  "components": [
+   {
+    "delay": 0.0808,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -55.0
+   }
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 232.3 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "scroll.page": {
+  "event": "track click: one page (rows and thumb)",
+  "unit": "share of the page",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.012,
+    "duration": 0.206,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "maxPt": 1.9,
+   "method": "lossless scrollbar-track-click-take2, thumb top per frame (px-tc.py), both clicks (40 pt each); time 0 = the mouse-down event (thumb's first move +29.5 ms, last +204.5 ms); fit per click: delay 0.011 / 0.015 s, duration 0.204 / 0.212 s, max error 1.9 / 0.6 pt"
+  }
+ },
+ "bubble.width.macOS26": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.015,
+    "duration": 0.4104,
+    "bounce": 0.1434,
+    "delta": -440.0225
+   },
+   {
+    "delay": 0.0384,
+    "duration": 0.2569,
+    "bounce": 0.4308,
+    "delta": -311.9775
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": [],
+  "note": "macOS 26 (ComposeMetrics.macOS26): the 85684b4 fit to the macOS 26 original recording (left edge rms 1.0 pt there); 2026-10-08 OS split"
+ },
+ "bubble.scale.macOS26": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0748,
+    "duration": 0.3882,
+    "bounce": 0.4956,
+    "delta": -0.4512
+   },
+   {
+    "delay": 0.15,
+    "duration": 0.2336,
+    "bounce": 0.0,
+    "delta": 0.4512
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ],
+  "note": "macOS 26 (ComposeMetrics.macOS26): the 85684b4 fit to the macOS 26 original recording (left edge rms 1.0 pt there); 2026-10-08 OS split"
+ },
+ "bubble.right.macOS26": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": -0.0064,
+    "duration": 0.5265,
+    "bounce": 0.3011,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": [],
+  "os": "macOS 26 (the original recording); macOS 27 uses bubble.right (refit3)"
+ },
+ "bubble.centerY.macOS26": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0473,
+    "duration": 0.5314,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "residual": {
+   "maxPx": {
+    "T": 3.108,
+    "B": 5.19,
+    "L": 8.511
+   },
+   "frames": 32,
+   "method": "fit_flight_luma.py: centerY and scale refit on luma-measured T/B/L edges with the app geometry"
+  },
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ],
+  "os": "macOS 26 (the original recording); macOS 27 uses bubble.centerY (refit3)"
+ },
+ "bubble.width.fieldShrink": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
+   },
+   {
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": [],
+  "refit": {
+   "rmsPt": {
+    "send-typed-take1": 8.0,
+    "send-typed-media-take1": 7.0,
+    "typing-unfocused-take1": 5.1
+   },
+   "rmsPtBefore": {
+    "send-typed-take1": 11.0,
+    "send-typed-media-take1": 9.7,
+    "typing-unfocused-take1": 9.2
+   },
+   "method": "2026-10-06: joint refit on the lossless send-typed-take1, send-typed-media-take1 (mid-row left edge, Messages' own new frames 0-0.32 s after its first send frame) and typing-unfocused-take1 (left edge on the row 1030 pt, 0-0.1 s), each take weighted equally. Target width = ours' width (previous springs, takes 81) plus ours' left edge minus Messages' left edge, divided by bubble.scale; right edge, centerY and scale unchanged (ours' right edge was within 1.5 pt). Curve time = our first send frame + 14.3 ms (fitted on ours takes 81, rms 0.78 pt). A fit to send-typed alone gives 2.4 / 3.2 pt there but 30 pt on typing-unfocused (Messages narrows more slowly in that take)."
+  },
+  "refit2": {
+   "date": "2026-10-08",
+   "os": "macOS 27 (ComposeMetrics.macOS26 == false); macOS 26 uses bubble.width.macOS26 / bubble.scale.macOS26",
+   "method": "joint refit of bubble.width and bubble.scale on the five lossless macOS 27 send takes (send-typed-take1, send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1), Messages' frames 0.04-0.7 s after its first send frame, curve time = that + 14.3 ms; left edge = right edge (bubble.right from the field's right edge) - width x scale, plus bubble height x scale of the three 1-line drafts (soft L1). Start rect: the field (a start inset of 11.5 pt gives the same residuals; Messages' first frames under the glass are not measurable).",
+   "leftEdgeRmsPt": {
+    "85684b4": {
+     "typed": 12.1,
+     "1line": 9.8,
+     "2line": 11.5,
+     "unfocused": 7.8,
+     "2bubble": 9.2
+    },
+    "40e7ac0": {
+     "typed": 8.6,
+     "1line": 14.4,
+     "2line": 7.7,
+     "unfocused": 6.3,
+     "2bubble": 6.3
+    },
+    "this": {
+     "typed": 4.2,
+     "1line": 3.5,
+     "2line": 5.1,
+     "unfocused": 5.7,
+     "2bubble": 3.9
+    }
+   },
+   "heightRmsPt1Line": {
+    "before": [
+     1.3,
+     1.8,
+     1.7
+    ],
+    "this": [
+     0.9,
+     1.2,
+     1.2
+    ]
+   }
+  },
+  "refit3": {
+   "date": "2026-10-10",
+   "os": "macOS 27; macOS 26 uses bubble.width.macOS26",
+   "method": "2026-10-10 (cx-3cb.6) joint refit of bubble.width, bubble.scale, bubble.right and bubble.centerY on the seven lossless macOS 27 send takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1): the flying bubble's box (tools/evidence/anim/diff.py, Messages' own new frames 0-0.8 s after its first send frame), soft L1 on L, T, R, B, the app's geometry (Morph.swift: our field as the start rect, Messages' rest box as the flying rect). Curve time = Messages' first send frame + 14.3 ms + the send phase (Springs.sendPhase: -4.0 ms after a 1-line draft, +6.6 ms after a draft that shrinks the field), the same phase that the rows and the field top show. Before (these springs' predecessors, no phase) left edge rms 2line 5.9, typed 5.6, media 4.3, 1line 11.4, unfocused 6.8, 2bubble 4.0, typing-unfocused 5.4 pt; this: 3.1, 1.6, 3.6, 4.4, 3.0, 2.2, 2.1 pt (the rest of the 1-line take is Messages' own frame jitter: its new frames alternate 8-20 pt about a smooth curve). Scale's second duration bounded at 0.6 s (0.9 s gave the same residuals but settled 0.37 s later). Our live takes 7101 render this model within 1.5 pt on every frame they did not drop."
+  },
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.width",
+  "refit5": {
+   "date": "2026-10-12",
+   "method": "2026-10-12 (cx-3cb send-shrink): macOS 27 sends after a draft that shrinks the field (Springs.Bubble). bubble.width (2 springs and their share; right, centerY, scale unchanged) refit on the three lossless 2-line-draft takes (send-2line-take2, send-typed-take1, send-typed-media-take1), the four edges on Messages' changed frames 0-0.4 s after its first send frame, soft L1 (2 pt), each take equal, Messages' frames whose left edge is more than 4 pt off the line through its neighbour frames left out of the fit (its frame-to-frame scatter: 9, 1, 9 frames) (tools/evidence/anim/sendfit/fit2s.py, GROUPS=W SCATTER=4); model = Morph.swift geometry (the motion-gate harness within 0.19 pt), curve time = Messages' first send frame + 14.3 ms + 6.6 ms (-Springs.sendPhase). Left edge rms/max/over 1 pt, 0-0.4 s, all frames, before -> after (leave-one-out): 2line 4.6/12.4/22 -> 4.2/14.2/23 (4.4/13.3/19), typed 2.3/5.6/25 -> 1.5/5.4/7 (2.1/6.3/14), typed-media 5.2/19.0/30 -> 5.2/21.2/13 (5.4/21.1/13); 0.17-0.4 s: 2.2 -> 1.5 (1.6), 2.2 -> 0.8 (0.9), 1.9 -> 0.3 (0.4). The field top needs no new curve: field.top to the 30 pt field, with the send phase, is within 0.2/0.6, 0.1/0.4, 0.2/0.7 pt rms/max of these takes. tools/evidence/ANIMATIONS.md section 1."
+  }
+ },
+ "bubble.scale.fieldShrink": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0091,
+    "duration": 0.4351,
+    "bounce": 0.4628,
+    "delta": -0.4217
+   },
+   {
+    "delay": 0.042,
+    "duration": 0.6,
+    "bounce": 0.1256,
+    "delta": 0.4217
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ],
+  "refit3": {
+   "date": "2026-10-10",
+   "os": "macOS 27; macOS 26 uses bubble.scale.macOS26",
+   "method": "2026-10-10 (cx-3cb.6) joint refit of bubble.width, bubble.scale, bubble.right and bubble.centerY on the seven lossless macOS 27 send takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1): the flying bubble's box (tools/evidence/anim/diff.py, Messages' own new frames 0-0.8 s after its first send frame), soft L1 on L, T, R, B, the app's geometry (Morph.swift: our field as the start rect, Messages' rest box as the flying rect). Curve time = Messages' first send frame + 14.3 ms + the send phase (Springs.sendPhase: -4.0 ms after a 1-line draft, +6.6 ms after a draft that shrinks the field), the same phase that the rows and the field top show. Before (these springs' predecessors, no phase) left edge rms 2line 5.9, typed 5.6, media 4.3, 1line 11.4, unfocused 6.8, 2bubble 4.0, typing-unfocused 5.4 pt; this: 3.1, 1.6, 3.6, 4.4, 3.0, 2.2, 2.1 pt (the rest of the 1-line take is Messages' own frame jitter: its new frames alternate 8-20 pt about a smooth curve). Scale's second duration bounded at 0.6 s (0.9 s gave the same residuals but settled 0.37 s later). Our live takes 7101 render this model within 1.5 pt on every frame they did not drop."
+  },
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.scale"
+ },
+ "bubble.right.fieldShrink": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": -0.007,
+    "duration": 0.5367,
+    "bounce": 0.2747,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": [],
+  "refit3": {
+   "date": "2026-10-10",
+   "os": "macOS 27; macOS 26 uses bubble.right.macOS26",
+   "method": "2026-10-10 (cx-3cb.6) joint refit of bubble.width, bubble.scale, bubble.right and bubble.centerY on the seven lossless macOS 27 send takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1): the flying bubble's box (tools/evidence/anim/diff.py, Messages' own new frames 0-0.8 s after its first send frame), soft L1 on L, T, R, B, the app's geometry (Morph.swift: our field as the start rect, Messages' rest box as the flying rect). Curve time = Messages' first send frame + 14.3 ms + the send phase (Springs.sendPhase: -4.0 ms after a 1-line draft, +6.6 ms after a draft that shrinks the field), the same phase that the rows and the field top show. Before (these springs' predecessors, no phase) left edge rms 2line 5.9, typed 5.6, media 4.3, 1line 11.4, unfocused 6.8, 2bubble 4.0, typing-unfocused 5.4 pt; this: 3.1, 1.6, 3.6, 4.4, 3.0, 2.2, 2.1 pt (the rest of the 1-line take is Messages' own frame jitter: its new frames alternate 8-20 pt about a smooth curve). Scale's second duration bounded at 0.6 s (0.9 s gave the same residuals but settled 0.37 s later). Our live takes 7101 render this model within 1.5 pt on every frame they did not drop."
+  },
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.right"
+ },
+ "bubble.centerY.fieldShrink": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0487,
+    "duration": 0.5282,
+    "bounce": 0.274,
+    "delta": -93.0
+   }
+  ],
+  "residual": {
+   "maxPx": {
+    "T": 3.108,
+    "B": 5.19,
+    "L": 8.511
+   },
+   "frames": 32,
+   "method": "fit_flight_luma.py: centerY and scale refit on luma-measured T/B/L edges with the app geometry"
+  },
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ],
+  "refit3": {
+   "date": "2026-10-10",
+   "os": "macOS 27; macOS 26 uses bubble.centerY.macOS26",
+   "method": "2026-10-10 (cx-3cb.6) joint refit of bubble.width, bubble.scale, bubble.right and bubble.centerY on the seven lossless macOS 27 send takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1): the flying bubble's box (tools/evidence/anim/diff.py, Messages' own new frames 0-0.8 s after its first send frame), soft L1 on L, T, R, B, the app's geometry (Morph.swift: our field as the start rect, Messages' rest box as the flying rect). Curve time = Messages' first send frame + 14.3 ms + the send phase (Springs.sendPhase: -4.0 ms after a 1-line draft, +6.6 ms after a draft that shrinks the field), the same phase that the rows and the field top show. Before (these springs' predecessors, no phase) left edge rms 2line 5.9, typed 5.6, media 4.3, 1line 11.4, unfocused 6.8, 2bubble 4.0, typing-unfocused 5.4 pt; this: 3.1, 1.6, 3.6, 4.4, 3.0, 2.2, 2.1 pt (the rest of the 1-line take is Messages' own frame jitter: its new frames alternate 8-20 pt about a smooth curve). Scale's second duration bounded at 0.6 s (0.9 s gave the same residuals but settled 0.37 s later). Our live takes 7101 render this model within 1.5 pt on every frame they did not drop."
+  },
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.centerY"
+ },
+ "bubble.opacity.fieldShrink": {
+  "event": "send",
+  "unit": "opacity",
+  "from": 0.6002,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0239,
+    "duration": 0.1702,
+    "bounce": 0.0,
+    "curve": [
+     0.1783,
+     -0.0102,
+     1.0,
+     0.9296
+    ],
+    "delta": 0.3998
+   }
+  ],
+  "residual": {
+   "rms": 0.014,
+   "rms_before": 0.026
+  },
+  "fit": {
+   "method": "the flying bubble's fill alpha, (blue - 34) / 213 (the fill over the 34 grey underlay), every frame 0-0.25 s after the send response at tau + 0.0143 s (the bubble.width convention): before 75 ms the median of the body's non-text pixels (the whole bubble is inside the field); from 75 ms the brightest 4 pt row band's median, the part above the field top (the field glass tints the part still inside the field 20% toward the background: send-typed-take1 at 108 ms, 208 above, 172-175 inside; the whole-body median mixed the two and held the fit 10-15 levels low at 92-158 ms); glass-flash frames left out; one timing curve. rms_before is the previous fit (0.5994, 21.1 ms, 175.7 ms) on the same data",
+   "takes": [
+    "send-typed-take1",
+    "send-2line-take2",
+    "send-1line-unfocused-take2",
+    "send-1line-2bubble-take1"
+   ],
+   "os": "macOS 27 (lossless rig takes); macOS 26 keeps bubble.opacity.macOS26 (the original recording)"
+  },
+  "refit3": {
+   "date": "2026-10-10",
+   "method": "delay +1.3 ms: the fit's curve time was Messages' first send frame + 14.3 ms on two 1-line and two 2-line drafts; with the send phase (Springs.sendPhase, -4.0 / +6.6 ms) the same frames are 1.3 ms later on average in the curve."
+  },
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.opacity"
+ },
+ "received.textFade": {
+  "event": "received text, not a thread reply (opacity in)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.273,
+    "curve": [
+     0.427,
+     0.031,
+     0.572,
+     0.813
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 0.54
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-media-take1"
+   ],
+   "note": "Messages cross-fades the typing bubble out and the text bubble in over the same 0.27 s from the arrival's first frame (the earlier fit waited 0.2 s)"
+  }
+ },
+ "typing.outOnReceive": {
+  "event": "the typing bubble when a text that is not a thread reply arrives (opacity out)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.273,
+    "curve": [
+     0.427,
+     0.031,
+     0.572,
+     0.813
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.59
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-media-take1",
+    "send-typed-take1"
+   ],
+   "note": "the same curve as received.textFade: the typing bubble's tail circle (left of and below the bubble, not covered by the new bubble or the connector) fades the same in both takes, the text (rms 2 %) and the thread reply (within 1 frame); a thread-only fit on the whole typing box (0.215 s) mixed in the connector and ended 50 ms early"
+  }
+ },
+ "connector.drawOnReceive": {
+  "event": "a received thread reply's connector (strokeEnd, at full opacity from the first frame)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.2784,
+    "curve": [
+     0.0,
+     0.166,
+     0.245,
+     0.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.14
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-take1"
+   ],
+   "note": "Messages draws the connector from the root before the reply bubble shows; ours drew it under the bubble's delayed fade (invisible for 0.2 s)"
+  }
+ },
+ "received.threadFade": {
+  "event": "a received thread reply's bubble (opacity in, after the connector)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.267,
+    "duration": 0.276,
+    "curve": [
+     0.3,
+     0.0,
+     0.24,
+     0.9
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.1
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-take1",
+    "typing-unfocused-take1"
+   ],
+   "note": "the mean of the two takes' fits (send-typed: 0.258 s, 0.263 s, [0.331, 0, 0.228, 0.828], rms 1.11 %; typing-unfocused: 0.276 s, 0.290 s, [0.272, 0.005, 0.251, 0.970], rms 0.81 %)"
+  }
+ },
+ "transcript.receiveThreadRoot": {
+  "event": "receive of the first inline reply to the last message (the rows above the new thread root make room)",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -57.0,
+  "components": [
+   {
+    "delay": 0.0216,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -57.0
+   }
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 173.1 ms after the event's begin, as the element it replaces did"
+  }
+ },
+ "typing.scale": {
+  "event": "the typing bubble appears: scale 0 -> 1 about RowDraw.typingAnchor (19.1 pt left of, 8.7 pt above the bubble's centre)",
+  "unit": "scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0026,
+    "duration": 0.2717,
+    "curve": [
+     0.559,
+     0.08,
+     0.352,
+     0.828
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.027,
+   "note": "box width and height over the final box; all three takes within 0.06"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.opacity": {
+  "event": "the typing bubble appears: opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0201,
+    "duration": 0.3538,
+    "curve": [
+     0.571,
+     1.0,
+     0.357,
+     0.954
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.015,
+   "note": "mean luminance of the box over the background (30), over its final value"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.driftX": {
+  "event": "the typing bubble appears: its centre drifts 4.79 pt to the left into place (Springs.typingDrift.x)",
+  "unit": "pt (share of typingDrift.x)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.138,
+    "duration": 0.204,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.23
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.driftY": {
+  "event": "the typing bubble appears: its centre drifts 7.66 pt down into place (Springs.typingDrift.y)",
+  "unit": "pt (share of typingDrift.y)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.45,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 2.31,
+   "maxPt": {
+    "send-typed-media-take1": 8.2,
+    "typing-unfocused-take1": 4.5,
+    "send-typed-take1": 57.2
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.discL.x": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: its centre moves 2.53 pt to the left into place (Springs.typingDiscFrom[0])",
+  "unit": "share of Springs.typingDiscFrom[0].x",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.1591,
+    "duration": 0.1603,
+    "curve": [
+     0.002,
+     0.103,
+     0.625,
+     0.999
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 0.152,
+    "typing-unfocused-take1": 0.369
+   },
+   "maxPt": {
+    "send-typed-media-take1": 0.404,
+    "typing-unfocused-take1": 1.482
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discL.y": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: its centre moves 8.19 pt down into place (Springs.typingDiscFrom[0]); it passes its place by about 2 pt and comes back (two components)",
+  "unit": "share of Springs.typingDiscFrom[0].y",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0993,
+    "duration": 0.1283,
+    "curve": [
+     0.111,
+     0.039,
+     0.276,
+     0.751
+    ],
+    "delta": 1.7359
+   },
+   {
+    "delay": 0.003,
+    "duration": 0.3065,
+    "curve": [
+     0.678,
+     0.262,
+     0.756,
+     0.937
+    ],
+    "delta": -0.7359
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 2.508,
+    "typing-unfocused-take1": 2.266
+   },
+   "maxPt": {
+    "send-typed-media-take1": 6.014,
+    "typing-unfocused-take1": 4.819
+   },
+   "note": "the two takes differ by about 9 pt in their first frames (the body's 12 pt, section 6); one curve sits between them"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discL.scale": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: it grows from 0.496 of its size about its centre (Springs.typingDiscFrom[0])",
+  "unit": "share of Springs.typingDiscFrom[0].scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0901,
+    "duration": 0.1615,
+    "curve": [
+     0.0,
+     0.581,
+     0.598,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": {
+    "send-typed-media-take1": 0.017,
+    "typing-unfocused-take1": 0.017
+   },
+   "max": {
+    "send-typed-media-take1": 0.049,
+    "typing-unfocused-take1": 0.044
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.x": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: its centre moves 3.64 pt to the left into place (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].x",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0905,
+    "duration": 0.2113,
+    "curve": [
+     0.482,
+     0.725,
+     0.501,
+     0.85
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 0.082,
+    "typing-unfocused-take1": 0.067
+   },
+   "maxPt": {
+    "send-typed-media-take1": 0.28,
+    "typing-unfocused-take1": 0.124
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.y": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: its centre moves 10.70 pt down into place (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].y",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0993,
+    "duration": 0.143,
+    "curve": [
+     0.124,
+     0.027,
+     0.336,
+     0.866
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 2.708,
+    "typing-unfocused-take1": 2.393
+   },
+   "maxPt": {
+    "send-typed-media-take1": 6.665,
+    "typing-unfocused-take1": 4.764
+   },
+   "note": "the two takes differ by about 9 pt in their first frames (the body's 12 pt, section 6); one curve sits between them"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.scale": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: it grows from 0.800 of its size about its centre (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0859,
+    "duration": 0.2383,
+    "curve": [
+     0.311,
+     1.0,
+     0.303,
+     0.66
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": {
+    "send-typed-media-take1": 0.01,
+    "typing-unfocused-take1": 0.009
+   },
+   "max": {
+    "send-typed-media-take1": 0.023,
+    "typing-unfocused-take1": 0.018
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "receipt.appearOpacity": {
+  "event": "a receipt label appears (Delivered): opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0651,
+    "duration": 0.2571,
+    "curve": [
+     0.391,
+     0.234,
+     0.354,
+     0.693
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.007,
+   "max": 0.016
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the rows' begin (transcript.delivered fitted to the bubble's rise: Messages 1.077 s after its first send frame; the responder schedules ours at 1.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.appearGrow": {
+  "event": "a receipt label appears (Delivered): scale Springs.receiptAppearScale (0.3) -> 1 about the label's centre",
+  "unit": "scale (share)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0646,
+    "duration": 0.2594,
+    "curve": [
+     0.139,
+     0.166,
+     0.386,
+     0.794
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.006,
+   "max": 0.015,
+   "note": "first visible frame 0.31 of the final width"
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the rows' begin (transcript.delivered fitted to the bubble's rise: Messages 1.077 s after its first send frame; the responder schedules ours at 1.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.changeOut": {
+  "event": "a receipt label changes its text (Delivered -> Read): the old text's opacity 1 -> 0",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0569,
+    "duration": 0.2293,
+    "curve": [
+     0.276,
+     0.144,
+     0.273,
+     0.938
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.003,
+   "max": 0.009
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the responder's Read time (1.892 s after the first send frame; no row moves at Read in this take, so the schedule and the delay cannot be separated: the original recording's fit, timed from its rows, had 0.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.changeIn": {
+  "event": "a receipt label changes its text (Delivered -> Read): the new text's opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.3093,
+    "duration": 0.2515,
+    "curve": [
+     0.262,
+     0.168,
+     0.235,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.002,
+   "max": 0.006
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the responder's Read time (1.892 s after the first send frame; no row moves at Read in this take, so the schedule and the delay cannot be separated: the original recording's fit, timed from its rows, had 0.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "bubble.right.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": 0.0023,
+    "duration": 0.5395,
+    "bounce": 0.3178,
+    "delta": 61.0
+   }
+  ],
+  "frames": 29,
+  "droppedTorn": [],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.width.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "live": "cx-3cb live-fixes: every component +5 ms (1-line drafts only). Live 120 Hz takes, rows-aligned left edge rms against Messages send-1line-take2: 15.1 -> 10.0 pt (tools/live-motion/widthdelay.py, branch live-motion); motion-gate parity27 send-1line-take2 L 8.012 -> 4.391, W 7.596 -> 4.247. The same +5 ms on bubble.width.fieldShrink made parity27 worse on every narrow take (send-2line-break-take3 L 8.40 -> 13.40, send-3line-take3 22.47 -> 27.31, send-4line-take4 10.75 -> 15.64) and send-typed-take1 (5.07 -> 6.16): not applied there. A 60-75 ms hold before the move worsens every take (live pooled rms 68-79 pt)",
+  "components": [
+   {
+    "delay": 0.0009,
+    "duration": 0.4317,
+    "bounce": 0.2347,
+    "delta": -383.6218
+   },
+   {
+    "delay": 0.0844,
+    "duration": 0.2204,
+    "bounce": 0.397,
+    "delta": -368.3782
+   }
+  ],
+  "frames": 30,
+  "droppedTorn": [],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.centerY.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0521,
+    "duration": 0.5428,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.scale.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0181,
+    "duration": 0.4298,
+    "bounce": 0.4773,
+    "delta": -0.324008
+   },
+   {
+    "delay": 0.1009,
+    "duration": 0.5175,
+    "bounce": 0.082,
+    "delta": 0.324008
+   }
+  ],
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "transcript.delivered.macOS26": {
+  "event": "delivered",
+  "eventTime": 5.6658,
+  "unit": "px@2x",
+  "from": 0.004,
+  "to": -31.997,
+  "components": [
+   {
+    "delay": -0.0024,
+    "duration": 0.2626,
+    "curve": [
+     0.4253,
+     0.169,
+     0.5558,
+     0.7203
+    ],
+    "delta": -32.001
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.422,
+    "120fps Test12": 0.892,
+    "120fps Test13": 0.875
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 1.714,
+    "one+v0": 1.714,
+    "curve": 0.892,
+    "two": 0.901
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 29,
+  "droppedTorn": [],
+  "os": "macOS 26 (the original recording, its own fit); macOS 27 uses the shared TRUTH.md curve. The shared curve on macOS 26 moved the motion gate's parity from fail 33 / max 2.96 to fail 39 / max 4.01 (Read 6.717 s excess 4.01, Delivered 5.700 s 2.31)"
+ },
+ "transcript.read.macOS26": {
+  "event": "read",
+  "eventTime": 6.602,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": 34.996,
+  "components": [
+   {
+    "delay": 0.0205,
+    "duration": 0.2709,
+    "curve": [
+     0.4149,
+     0.1242,
+     0.5805,
+     0.9411
+    ],
+    "delta": 34.996
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 1.023,
+    "120fps Test12": 0.844,
+    "120fps Test13": 0.828
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 2.088,
+    "one+v0": 2.088,
+    "curve": 1.023,
+    "two": 0.948
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 28,
+  "droppedTorn": [
+   6.6333,
+   6.65,
+   6.7167,
+   6.8167
+  ],
+  "os": "macOS 26 (the original recording, its own fit); macOS 27 uses the shared TRUTH.md curve. The shared curve on macOS 26 moved the motion gate's parity from fail 33 / max 2.96 to fail 39 / max 4.01 (Read 6.717 s excess 4.01, Delivered 5.700 s 2.31)"
+ }
+}

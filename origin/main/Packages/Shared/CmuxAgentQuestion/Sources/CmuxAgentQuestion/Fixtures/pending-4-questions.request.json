@@ -1,0 +1,107 @@
+{
+  "permissionId": "perm_toolu_four",
+  "session": "sess_claude_1",
+  "request": {
+    "sessionId": "sess_claude_1",
+    "toolCall": {
+      "toolCallId": "toolu_four",
+      "title": "Question: Which auth method should the API use?",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "question": "Which auth method should the API use?",
+            "header": "Auth method",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "OAuth 2.0",
+                "description": "Delegated sign-in through the identity provider; best for third-party clients."
+              },
+              {
+                "label": "API keys",
+                "description": "One static key per integration. Simple, but keys must be rotated by hand."
+              },
+              {
+                "label": "Passkeys",
+                "description": "WebAuthn credentials bound to the device. No shared secret on the server."
+              }
+            ]
+          },
+          {
+            "question": "Which platforms should the first release support?",
+            "header": "Platforms",
+            "multiSelect": true,
+            "options": [
+              {
+                "label": "macOS",
+                "description": "Native AppKit app."
+              },
+              {
+                "label": "iOS",
+                "description": "iPhone and iPad."
+              },
+              {
+                "label": "Linux",
+                "description": "Terminal client only."
+              },
+              {
+                "label": "Web",
+                "description": "Read-only viewer in the browser."
+              }
+            ]
+          },
+          {
+            "question": "How should failures be reported?",
+            "header": "Errors",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Inline",
+                "description": "Under the field that failed."
+              },
+              {
+                "label": "Toast",
+                "description": "A transient banner."
+              }
+            ]
+          },
+          {
+            "question": "Ship behind a flag?",
+            "header": "Rollout",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Yes, off by default",
+                "description": "Turn on per user."
+              },
+              {
+                "label": "No, ship to everyone",
+                "description": "Default on."
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "claude": {
+          "tool": "AskUserQuestion",
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}
