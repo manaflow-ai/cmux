@@ -25,5 +25,8 @@ tokio = { workspace = true }
 futures-util = { workspace = true }
 url = { workspace = true }
 
+[dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
+
 [lints]
 workspace = true

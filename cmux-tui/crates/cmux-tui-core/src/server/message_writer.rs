@@ -3,6 +3,7 @@
 //! a writer bound to one backpressured stream.
 
 use super::AttachWireShape;
+use super::BudgetedFrame;
 use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
@@ -116,6 +117,18 @@ pub(super) trait MessageSink: Send + Sync {
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.send_stream(text, stream)
+    }
+    /// An `attach-frames-v1` frame in the stream's FIFO, waiting for room like
+    /// [`Self::send_stream_backpressured`]. A sink that writes only text has none.
+    fn send_frame_backpressured(
+        &self,
+        _frame: Arc<BudgetedFrame>,
+        _stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "this connection carries no binary frames",
+        ))
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
     /// [`Self::send_control`] for a sender that may wait until `deadline`
@@ -351,6 +364,37 @@ impl MessageWriter {
             .render_service
             .serialize_snapshot_output(surface, output, generation, offset, colors)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// `output` of an `attach-frames-v1` viewer: OUTPUT frames of the raw bytes, the first at
+    /// stream `offset` (the offset of `output`'s first byte), each at most
+    /// `ATTACH_FRAME_PAYLOAD_MAX` bytes. Stream id 0: the connection's only attach, until
+    /// `attach-streams-v1` names streams (app-daemon-connection-DESIGN.md 3.2).
+    pub(super) fn send_output_frames_backpressured(
+        &self,
+        output: &[u8],
+        offset: u64,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let mut result = Ok(());
+        let mut at = offset;
+        for chunk in output.chunks(super::render_service::ATTACH_FRAME_PAYLOAD_MAX) {
+            result = self
+                .render_service
+                .output_frame(0, at, chunk)
+                .and_then(|frame| self.sink.send_frame_backpressured(frame, stream));
+            if result.is_err() {
+                break;
+            }
+            at += chunk.len() as u64;
+        }
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
