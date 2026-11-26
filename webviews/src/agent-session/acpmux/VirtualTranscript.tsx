@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -12,7 +13,6 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
-  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -27,6 +27,7 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,
@@ -47,7 +48,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -86,7 +86,8 @@ import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
-import { transition, type MotionList } from "./conversation/motionOwner";
+import { registerListScroll, runningTransition, transition, type MotionList } from "./conversation/motionOwner";
+import { type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
@@ -155,9 +156,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
-  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -169,7 +170,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -203,7 +204,7 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { motionToken, warmMotionTokens } from "../../ui/motion/motionTokens";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -250,8 +251,8 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
   newestPromptIndex,
   promptLanded,
 } from "./transcript/arrivals";
@@ -1176,6 +1177,25 @@ function TranscriptView({
   // The layout watcher's streaming read (conversation/layoutWatch.ts): a growing last row is no move.
   const workingRef = useRef(working);
   workingRef.current = working;
+  // The list the motion owner drives (set by the scroller's effect below), and the fold the click's
+  // capture already declared a transition for (`declareFold`).
+  const motionListRef = useRef<MotionList | undefined>(undefined);
+  const declaredFold = useRef<string | undefined>(undefined);
+  // A disclosure's change (useDisclosure.ts, transcriptDisclosureModel.ts) as one transition of the
+  // motion owner, anchored on the row it is drawn in. A click on a fold toggle already declared its
+  // transition in the capture phase: the change it sets plays inside that one, never a second.
+  const runDisclosure = useCallback<RunDisclosure>((anchorRow, apply) => {
+    const list = motionListRef.current;
+    if (!list) return apply();
+    const playing = runningTransition(list);
+    if (declaredFold.current === anchorRow && playing && !playing.ended) return apply();
+    transition(list, {
+      cause: "disclosure",
+      anchorRow,
+      ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+      apply,
+    });
+  }, []);
   const transcriptMounted = useRef(true);
   /// The offset and follow state the last commit drew at (written as it lays out).
   const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
@@ -6454,14 +6474,21 @@ function TranscriptView({
       },
       settle: () => {},
     };
+    motionListRef.current = motionList;
+    // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
+    // foldAnchor.ts) go through the owner, which writes this list's scroller.
+    const unregisterListScroll = registerListScroll(node, (top) => {
+      node.scrollTop = top;
+    });
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
-      if (rowId)
-        transition(motionList, {
-          cause: "disclosure",
-          anchorRow: rowId,
-          ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
-        });
+      if (!rowId) return;
+      transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+      // The click's own setter runs in this task (`runDisclosure`): it plays in this transition.
+      declaredFold.current = rowId;
+      setTimeout(() => {
+        if (declaredFold.current === rowId) declaredFold.current = undefined;
+      });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
@@ -6939,6 +6966,8 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
       stopLayoutWatch?.();
+      unregisterListScroll();
+      if (motionListRef.current === motionList) motionListRef.current = undefined;
     };
   }, [
     dropFoldRoom,
@@ -7380,6 +7409,7 @@ function TranscriptView({
     readOnly,
     retryTarget,
     livePulse,
+    runDisclosure,
     ref,
     // The steady arm's send enters as the slim arm's does (the bubble fades in).
     slimFollow: slimSend,
