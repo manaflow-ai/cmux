@@ -90,15 +90,19 @@ def rewrite_value(value: str, masked: str) -> tuple[str, int]:
     edits = []
     matches = []
     for match in NUMBER.finditer(masked):
-        if any(depths[match.start() : match.end()]):
-            continue
+        inside_var = any(depths[match.start() : match.end()])
         try:
             number = Decimal(match.group("number"))
         except InvalidOperation:
             return value, 0
-        matches.append((match, number))
+        # Existing var() references stay untouched, but an off-scale fallback still makes
+        # the declaration ineligible. Rewriting another value beside it would change the
+        # detector's key for the fallback without fixing that literal.
         if number != 0 and number not in TOKENS:
             return value, 0
+        if inside_var:
+            continue
+        matches.append((match, number))
     for match, number in matches:
         if number == 0:
             continue
