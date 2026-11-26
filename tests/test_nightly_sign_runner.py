@@ -43,7 +43,7 @@ SIGN_PICKERS = {
     "pick-nightly-sign-runner": "needs.pick-nightly-sign-runner.outputs.runner",
     "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
-# The verify jobs end on the nightly-only Mac, never the PR-shared CI_SIDE_LANE_RUNNER (#53861, RFD 0021 route by need).
+# #53861: the verify jobs dropped the PR-shared CI_SIDE_LANE_RUNNER fallback for the nightly's reserved label.
 OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
@@ -726,8 +726,8 @@ class OwnedVerify(unittest.TestCase):
             "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
         }
         # Nightlies never use Blacksmith: without a pick for this attempt each job takes the owned nightly
-        # slot, then the nightly-only Mac, never the PR-shared side lane (#53861), with the overflow Xcode
-        # variable (both name the same Xcode on the minis).
+        # slot, then the nightly's reserved std label (never the PR-shared side lane, #53861), with the overflow Xcode variable (both name the
+        # same Xcode on the minis).
         cases = (
             ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
@@ -825,8 +825,8 @@ class SnapshotReadToken(unittest.TestCase):
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
     # build-nightly-app mints a read token from it for the unsigned restore, and decide mints a spare read
-    # token from the same read-only routing App; pick-nightly-next-signer mints the same spare read token, as
-    # decide does on the same runner (#56394, run 45575194160's HTTP 403 on github.token).
+    # token from the same read-only routing App. pick-nightly-next-signer reads the signer pick with it first,
+    # so a second push takes the idle signer (#56394).
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
                   "build-nightly-app", "find-nightly-next-recovery", "pick-nightly-next-signer"}
 
