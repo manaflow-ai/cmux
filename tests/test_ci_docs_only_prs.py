@@ -533,13 +533,13 @@ class ZeroJobSibling(unittest.TestCase):
     files = [CODE] * 1 + [f"cmux-tui/crates/x/src/f{i}.rs" for i in range(26)]  # 27 files, as on #56364
     since = 1000.0
 
-    def run(self, name, status="completed", conclusion="success", jobs=5, created=1000.0, ident=1):
+    def sibling(self, name, status="completed", conclusion="success", jobs=5, created=1000.0, ident=1):
         return {"id": ident, "path": f".github/workflows/{name}", "created": created, "status": status,
                 "conclusion": conclusion, "jobs": jobs}
 
     def siblings(self, **ci):
-        return [self.run("ci.yml", **ci), self.run("cmux-next-guards.yml"), self.run("cmux-next-pr-autofix.yml"),
-                self.run("pr-checks.yml"), self.run("rust-workspaces.yml"), self.run("pr-router.yml")]
+        return [self.sibling("ci.yml", **ci), self.sibling("cmux-next-guards.yml"), self.sibling("cmux-next-pr-autofix.yml"),
+                self.sibling("pr-checks.yml"), self.sibling("rust-workspaces.yml"), self.sibling("pr-router.yml")]
 
     def plan(self, runs, event=None):
         event = event or pull_request_event("synchronize", changed=len(self.files))
@@ -554,8 +554,8 @@ class ZeroJobSibling(unittest.TestCase):
             self.assertEqual(self.plan(runs), ["ci.yml"], conclusion)
         # #56364 replayed: three zero-job runs; the two callable ones are called, pr-router.yml is named.
         runs = self.siblings(conclusion="failure", jobs=0)
-        runs[1] = self.run("cmux-next-guards.yml", conclusion="failure", jobs=0, ident=2)
-        runs[5] = self.run("pr-router.yml", conclusion="failure", jobs=0, ident=3)
+        runs[1] = self.sibling("cmux-next-guards.yml", conclusion="failure", jobs=0, ident=2)
+        runs[5] = self.sibling("pr-router.yml", conclusion="failure", jobs=0, ident=3)
         missing = self.plan(runs)
         self.assertEqual(missing, ["ci.yml", "cmux-next-guards.yml"])
         report = docs.zero_job_report(runs, self.since, missing)
@@ -587,7 +587,7 @@ class ZeroJobSibling(unittest.TestCase):
     def test_an_earlier_event_s_zero_job_run_or_a_started_rerun_is_not_this_event_s(self):
         old = self.siblings(conclusion="failure", jobs=0, created=0.0)
         self.assertEqual(self.plan(old), [], "a zero-job run of an earlier push: not this event's")
-        rerun = self.siblings(conclusion="failure", jobs=0) + [self.run("ci.yml", status="in_progress",
+        rerun = self.siblings(conclusion="failure", jobs=0) + [self.sibling("ci.yml", status="in_progress",
                                                                          conclusion=None, jobs=1, ident=9)]
         self.assertEqual(self.plan(rerun), [], "another run of ci.yml at this event started")
 
