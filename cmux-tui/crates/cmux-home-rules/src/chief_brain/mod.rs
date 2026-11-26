@@ -95,7 +95,11 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
     match name {
         "bundled_chief_allowed" => {
             let r: host::BundleRequest = parse(request)?;
-            let allowed = host::bundled_chief_allowed(r.bundle_id.as_deref(), r.is_debug_build);
+            let allowed = host::bundled_chief_allowed(
+                r.bundle_id.as_deref(),
+                r.stable_bundle_id.as_deref(),
+                r.is_debug_build,
+            );
             reply(&json!({ "allowed": allowed }))
         }
         "agents_disabled" => reply(&host::agents_disabled(parse(request)?)),

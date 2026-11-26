@@ -75,8 +75,13 @@ pub fn step(mut s: LeaseState, event: LeaseEvent) -> LeaseReply {
         LeaseEvent::Failed { error } => {
             let log = (s.failures == 0).then(|| format!("model router lease: {error}"));
             let index = (s.failures as usize).min(RETRY_DELAYS_SECS.len() - 1);
+            let wait_secs = RETRY_DELAYS_SECS
+                .get(index)
+                .or(RETRY_DELAYS_SECS.last())
+                .copied()
+                .unwrap_or_default();
             s.failures += 1;
-            LeaseReply { state: s, expires_at: None, wait_secs: RETRY_DELAYS_SECS[index], log }
+            LeaseReply { state: s, expires_at: None, wait_secs, log }
         }
     }
 }
