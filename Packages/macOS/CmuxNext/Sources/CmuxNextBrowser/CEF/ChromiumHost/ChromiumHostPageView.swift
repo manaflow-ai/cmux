@@ -27,10 +27,19 @@ public final class ChromiumHostPageView: NSView {
     private var remote: CALayer?
     private var tracking: NSTrackingArea?
     private var lastGeometry: ChromiumHostGeometry?
-    /// Remote Cocoa: the page's views are subviews; nothing is forwarded.
-    var remoteCocoa = false
+    /// Remote Cocoa: the page's views go into ``remoteContainer``; nothing is forwarded.
+    var remoteCocoa = false {
+        didSet { if remoteCocoa, remoteContainer.superview == nil { addSubview(remoteContainer) } }
+    }
     /// Remote Cocoa: a subview arrived (the page's `WebContentsViewCocoa`).
-    var onPageView: ((NSView) -> Void)?
+    var onPageView: ((NSView) -> Void)? {
+        get { remoteContainer.onSubview }
+        set { remoteContainer.onSubview = newValue }
+    }
+    /// Remote Cocoa: the view the bridges put the page's `WebContentsViewCocoa` into (the id cmux names to the host).
+    /// A plain layer-backed view filling this one: this view hosts its own root layer, and AppKit does not manage the
+    /// layers of a layer-hosting view's subviews.
+    let remoteContainer = ChromiumRemotePageContainer()
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -48,14 +57,9 @@ public final class ChromiumHostPageView: NSView {
     public override var isFlipped: Bool { false }
     public override var acceptsFirstResponder: Bool { !remoteCocoa }
 
-    public override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        if remoteCocoa { onPageView?(subview) }
-    }
-
     /// Remote Cocoa: the page's `RenderWidgetHostViewCocoa` (the view that takes keys), when it is here.
     public var pageKeyView: NSView? {
-        var stack = subviews
+        var stack = remoteContainer.subviews
         while let view = stack.popLast() {
             if NSStringFromClass(type(of: view)).hasSuffix("RenderWidgetHostViewCocoa") { return view }
             stack.append(contentsOf: view.subviews)
@@ -250,4 +254,28 @@ extension ChromiumHostPageView: PanePointerFollowing {
     public func panePointerEntered(with event: NSEvent) {}
     public func panePointerMoved(with event: NSEvent) { if window?.isKeyWindow == true { mouseMoved(with: event) } }
     public func panePointerExited(with event: NSEvent) { if window?.isKeyWindow == true { mouseExited(with: event) } }
+}
+
+/// The view a remote Cocoa page's `WebContentsViewCocoa` goes into (``ChromiumHostPageView/remoteContainer``).
+final class ChromiumRemotePageContainer: NSView {
+    var onSubview: ((NSView) -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        autoresizingMask = [.width, .height]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if let newSuperview { frame = newSuperview.bounds }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        onSubview?(subview)
+    }
 }

@@ -94,7 +94,7 @@ public final class ChromiumHostSession {
             view.remoteCocoa = true
             view.onPageView = { [weak self] page in
                 guard let self else { return }
-                self.remoteClient?.adopt(page: page, in: self.view)
+                self.remoteClient?.adopt(page: page, in: self.view.remoteContainer)
                 self.mark("page_view")
             }
         }
@@ -194,7 +194,8 @@ public final class ChromiumHostSession {
             fields["remote_cocoa"] = [
                 "view_id": String(remoteViewID), "connection": Int(remoteConnection),
                 "connected": remoteClient.isConnected(remoteConnection), "attached": remoteAttached,
-                "subviews": view.subviews.map { NSStringFromClass(type(of: $0)) },
+                "subviews": view.remoteContainer.subviews.map { NSStringFromClass(type(of: $0)) },
+                "container_frame": NSStringFromRect(view.remoteContainer.convert(view.remoteContainer.bounds, to: nil)),
                 "key_view": key.map { NSStringFromClass(type(of: $0)) } ?? "",
                 "key_view_is_first_responder": key != nil && view.window?.firstResponder === key,
                 "key_view_frame": key.map { NSStringFromRect($0.convert($0.bounds, to: nil)) } ?? "",
@@ -253,7 +254,7 @@ public final class ChromiumHostSession {
         startTimings[name] = Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
     }
 
-    /// Remote Cocoa: connects to the host's bootstrap name and names ``view`` to it.
+    /// Remote Cocoa: connects to the host's bootstrap name and names the page view's container to it.
     private func connectRemote(_ name: String, connection current: ChromiumHostConnection) async {
         guard let client = remoteClient else { return }
         if let error = await client.prepare() {
@@ -264,7 +265,7 @@ public final class ChromiumHostSession {
         mark("framework_ready")
         if remoteViewID == 0 { remoteViewID = client.makeViewID() }
         // Registered before the host may name it: the bridge CHECKs the id (WebContentsNSViewBridge::SetParentNSView).
-        client.register(view, id: remoteViewID)
+        client.register(view.remoteContainer, id: remoteViewID)
         remoteConnection = client.connect(name)
         mark("connected")
         guard remoteConnection > 0 else {
