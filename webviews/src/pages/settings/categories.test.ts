@@ -25,24 +25,25 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
-// In sidebar-section order (user 2026-10-30, "sections"): General, Customize (every customization
-// one click away, Leo 2026-11-22) and Updates, then Look and Feel,
-// Tools, AI, Interaction, Accounts and Devices, then More, closed until opened (one settings area,
-// David Beyer 2026-11-20: Settings felt overwhelming).
+// In sidebar-section order: six pages (one settings area, findings G6; David Beyer 2026-11-20:
+// Settings felt overwhelming; Leo 2026-11-22: "ay, fuck it we ball"), each opening on its first.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
+    // General: the app itself, every customization one click away (Leo 2026-11-22), what it tells
+    // you, its updates, the New Tab page and menus.
     "general",
     "customize",
+    "notifications",
     "updates",
+    "newTab",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     // Appearance holds the theme, the background and density; old Theme and Personalization links
-    // open it (next tests).
+    // open it (next tests). Settings overhaul (2026-11-07): the sidebar and tabs have pages.
     "appearance",
-    // Settings overhaul (2026-11-07): the sidebar and tabs have pages.
     "sidebar",
     "tabs",
-    "terminal",
-    "editor",
-    "browser",
+    // AI: the chat, agents, Chief, models, automations, computer use and MCP servers.
     "chat",
     "agents",
     "chief",
@@ -51,24 +52,14 @@ test("the categories are the approved ones, in order", () => {
     // Settings > Automations: cloud automations, what sets an agent off and what it does (Leo
     // 2026-11-24: "having people be able to set up their own conditions for when autocloud will go off").
     "automations",
-    "notifications",
-    "keyboard",
-    "accounts",
-    // Mobile stays its own page (Lucas 2026-11-11).
-    "mobile",
-    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
-    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
-    // couldnt find settings devices control").
-    "devices",
-    // More: the pages a person opens less often.
-    "newTab",
-    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
-    "menus",
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
-    // Settings > Extensions: each installed extension's own declared settings.
-    "extensions",
+    // Accounts and Devices. Mobile stays its own page (Lucas 2026-11-11).
+    "accounts",
+    "mobile",
+    // Devices holds what Server showed, and its old id opens it (next test).
+    "devices",
     // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
@@ -78,7 +69,14 @@ test("the categories are the approved ones, in order", () => {
     "integrations",
     "import",
     "privacy",
+    "keyboard",
+    // Advanced: the app's internals, the terminal, editor and browser engines, and extensions.
     "advanced",
+    "terminal",
+    "editor",
+    "browser",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
     "experimental",
     "development",
   ]);
