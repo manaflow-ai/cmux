@@ -4,7 +4,7 @@
   "revisions": [
     {
       "rev": 2,
-      "note": "cmux#55935 removed the agent to-do list: session taskList and turn.planStep, and the _acpmux/task_list/get and set methods. Old peers get null for both members; the methods are gone (an old caller gets method not found).",
+      "note": "#55935 removed the agent to-do list: session taskList, turn planStep and the _acpmux/task_list/get|set methods.",
       "changes": [
         {
           "message": "event:_acpmux/session_changed",
@@ -61,15 +61,15 @@
           "default": null
         },
         {
-          "message": "response:_acpmux/task_list/get",
-          "op": "remove",
-          "path": "/data",
-          "default": null
-        },
-        {
           "message": "request:_acpmux/task_list/set",
           "op": "remove",
           "path": "/params",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/task_list/get",
+          "op": "remove",
+          "path": "/data",
           "default": null
         },
         {
