@@ -14,6 +14,7 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
+//! `cmux-rd-core`'s Mac Screen session reducer and offer rules (`mac_screen_*`),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
@@ -102,6 +103,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod mac_screen;
 mod notification_rings;
 mod pane_focus;
 mod pane_placement;
@@ -647,6 +649,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if mac_screen::handles(operation) => mac_screen::respond(operation, request)?,
             operation if pane_placement::handles(operation) => {
                 pane_placement::respond(operation, request)?
             }

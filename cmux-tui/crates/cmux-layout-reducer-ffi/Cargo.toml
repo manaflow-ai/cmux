@@ -24,6 +24,7 @@ cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
 cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
+cmux-rd-core = { path = "../cmux-rd-core", features = ["app"] }
 cmux-mobile-host-core = { path = "../cmux-mobile-host-core" }
 # The WebRTC screen stream's rules (src/screen.rs: `screen_*`).
 cmux-rd-screen = { path = "../cmux-rd-screen" }

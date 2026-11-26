@@ -549,6 +549,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-mobile-host-core",
+ "cmux-rd-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
  "cmux-tasks-core",
@@ -613,6 +614,8 @@ name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
