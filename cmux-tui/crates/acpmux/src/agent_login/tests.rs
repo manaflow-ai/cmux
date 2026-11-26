@@ -1178,3 +1178,62 @@ async fn a_sign_out_in_a_home_logs_out_there_only() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The hosts the app may close a sign-in's own tab on once it ended (`parse::page_hosts`): the
+/// link's host first, then the provider's own sign-in hosts, and never another provider's or a
+/// host outside the sign-in.
+#[test]
+fn page_hosts_are_the_links_host_then_the_providers_own() {
+    use super::parse::page_hosts;
+    assert_eq!(page_hosts(Agent::Github, "https://github.com/login/device"), ["github.com"]);
+    assert_eq!(
+        page_hosts(Agent::Codex, "https://AUTH.OPENAI.COM/codex/device"),
+        ["auth.openai.com"]
+    );
+    // Claude's link on claude.com signs in on claude.ai and ends on platform.claude.com.
+    assert_eq!(
+        page_hosts(Agent::Claude, "https://claude.com/cai/oauth/authorize?code=true&state=abc123"),
+        [
+            "claude.com",
+            "claude.ai",
+            "platform.claude.com",
+            "console.anthropic.com",
+            "auth.anthropic.com"
+        ]
+    );
+    assert_eq!(
+        page_hosts(Agent::Claude, "https://claude.ai/oauth/authorize").first().map(String::as_str),
+        Some("claude.ai")
+    );
+    assert_eq!(
+        page_hosts(Agent::Grok, "https://accounts.x.ai/device"),
+        ["accounts.x.ai", "auth.x.ai"]
+    );
+    assert_eq!(
+        page_hosts(Agent::Cursor, "https://cursor.com/loginDeepControl?x=1"),
+        ["cursor.com"]
+    );
+    // One provider's sign-in never names another's hosts.
+    for (agent, url) in [
+        (Agent::Github, "https://github.com/login/device"),
+        (Agent::Codex, "https://auth.openai.com/codex/device"),
+    ] {
+        let hosts = page_hosts(agent, url);
+        assert!(
+            !hosts.iter().any(|h| h.contains("claude") || h.contains("anthropic")),
+            "{hosts:?}"
+        );
+    }
+    // A link that is not an allowed one for the provider closes nothing.
+    for (agent, bad) in [
+        (Agent::Github, "https://github.com.evil.example/login/device"),
+        (Agent::Github, "https://claude.ai/login"),
+        (Agent::Cursor, "https://claude.ai/login"),
+        (Agent::Claude, "http://claude.ai/login"),
+        (Agent::Claude, "https://user@claude.ai/login"),
+        (Agent::Claude, "https://claude.ai:8443/login"),
+        (Agent::Codex, ""),
+    ] {
+        assert!(page_hosts(agent, bad).is_empty(), "{bad}");
+    }
+}
