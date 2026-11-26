@@ -20,8 +20,9 @@ name: cmux machine channel
 # 45536155088 (2026-11-25) the x86_64 leg ended at 03:19:28Z and aarch64 failed at 03:27:16Z.
 #
 # PR_HEAD_FAST_LANE (pursuit "take the build off the critical path"): pr-router.yml also calls this
-# workflow on a full-tier pull request head (the land tier: ready-to-land or full-ci added, so at land
-# time, not on every push) whose merge with feat-cmux-next changes the v2 tree key. It builds that
+# workflow on a land's own pull request head only (scripts/ci/pr_router.json land_handoff_only: the labeled
+# event that adds ready-to-land or full-ci, or land's update-branch head of a ready-to-land PR; not every
+# full-tier push, since both labels stay on across later pushes) whose merge with feat-cmux-next changes the v2 tree key. It builds that
 # head's thin pair with no secrets and no R2 write, and points nothing. At merge, the push run's plan
 # finds the merged PR's head (commits/SHA/pulls), and when the head has this commit's v2 tree key (the
 # same code: a squash of an up-to-date head has the head's tree) and its pr-router run built or is
