@@ -92,9 +92,9 @@ api.openai.com
 # off: stay signed out
 api.stack-auth.com
 # the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine
-# sends: your Tailscale OAuth client ID and secret, and a request for a single-use auth key
-# when: only when you add a Cloud machine to your tailnet with a Tailscale OAuth client
-# off: don't give cmux a Tailscale OAuth client
+# sends: your Tailscale OAuth client ID and secret, and the request for a single-use auth key
+# when: only when you add a Cloud machine to your tailnet with an OAuth client
+# off: don't add Cloud machines to a tailnet with an OAuth client
 api.tailscale.com
 # the xAI API, when you give an agent an xAI API key
 # sends: your prompts, the files and output the agent sends, and your xAI key
