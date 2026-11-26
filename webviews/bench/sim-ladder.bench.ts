@@ -89,6 +89,13 @@ const TRANSCRIPT_EVENTS: number[] | null = (() => {
 // --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
 // fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
 // against the app's 66.3.
+// --seed-turns-max N: the most turns one seeded chat gets. The mock daemon keeps a chat's whole log inside the page
+// (the app's daemon is its own process, and the pane holds only the paged window it attaches), so a profile's full log
+// is the sim's cost alone: Leo's 1.64M-event chat (11-26 00:37Z, 251,762 turns) crashed the page while it seeded
+// ("evaluate: Target crashed"). The default, 33,334 turns (100k rows), is the largest chat the repo's benches open
+// (chat-100k-flat); at the cap the scene read renderer RSS 2028 MB against the app's 1600. A capped seed is reported as
+// seed_capped with the turns the profile asked for.
+const SEED_TURNS_MAX = Number(flag("--seed-turns-max") ?? 33_334);
 const FULL_SEED = argv.includes("--full-seed") || PROFILE !== undefined;
 const WINDOW_MS = Number(flag("--window") ?? 5000);
 const changesPerMin = fromProfile("sessions_changed_per_min");
@@ -238,13 +245,19 @@ setInterval(() => { document.getElementById("clock").textContent = new Date().to
 </script>`;
 
 /// A Chrome of this bench's own (so a descendant of this process, its renderers ours to read), its DevTools endpoint
-/// from stderr: the patched headless shell when CI fetched one, else the installed Chrome headless.
+/// from stderr: the installed Chrome in its new headless mode, the headless shell only where no Chrome is installed.
+/// The shell (CMUX_CHROME_HEADLESS_SHELL, which ensure-system-chrome.sh exports to the job) has no window to put a tab
+/// behind, so every page reads "visible" and keeps drawing: on chrome-headless-shell 157.0.8103.78 a tab behind the
+/// focused chat read visible at 19 frames in 300 ms, where Chrome 157 --headless=new read hidden at 0. With the shell
+/// first, every perf cron run since 2026-11-25 08:54Z ended "sim-ladder: chats #N reads visible ..., not hidden" (exit
+/// 1; run 45643103662 job 139309163781) and NOW's sim_ladder/sim_fidelity rows stopped at 02:20Z.
 async function launchChrome(): Promise<{
   browser: Browser;
   close: () => Promise<void>;
 }> {
-  const shell = process.env.CMUX_CHROME_HEADLESS_SHELL;
-  const exe = shell || Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const chrome = Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const shell = chrome ? undefined : process.env.CMUX_CHROME_HEADLESS_SHELL;
+  const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
   const proc = Bun.spawn(
@@ -634,7 +647,9 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // transcript_events; a hidden chat takes the last one listed (the sensor reads only shown chats). Without
     // the field every chat keeps ROWS / 2 turns.
     const seed = async (page: Page, slot = Number.MAX_SAFE_INTEGER) => {
-      const turns = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
+      const wanted = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
+      const turns = Math.min(wanted, SEED_TURNS_MAX);
+      if (turns < wanted) report.seed_capped = { wanted, seeded: turns };
       const seeded = (await page.evaluate(
         ([count, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light }),
         [turns, !FULL_SEED] as const,

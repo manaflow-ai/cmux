@@ -16,7 +16,6 @@
 
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
-pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
 pub mod adopt;
@@ -29,6 +28,7 @@ pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
 pub mod agent_text;
@@ -110,6 +110,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -279,9 +280,12 @@ pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod fleet_elastic;
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
 pub mod cell_report;
@@ -412,7 +416,6 @@ pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
-pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -426,6 +429,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub mod todo_tools;
 pub(crate) mod tool_env;
 pub mod tool_mentions;
 pub mod tools_mcp;

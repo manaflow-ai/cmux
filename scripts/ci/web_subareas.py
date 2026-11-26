@@ -227,13 +227,15 @@ REACT_PREFIXES = (
     "webviews/",
 )
 
-# agent-pane-real-acpmux runs two browser tests against a built acpmux daemon.
+# agent-pane-real-acpmux runs two browser tests against a built acpmux daemon; chat-flow-shift-budget runs the
+# chat flows' layout-shift budget on the same routing.
 # Browser tests load the app through Vite, beyond their static imports. Keep all
 # runtime/build inputs and support helpers; only unrelated standalone test files
 # can be excluded without losing shared or dynamically loaded dependencies.
 AGENT_PANE_EXACT = {
     "webviews/test/agent-pane-new-chat-settles.test.ts",
     "webviews/test/agent-pane-picks-hold.test.ts",
+    "webviews/test/chat-flow-shift-budget-browser.test.ts",
 }
 AGENT_PANE_PREFIXES = (
     "cmux-tui/",
