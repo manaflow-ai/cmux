@@ -19,7 +19,11 @@ fn the_signing_secret_never_rides_and_the_payload_only_in_the_body() {
     );
     let _ = post(&url, &headers, body);
     assert!(!cmux_egress::capture::requests().is_empty(), "the fire reached the capture server");
-    assert!(cmux_egress::capture::leaks(secret).is_empty(), "{:?}", cmux_egress::capture::leaks(secret));
+    assert!(
+        cmux_egress::capture::leaks(secret).is_empty(),
+        "{:?}",
+        cmux_egress::capture::leaks(secret)
+    );
     let places = cmux_egress::capture::leaks(payload);
     assert!(!places.is_empty());
     assert!(places.iter().all(|p| p.ends_with(": body")), "{places:?}");

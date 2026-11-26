@@ -13,8 +13,11 @@ fn seeded_secrets_ride_only_where_the_platform_needs_them() {
     let dir = tempfile::tempdir().unwrap();
     let token_file = dir.path().join("token");
     std::fs::write(&token_file, credential).unwrap();
-    let common =
-        Common { platform: None, team: Some(team.to_owned()), token: TokenSource::File(token_file) };
+    let common = Common {
+        platform: None,
+        team: Some(team.to_owned()),
+        token: TokenSource::File(token_file),
+    };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let _ = runtime.block_on(async {
         let mut http = match http_for(&common).await {

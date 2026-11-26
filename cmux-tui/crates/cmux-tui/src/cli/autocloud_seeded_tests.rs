@@ -13,11 +13,17 @@ fn seeded_secrets_ride_only_where_the_platform_needs_them() {
     let dir = tempfile::tempdir().unwrap();
     let token_file = dir.path().join("token");
     std::fs::write(&token_file, credential).unwrap();
-    let common =
-        Common { platform: None, team: Some(team.to_owned()), token: TokenSource::File(token_file) };
+    let common = Common {
+        platform: None,
+        team: Some(team.to_owned()),
+        token: TokenSource::File(token_file),
+    };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let _ = runtime.block_on(run(&common, &Verb::Overview, None));
-    assert!(!cmux_egress::capture::requests().is_empty(), "the overview reached the capture server");
+    assert!(
+        !cmux_egress::capture::requests().is_empty(),
+        "the overview reached the capture server"
+    );
     let places = cmux_egress::capture::leaks(credential);
     assert!(!places.is_empty());
     assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");

@@ -11,8 +11,11 @@ fn a_callers_credential_rides_only_in_authorization() {
     let credential = "Basic U0VFRGdpdENhY2hlQ3JlZGVudGlhbC03MWQ0";
     let dir = tempfile::tempdir().unwrap();
     let state = State::new(Config::new(dir.path().to_path_buf())).unwrap();
-    let route =
-        Route { owner: "seeded-owner".into(), repo: "seeded-repo".into(), action: Action::InfoRefs };
+    let route = Route {
+        owner: "seeded-owner".into(),
+        repo: "seeded-repo".into(),
+        action: Action::InfoRefs,
+    };
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, HeaderValue::from_static(credential));
     let caller = caller_key(Some(credential.as_bytes()));
