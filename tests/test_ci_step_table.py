@@ -809,11 +809,6 @@ class SetupTest(unittest.TestCase):
         self.assertIn("| big | yes | ", summary)
         self.assertRegex(summary, r"\| big \|.*\| skipped \|")
 
-    def test_the_tables_coderouter_runs_alone(self) -> None:
-        # Its cargo build takes every core; broker.test.mjs's 50 ms deadline failed beside it, twice.
-        self.assertTrue(ci_steps.load().steps["coderouter"].alone)
-
-
 class PipelineTest(unittest.TestCase):
     """pr-pipeline.yml runs the table's linux job through ci/run; pr-router.yml starts it from the table."""
 
@@ -1070,11 +1065,7 @@ class PipelineTest(unittest.TestCase):
                     self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
-        # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
-        wf = yaml.safe_load((ROOT / ".github/workflows/coderouter-ci.yml").read_text())
-        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
-        self.assertEqual(steps["coderouter"].job, "linux")
-        # So did web-complexity.yml.
+        # web-complexity.yml also ran for pull requests into main, which the table does not serve: it keeps those.
         wf = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text())
         self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
         self.assertEqual(steps["web-complexity"].job, "linux")
@@ -1227,8 +1218,7 @@ class PipelineTest(unittest.TestCase):
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-production-build"}
-        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
-        self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
+        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":

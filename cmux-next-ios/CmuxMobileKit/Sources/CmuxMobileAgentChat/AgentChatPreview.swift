@@ -16,13 +16,22 @@ public struct AgentChatPreview: View {
     var turns: [AgentTurn]?
     var topInset: CGFloat
     var bottomInset: CGFloat
+    /// The height of this page a tab card shows, from its top (the card's slice); nil draws the
+    /// whole page as it rests. The page sits a chat shorter than its space on the composer
+    /// (`ChatTranscriptController.updateInsets`), which is below a card's slice: such a card was
+    /// one flat colour, and was never kept as the tab's picture (Leo, 2026-11-24: "there are too
+    /// many empty previews in the safari grid thing"). With a slice, rows that would rest below
+    /// it sit on the slice's bottom edge instead (`AgentChatPreviewPlacement`).
+    var cardSlice: CGFloat?
     @State private var model = AgentChatPreviewModel()
 
-    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat) {
+    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat,
+                cardSlice: CGFloat? = nil) {
         self.store = store
         self.turns = turns
         self.topInset = topInset
         self.bottomInset = bottomInset
+        self.cardSlice = cardSlice
     }
 
     /// Whether a still of these turns (a tab card's picture, drawn with no `.task`) can show
@@ -74,12 +83,13 @@ public struct AgentChatPreview: View {
                         .padding(.top, topInset)
                         .padding(.bottom, max(0, bottomInset - ChatTranscriptController.contentGap))
                 } else {
-                    rows
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
-                        // The column's cap (Text and Width's standard width), as the transcript's.
-                        .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
-                        .padding(.bottom, bottomInset)
+                    AgentChatPreviewPlacement(topInset: topInset, bottomInset: bottomInset, cardSlice: cardSlice) {
+                        rows
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 20)
+                            // The column's cap (Text and Width's standard width), as the transcript's.
+                            .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
+                    }
                 }
             }
             .modifier(ChatTextSize(display: display))
@@ -96,6 +106,39 @@ public struct AgentChatPreview: View {
         let rows = model.tail(of: store, turns: turns)
         return PreviewRows(rows: rows, context: model.context(store))
             .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+/// Where the preview's rows rest in its page. As the live page at rest: bottom aligned on the
+/// composer's gap (`bottomInset`), the overflow past the top. For a tab card, which shows the
+/// page's top `cardSlice` points, rows that would rest lower sit on the slice's bottom edge, and
+/// rows taller than the slice start under the header (`topInset`).
+struct AgentChatPreviewPlacement: Layout {
+    var topInset: CGFloat
+    var bottomInset: CGFloat
+    var cardSlice: CGFloat?
+
+    /// The rows' top in a page `pageHeight` tall, for rows `rowsHeight` tall.
+    static func rowsTop(pageHeight: CGFloat, rowsHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat,
+                        cardSlice: CGFloat?) -> CGFloat {
+        let resting = pageHeight - bottomInset - rowsHeight
+        guard let cardSlice, cardSlice < pageHeight else { return resting }
+        let inSlice = max(topInset, cardSlice - ChatTranscriptController.contentGap - rowsHeight)
+        return min(resting, inSlice)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            let top = Self.rowsTop(pageHeight: bounds.height, rowsHeight: size.height, topInset: topInset,
+                                   bottomInset: bottomInset, cardSlice: cardSlice)
+            subview.place(at: CGPoint(x: bounds.midX, y: bounds.minY + top), anchor: .top,
+                          proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        }
     }
 }
 
