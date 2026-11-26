@@ -52,11 +52,16 @@ env -u RUNNER_TEMP OUT="$out" LF_DIR="$root/scripts/measure" CUA="" bash -c '
   }
   rc=0
   first n 1 || rc=$?
-  [[ "$rc" == 1 && ! -e "$OUT/Info.plist" ]] || {
+  [[ "$rc" == 1 && -e "$OUT/allow-plist-copy" && ! -e "$OUT/Info.plist" ]] || {
     echo "first launch did not report the plist-copy failure: rc=$rc" >&2
     exit 1
   }
-  first n 2
+  rc2=0
+  first n 2 || rc2=$?
+  [[ "$rc2" == 0 ]] || {
+    echo "retry launch failed: rc=$rc2" >&2
+    exit 1
+  }
   grep -q "<key>CFBundleVersion</key>" "$OUT/Info.plist"
 '
 echo "launch-fresh-install plist: ok"
