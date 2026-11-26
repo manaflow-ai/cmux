@@ -1291,6 +1291,7 @@ if want tt-checkup-configuration; then python3 -I scripts/checkup/tests/configur
 if want tt-console-session-hop; then bash scripts/ci/tests/console-session-hop.test.sh || status=1; fi
 if want tt-media-build-app-local-tui; then bash scripts/ci/tests/media-build-app-local-tui.test.sh || status=1; fi
 if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh || status=1; fi
+if want tt-media-tree-submodules; then bash scripts/ci/tests/media-tree-submodules.test.sh || status=1; fi
 if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
 if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
 if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
