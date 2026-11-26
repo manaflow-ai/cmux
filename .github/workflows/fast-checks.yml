@@ -316,8 +316,13 @@ jobs:
             bash scripts/ci/init-submodule.sh ghostty-next
           fi
           echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
           ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
@@ -339,7 +344,9 @@ jobs:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout: |
+            scripts/ci/swiftpm_prefetch_binary_artifacts.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Prefetch SwiftPM binary artifacts

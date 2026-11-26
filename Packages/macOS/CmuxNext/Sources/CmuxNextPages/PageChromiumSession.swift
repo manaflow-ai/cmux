@@ -16,6 +16,9 @@ final class PageChromiumSession {
     var hangRestart: AgentRendererHangRestart?
     /// What the page view told ``page`` last: it shows. ``setVisible(_:)`` is its only writer.
     private(set) var shows = false
+    /// The page view told ``page`` it is hidden last (false until it told it anything): its document is hidden then and
+    /// sends no heartbeat, so app health must not time it (``PageWebView/isShownForHealth``).
+    private(set) var toldHidden = false
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
@@ -27,6 +30,7 @@ final class PageChromiumSession {
     func setVisible(_ visible: Bool) {
         page.setVisible(visible)
         shows = visible
+        toldHidden = !visible
     }
 
     /// Stops the bridge and closes the page. Idempotent.

@@ -232,9 +232,10 @@ final class TabCell {
         backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
-        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
-        titleLayer.truncation = .middle
+        // Titles are clipped by TitleFade, never Core Text truncation. Starting with a
+        // truncation mode leaves a new cell drawing a stale partial glyph before its first
+        // layout decides the visible width.
+        titleLayer.truncation = nil
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -636,7 +637,9 @@ final class TabCell {
                 // the rest width above keeps the suffix inside that visible
                 // area before the close button or badge.
                 fadeWidth: m.titleFadeWidth,
-                restWidth: restWidth
+                restWidth: restWidth,
+                // The fade never ends on a fragment of a word's first glyph ("New Tab" read "New" and a tick).
+                wordStarts: titleLayer.wordStarts
             )
             // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
             // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
