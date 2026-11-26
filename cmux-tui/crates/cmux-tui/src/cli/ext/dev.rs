@@ -1260,7 +1260,11 @@ impl Session {
         };
         let installed =
             record.as_ref().is_some_and(|r| r.field("installed").as_bool() == Some(true));
-        let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
+        // Turned off in Settings > Apps: only an installed app can be. An app never installed
+        // answers `enabled: false` (the daemon's absent record, mirror.rs `absent`), and it
+        // still mounts as a preview (hosts.rs `mount_as`), so its probe draws the scene.
+        let enabled = !installed
+            || record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
         let new_tab = NewTabPick::read();

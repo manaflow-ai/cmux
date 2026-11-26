@@ -1,0 +1,15 @@
+{
+  "caption": "Find Open Workspace in Editor in the command palette, with its new Command-J I chord beside it.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {
+      "title": "Find Open Workspace in Editor in the palette",
+      "rpc": {"method": "action.run", "params": {"action": "palette.open", "args": {"query": "Open Workspace in Editor"}, "focus": true}},
+      "wait": 1.5,
+      "clip": true
+    },
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.2, 0.05, 0.6, 0.85]
+}
