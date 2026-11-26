@@ -42,8 +42,8 @@ public struct HostMemory: Sendable, Equatable {
         var level: Int32 = 0
         var levelSize = MemoryLayout<Int32>.size
         if sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &levelSize, nil, 0) != 0 { level = 0 }
-        return HostMemory(swapUsed: swapUsed, compressedPages: UInt64(stats.compressor_page_count),
-                          freePages: UInt64(stats.free_count), pageIns: UInt64(stats.pageins), pressureLevel: level)
+        return HostMemory(swapUsed: swapUsed, compressedPages: UInt64(clamping: stats.compressor_page_count),
+                          freePages: UInt64(clamping: stats.free_count), pageIns: UInt64(clamping: stats.pageins), pressureLevel: level)
     }
 
     /// One send right for the process's life: each `mach_host_self()` call adds a reference.
