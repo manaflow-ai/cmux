@@ -1233,7 +1233,8 @@ pub enum Command {
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
         /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
-        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
+        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`, or on a lane machine
+        /// `lane_gh_carrier=OWNER[,OWNER...]` for lane-gh over the carrier, off by default). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
