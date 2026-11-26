@@ -1163,6 +1163,16 @@ BASE_VERDICT_REPO = {"teamleaderleo/glaeda": "manaflow-ai/glaeda"}
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# A PR-only job whose base twin runs the same ci/steps.toml step table under another workflow and job name
+# (2026-11-26, cmux#58103, run 45815095142: 'pr pipeline / linux' reds the base shares, refused as "no feat-cmux-next run
+# of its workflow has a verdict for it", since pr-pipeline.yml never runs on the base). Keyed by (the base branch, the
+# check name on the PR), the value is (the base workflow file, the check name there). The PR run's workflow file is not
+# keyed: the check name is the PR job's identity, whichever caller (pr-router.yml) started it. Declared as data, only
+# for a twin that exists: cmux-next-base-linux.yml runs the `linux` step-table job and has no mac or web-browser job,
+# so those, rfd0135-gates.yml and cloud-chief-turn-proof.yml have no entry. Like BASE_WORKFLOW_FOR it decides only
+# when the PR's own workflow has no verdict at or after the merge-base, and the failing tests are compared as for any
+# base verdict. tests/test_base_red_excuse.py checks each entry against the workflows.
+BASE_JOB_FOR = {("feat-cmux-next", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux")}
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
 # suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
@@ -8779,6 +8789,8 @@ def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tupl
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
     if (check := batch_check(repo, base, file, name, github)) is not None:
         return POST_MERGE_WORKFLOW, check
+    if (twin := BASE_JOB_FOR.get((base, name))) is not None:
+        return twin
     caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
                    if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
     return None if caller is None else (caller, name)

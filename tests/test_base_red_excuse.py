@@ -3640,6 +3640,25 @@ class WebShardBaseVerdict(unittest.TestCase):
                                     "the newest, a pass in run 20"):
             self.judge(gh)
 
+    def test_pr_pipeline_linux_maps_to_the_base_linux_job(self):
+        # cmux#58103 (run 45815095142): 'pr pipeline / linux' never runs on the base; cmux-next-base-linux.yml's job does.
+        yaml = excuse.yaml_module()
+        self.assertEqual(excuse.BASE_JOB_FOR, {("feat-cmux-next", "pr pipeline / linux"):
+                                               ("cmux-next-base-linux.yml", "base linux")})
+        for (branch, name), (base_file, base_name) in excuse.BASE_JOB_FOR.items():
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            self.assertEqual(pushed["jobs"]["linux"]["name"], base_name)
+            self.assertIn(branch, ((pushed.get(True, pushed.get("on")) or {}).get("push") or {}).get("branches") or [])
+            for path in ("pr-router.yml", "pr-pipeline.yml"):
+                self.assertEqual(excuse.base_caller(REPO, branch, {"path": f".github/workflows/{path}"}, name),
+                                 (base_file, base_name))
+        # No twin is invented for the other PR-only jobs, nor for another base.
+        for name in ("pr pipeline / web-browser", "pr pipeline / mac"):
+            self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next",
+                                                 {"path": ".github/workflows/pr-router.yml"}, name))
+        self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/pr-router.yml"},
+                                             "pr pipeline / linux"))
+
     def test_a_pull_request_run_of_the_base_caller_is_never_base_evidence(self):
         gh = WebShardBaseGitHub()
         gh.pushed_runs = [run for run in gh.pushed_runs if run["event"] == "pull_request"]
