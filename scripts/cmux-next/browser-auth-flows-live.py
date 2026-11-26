@@ -140,6 +140,33 @@ def prompts_of_tab():
     return reply.get("prompts") or []
 
 
+def tab_ids():
+    return {t.get("id") for t in rpc("browser.page.tabs", {"all": True}).get("tabs") or []}
+
+
+def other_tabs_prompts(before):
+    """Pending prompts of browser tabs opened since `before` (tab ids): an agent tab's window.open opens a
+    tab, not a popup panel."""
+    listing = rpc("browser.page.tabs", {"all": True})
+    LAST["tabs"] = listing
+    got = []
+    for tab in listing.get("tabs") or []:
+        if tab.get("id") not in before and tab.get("id") != TAB:
+            reply = rpc("browser.prompts", {"tab": tab.get("id")})
+            got += [dict(p, tab=tab.get("id"), url=tab.get("url")) for p in reply.get("prompts") or []]
+    return got
+
+
+def scheme_handler(url):
+    """The app macOS opens `url` with (LaunchServices), or "" when none does: no app, no question to ask."""
+    js = ('ObjC.import("AppKit");var u=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString('
+          + json.dumps(url) + '));u.isNil()?"":ObjC.unwrap(u.path)')
+    try:
+        return subprocess.run(["osascript", "-l", "JavaScript", "-e", js], capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+
+
 def wait_prompts(read, seconds=8):
     """`read()` until it lists something or `seconds` pass (a prompt can land after a Keychain read)."""
     end = time.monotonic() + seconds
@@ -237,30 +264,37 @@ try:
         coop("", "same-origin", "coopC", "false")
         coop("", "", "coopD", "true")
 
-    def scheme(via, in_popup, key):
-        what = f"{'popup' if in_popup else 'main tab'} ending on a custom scheme by {via}"
+    def scheme(via, in_popup, to):
+        what = f"{'popup' if in_popup else 'main tab'} ending on {to.split(':')[0]}: by {via}"
         rpc("debug.browser.external_opens", {"clear": True})
+        before = tab_ids()
         if in_popup:
-            nav(RP + f"/schemeopen?via={via}&to=" + urllib.parse.quote("vscode://auth?code=1", safe=""))
+            nav(RP + f"/schemeopen?via={via}&to=" + urllib.parse.quote(to, safe=""))
             click("#go")
         else:
-            nav(RP + "/cb?via=" + via + "&to=" + urllib.parse.quote("vscode://auth?code=1", safe=""), settle=1)
+            nav(RP + "/cb?via=" + via + "&to=" + urllib.parse.quote(to, safe=""), settle=1)
         time.sleep(1)
-        pending = wait_prompts((lambda: [p for p in popups() if p.get("prompts")]) if in_popup else prompts_of_tab)
-        shown = [p for p in popups() if p.get("prompt_shown")] if in_popup else None
+        # A popup of an agent tab opens as a tab (no panel): its question is that tab's.
+        read = (lambda: [p for p in popups() if p.get("prompts")] or other_tabs_prompts(before)) if in_popup else prompts_of_tab
+        pending = wait_prompts(read)
         opened = rpc("debug.browser.external_opens").get("urls") or []
         # The raw reply on a fail: an RPC error or a missing tab must not read as "no prompt".
-        raw = LAST.get("popups" if in_popup else "prompts")
+        raw = LAST.get("popups" if in_popup else "prompts"), LAST.get("tabs") if in_popup else None
         check(bool(pending) or bool(opened), f"{what}: asked or opened, not silent ({pending or opened or raw})")
         if in_popup:
+            shown = [p for p in popups() if p.get("prompt_shown")] or [p for p in pending if p.get("tab")]
             check(bool(shown), f"{what}: the popup window shows the question ({LAST.get('popups')})")
 
     def c10():
-        for via in ("js", "302"):
-            scheme(via, False, "m")
-            close_popups()
-            scheme(via, True, "p")
-            close_popups()
+        # A login that returns to an app (vscode://): macOS may have no app for it on this Mac, and cmux
+        # then tells the person so; mailto: always has one (Mail), so the open-in-app question is judged too.
+        print(f"     vscode: opens with {scheme_handler('vscode://auth?code=1') or 'no app'}", flush=True)
+        for to in ("vscode://auth?code=1", "mailto:signin@example.com"):
+            for via in ("js", "302"):
+                scheme(via, False, to)
+                close_popups()
+                scheme(via, True, to)
+                close_popups()
 
     def c11():
         before = rpc("system.identify")
@@ -298,7 +332,10 @@ try:
     def c15():
         nav(IDP + "/basic", settle=1)
         asked = wait_prompts(lambda: [p for p in prompts_of_tab() if "credentials" in p.get("kind", "").lower() or "auth" in p.get("kind", "").lower()])
-        check(bool(asked), f"a 401 Basic challenge asks for credentials ({LAST.get('prompts')}, page: {ev('document.title')})")
+        # On a fail: the read's raw reply, the other tabs' questions (did it land on another tab?) and the page.
+        elsewhere = [] if asked else other_tabs_prompts({TAB})
+        check(bool(asked), f"a 401 Basic challenge asks for credentials ({LAST.get('prompts')}, tab {TAB}, elsewhere {elsewhere}, "
+                           f"page: {rpc('browser.page.state', {'tab': TAB})})")
         nav(f"http://user:pw@127.0.0.1:{opts.port}/basic", settle=3)
         check(ev("document.title") == "basic ok", f"user:pw in the URL answers the challenge (title {ev('document.title')})")
 
