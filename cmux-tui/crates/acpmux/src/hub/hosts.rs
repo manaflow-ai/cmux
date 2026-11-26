@@ -761,6 +761,7 @@ impl Hub {
             return Ok(());
         }
         let of = incarnation.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: seq+subagents+turn");
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
                 (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
@@ -768,12 +769,14 @@ impl Hub {
             .await?;
         // The subagents the host still runs, before its first replayed line reaches the tap:
         // a child's line is tagged with its session from the first one (`work_below.rs`).
+        drop(_probe);
         self.seed_subagents(session, subagents);
         // So is the turn its log has open: the replay's model work is that turn's, not one the
         // person did not start, until recovery below rebuilds it (`background_turn.rs`).
         let _adopted_turn = self.hold_adopted_turn(session, turn_open);
         let tap = self.session_tap(session);
         let caller_token = record.caller_token.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: attach");
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
             record,
@@ -805,6 +808,7 @@ impl Hub {
                 return Ok(());
             }
         };
+        drop(_probe);
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
         // The owner's Cloud credential it was launched on, which no daemon restart keeps: read
@@ -847,8 +851,10 @@ impl Hub {
         let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
         #[cfg(not(debug_assertions))]
         let stalls = false;
+        let _probe = crate::gauges::global().phase("TEMP adopt: replay");
         let replayed =
             !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        drop(_probe);
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
@@ -902,9 +908,12 @@ impl Hub {
             return Ok(());
         }
         let of = incarnation.clone();
+        let _probe = crate::gauges::global().phase("TEMP adopt: recovery read");
         let work = self
             .read_whole_log(session, move |hub, s| hub.recovery_work(s, &of, resume_after))
             .await?;
+        drop(_probe);
+        let _probe = crate::gauges::global().phase("TEMP adopt: recover+meta");
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
