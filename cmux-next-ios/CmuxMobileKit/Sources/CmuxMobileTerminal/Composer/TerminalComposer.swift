@@ -303,7 +303,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -325,7 +329,7 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()

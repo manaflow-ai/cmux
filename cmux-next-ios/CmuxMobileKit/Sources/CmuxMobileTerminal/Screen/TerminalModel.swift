@@ -26,7 +26,14 @@ public final class TerminalModel {
     public internal(set) var programName: String
     /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
     /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
-    public var hostMacID: String?
+    public var hostMacID: String? {
+        didSet {
+            guard oldValue != nil, oldValue != hostMacID else { return }
+            cancelAttachmentSend()
+            attachmentPrestager.cancelAll()
+            syncAttachmentUploads()
+        }
+    }
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
@@ -415,6 +422,12 @@ public final class TerminalModel {
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
+            if connection.isAttached {
+                syncAttachmentUploads()
+            } else {
+                cancelAttachmentSend()
+                attachmentPrestager.cancelAll()
+            }
         }
         // Attached again: a held composer send went out (or was dropped, which says so
         // first); a later drop must never put already-sent text back.
