@@ -89,9 +89,14 @@ fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 started_at=$SECONDS
-# alloc_ab=1 builds acpmux three times: its one codegen unit (the release profile) would take most of the job's hour,
-# so every arm, the shipped allocator's too, builds it in 16. The heap a run holds is the program's data, not its code.
-[[ "$alloc_ab" == 1 ]] && export CARGO_PROFILE_RELEASE_PACKAGE_ACPMUX_CODEGEN_UNITS=16
+# alloc_ab=1 builds acpmux three times. The release profile (thin LTO, one codegen unit) took 25 min for one build
+# and 15 min for each rebuild (job e45696a9: 3400 s of builds, no round run), so every arm, the shipped allocator's
+# too, builds with no LTO and 16 codegen units into a target directory of its own (the cached one is left as it is).
+# The heap a run holds is the program's data, not its code, and all three arms share the one profile.
+if [[ "$alloc_ab" == 1 ]]; then
+  export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+  export CARGO_TARGET_DIR="${RUNNER_TEMP:-/tmp}/infinite-alloc-ab-target"
+fi
 cd "$root/cmux-tui"
 # cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -216,7 +221,8 @@ if [[ "$alloc_ab" == 1 ]]; then
   echo "INFINITE-ALLOC repeat=$repeat counts=$counts days=$days budget_s=$alloc_budget head=$(git rev-parse HEAD) built_s=$((SECONDS - started_at))"
   round_s=0
   for r in $(seq 1 "$repeat"); do
-    if (( SECONDS - started_at + round_s > alloc_budget )); then
+    # Round 1 always runs: a job that only built measured nothing.
+    if (( r > 1 && SECONDS - started_at + round_s > alloc_budget )); then
       echo "INFINITE-ALLOC-CUT before r$r: $((SECONDS - started_at)) s spent, the last round took ${round_s} s, budget ${alloc_budget} s"
       break
     fi
