@@ -30,6 +30,20 @@ impl Hub {
                 .collect();
         let counts: Vec<usize> = sessions.iter().map(Arc::strong_count).collect();
         out.push_str(&format!(" sessions {} (strong {counts:?})", sessions.len()));
+        macro_rules! cut {
+            ($name:literal, $field:ident) => {
+                for s in &sessions {
+                    drop(std::mem::take(&mut *s.$field.lock().unwrap_or_else(|e| e.into_inner())));
+                }
+                out.push_str(&format!(" -{} {}", $name, Arc::strong_count(self)));
+            };
+        }
+        cut!("queue", queue);
+        cut!("prepared", prepared);
+        cut!("prepared_done", prepared_done);
+        cut!("turn", turn);
+        cut!("ending", ending);
+        cut!("inbox_digests", inbox_digests);
         drop(sessions);
         out.push_str(&format!(" after sessions {}", Arc::strong_count(self)));
         out
