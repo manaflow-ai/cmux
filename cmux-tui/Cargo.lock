@@ -1988,6 +1988,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-design-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [

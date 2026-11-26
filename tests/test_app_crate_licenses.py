@@ -126,6 +126,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-launch-image",
                     # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
                     "cmux-pane-pictures",
+                    # The design system's rules (cmux-design-core).
+                    "cmux-design-core",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

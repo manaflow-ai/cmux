@@ -48,6 +48,8 @@ cmux-health-core = { path = "../cmux-health-core" }
 cmux-launch-image = { path = "../cmux-launch-image" }
 # When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
+# The design system's rules (cmux-design-core src/ffi.rs, include/cmux_design.h: JSON ops by area).
+cmux-design-core = { path = "../cmux-design-core" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-interactivity = { path = "../cmux-interactivity" }

@@ -181,6 +181,7 @@ dependencies = [
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
+ "cmux-design-core",
  "cmux-health-core",
  "cmux-interactivity",
  "cmux-keymap",
@@ -345,6 +346,14 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-local-auth",
  "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-design-core"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

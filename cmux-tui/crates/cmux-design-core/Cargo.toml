@@ -1,0 +1,15 @@
+[package]
+name = "cmux-design-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The design system's rules for the macOS app, one copy for every OS: toasts, tooltips and hover cards, overlays, dialogs, menus, motion choices, the launch reveal, wallpaper tint and backdrop picks, window press routing and the derived tokens. The app draws; this crate decides (no AppKit, no clock, no I/O)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
