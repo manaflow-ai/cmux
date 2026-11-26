@@ -1593,3 +1593,6 @@ pub(super) fn merge_peer_rows(mut result: Value, peers: &[Value]) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod seeded_tests;

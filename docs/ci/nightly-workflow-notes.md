@@ -481,3 +481,30 @@ A red shelf no longer holds a publish (Leo, 2026-11-25: "we need to make sure we
 NIGHTLY blocks on four things (compiles, signed and notarized, launch smoke, update from the previous NIGHTLY).
 `report-nightly-shelf-red` opens or updates "NIGHTLY App Store shelf is red". Webview checks: stale part unless
 `NIGHTLY_COMPONENT_GATES=block`. Route: resolve-nightly-cmux-tui-client's `cmux-linux` (no secret, no Mac).
+
+## note-54
+
+The comments of nightly.yml's "Checkout build ref (warm nightly-next builder)" step (`&x9`, run by
+nightly-next-one and build-nightly-app), moved here word for word to keep the workflow under GitHub's
+512,000-byte limit (over it, every run is a startup failure with no jobs; feat-cmux-next crossed it
+2026-11-26 16:12Z at #56682). In step order:
+
+- The release App's read-only token, minted for this checkout alone (nightly-next-one's "Mint the release App token for the warm checkout"): never the shared cmux-bot token, never the job's GITHUB_TOKEN, never anonymous. Run 45744507889 failed on GitHub's unauthenticated per-IP limit (raw.githubusercontent.com 429 four times, then git fetch 403). Where no step mints it (build-nightly-app, whose environment holds no release App key) the job's own token: never anonymous.
+
+- Every read here goes out with the job's token. Anonymous, nightlies 45744507889 and 45756842046..45763487534 (2026-11-26) got 429s for git_fetch_retry.py and a 403 for the fetch from the fleet's shared address. The header lives in this step's environment only, never in the kept slot's git config.
+
+- Run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror: its curl and git fetch to github.com got 429 four times, then 403. The mirror (glaeda-git-mirror: main, feat-cmux-next and nightly-next every 60 s) is the one GitHub reader on this host; read it first. Every github.com git transfer this step makes is counted from git's own trace2 events (one file per git process): the goal is 0 per nightly, the commit read from this host's mirror.
+
+- The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's LaunchAgent, under a flock). A commit pushed seconds ago may not be in it yet: ask that fetcher for a pass now and wait for it, instead of fetching from GitHub here.
+
+- The helper comes from local objects (the slot's, the borrowed mirror's, the mirror itself), never from raw.githubusercontent.com: that anonymous read is what answered 429.
+
+- The mirror never got the commit: fetch only that commit from GitHub, authenticated with the release App's token (the job's own where none is minted), with a bounded backoff on a 429 or 403. Before each try the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
+
+- The job's token header is in the step's environment (GIT_CONFIG_*, above).
+
+- nightly-next-one checks out .publish-tooling (the claim script) before this step; the clean keeps it.
+
+- Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. A mini keeps one bare mirror per submodule at submodules/NAME.git beside cmux.git (glaeda-git-mirror: each pin as refs/pins/<sha>, depth 1, glaeda.url naming its GitHub URL). Each submodule (nested too) whose commit one holds is read from it, through this step's environment only; the rest from github.com.
+
+- A warm slot holds the submodule commits already: check them out with no network (https refused, so a missing one fails here instead of cloning anonymously), then fetch only with the App's token. Without the mirror rewrite: a clone from a mirror here skips its refs/pins and leaves no HEAD.
