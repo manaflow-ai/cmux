@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 import CmuxNextRemote
 import Foundation
 
@@ -17,28 +17,24 @@ import Foundation
 /// Nothing the CLI or an agent passes reaches it: the build is the app's own pin (``CloudLegacyPin``:
 /// the bundle's manifest, or for a DEV build the published pin of its own commit or cmux-tui tree,
 /// as `cmux link machine update` resolves it), the machine checks the download against that pin's
-/// SHA-256 before it replaces anything, and the script is the app's own resource.
-nonisolated enum CloudLegacyMachineUpdate {
+/// SHA-256 before it replaces anything, and the script is the app's own resource (`script`, in CmuxNextApp).
+public nonisolated struct CloudLegacyMachineUpdate {
+    public nonisolated init() {}
     /// The app's pinned Linux build for Cloud machines.
-    typealias Pin = CloudLegacyPin
+    public typealias Pin = CloudLegacyPin
 
     /// The fleet upgrade's directory: its runs share `lock`, so the app's run and an operator's
     /// never overlap on one machine.
-    static let directory = "/var/lib/cmux-tui-upgrade"
+    public static let directory = "/var/lib/cmux-tui-upgrade"
     /// One wait's bound on the machine, under the provider's 5-minute exec.
-    static let waitSeconds = 270
+    public static let waitSeconds = 270
     /// Waits before the app stops asking (about 27 minutes, past the guest script's own bounds
     /// for a healthy daemon, like `cmux link machine update`'s 25). A run that goes on after it
     /// ends by itself, and the machine then reports its build.
-    static let waits = 6
-
-    /// The guest script, from the app's resources.
-    static var script: String? {
-        Bundle.module.url(forResource: "cmux-tui-upgrade", withExtension: "sh").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-    }
+    public static let waits = 6
 
     /// One exec on the machine: the command and its timeout in milliseconds.
-    typealias Exec = @Sendable (_ command: String, _ timeoutMs: Int) async throws -> CloudExecResult
+    public typealias Exec = @Sendable (_ command: String, _ timeoutMs: Int) async throws -> CloudExecResult
 
     /// Runs the update of a machine through `exec` and answers as `cmux link machine update`
     /// would: one exec starts the run, then up to ``waits`` wait on it. A wait that did not answer
@@ -53,7 +49,7 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// (`<run-dir>/expect-build`): a binary updated since (another app or the fleet, maybe to a
     /// newer build), or one that names no commit, is left as it is, `SKIP changed`, so the answer is
     /// `machine_update_busy`, the policy asks again and `--if-older` reads the new build.
-    static func run(pin: Pin, script: String, expected: String? = nil, nonce: String = newNonce(), directory: String = directory,
+    public static func run(pin: Pin, script: String, expected: String? = nil, nonce: String = newNonce(), directory: String = directory,
                     waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
         // A start that did not answer, or that the provider ended (exit 124), may have started the
         // run: the waits read what it left. Only a start that ended on its own and said otherwise
@@ -77,7 +73,7 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// run's) tells the waits what to wait on. Says `started`, or `NOROOT` from an account that
     /// cannot become root (nothing changed). `expected` (a 40-hex commit; anything else is left
     /// out) goes to `<run-dir>/expect-build`, which the guest script checks under its lock.
-    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory,
+    public static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory,
                              expected: String? = nil) -> String {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
         // It reaches a shell: only a 40-hex commit.
@@ -112,7 +108,7 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// returned once the unit's process was forked, and a unit that ended (and was collected) has
     /// none, so its result is read at once. A run that ended takes its files and, unless its
     /// rollback failed, the backup of the old binary with it.
-    static func waitCommand(nonce: String, directory: String = directory, seconds: Int = waitSeconds) -> String {
+    public static func waitCommand(nonce: String, directory: String = directory, seconds: Int = waitSeconds) -> String {
         [
             "set -eu",
             rootHelper,
@@ -129,7 +125,7 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// (`cmuxTuiLayoutSelector` in web/services/vms/drivers/cmuxTuiDaemon.ts), the pinned binary
     /// downloaded and checked beside it, then renamed over it, owned by the daemon's user so its
     /// later in-place updates can replace it. A binary that already matches the pin stays.
-    static func installCommand(_ pin: Pin) -> String {
+    public static func installCommand(_ pin: Pin) -> String {
         let check = { (file: String) in "printf '%s  %s\\n' \(pin.sha256) \"\(file)\" | sha256sum -c >/dev/null 2>&1" }
         return [
             "set -eu",
@@ -147,13 +143,13 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// The guest script's result line (the last line of a wait's stdout) as a `link machine
     /// update` answer. No line yet, `running`, or an exec the provider ended (exit 124: the run
     /// may still go on) is `machine_update_unresolved`: the next wait asks again.
-    static func answer(_ ran: CloudExecResult, pin: Pin) -> CloudMoveCLI.Answer { ran.legacyUpdateAnswer(pinned: pin.commit) }
+    public static func answer(_ ran: CloudExecResult, pin: Pin) -> CloudMoveCLI.Answer { ran.legacyUpdateAnswer(pinned: pin.commit) }
 
     /// The transient unit of run `nonce`.
-    static func unit(_ nonce: String) -> String { "cmux-app-tui-update-\(nonce)" }
+    public static func unit(_ nonce: String) -> String { "cmux-app-tui-update-\(nonce)" }
 
     /// 16 hex characters: names the run's directory and unit.
-    static func newNonce() -> String {
+    public static func newNonce() -> String {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
     }
 
@@ -176,5 +172,5 @@ nonisolated enum CloudLegacyMachineUpdate {
 
 nonisolated extension CloudLegacyPin {
     /// The immutable per-commit release `cmux link machine update` downloads too.
-    var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(Self.target)" }
+    public var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(Self.target)" }
 }

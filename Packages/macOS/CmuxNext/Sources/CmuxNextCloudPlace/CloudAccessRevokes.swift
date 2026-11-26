@@ -1,4 +1,3 @@
-import CmuxNextCloudPlace
 import Foundation
 
 /// The grants to end of chats brought back from a Cloud machine (``CloudAccessAsks``): each runs
@@ -8,10 +7,15 @@ import Foundation
 /// answer still running waits for it, and an answer that ends after its chat left the machine
 /// revokes again, so a late grant never stays. A failure never fails a bring back; it is logged.
 @MainActor
-final class CloudAccessRevokes {
-    struct Chat: Hashable {
-        var machineID: String
-        var session: String
+public final class CloudAccessRevokes {
+    public struct Chat: Hashable, Sendable {
+        public var machineID: String
+        public var session: String
+
+        public init(machineID: String, session: String) {
+            self.machineID = machineID
+            self.session = session
+        }
     }
 
     /// The longest a failing revoke waits before its next try.
@@ -25,20 +29,22 @@ final class CloudAccessRevokes {
     private var answering: [Chat: Int] = [:]
     private var backoff: [Chat: (until: ContinuousClock.Instant, delay: Duration)] = [:]
     /// The first wait after a failure (the app's poll interval).
-    var firstBackoff: Duration = .seconds(3)
+    public var firstBackoff: Duration = .seconds(3)
 
-    var isEmpty: Bool { pending.isEmpty }
+    public var isEmpty: Bool { pending.isEmpty }
 
-    func add(_ chat: Chat) {
+    public init() {}
+
+    public func add(_ chat: Chat) {
         if !done.contains(chat) { pending.insert(chat) }
     }
 
     /// An answer for `chat` starts: its revoke waits until it ends.
-    func answerStarted(_ chat: Chat) { answering[chat, default: 0] += 1 }
+    public func answerStarted(_ chat: Chat) { answering[chat, default: 0] += 1 }
 
     /// An answer for `chat` ended; when the chat is no longer on its machine (`live` false), what it
     /// may have granted is revoked again.
-    func answerEnded(_ chat: Chat, live: Bool) {
+    public func answerEnded(_ chat: Chat, live: Bool) {
         let left = (answering[chat] ?? 1) - 1
         answering[chat] = left > 0 ? left : nil
         guard !live else { return }
@@ -47,16 +53,17 @@ final class CloudAccessRevokes {
         pending.insert(chat)
     }
 
-    /// Runs every pending revoke whose machine is reachable, one at a time per chat.
-    func run(_ cli: CloudAccessCLI, services: AppServices) async {
-        let logger = services.cloud.logger
+    /// Runs every pending revoke whose machine is reachable, one at a time per chat. `socket` answers
+    /// a machine's link socket: nil when this app no longer has the machine (only this Mac's record
+    /// ends), `.some(nil)` while it is disconnected (wait). `log` gets each failure.
+    public func run(_ cli: CloudAccessCLI, socket socketOf: (String) async -> String??, log: (String) -> Void) async {
         for chat in pending.subtracting(running).sorted(by: { ($0.machineID, $0.session) < ($1.machineID, $1.session) }) {
             if answering[chat] != nil { continue }
             if let wait = backoff[chat], ContinuousClock.now < wait.until { continue }
             var socket: String?
-            if let machine = services.machines.session(chat.machineID) {
+            if let known = await socketOf(chat.machineID) {
                 // Disconnected: wait for the link, so the copies there go too.
-                guard let path = await machine.daemon.connection?.endpoint?.socketPath else { continue }
+                guard let path = known else { continue }
                 socket = path
             }
             // Another run may have taken it meanwhile, or an answer started.
@@ -77,7 +84,7 @@ final class CloudAccessRevokes {
             } else {
                 let delay = min(backoff[chat].map { $0.delay * 2 } ?? firstBackoff, Self.longestBackoff)
                 backoff[chat] = (ContinuousClock.now + delay, delay)
-                logger.error("cloud access revoke: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
+                log("\(answer.errorCode ?? "") \(answer.error ?? "")")
             }
         }
     }

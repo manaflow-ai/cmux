@@ -243,6 +243,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
     case cloudTurnRewind(AgentPaneCloudTurnRewind)
+    /// Sources > Add Folder on a Cloud chat (`cloud.folder.add`, ``AgentPaneModel/onCloudFolderAdd``).
+    case cloudFolderAdd
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
