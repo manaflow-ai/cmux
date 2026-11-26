@@ -378,7 +378,9 @@ final class CEFLayerHosting {
         // Each drag starts in sync again: the page that fell behind in the last one gets its chance.
         fenceMissedInDrag = false
         syncDeadline()
-        if !inPaneDrag { (view as? CEFHostView)?.inTree.resizeMotionEnded(windowResized: false) }
+        guard !inPaneDrag else { return }
+        CEFRuntime.shared.pump?.resizeEnded()
+        (view as? CEFHostView)?.inTree.resizeMotionEnded(windowResized: false)
     }
 
     /// The host view took a new size in this turn (`CEFHostView.setFrameSize`; the fork's tracker resized the page window

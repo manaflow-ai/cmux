@@ -24,6 +24,10 @@ final class CEFMessagePump {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The armed fire's kind for the ledger (bench builds): immediate, or delayed by how long it was armed for.
     private var armedDetail = ""
+    /// The steps-only form (``defersToSteps``): when the last resize step began, and since when a timer pass waits for
+    /// the next one (nil: none waits).
+    private var lastStepStart: TimeInterval?
+    private var heldSince: TimeInterval?
     #endif
     private var counters = CEFPumpStats()
     /// What Chromium threads ask whether a delayed request must wake the main thread.
@@ -115,7 +119,27 @@ final class CEFMessagePump {
 
     /// A live resize ended (a window's, or a pane divider's drag): a pass held for a step runs now, once, and the timer
     /// runs at its deadlines again.
-    func resizeEnded() {}
+    func resizeEnded() {
+        guard isRunning, defersToSteps else { return }
+        lastStepStart = nil
+        guard let since = heldSince else { return }
+        counters.stepDeferFlushes += 1
+        onDeferredPassOutsideStep?((clock() - since) * 1_000, "end")
+        fire()
+    }
+
+    /// The steps-only form: whether the timer's pass now waits for the next step's start. A live resize steps (a step
+    /// began within ``liveStepWindow``) and the pass has waited less than ``stepDeferBound``.
+    private func holdsForNextStep() -> Bool {
+        let now = clock()
+        guard let last = lastStepStart, now - last < Self.liveStepWindow else { return false }
+        guard let since = heldSince else {
+            heldSince = now
+            counters.stepDeferred += 1
+            return true
+        }
+        return now - since < Self.stepDeferBound - 0.000_5
+    }
 
     /// The start of a resize step, before its layout: one pass when work CEF already asked for is due (a request whose
     /// deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the main
@@ -125,6 +149,7 @@ final class CEFMessagePump {
     /// pass that ran, nil when none did.
     func runIfDueAtStep() -> String? {
         guard isRunning else { return nil }
+        lastStepStart = clock()
         guard !schedule.isWorking else {
             counters.stepSkippedInPass += 1
             return nil
@@ -132,18 +157,29 @@ final class CEFMessagePump {
         let inFlight = gate.immediatePending
         mergeKeptRequests()
         let now = clock()
-        guard inFlight || (schedule.nextWake.map { $0.deadline <= now } ?? false) else {
+        let held = heldSince.map { (now - $0) * 1_000 }
+        guard inFlight || held != nil || (schedule.nextWake.map { $0.deadline <= now } ?? false) else {
             counters.stepNotDue += 1
             return nil
         }
-        if inFlight { schedule.request(milliseconds: 0, now: now) }
+        if inFlight || held != nil { schedule.request(milliseconds: 0, now: now) }
         counters.stepRuns += 1
         fire()
-        return " ran=1" + (inFlight ? " in_flight=1" : "")
+        return " ran=1" + (inFlight ? " in_flight=1" : "") + (held.map { String(format: " deferred_ms=%.1f", $0) } ?? "")
     }
 
     private func timerFired() {
         guard isRunning else { return }
+        // The steps-only form: in a live resize the pass waits for the next step's start (rearm() arms the rest of the
+        // bound); one that waited the whole bound runs now.
+        if defersToSteps, holdsForNextStep() {
+            rearm()
+            return
+        }
+        if let since = heldSince {
+            counters.stepDeferTimeouts += 1
+            onDeferredPassOutsideStep?((clock() - since) * 1_000, "bound")
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Which fires wake the app at idle (task 21, step ca941dd8: "scheduled" was 3.8/s, the top source): a pass for
         // "now" mostly shares the wake of the request that asked for it; a delayed fire is a timer wake of its own.
@@ -168,6 +204,10 @@ final class CEFMessagePump {
             rearm()
             return
         }
+        if let since = heldSince {
+            counters.stepDeferredMs += (started - since) * 1_000
+            heldSince = nil
+        }
         rearm()
         pumpMark("pump-start")
         work()
@@ -190,7 +230,10 @@ final class CEFMessagePump {
             return
         }
         armedReason = wake.reason
-        let delay = max(0, wake.deadline - clock())
+        let now = clock()
+        var delay = max(0, wake.deadline - now)
+        // A pass held for a step waits out its bound: a new request does not wake the timer sooner.
+        if let since = heldSince { delay = max(delay, since + Self.stepDeferBound - now) }
         #if DEBUG || CMUX_BENCH_HOOKS
         armedDetail = Self.delayBucket(wake.deadline.isFinite ? delay : nil)
         #endif
