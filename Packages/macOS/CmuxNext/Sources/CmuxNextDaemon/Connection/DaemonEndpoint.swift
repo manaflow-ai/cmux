@@ -328,8 +328,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// A terminal attach that declares it in `set-client-info` gets each plain `output` as a binary OUTPUT frame
+    /// (``AttachOutputFrame``): no JSON scan or base64 decode on the reader thread (CMUX-571).
+    case attachFrames = "attach-frames-v1"
     /// Opt into the authenticated screen-device UUID replay and lifecycle events.
     case screenDeviceIdentity = "screen-device-identity-v1"
+    /// `subscribe` starts with each terminal's agent presence (a stopped agent's with nulls), so a reconnect to the
+    /// same daemon keeps the presence the sidebar and tabs show instead of blanking it until each agent's next hook
+    /// event (hq#19373, ask c-ea62b204f6).
+    case agentPresenceReplay = "agent-presence-replay-v1"
     /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
     /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
     case treeSelectionDeltas = "tree-selection-deltas-v1"
@@ -670,7 +677,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .launchSnapshotFlush, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .attachFrames, .screenDeviceIdentity, .agentPresenceReplay, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

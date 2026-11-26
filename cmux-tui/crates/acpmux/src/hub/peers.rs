@@ -61,7 +61,7 @@ enum PeerAskRun {
 }
 
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
-/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+/// this daemon's watchers (`server/delivery.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
 /// reading one of that peer's chats here reads it again from its last record.
@@ -1375,7 +1375,7 @@ impl Hub {
                     // The row is not parsed for each record: a streamed one's watchers read only
                     // its id (`server/wait.rs` `concerns`), and its harness is kept hot. A
                     // record of the peer's own (`peer`) carries the whole row, as a notice does
-                    // (`server/mod.rs` `deliver`).
+                    // (`server/delivery.rs` `deliver`).
                     let row = self
                         .remote_sessions
                         .read()
@@ -1403,7 +1403,7 @@ impl Hub {
                         },
                         // A record of the peer's session; an ask in it reaches
                         // an attached client as `_acpmux/permission_pending`
-                        // (`server/mod.rs` `deliver`), so the same rule.
+                        // (`server/delivery.rs` `deliver`), so the same rule.
                         method::MUX_EVENT => {
                             let kind = params.get("kind").and_then(Value::as_str).unwrap_or("");
                             // An ask can be held with its params whole (`hold_peer_ask`); any
