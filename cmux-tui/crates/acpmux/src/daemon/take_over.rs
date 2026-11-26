@@ -169,9 +169,9 @@ async fn take_over_holder(
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts"});
     #[cfg(unix)]
-    if let Some(side) = &side {
-        params[listener_handover::PARAM] = serde_json::json!(side.path());
-        params[listener_handover::PARAM_CONNS] = serde_json::json!(true);
+    if let (Some(side), Some(map)) = (&side, params.as_object_mut()) {
+        map.insert(listener_handover::PARAM.to_owned(), serde_json::json!(side.path()));
+        map.insert(listener_handover::PARAM_CONNS.to_owned(), serde_json::json!(true));
     }
     let answer = client.request(crate::rpc::method::MUX_SHUTDOWN, params).await;
     #[cfg(unix)]
