@@ -5,7 +5,11 @@ name: Gateway end-to-end (development)
 # --ref lane/microvm-ownhost-journey-proof runs one AutoCloud chat on a cmux-vmd Firecracker microVM.
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      model:
+        description: real (the journey's Claude login) or stub (the model stub on the guest)
+        default: real
 
 permissions:
   contents: read
@@ -44,13 +48,14 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           # The journey's own Claude login (as cloud-journey-prod.yml), never a person's.
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.model != 'stub' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          MODEL: ${{ inputs.model }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/ownhost-journey"
           mkdir -p "$out"
           status=0
-          bun scripts/cmux-next/cloud-journey.ts --backend dev --machine-provider own-host --seed none --team team_968c8afd7c1f2b21e6b8 \
+          bun scripts/cmux-next/cloud-journey.ts --backend dev --machine-provider own-host --seed none --model "${MODEL:-real}" --team team_968c8afd7c1f2b21e6b8 \
             --skip sync --out "$out" || status=$?
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
