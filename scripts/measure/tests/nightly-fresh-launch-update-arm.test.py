@@ -42,6 +42,10 @@ class FakeSmoke:
     def own_pids(self, *_):
         return []
 
+    # round_once unregisters the run's app copies from LaunchServices before deleting them (#44420).
+    def forget_apps(self, root):
+        return []
+
 
 class UpdateArm(unittest.TestCase):
     def setUp(self):

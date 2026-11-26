@@ -2370,7 +2370,12 @@ jobs:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # next-cache-writer holds the R2 write credentials; its deployment branches are feat-cmux-next only.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     timeout-minutes: 5
+    env:
+      # The one bucket a next-cache-writer job writes (tests/test_ci_pull_request_caches_are_read_only.py).
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
       actions: read
@@ -2475,7 +2480,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
-          CI_CACHE_R2_BUCKET: cmux-ci-cache-next
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
