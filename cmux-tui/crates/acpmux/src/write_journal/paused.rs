@@ -11,6 +11,7 @@
 //! The replica also stops answering once the daemon itself saw a resume gap since the seed
 //! (`Hub::resume_count`, the count `Hub::subscribe_resumes` watches): anything may have run.
 
+use super::browse::{ListOutcome, SearchOutcome, list_dir, search};
 use super::flush::{DirMachineFs, FlushReport, flush};
 use super::replica::{JournalError, ReadOutcome, WriteOutcome, read_text, write_text};
 use super::seed::{SeedBounds, SeedReport, SeededReplica, seed};
@@ -76,6 +77,8 @@ pub struct PausedFs {
     replicas: PathBuf,
     bounds: SeedBounds,
     machines: Mutex<BTreeMap<String, Machine>>,
+    /// `writeJournal.serveReads`: the app's tree and search are answered here too.
+    serve_reads: bool,
 }
 
 impl PausedFs {
@@ -85,7 +88,21 @@ impl PausedFs {
         replicas: impl Into<PathBuf>,
         bounds: SeedBounds,
     ) -> Self {
-        Self { store, replicas: replicas.into(), bounds, machines: Mutex::new(BTreeMap::new()) }
+        Self {
+            store,
+            replicas: replicas.into(),
+            bounds,
+            machines: Mutex::new(BTreeMap::new()),
+            serve_reads: false,
+        }
+    }
+
+    /// Answer the app's folder listings and searches of a paused machine ([`Self::list_dir`],
+    /// [`Self::search`]); off, they say [`Routed::NotPaused`] and the machine is asked.
+    #[must_use]
+    pub fn with_serve_reads(mut self, on: bool) -> Self {
+        self.serve_reads = on;
+        self
     }
 
     fn guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Machine>> {
@@ -214,6 +231,54 @@ impl PausedFs {
                 WriteOutcome::NeedsMachine(why) => Routed::NeedsMachine(why),
             })
         })
+    }
+
+    /// The names under `dir` (absolute) on paused `machine`, with the journal laid over the
+    /// replica. Blocking.
+    pub fn list_dir(
+        &self,
+        machine: &str,
+        dir: &Path,
+        hub_resumes: u64,
+    ) -> io::Result<Routed<ListOutcome>> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        self.browse(machine, dir, hub_resumes, list_dir)
+    }
+
+    /// Lines matching `query` in the files of paused `machine` (`root` is its folder). Blocking.
+    pub fn search(
+        &self,
+        machine: &str,
+        root: &Path,
+        query: &str,
+        max_hits: usize,
+        hub_resumes: u64,
+    ) -> io::Result<Routed<SearchOutcome>> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        self.browse(machine, root, hub_resumes, |j, r, _| search(j, r, query, max_hits))
+    }
+
+    fn browse<T>(
+        &self,
+        machine: &str,
+        path: &Path,
+        hub_resumes: u64,
+        f: impl FnOnce(&WriteJournal, &SeededReplica, &str) -> io::Result<T>,
+    ) -> io::Result<Routed<T>> {
+        let all = self.guard();
+        let Some(m) = all.get(machine) else { return Ok(Routed::NotPaused) };
+        let Some(paused) = &m.paused else { return Ok(Routed::NotPaused) };
+        if paused.hub_resumes != hub_resumes {
+            paused.replica.invalidate();
+        }
+        let Some(rel) = m.rel(path) else {
+            return Ok(Routed::NeedsMachine(NeedsMachine::MachineOnly));
+        };
+        f(&m.journal, &paused.replica, &rel).map(Routed::Answered)
     }
 
     /// `machine` runs again (resumed, or about to run a command): the replica stops answering and
