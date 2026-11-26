@@ -1333,6 +1333,10 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
+    // RFD 0065 piece 8: record this start's first reads and replay the last start's list.
+    // `CMUX_PROJECTION_REPLAY=0` keeps the folder read-ahead alone, as before.
+    let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
+    let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
     let named =
         cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
@@ -1354,6 +1358,27 @@ fn mount(
         let pinned = overlay.clone();
         let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
             let _ = pinned.hydrate_pins();
+        });
+    }
+    // The last start's access list is fetched in the background, so its files are local before
+    // the agent asks (it stops at the first batch the Mac is away for).
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-replay".into()).spawn(move || {
+            let _ = replaying.replay_prefetch();
+        });
+    }
+    // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
+    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
+    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
+    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
+            cmux_projection::overlay::bulk::lower_priority();
+            let _ = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
         });
     }
     let projected = Arc::new(Projected {

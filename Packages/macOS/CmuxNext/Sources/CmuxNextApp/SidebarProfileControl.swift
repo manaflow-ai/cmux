@@ -60,7 +60,7 @@ import Observation
     func menu(workspace: String?) -> NSMenu {
         let avatar = avatar(workspace: workspace)
         let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)))
-        SidebarAccount.addRows(to: menu, account: account, registry: services.registry)
+        SidebarAccount.addRows(to: menu, account: account, registry: services.registry, backend: services.cloud.configuration.backendLabel)
         return menu
     }
 }

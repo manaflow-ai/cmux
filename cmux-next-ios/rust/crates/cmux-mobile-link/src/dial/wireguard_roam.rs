@@ -161,7 +161,14 @@ async fn join_or_take(
             }
         }
     }
-    super::super::relay::RelayCarrier::join(&plan.endpoint, session_id, peer, plan.ticket.as_deref()).await
+    super::super::relay::RelayRung {
+        endpoint: &plan.endpoint,
+        session_id,
+        peer_device: peer,
+        ticket: plan.ticket.as_deref(),
+    }
+    .join()
+    .await
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
