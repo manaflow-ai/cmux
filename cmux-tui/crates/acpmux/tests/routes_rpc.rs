@@ -318,15 +318,18 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let fresh_overload =
         json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
     let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
+    eprintln!("TEST after overload reply");
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
     // With automatic continuations disabled, the retry mark from the failed
     // turn must not strand the next ordinary prompt behind the quiet restart.
+    eprintln!("TEST before ordinary prompt");
     local
         .ok(
             "session/prompt",
             json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "after fallback"}]}),
         )
         .await;
+    eprintln!("TEST after ordinary prompt");
 
     // A route that cannot start (the local CodeRouter is not running) is
     // refused before the binding changes: the chat stays on proxy A.
