@@ -39,6 +39,8 @@ cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
 cmux-rd-proto.workspace = true
+# The screen stream's rules for Packages/Shared/CmuxVNCWebRTC (src/screen.rs: `screen_json`).
+cmux-rd-screen.workspace = true
 cmux-tab-snapshots.workspace = true
 cmux-terminal-prediction.workspace = true
 cmux-terminal-projection.workspace = true
