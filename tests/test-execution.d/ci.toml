@@ -39,6 +39,11 @@ path = "tests/test_ci_api_workerd_infra_shards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_build_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_build_manifest.py"
+
+[[test]]
 path = "tests/test_ci_app_input_digest.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_input_digest.py"
@@ -297,6 +302,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guard_base_verdicts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
@@ -312,6 +321,10 @@ lane = "linux-guard"
 path = "tests/test_ci_guards_read_through_workflow_jobs.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
+
+[[test]]
+path = "tests/test_ci_head_fail_fast.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_health_report.py"
@@ -383,6 +396,10 @@ reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY
 
 [[test]]
 path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_mac_grants.py"
 lane = "linux-guard"
 
 [[test]]
@@ -494,6 +511,10 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_oops_isolate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_overflow_pick_reads_pool.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
@@ -570,11 +591,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_piece_swap.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_piece_swap.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pool_snapshot_job_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_post_merge_batch.py"
 lane = "linux-guard"
 
 [[test]]
@@ -591,8 +615,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_ran_line.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_pr_ran_line.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
@@ -604,6 +627,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_trigger_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -758,8 +785,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_routed_jobs_check_needs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_router_checkout_mirror.py"
@@ -926,6 +952,10 @@ path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_team_signed_on_branch_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
@@ -957,8 +987,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tooling_steps.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18); linux-guard needs a workflow step that runs the file, and none does. Pins scripts/ci/tooling_steps.py's per-step selection and that every tooling-tests run step in cmux-next-guards.yml is a setup step or carries its tt- id and selection if:; run python3 -m unittest tests/test_ci_tooling_steps.py yourself after changing tooling_steps.py, workflow_paths_cover_inputs.py or a tooling-tests step (about 5 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tooling_tests_batch.py"
@@ -971,6 +1000,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ci_tree_result.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tui_rerun_leg_rereads_pool.py"
 lane = "linux-guard"
 
 [[test]]
