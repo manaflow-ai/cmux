@@ -42,7 +42,7 @@ if [[ -z "$viewer_ip" ]]; then
   # partner= is the host: the probe's ssh leg fails (fleet Macs hold no keys for each other); only its self line counts.
   cmux-ci run "${common[@]}" --target-worker "$viewer_mac" --pin-strict --timeout 900 \
     --arg=mode=probe "--arg=partner=$host_mac" >"$out/probe.log" 2>&1
-  viewer_ip=$(grep -oE "SSVP self $viewer_mac ip=[0-9.]+" "$out/probe.log" | head -1 | sed 's/.*ip=//')
+  viewer_ip=$(grep -oE "SSVP self [^ ]+ ip=[0-9.]+" "$out/probe.log" | head -1 | sed 's/.*ip=//')
 fi
 [[ "$viewer_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] \
   || { echo "launch: no LAN address for $viewer_mac (see $out/probe.log)" >&2; tail -20 "$out/probe.log" >&2; exit 4; }
