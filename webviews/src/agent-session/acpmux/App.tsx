@@ -426,20 +426,20 @@ import {
   closeTurnRuns,
   turnInsideIds,
 } from "./conversation/turns";
-import { PendingAsks } from "./conversation/PendingAsks";
+import { PendingAsks, useLeavingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
   answerState,
-  answeredAsks,
   bottomAsks,
   claimAnswer,
   dismissAsk,
   dismissedAsks,
-  givenAnswer,
   setAnswerState,
+  shownAsks,
+  answeredAsks,
+  givenAnswer,
   subscribeAnswers,
   withAnswered,
-  shownAsks,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { canFork, forksAnyTurn, latestForkSeq, canForkTurn } from "./conversation/messageMenu";
@@ -9984,7 +9984,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     trustOpen || hasPermissionGroups || individualPermission || childAsk || secret || toolCards.length > 0,
   );
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
-  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, trustFold.present);
+  // A pinned ask that leaves (answered, dismissed, settled) folds out on the same clock (PendingAsks.tsx).
+  const pinnedDrawn = useLeavingAsks(pinnedAsks, shownSessionId);
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, trustFold.present || pinnedDrawn.leaving.size > 0);
   const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
@@ -10060,9 +10062,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       /* Its card's tooltips open above it, over the transcript, not over the question (#56534). */
       data-tooltip-escape=""
     >
-      {pinnedAsks.length > 0 && (
+      {pinnedDrawn.asks.length > 0 && (
         <PendingAsks
-          asks={pinnedAsks}
+          asks={pinnedDrawn.asks}
+          leaving={pinnedDrawn.leaving}
+          onFolded={pinnedDrawn.folded}
           onAnswer={turnActions.answer}
           blocked={turnActions.answerBlock}
           registerKey={turnActions.nextStepKey}
