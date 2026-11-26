@@ -353,7 +353,10 @@ def check_verdicts():
                 f"{head}:refs/heads/feat-cmux-next-x-current", f"{base}:refs/heads/feat-cmux-next-x-moved",
                 f"{head}:refs/heads/fix/current")
             git(remote, "update-ref", "refs/heads/lane/moved", base)
-            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}"}
+            # These cases read the open-PR-head rule over git, which vars.CMUX_TUI_BRANCH_ON_REQUEST=0 keeps; the
+            # default build-on-request rule (#53129) asks the dispatch lookup for any branch head
+            # (tests/test_cmux_tui_branch_on_request.py).
+            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}", "CMUX_TUI_BRANCH_ON_REQUEST": "0"}
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
@@ -481,8 +484,12 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
+    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); neither job
+    # enters the routing environment.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+        environment = all_jobs[name].get("environment")
+        environment = environment.get("name") if isinstance(environment, dict) else environment
+        _check("ci-routing-agent" not in str(environment or ""), f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]

@@ -825,9 +825,10 @@ class SnapshotReadToken(unittest.TestCase):
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
     # build-nightly-app mints a read token from it for the unsigned restore, and decide mints a spare read
-    # token from the same read-only routing App.
+    # token from the same read-only routing App; pick-nightly-next-signer mints the same spare read token
+    # for its pick (#56394).
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
-                  "build-nightly-app", "find-nightly-next-recovery"}
+                  "build-nightly-app", "find-nightly-next-recovery", "pick-nightly-next-signer"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:
