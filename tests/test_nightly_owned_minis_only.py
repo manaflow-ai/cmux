@@ -111,6 +111,12 @@ CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-t
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# Post-feed dispatchers that hold App keys (#56483): they take the nightly's own Linux label, exactly the pinned
+# route above, so the keys stay off the nightly mini, and never a hosted or rented runner. job -> why.
+NIGHTLY_LINUX_KEY_JOBS = {
+    "wake-nightly-next-tick": "mints the cmux-bot App token and reads the CI pool keys to dispatch the next tick",
+    "dispatch-published-in": "dispatches the published-in record with wake-nightly-next-tick's App keys",
+}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -190,6 +196,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
         failures = {}
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
+                continue
+            if name in NIGHTLY_LINUX_KEY_JOBS:
+                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
+                    failures[name] = "an App-key dispatcher takes only the nightly's pinned Linux route"
                 continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON

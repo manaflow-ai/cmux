@@ -2018,7 +2018,7 @@ jobs:
   tooling-tests-fail-fast:
     name: head fail-fast after tooling-tests
     needs: tooling-tests
-    if: ${{ failure() && needs.tooling-tests.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.tooling-tests.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next-guards.yml

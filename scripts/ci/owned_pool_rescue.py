@@ -331,10 +331,6 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
         "and a person's re-run lands on Blacksmith",
-    ".github/workflows/cloud-chat-proof.yml":
-        "a manual feat-cmux-next proof: both proof jobs take the owned gui pool (glaeda-gui-std) on attempt 1 while "
-        "CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith macOS 26 label or the declared "
-        "macos_26 pool, so a stuck or refused job ends at its 120-minute timeout and the person re-runs it there",
     ".github/workflows/cloud-rd-link-readback.yml":
         "a manual feat-cmux-next readback: its one job takes the owned side label on attempt 1 while "
         "CI_PR_POOL_OWNED is 1 and the declared macos_26 pool on a re-run, so a stuck or refused job ends at its "
@@ -419,6 +415,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool.
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose

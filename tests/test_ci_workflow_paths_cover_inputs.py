@@ -48,9 +48,6 @@ NAMED_NOT_READ: dict[tuple[str, str], str] = {
     (".github/workflows/ci.yml", "README.ja.md"): (
         "tests/test_ci_linux_guard_routing.py passes the name to the router as a changed path (docs skip the guards)"
     ),
-    (".github/workflows/cmux-next.yml", "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift"): (
-        "tests/test_base_red_excuse.py names it as a pull request's changed path (KitFixedOnBaseGitHub), never opens it"
-    ),
     (".github/workflows/cmux-next.yml", "cmux-next-ios/rust/Cargo.lock"): (
         "tests/test_base_red_excuse.py names it as a pull request's changed path (KitFixedOnBaseGitHub), never opens it"
     ),
