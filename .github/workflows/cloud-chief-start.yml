@@ -35,7 +35,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -56,6 +56,10 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           CC_x86_64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          # This binary only has to run for the check. The shipping profile (fat LTO, one codegen unit)
+          # took 33 min on a Freestyle runner and ran into the job limit (run 45772263280, attempt 2).
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           set -euo pipefail
           (cd cmux-tui && cargo build -p cmux-cloud-api --example cloud_call --locked)
