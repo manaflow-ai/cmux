@@ -166,6 +166,31 @@ class Routes(unittest.TestCase):
                 self.assertTrue(all(run.values()), result.lines())
                 self.assertTrue(result.everything)
 
+    def test_the_label_skips_only_a_job_whose_input_tree_is_the_bases(self):
+        """full-ci on a pull request runs every job whose input tree (result_key) the change gives new files; one with
+        the base's input tree has the base's verdict, which the feat-cmux-next push runs."""
+        def full(head_files, changed):
+            with content_tree(FILES) as base, content_tree(head_files) as tree:
+                result = jobs.route(tree, changed, map_text=MAP, labels=["full-ci"], base_tree=base)
+            return {key[1]: value for key, value in result.run.items()}, result
+        run, result = full(FILES, ["Packages/macOS/X.swift"])  # a Swift-only change: every key is the base's
+        self.assertEqual(run, {"app-tests": False, "app-sim": False, "core-check": False}, result.lines())
+        self.assertFalse(result.everything)
+        self.assertIn("input tree is the base's", result.why[".github/workflows/w.yml", "app-tests"])
+        run, result = full({**FILES, "cmux-tui/crates/sim/src/lib.rs": "changed"}, ["cmux-tui/crates/sim/src/lib.rs"])
+        self.assertEqual(run, {"app-tests": False, "app-sim": True, "core-check": False}, result.lines())
+        # an input the head's graph no longer names (a deleted fixture) still changes the key
+        head = {path: text for path, text in FILES.items() if path != "fixtures/app/x.json"}
+        run, result = full(head, ["fixtures/app/x.json"])
+        self.assertTrue(run["app-tests"] and run["app-sim"], result.lines())
+        run, result = full({**FILES, "cmux-tui/Cargo.lock": "x"}, ["cmux-tui/Cargo.lock"])
+        self.assertTrue(all(run.values()), result.lines())
+        self.assertEqual(result.everything, "the full-ci label")
+        broken = {**FILES, "cmux-tui/crates/app/Cargo.toml": "[package\n"}
+        run, result = full(broken, ["cmux-tui/crates/app/Cargo.toml"])
+        self.assertTrue(all(run.values()), result.lines())
+        self.assertIn("could not be read", result.everything)
+
     def test_a_markdown_file_no_crate_names_runs_nothing(self):
         self.assertFalse(any(route(["cmux-tui/README.md", "cmux-tui/docs/x.md"])[0].values()))
 
