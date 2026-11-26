@@ -405,6 +405,21 @@ jobs:
         run: |
           bash scripts/ci/apt-ensure.sh binutils clang libclang-dev musl-tools pkg-config
 
+      # A pool VM admits a job on 17 GiB free; a fat package leg's per-group targets need about 45, and
+      # the leg ran the VM's disk to zero mid-build (run 45770293904, job 139741483015, "No space left on
+      # device" in the runner's own _diag log). Ask the VM's disk-floor hook for this leg's need before
+      # anything restores into this runner's caches. Never fails the leg. Why: scripts/ci/pool-disk-need.sh
+      - name: Make room for this leg on a pool runner
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          NEED_GIB: ${{ inputs.lto == 'thin' && '20' || '45' }}
+        shell: bash
+        run: |
+          bash scripts/ci/tests/pool-disk-need.test.sh
+          bash scripts/ci/pool-disk-need.sh "$NEED_GIB"
+
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
       # no warm sticky disk, so every leg builds cold: each cargo group
