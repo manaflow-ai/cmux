@@ -168,11 +168,9 @@ impl CursorShapeDelivery {
     /// Step two: whether the link took the prepared message. Returns the id
     /// the telepointers name now.
     pub fn finish(&mut self, delivered: bool) -> Option<String> {
-        if delivered {
-            if let Some(pending) = self.pending.take() {
-                self.sent.needs_send(&pending.id);
-                self.shape = Some(pending.id);
-            }
+        if delivered && let Some(pending) = self.pending.take() {
+            self.sent.needs_send(&pending.id);
+            self.shape = Some(pending.id);
         }
         self.shape.clone()
     }
