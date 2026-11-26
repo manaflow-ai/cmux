@@ -211,6 +211,8 @@ mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
 #[cfg(unix)]
+mod vm_exec_input;
+#[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
