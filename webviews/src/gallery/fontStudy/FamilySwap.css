@@ -7,7 +7,7 @@
   --swap-rule: rgb(0 0 0 / 10%);
   min-height: 100%;
   box-sizing: border-box;
-  padding: 16px 24px 24px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5) var(--ds-space-fixed-5);
   background: var(--swap-bg);
   color: var(--swap-fg);
   -webkit-font-smoothing: antialiased;
@@ -24,10 +24,10 @@
 
 .family-swap-bar {
   display: flex;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
   align-items: baseline;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
+  padding-bottom: var(--ds-space-fixed-3);
+  margin-bottom: var(--ds-space-fixed-3);
   border-bottom: 1px solid var(--swap-rule);
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: var(--text-body);
@@ -60,7 +60,7 @@
 .family-swap-sheet {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px;
-  column-gap: 12px;
+  column-gap: var(--ds-space-fixed-3);
 }
 
 .family-swap-row {

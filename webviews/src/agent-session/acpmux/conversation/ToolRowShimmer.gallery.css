@@ -1,7 +1,7 @@
 .cv-tool-row-shimmer-looks {
   box-sizing: border-box;
   min-width: 0;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   color: var(--cv-text);
 }
 .cv-tool-row-shimmer-looks[data-look="narrow"] .cv-tool {

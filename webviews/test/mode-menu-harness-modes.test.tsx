@@ -13,6 +13,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { designTokenValue } from "./support/gridTokens";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -260,7 +261,8 @@ test("menu rows are tight and the chosen row's check is the theme accent", () =>
     return css.slice(at, css.indexOf("}", at));
   };
   // About 8 pt from the menu's edge to a row's text: the popup's 4 px and the row's 4 px.
-  expect(rule(".ui-menu-item.acpmux-access-item")).toMatch(/padding: 5px 4px;/);
+  expect(designTokenValue("--ds-space-fixed-1")).toBe("4px");
+  expect(rule(".ui-menu-item.acpmux-access-item")).toContain("padding: 5px var(--ds-space-fixed-1);");
   expect(rule(".acpmux-access-item .ui-menu-check")).toMatch(
     /color: var\(--agent-lit-glyph, var\(--agent-accent, var\(--agent-text\)\)\);/,
   );

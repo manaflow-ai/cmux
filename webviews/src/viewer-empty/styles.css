@@ -25,7 +25,7 @@
   justify-content: center;
   align-items: flex-start;
   overflow: auto;
-  padding: max(40px, 13vh) 16px 40px;
+  padding: max(var(--ds-space-fixed-40), 13vh) var(--ds-space-fixed-4) var(--ds-space-fixed-40);
   background: transparent;
   color: var(--ve-fg);
   font: var(--text-body)/1.45 var(--ve-font);

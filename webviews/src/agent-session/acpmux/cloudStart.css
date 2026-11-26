@@ -2,7 +2,7 @@
 .acpmux-cloud-start {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   /* The transcript's own geometry (cmux#55540): the started chat's page takes this view's place, so
      the message and the status line sit where its first rows will. The column and its inset are the
      thread's (`.acpmux-thread`: --cv-inset, 16px above the first row), rows start --cv-lead in (less
@@ -18,7 +18,7 @@
   /* Keep the message, status line and disclosure in the same shell footprint while the
      native handoff swaps this view for the live transcript. */
   min-height: calc(4 * var(--grid-row));
-  margin: 16px 0 0;
+  margin: var(--ds-space-fixed-4) 0 0;
   padding: 0 var(--cv-inset-end, var(--cv-inset, 16px)) 0
     calc(var(--cv-inset, 16px) + var(--cv-lead, 0px) - var(--cv-lead-outset));
   box-sizing: border-box;
@@ -36,9 +36,9 @@
 .acpmux-cloud-start__summary {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
-  padding: 12px 16px;
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-4);
   border: 0;
   color: var(--agent-text);
   background: transparent;
@@ -46,13 +46,13 @@
   text-align: left;
 }
 .acpmux-cloud-start[data-initialized="true"] .acpmux-cloud-start__summary { color: var(--agent-muted); }
-.acpmux-cloud-start__details { padding: 4px 16px 12px; }
+.acpmux-cloud-start__details { padding: var(--ds-space-fixed-1) var(--ds-space-fixed-4) var(--ds-space-fixed-3); }
 .acpmux-cloud-start__checklist { padding: 0; }
 /* Each step is one icon column (a spinner, a check, a muted dot), then its name, at the summary's
    16 px inset. The state words are for screen readers only: the agent pane does not load the
    pages' global .visually-hidden, so the card hides them itself, or they draw in the 16 px icon
    column and overlap the names ("In progress" over "Set up a Cloud machine", Leo 2026-11-02). */
-.acpmux-cloud-start__row { display: grid; grid-template-columns: 16px minmax(0, max-content) max-content 1fr; align-items: start; column-gap: 8px; min-height: 28px; line-height: 20px; color: var(--agent-text); }
+.acpmux-cloud-start__row { display: grid; grid-template-columns: 16px minmax(0, max-content) max-content 1fr; align-items: start; column-gap: var(--ds-space-fixed-2); min-height: 28px; line-height: 20px; color: var(--agent-text); }
 .acpmux-cloud-start__row-label { min-width: 0; overflow-wrap: anywhere; }
 /* The words sit in the mark (position: relative), clipped to nothing; no 1 px box, as in
    modelPicker.css's .sr-only (the design-token check allows no 1 px height). */
@@ -65,15 +65,15 @@
 .acpmux-cloud-start__skip-mark { display: block; width: 14px; aspect-ratio: 1; margin: 2px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .55; position: relative; }
 .acpmux-cloud-start__skip-mark::after { content: ""; position: absolute; left: 1px; top: 6px; width: 11px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
 .acpmux-cloud-start__pending-mark { display: block; width: 6px; aspect-ratio: 1; margin: 6px; border-radius: 50%; background: currentColor; opacity: .25; }
-.acpmux-cloud-start__time { margin-left: 4px; color: var(--agent-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acpmux-cloud-start__time { margin-left: var(--ds-space-fixed-1); color: var(--agent-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acpmux-cloud-start__detail { grid-column: 2 / -1; margin: -3px 0 5px; color: var(--agent-muted); line-height: 1.35; }
 .acpmux-cloud-start__log-tail { white-space: pre-wrap; font-family: var(--font-mono, ui-monospace); font-size: .9em; }
 .acpmux-cloud-start__link { padding: 0; border: 0; color: var(--agent-link, #60a5fa); background: none; font: inherit; text-decoration: underline; }
 .acpmux-cloud-start__status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--ds-space-fixed-2);
+  margin-top: var(--ds-space-fixed-1);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   letter-spacing: normal;
@@ -82,10 +82,10 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
 }
 .acpmux-cloud-start__sign-in {
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border: 1px solid color-mix(in srgb, var(--agent-link, #60a5fa) 60%, transparent);
   border-radius: 6px;
   color: var(--agent-link, #60a5fa);
@@ -100,7 +100,7 @@
 .acpmux-cloud-start__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -108,10 +108,10 @@
 .acpmux-cloud-start__chips li {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: 100%;
   min-height: 20px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 4px;
   background: var(--ds-surface-inset);
   font-variant-numeric: tabular-nums;
@@ -124,7 +124,7 @@
 }
 /* The steps arm: the facts as one quiet line, no chip fill. */
 .acpmux-cloud-start__chips[data-look="steps"] li {
-  padding: 0 8px 0 0;
+  padding: 0 var(--ds-space-fixed-2) 0 0;
   background: none;
 }
 .acpmux-cloud-start__label {
@@ -133,8 +133,8 @@
 .acpmux-cloud-start__rows {
   display: grid;
   grid-template-columns: max-content 1fr;
-  column-gap: 12px;
-  row-gap: 4px;
+  column-gap: var(--ds-space-fixed-3);
+  row-gap: var(--ds-space-fixed-1);
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -148,7 +148,7 @@
 .acpmux-cloud-start__steps {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -156,7 +156,7 @@
 .acpmux-cloud-start__steps li {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .acpmux-cloud-start__steps li[data-step="current"] {
   color: var(--agent-text);
@@ -173,7 +173,7 @@
 }
 /* Over the New Tab page's box: no bubble (the message is in the box), no column margin. */
 .nt-composer .acpmux-cloud-start {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   padding: 0;
 }
 /* A start's question (CloudStartAsk.tsx) in its row: the row opens from no height to the question's
@@ -184,7 +184,7 @@
 .acpmux-cloud-ask-row {
   display: grid;
   grid-template-rows: 0fr;
-  margin-top: -8px;
+  margin-top: calc(-1 * var(--ds-space-fixed-2));
   opacity: 0;
   transition:
     grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
@@ -202,15 +202,15 @@
   border: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
+  gap: var(--ds-space-fixed-1);
+  margin-top: var(--ds-space-fixed-2);
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
 .acpmux-cloud-ask__title { font-weight: 600; }
 .acpmux-cloud-ask__line { color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
-.acpmux-cloud-ask__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.acpmux-cloud-ask__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-fixed-2); margin-top: var(--ds-space-fixed-1); }
 .acpmux-cloud-ask__button {
   min-height: var(--ds-control-row);
   padding: var(--ds-space-1) var(--ds-space-2);
@@ -226,7 +226,7 @@
 .acpmux-cloud-ask__button:disabled { opacity: .55; }
 /* A folder too big to copy (CloudStartView `TooBigActions`): the repositories inside it, one click each, then
    another folder or none. The ask's own buttons and caption; repository names in the mono face, cut at the end. */
-.acpmux-cloud-too-big { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.acpmux-cloud-too-big { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); margin-top: var(--ds-space-fixed-1); }
 .acpmux-cloud-too-big__label { color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
 /* The repositories scroll inside at most four rows (a short pane keeps "Pick a folder" and "Start without a folder",
    which sit outside the list, in view); the padding keeps a focus ring off the scroll edge. */
@@ -236,40 +236,40 @@
   overflow-y: auto; overscroll-behavior: contain;
 }
 .acpmux-cloud-too-big__repo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace); }
-.acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
+.acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: var(--ds-space-fixed-2); }
 .acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
 /* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */
-.acpmux-cloud-ask[data-look="sheet"] { padding: 12px 16px; border-radius: var(--ds-radius-popup); }
+.acpmux-cloud-ask[data-look="sheet"] { padding: var(--ds-space-fixed-3) var(--ds-space-fixed-4); border-radius: var(--ds-radius-popup); }
 /* `banner`: the title and the buttons on one line, the body under it. */
-.acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-fixed-2); }
 .acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }
 /* The quiet start's stage line (CloudStartView.tsx StageLine): the live line's look, then the usual
    wait in its dim ink. `stacked` puts the wait on its own line under the words; `hint` draws one thin
    segment per stage under the line, the current one in the accent. */
-.acpmux-cloud-start__stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acpmux-cloud-start__stage { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); min-width: 0; }
 .acpmux-cloud-start__stage .cv-worked { min-width: 0; }
 /* In a narrow pane the stage keeps its words and the wait gives way, ending in an ellipsis. */
 .acpmux-cloud-start__stage .cv-shimmer__row { flex-shrink: 0; }
 .acpmux-cloud-start__stage .acpmux-cloud-start__progress { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .acpmux-cloud-start__progress > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-cloud-start__progress-line { color: var(--cv-text-dim, var(--agent-muted)); }
-.acpmux-cloud-start__hint { display: flex; gap: 4px; width: 120px; }
+.acpmux-cloud-start__hint { display: flex; gap: var(--ds-space-fixed-1); width: 120px; }
 .acpmux-cloud-start__hint > span { flex: 1; height: 0; border-top: 2px solid color-mix(in srgb, var(--agent-muted) 30%, transparent); transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out); }
 .acpmux-cloud-start__hint > span[data-step="done"] { border-top-color: color-mix(in srgb, var(--agent-muted) 70%, transparent); }
 .acpmux-cloud-start__hint > span[data-step="current"] { border-top-color: var(--agent-accent, #4ade80); }
 /* "This team has no Cloud plan" (CloudStartView PlanTeamRefusal): the title, the team picked in the
    team menu, and the way on. A final state: no spinner, no Retry. */
-.acpmux-cloud-plan-team { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-.acpmux-cloud-plan-team__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--agent-danger, currentColor); }
+.acpmux-cloud-plan-team { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); margin-top: var(--ds-space-fixed-1); }
+.acpmux-cloud-plan-team__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-fixed-2); color: var(--agent-danger, currentColor); }
 .acpmux-cloud-plan-team__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plan-team__team { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plan-team[data-look="banner"] .acpmux-cloud-plan-team__actions { margin-top: 0; margin-left: auto; }
-.acpmux-cloud-plan-team[data-look="card"] { margin-top: 8px; }
+.acpmux-cloud-plan-team[data-look="card"] { margin-top: var(--ds-space-fixed-2); }
 /* The pricing card's plans (CloudStartView PlanCard): the plans side by side, one under the other in a narrow
    pane. Each is the ask's title, a muted price and line, and its Subscribe, inside the ask button's border. */
 .acpmux-cloud-plans {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--ds-space-2);
-  margin: 4px 0 0; padding: 0; list-style: none;
+  margin: var(--ds-space-fixed-1) 0 0; padding: 0; list-style: none;
 }
 .acpmux-cloud-plans__plan {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--grid-half-step); min-width: 0;
@@ -281,7 +281,7 @@
 .acpmux-cloud-plans__price { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plans__plan .acpmux-cloud-ask__button { margin-top: var(--ds-space-1); }
 /* Set up Cloud (conversation/CloudSetupCard.tsx): Cloud first use, under the message. */
-.acpmux-cloud-setup { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.acpmux-cloud-setup { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); margin-top: var(--ds-space-fixed-1); }
 .acpmux-cloud-setup__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__body { margin: 0; color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__actions { flex-wrap: wrap; }

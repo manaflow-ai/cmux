@@ -18,10 +18,10 @@
   display: inline-flex;
   align-items: center;
   flex: none;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 24px;
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: 6px;
   background: none;
@@ -124,7 +124,7 @@
   bottom: 8px;
   width: 24px;
   aspect-ratio: 3 / 2;
-  margin-left: -12px;
+  margin-left: calc(-1 * var(--ds-space-fixed-3));
   overflow: visible;
   pointer-events: none;
   opacity: 0;
@@ -187,7 +187,7 @@
 }
 
 .acpmux-hybrid-label { line-height: 1; }
-.acpmux-hybrid-toggle[data-form="icon"] { padding: 0 4px; }
+.acpmux-hybrid-toggle[data-form="icon"] { padding: 0 var(--ds-space-fixed-1); }
 
 /* Session Info's rows (SessionInfoCloud.tsx). */
 .acpmux-hybrid-row__count {
@@ -197,7 +197,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
-.acpmux-hybrid-row__count + .acpmux-session-info-switch__input { margin-inline-start: 8px; }
+.acpmux-hybrid-row__count + .acpmux-session-info-switch__input { margin-inline-start: var(--ds-space-fixed-2); }
 .acpmux-hybrid-row .acpmux-hybrid-toggle { margin-inline-start: auto; }
 /* Runs On: a whole-row menu trigger, as the list's other action rows; open, it keeps their hover
    fill. Its value is the row's muted end (sessionInfo.css .acpmux-session-info-row__end). */
@@ -237,7 +237,7 @@
   height: 24px;
   color: var(--agent-muted);
 }
-.acpmux-hybrid-tri__segment { padding: 0 4px; }
+.acpmux-hybrid-tri__segment { padding: 0 var(--ds-space-fixed-1); }
 .acpmux-hybrid-tri__glyph { display: block; overflow: visible; }
 .acpmux-hybrid-tri__glyph path {
   fill: none;
@@ -268,10 +268,10 @@
 :is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
   animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
 }
-.acpmux-hybrid-tri__name { margin-inline-start: 4px; color: var(--agent-text); }
+.acpmux-hybrid-tri__name { margin-inline-start: var(--ds-space-fixed-1); color: var(--agent-text); }
 /* Where the chat runs now, after the name: quieter than the name, cut before the name is. */
 .acpmux-hybrid-tri__where { color: var(--agent-text-muted); }
-.acpmux-hybrid-tri__where::before { content: "\00b7"; margin-inline: 4px; }
+.acpmux-hybrid-tri__where::before { content: "\00b7"; margin-inline: var(--ds-space-fixed-1); }
 :root[data-cmux-motion="reduced"] .acpmux-hybrid-tri__glyph,
 :root[data-cmux-motion="off"] .acpmux-hybrid-tri__glyph { animation: none; }
 @media (prefers-reduced-motion: reduce) {
@@ -307,16 +307,16 @@ button.acpmux-hybrid-tri__name {
 
 /* The name as the slot holders' menu button (every slot taken): a quiet chevron after it. */
 .acpmux-hybrid-tri__chevron {
-  margin-inline-start: 4px;
+  margin-inline-start: var(--ds-space-fixed-1);
   color: var(--agent-muted);
   line-height: 1;
 }
 .acpmux-hybrid-holder {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
-  padding-block: 4px;
+  padding-block: var(--ds-space-fixed-1);
 }
 .acpmux-hybrid-holder__title {
   overflow: hidden;
