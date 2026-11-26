@@ -49,6 +49,14 @@ SSH_PEER_PORT_DEFAULT = 47811
 NOSTAT = (0, 0, 0, "")
 
 
+def scratch_dir(prefix):
+    """Create a run-owned scratch directory, optionally below PEERCOST_TMPDIR."""
+    root = os.environ.get("PEERCOST_TMPDIR")
+    if root:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=root)
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -282,7 +290,7 @@ def peers_up(fleet):
 
 
 def cold_start(acpmux, peers, secs, style, keep):
-    tmp = tempfile.mkdtemp(prefix="peercost-")
+    tmp = scratch_dir("peercost-")
     fleet = Fleet(acpmux, tmp, peers, style)
     try:
         fleet.start_far()
@@ -343,6 +351,10 @@ def cold_start(acpmux, peers, secs, style, keep):
             "ssh_master_rss_mb_median": mb(statistics.median(mrss)) if mrss else None,
             "loadavg1_at_end": float(open("/proc/loadavg").read().split()[0]),
             "peers_up_at_end": n_up, "all_peers_up_s": all_up_at,
+            # A comparison row is valid only when every requested peer actually connected.
+            # A lazy-connect build may intentionally report zero here, but that must never be
+            # published as a successful cold-start comparison.
+            "comparison_valid": not peers or n_up == peers,
             "series_s_ssh_up": series[:: max(1, len(series) // 20)], "peer_row_shape": sample_row,
         }
         if keep:
@@ -360,25 +372,39 @@ def timed_ssh(argv, hold=False, payload=b""):
     t = time.monotonic()
     pr = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     rss = None
-    if hold:
-        time.sleep(1.5)  # the login is done and the channel to the far port is open; nothing is sent
-        rss = rss_kb(pr.pid)
-        wall = time.monotonic() - t
-    elif payload:
-        pr.stdin.write(payload)
-        pr.stdin.flush()
-        pr.stdout.read1(1)
-        wall = time.monotonic() - t
-    else:
-        pr.stdout.read()
-        wall = time.monotonic() - t
     try:
-        pr.stdin.close()
-    except OSError:
-        pass
-    _, _, ru = os.wait4(pr.pid, 0)
-    pr.returncode = 0
-    return wall, ru.ru_utime + ru.ru_stime, rss, ru.ru_utime
+        if hold:
+            time.sleep(1.5)  # the login is done and the channel to the far port is open; nothing is sent
+            if pr.poll() is not None:
+                raise RuntimeError(f"ssh exited before hold sample (status {pr.returncode})")
+            rss = rss_kb(pr.pid)
+            wall = time.monotonic() - t
+        elif payload:
+            pr.stdin.write(payload)
+            pr.stdin.flush()
+            if not pr.stdout.read1(1):
+                raise RuntimeError("ssh tunnel produced no response")
+            wall = time.monotonic() - t
+        else:
+            pr.stdout.read()
+            wall = time.monotonic() - t
+        try:
+            pr.stdin.close()
+        except OSError:
+            pass
+        status, _, ru = os.wait4(pr.pid, 0)
+        pr.returncode = os.waitstatus_to_exitcode(status)
+        if pr.returncode != 0:
+            raise RuntimeError(f"ssh exited with status {pr.returncode}")
+        return wall, ru.ru_utime + ru.ru_stime, rss, ru.ru_utime
+    except BaseException:
+        if pr.poll() is None:
+            pr.kill()
+        try:
+            pr.wait()
+        except OSError:
+            pass
+        raise
 
 
 def phases(argv):
@@ -417,7 +443,7 @@ def with_opts(argv, extra):
 
 
 def handshake(acpmux, reps, style, real_host, keep):
-    tmp = tempfile.mkdtemp(prefix="peercost-hs-")
+    tmp = scratch_dir("peercost-hs-")
     fleet = Fleet(acpmux, tmp, 1, style)
     try:
         fleet.start_far()
@@ -436,9 +462,15 @@ def handshake(acpmux, reps, style, real_host, keep):
         def batch(label, make, payload, first, extra=()):
             """A fresh alias per rep: each login is a first dial (its own key exchange, its own master)."""
             sshd0 = sshd_cpu()
+            masters_before = set()
+            if style == "fleet":
+                masters_before = {p for p in fleet.ours(children_map())
+                                  if (stat_of(p) or NOSTAT)[3] == "ssh"}
             rows = [timed_ssh(with_opts(make(f"peer{first + i:03d}"), extra), payload=payload) for i in range(reps)]
             time.sleep(0.5)
-            masters = [p for p in fleet.ours(children_map()) if (stat_of(p) or NOSTAT)[3] == "ssh"] if style == "fleet" else []
+            masters = ([p for p in fleet.ours(children_map())
+                        if (stat_of(p) or NOSTAT)[3] == "ssh" and p not in masters_before]
+                       if style == "fleet" else [])
             cpu = [r[1] for r in rows]
             out[label] = {"client_cpu_ms_median": round(statistics.median(cpu) * 1000, 1),
                           "client_cpu_ms_mean": round(statistics.mean(cpu) * 1000, 1),
@@ -501,10 +533,12 @@ def main():
         return result[name]
 
     if a.mode in ("cold-start", "both"):
-        base = stage("cold_start_baseline_0_peers", cold_start, a.acpmux, 0, min(a.secs, 15), "plain", a.keep)
+        # Baseline and peer run cover the same window. Subtracting a short baseline from a
+        # 60-second measurement would charge the final 45 seconds of daemon idle work to peers.
+        base = stage("cold_start_baseline_0_peers", cold_start, a.acpmux, 0, a.secs, "plain", a.keep)
         for st in styles:
             r = stage(f"cold_start_{st}", cold_start, a.acpmux, a.peers, a.secs, st, a.keep)
-            if a.peers and "error" not in r and "error" not in base:
+            if a.peers and "error" not in r and "error" not in base and r.get("comparison_valid"):
                 r["per_peer"] = {
                     "total_cpu_ms": round((r["total_cpu_s_near"] - base["total_cpu_s_near"]) / a.peers * 1000, 1),
                     "daemon_own_cpu_ms": round((r["daemon_own_cpu_s"] - base["daemon_own_cpu_s"]) / a.peers * 1000, 1),
@@ -516,7 +550,7 @@ def main():
     rows = []
     for st in styles:
         cs = result.get(f"cold_start_{st}")
-        if cs and "error" not in cs:
+        if cs and "error" not in cs and cs.get("comparison_valid"):
             for k in ("ssh_spawned", "peak_concurrent_ssh", "peak_processes_of_the_run", "total_cpu_s_near",
                       "daemon_rss_mb_peak", "ssh_tunnel_rss_mb_median"):
                 rows.append({"name": f"acpmux.peer_cost.{st}.{k}", "value": cs[k], "peers": cs["peers"]})

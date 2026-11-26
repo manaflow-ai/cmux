@@ -20,6 +20,9 @@ for arg in "$@"; do
   esac
 done
 root="$(git rev-parse --show-toplevel)"
+run_tmp="$(mktemp -d "${TMPDIR:-/tmp}/peercost-run.XXXXXX")"
+trap 'rm -rf "$run_tmp"' EXIT
+export PEERCOST_TMPDIR="$run_tmp"
 command -v cargo >/dev/null || "$root/scripts/install-rust-ci.sh"
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 # sshd: the fake fleet's far side (installed, never started as a service: the harness runs its own, unprivileged).
@@ -36,10 +39,13 @@ set +e
 python3 scripts/measure/peer-cost.py "$mode" --acpmux "$target/release/acpmux" --peers "$peers" --secs "$secs" --reps "$reps" --style "$style" \
   --keep ${out:+--out "$out/peer-cost.json"} 2>&1 | tee "${out:-/dev/null}${out:+/peer-cost.txt}"
 rc=${PIPESTATUS[0]}
-# --keep left the scratch directory: its logs say why a run failed (the far side's stderr, ssh's spawn log).
-for d in /tmp/peercost-*; do
-  [[ -d "$d" ]] || continue
-  [[ -n "$out" ]] && mkdir -p "$out/scratch/${d##*/}" && cp "$d"/*.err "$d"/ssh.log "$out/scratch/${d##*/}/" 2>/dev/null
-  rm -rf "$d"
-done
+# --keep left the scratch directories inside this invocation's private parent. Copy retained
+# diagnostics before the trap removes that parent. A run never deletes another invocation's files.
+if [[ -n "$out" ]]; then
+  for d in "$run_tmp"/*; do
+    [[ -d "$d" ]] || continue
+    mkdir -p "$out/scratch/${d##*/}"
+    cp "$d"/*.err "$d"/ssh.log "$out/scratch/${d##*/}/" 2>/dev/null || true
+  done
+fi
 exit "$rc"
