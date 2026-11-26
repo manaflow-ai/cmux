@@ -490,14 +490,17 @@ final class CEFOffscreenHosting {
     private func page(for browser: Int32, calls: CEFOffscreenShim) -> CEFOffscreenPageView {
         if let page = pages[browser] { return page }
         let made = CEFOffscreenPageView(browser: browser, calls: calls)
-        if let view {
-            made.frame = CEFInTreePageView.wholePointFrame(in: view.bounds, flipped: view.isFlipped)
-            // Below every other subview of the host (the tracker's probe), as an in-tree page is.
-            view.addSubview(made, positioned: .below, relativeTo: nil)
-        }
         made.isHidden = shown != nil && shown != browser
+        // Registered before it takes its size: Chromium reads the view rect inside WasResized (GetViewRect), and an
+        // unregistered page answers 1 x 1, which Chromium kept until the pane next resized.
         pages[browser] = made
         CEFRuntime.shared.offscreenPages.register(made)
+        if let view {
+            // Below every other subview of the host (the tracker's probe), as an in-tree page is; in the window first,
+            // so its pixel size is the window's backing scale.
+            view.addSubview(made, positioned: .below, relativeTo: nil)
+            made.frame = CEFInTreePageView.wholePointFrame(in: view.bounds, flipped: view.isFlipped)
+        }
         return made
     }
 }
@@ -626,6 +629,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
             content.contentsScale = backingScale
             popupLayer.contentsScale = backingScale
             calls.screenInfoChanged(browser)
+            calls.wasResized(browser)
         }
         updateHidden()
     }
