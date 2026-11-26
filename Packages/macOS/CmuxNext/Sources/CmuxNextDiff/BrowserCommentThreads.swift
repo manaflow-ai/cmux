@@ -2,7 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextBrowserCore
 public import CmuxNextSettings
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// A design mode comment on a browser page as the session host keeps it (`diff-comments-threads-v1`,
 /// `surface: "browser"`): the page, the picked element and what the person wrote.
