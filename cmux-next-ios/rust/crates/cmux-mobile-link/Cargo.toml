@@ -22,8 +22,10 @@ async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
 cmux-braid-carrier.workspace = true
+cmux-braid-class.workspace = true
 cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
+cmux-bundle.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 # The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
