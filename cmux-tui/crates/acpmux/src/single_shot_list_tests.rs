@@ -26,7 +26,7 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`Client::whole_list` itself: each later page from its cursor",
     ),
     (
-        "cmux-tui/crates/acpmux/src/peer_runtime_io.rs",
+        "cmux-tui/crates/acpmux/src/peer_link_serve.rs",
         "method::MUX_WATCH",
         1,
         "`watch_pages`: the link's watch, its cursor followed page by page",
@@ -172,7 +172,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("peer.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
-    ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
+    ("peer_link_serve.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
     ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions` and its test; no caller"),
     // Row 7b part one's callers, moved to `cli/list_read.rs`: each v1 read is the fallback for a
