@@ -5,8 +5,8 @@
 
 use cmux_cloud_machine::record::{self, Machine, Operation, Status};
 use cmux_cloud_machine::{
-    cap, changes, error, github, harness_copy, limits, list_facts, models, preview, push, rules,
-    vm_host,
+    cap, changes, error, github, github_setup, harness_copy, limits, list_facts, models, preview,
+    push, rules, vm_host,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -364,6 +364,46 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({"path": github::path(&request.team)})
+        }
+        // Set Up GitHub on This Machine: the Mac's git identity checked, the exec's one script,
+        // and the machine's answer read (outcome, fallback reason and `action.run`'s result).
+        b"cloud_model_github_setup_validate" => {
+            let request: github_setup::GitIdentity = read(request)?;
+            match github_setup::validated(&request) {
+                Ok(identity) => json!({"identity": identity}),
+                Err(github_setup::Unsafe) => json!({"refused": "unsafe"}),
+            }
+        }
+        b"cloud_model_github_setup_command" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                identity: github_setup::GitIdentity,
+                #[serde(default)]
+                app: bool,
+            }
+            let request: Request = read(request)?;
+            json!({
+                "command": github_setup::command(&request.identity, request.app),
+                "timeoutMs": github_setup::TIMEOUT_MS,
+            })
+        }
+        b"cloud_model_github_setup_read" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                exit_code: i64,
+                #[serde(default)]
+                stdout: String,
+                app: github_setup::App,
+                #[serde(default)]
+                identity: github_setup::GitIdentity,
+            }
+            let request: Request = read(request)?;
+            let outcome = github_setup::parse(request.exit_code, &request.stdout);
+            let fallback = github_setup::fallback(request.app, &outcome);
+            let fields = github_setup::fields(&outcome, &request.identity, fallback);
+            json!({"outcome": outcome, "ok": outcome.ok(), "fallback": fallback, "fields": fields})
         }
         b"cloud_model_harness_copy_current" => {
             #[derive(Deserialize)]
