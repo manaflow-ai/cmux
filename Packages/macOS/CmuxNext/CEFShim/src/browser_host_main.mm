@@ -17,6 +17,16 @@
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
 //          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
 // EOF on fd 3 (cmux quit or crashed) closes the page and ends the host.
+//
+// --remote-cocoa (fork API 37, in-tree pages approach 4): no layer hosting
+// and no forwarded input. The host listens for cmux's remote_cocoa connection
+// (cmux_rc_host_listen; only its parent, cmux, may connect) and sends cmux the
+// bootstrap name; once cmux connected and named its view (kAttach), the
+// page's own WebContentsViewCocoa and RenderWidgetHostViewCocoa are made in
+// cmux's process inside that view (cmux_browser_set_remote_cocoa_hosting),
+// as Chrome's PWA app shims get theirs. Input, IME, cursor, drag and the
+// page's pixels (its compositor's CALayerHost) are then Chromium's own Cocoa
+// code in cmux; this process sees them over mojo.
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
@@ -37,6 +47,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_keyboard_handler.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_library_loader.h"
 
@@ -86,6 +97,14 @@ bool g_hosting_scheduled = false;
 std::vector<uint32_t> g_hop_us;
 int g_refused_frames = 0;
 
+// Remote Cocoa (--remote-cocoa, fork API 37).
+bool g_remote = false;
+uint64_t g_remote_view = 0;
+bool g_remote_attached = false;
+int (*g_rc_listen)(int, void (*)(int, void*), void*, char*, int) = nullptr;
+int (*g_rc_connected)() = nullptr;
+int (*g_set_remote_hosting)(int, uint64_t) = nullptr;
+
 void Send(cmux_host::Header h, const std::string& payload = std::string()) {
   if (g_to_cmux < 0) return;
   h.payload = static_cast<uint32_t>(std::min<size_t>(payload.size(), cmux_host::kMaxPayload));
@@ -123,13 +142,26 @@ void TryHosting();
 // no compositor view in the page window yet, and calling it inside the
 // tracker's own update would re-enter that update.
 void ScheduleHosting() {
-  if (g_context || g_hosting_scheduled || !g_browser) return;
+  if (g_remote ? g_remote_attached : g_context != 0) return;
+  if (g_hosting_scheduled || !g_browser) return;
   g_hosting_scheduled = true;
   CefPostTask(TID_UI, base::BindOnce(&TryHosting));
 }
 
 void TryHosting() {
   g_hosting_scheduled = false;
+  if (g_remote) {
+    // The fork refuses until cmux connected and Chromium made the page's
+    // views::WebView; the next tracker read, load state or attach asks again.
+    if (g_remote_attached || !g_browser || !g_remote_view || !g_rc_connected()) return;
+    if (!g_set_remote_hosting(g_browser->GetIdentifier(), g_remote_view)) return;
+    g_remote_attached = true;
+    cmux_host::Header h;
+    h.kind = cmux_host::kRemoteAttached;
+    h.v[0] = 1;
+    Send(h);
+    return;
+  }
   if (g_context || !g_browser || !g_set_layer_hosting) return;
   uint32_t id = g_set_layer_hosting(g_browser->GetIdentifier(), 1);
   if (!id) return;  // the next tracker read, load state or geometry asks again
@@ -192,9 +224,37 @@ void PlaceWindow() {
   }
 }
 
+// cef_event_flags_t as NSEventModifierFlags.
+uint64_t NSFlags(uint32_t flags) {
+  uint64_t ns = 0;
+  if (flags & EVENTFLAG_CAPS_LOCK_ON) ns |= NSEventModifierFlagCapsLock;
+  if (flags & EVENTFLAG_SHIFT_DOWN) ns |= NSEventModifierFlagShift;
+  if (flags & EVENTFLAG_CONTROL_DOWN) ns |= NSEventModifierFlagControl;
+  if (flags & EVENTFLAG_ALT_DOWN) ns |= NSEventModifierFlagOption;
+  if (flags & EVENTFLAG_COMMAND_DOWN) ns |= NSEventModifierFlagCommand;
+  if (flags & EVENTFLAG_IS_KEY_PAD) ns |= NSEventModifierFlagNumericPad;
+  return ns;
+}
+
 class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler, public CefLoadHandler,
-               public CefRequestHandler {
+               public CefRequestHandler, public CefKeyboardHandler {
  public:
+  CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+  // Remote Cocoa: a Command chord the page did not handle reached this
+  // process (the page's view is cmux's, but the unhandled event comes back to
+  // the browser process); cmux gives it to its own main menu.
+  bool OnKeyEvent(CefRefPtr<CefBrowser>, const CefKeyEvent& event, CefEventHandle) override {
+    if (!g_remote || event.type != KEYEVENT_RAWKEYDOWN || !(event.modifiers & EVENTFLAG_COMMAND_DOWN)) return false;
+    cmux_host::Header h;
+    h.kind = cmux_host::kUnhandledKey;
+    h.v[0] = event.native_key_code;
+    h.flags = NSFlags(event.modifiers);
+    h.ch = static_cast<uint16_t>(event.character);
+    h.unmod = static_cast<uint16_t>(event.unmodified_character);
+    h.t0 = Now();
+    Send(h);
+    return false;
+  }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -379,11 +439,31 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
     case cmux_host::kMouse:
     case cmux_host::kWheel:
     case cmux_host::kKey:
-      if (g_browser) HandleInput(h);
+      if (g_browser && !g_remote) HandleInput(h);
       break;
     case cmux_host::kFocus:
-      if (g_browser) g_browser->GetHost()->SetFocus(h.v[0] != 0);
+      // Remote Cocoa: focus is the page's own view's in cmux's window (over mojo).
+      if (g_browser && !g_remote) g_browser->GetHost()->SetFocus(h.v[0] != 0);
       break;
+    case cmux_host::kAttach: {
+      if (!g_remote) {
+        ++g_refused_frames;
+        break;
+      }
+      const uint64_t view = static_cast<uint64_t>(static_cast<uint32_t>(h.v[0])) |
+                            (static_cast<uint64_t>(static_cast<uint32_t>(h.v[1])) << 32);
+      if (view == g_remote_view) break;
+      if (g_remote_attached && g_browser) {
+        g_set_remote_hosting(g_browser->GetIdentifier(), 0);
+        g_remote_attached = false;
+        cmux_host::Header gone;
+        gone.kind = cmux_host::kRemoteAttached;
+        Send(gone);
+      }
+      g_remote_view = view;
+      ScheduleHosting();
+      break;
+    }
     case cmux_host::kEdit:
       if (g_browser) {
         CefRefPtr<CefFrame> frame = g_browser->GetFocusedFrame();
@@ -444,6 +524,22 @@ void ReadWire(int fd) {
   CefPostTask(TID_UI, base::BindOnce(&CloseHost));
 }
 
+// UI thread (cmux_rc_host_listen): cmux's remote_cocoa connection came or went.
+void OnRemoteState(int connected, void*) {
+  if (connected) {
+    ScheduleHosting();
+    return;
+  }
+  // The views cmux had are gone with the connection; a new connection
+  // attaches the page again.
+  if (g_remote_attached) {
+    g_remote_attached = false;
+    cmux_host::Header h;
+    h.kind = cmux_host::kRemoteAttached;
+    Send(h);
+  }
+}
+
 class App : public CefApp, public CefBrowserProcessHandler {
  public:
   explicit App(std::vector<std::string> switches) : switches_(std::move(switches)) {}
@@ -467,6 +563,15 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.v[0] = g_fork_api;
     ready.v[1] = static_cast<int32_t>(getpid());
     Send(ready);
+    if (g_remote) {
+      // Only cmux (this process's parent, which started it) may connect.
+      char name[512] = {0};
+      if (g_rc_listen(static_cast<int>(getppid()), &OnRemoteState, nullptr, name, sizeof name)) {
+        SendText(cmux_host::kRemoteServer, name);
+      } else {
+        SendText(cmux_host::kError, "cmux_rc_host_listen refused");
+      }
+    }
     std::thread(ReadWire, kFromCmux).detach();
   }
 
@@ -493,6 +598,7 @@ int main(int argc, char* argv[]) {
   std::vector<std::string> switches;
   for (const std::string& arg : args) {
     if (arg.rfind("--cef-switch=", 0) == 0) switches.push_back(arg.substr(13));
+    if (arg == "--remote-cocoa") g_remote = true;
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
@@ -513,6 +619,18 @@ int main(int argc, char* argv[]) {
   if (g_fork_api < 26 || !g_set_layer_hosting) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " has no layer hosting (needs 26)");
     return 66;
+  }
+  if (g_remote) {
+    g_rc_listen = reinterpret_cast<int (*)(int, void (*)(int, void*), void*, char*, int)>(
+        dlsym(RTLD_DEFAULT, "cmux_rc_host_listen"));
+    g_rc_connected = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_rc_host_connected"));
+    g_set_remote_hosting =
+        reinterpret_cast<int (*)(int, uint64_t)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_remote_cocoa_hosting"));
+    if (g_fork_api < 37 || !g_rc_listen || !g_rc_connected || !g_set_remote_hosting) {
+      SendText(cmux_host::kError,
+               "Chromium fork API " + std::to_string(g_fork_api) + " has no remote Cocoa pages (needs 37)");
+      return 68;
+    }
   }
 
   const std::string root = Arg(args, "root-cache");

@@ -40,6 +40,18 @@ public final class ChromiumHostSession {
     public private(set) var lastError: String?
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
+    /// Remote Cocoa (fork API 37): the page's own views live in ``view`` (``ChromiumRemoteCocoaClient``).
+    public let remoteCocoa: Bool
+    /// Remote Cocoa: the id ``view`` is registered under, the connection to the running host, and whether the
+    /// page's views are in ``view``.
+    public private(set) var remoteViewID: UInt64 = 0
+    public private(set) var remoteConnection: Int32 = 0
+    public private(set) var remoteAttached = false
+    /// Remote Cocoa: from the host's start to its `ready`, to cmux's connect, and to the page's views in ``view``.
+    public private(set) var startTimings: [String: Double] = [:]
+    /// Remote Cocoa: Command chords the page did not handle, given to cmux's main menu (and how many it took).
+    public private(set) var unhandledKeys = 0
+    public private(set) var unhandledKeysTaken = 0
 
     private let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
@@ -55,8 +67,9 @@ public final class ChromiumHostSession {
     private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
     private var tasks: [Task<Void, Never>] = []
 
-    public init(configuration: ChromiumHostConfiguration) {
+    public init(configuration: ChromiumHostConfiguration, remoteCocoa: Bool = false) {
         self.configuration = configuration
+        self.remoteCocoa = remoteCocoa
         launcher = ChromiumHostLauncher()
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
@@ -66,6 +79,7 @@ public final class ChromiumHostSession {
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
          policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant) {
         self.configuration = configuration
+        remoteCocoa = false
         self.launcher = launcher
         self.policy = policy
         self.now = now
@@ -73,10 +87,30 @@ public final class ChromiumHostSession {
     }
 
     private func wireView() {
+        if remoteCocoa {
+            view.remoteCocoa = true
+            view.onPageView = { [weak self] page in
+                guard let self else { return }
+                ChromiumRemoteCocoaClient.shared.adopt(page: page, in: self.view)
+                self.mark("page_view")
+            }
+        }
         view.sink = { [weak self] frame in self?.send(frame) }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)
+        }
+    }
+
+    /// Remote Cocoa: make the page's key view first responder once it is here.
+    public var pendingRemoteFocus = false
+
+    /// Remote Cocoa: the page's key view becomes first responder now, or once the page's views arrive.
+    public func focusRemotePage() {
+        if let key = view.pageKeyView {
+            view.window?.makeFirstResponder(key)
+        } else {
+            pendingRemoteFocus = true
         }
     }
 
@@ -147,9 +181,27 @@ public final class ChromiumHostSession {
         case .running: phaseText = "running"
         case .ended(let reason): phaseText = "ended: \(reason)"
         }
-        return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
-                "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? ""]
+        var fields: [String: Any] = [
+            "phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
+            "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
+            "exits": exits, "error": lastError ?? "",
+        ]
+        if remoteCocoa {
+            let key = view.pageKeyView
+            fields["remote_cocoa"] = [
+                "view_id": String(remoteViewID), "connection": Int(remoteConnection),
+                "connected": ChromiumRemoteCocoaClient.shared.isConnected(remoteConnection), "attached": remoteAttached,
+                "subviews": view.subviews.map { NSStringFromClass(type(of: $0)) },
+                "key_view": key.map { NSStringFromClass(type(of: $0)) } ?? "",
+                "key_view_is_first_responder": key != nil && view.window?.firstResponder === key,
+                "key_view_frame": key.map { NSStringFromRect($0.convert($0.bounds, to: nil)) } ?? "",
+                "start_ms": startTimings, "unhandled_keys": unhandledKeys, "unhandled_keys_taken": unhandledKeysTaken,
+                "connect_ms": ChromiumRemoteCocoaClient.shared.connectMilliseconds,
+                "framework_load_ms": ChromiumRemoteCocoaClient.shared.loadMilliseconds ?? -1,
+                "runtime": ChromiumRemoteCocoaClient.shared.runtimeMode,
+            ] as [String: Any]
+        }
+        return fields
     }
 
     // MARK: Lifecycle
@@ -191,11 +243,70 @@ public final class ChromiumHostSession {
         ]
     }
 
+    /// Remote Cocoa: the time since this host's start, under `name` (first time only).
+    private func mark(_ name: String) {
+        guard startTimings[name] == nil, let startedAt else { return }
+        let elapsed = now() - startedAt
+        startTimings[name] = Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
+    }
+
+    /// Remote Cocoa: connects to the host's bootstrap name and names ``view`` to it.
+    private func connectRemote(_ name: String, connection current: ChromiumHostConnection) async {
+        let client = ChromiumRemoteCocoaClient.shared
+        if let error = await client.prepare() {
+            lastError = error
+            return
+        }
+        guard current === connection else { return }
+        mark("framework_ready")
+        if remoteViewID == 0 { remoteViewID = client.makeViewID() }
+        // Registered before the host may name it: the bridge CHECKs the id (WebContentsNSViewBridge::SetParentNSView).
+        client.register(view, id: remoteViewID)
+        remoteConnection = client.connect(name)
+        mark("connected")
+        guard remoteConnection > 0 else {
+            lastError = "cmux_rc_client_connect refused \(name)"
+            return
+        }
+        send(ChromiumHostFrame(.attach, v: .init(Int32(bitPattern: UInt32(truncatingIfNeeded: remoteViewID)),
+                                                 Int32(bitPattern: UInt32(truncatingIfNeeded: remoteViewID >> 32)))))
+    }
+
+    /// Remote Cocoa: a Command chord the page did not handle goes to cmux's main menu, as it would for a view of cmux.
+    private func handleUnhandledKey(_ frame: ChromiumHostFrame) {
+        unhandledKeys += 1
+        guard let window = view.window else { return }
+        let characters = frame.ch == 0 ? "" : String(utf16CodeUnits: [frame.ch], count: 1)
+        let unmodified = frame.unmod == 0 ? characters : String(utf16CodeUnits: [frame.unmod], count: 1)
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                           modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(frame.flags)),
+                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                           context: nil, characters: characters, charactersIgnoringModifiers: unmodified,
+                                           isARepeat: false, keyCode: UInt16(truncatingIfNeeded: frame.v[0]))
+        else { return }
+        if NSApp.mainMenu?.performKeyEquivalent(with: event) == true { unhandledKeysTaken += 1 }
+    }
+
     private func handle(_ frame: ChromiumHostFrame) {
         switch frame.kind {
         case .ready:
             forkAPI = frame.v[0]
             phase = .running
+            mark("ready")
+        case .remoteServer:
+            mark("server")
+            if let connection { Task { await self.connectRemote(frame.text, connection: connection) } }
+        case .remoteAttached:
+            remoteAttached = frame.v[0] == 1
+            if remoteAttached {
+                mark("attached")
+                if pendingRemoteFocus, let key = view.pageKeyView {
+                    pendingRemoteFocus = false
+                    view.window?.makeFirstResponder(key)
+                }
+            }
+        case .unhandledKey:
+            handleUnhandledKey(frame)
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)
@@ -225,6 +336,9 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        remoteAttached = false
+        remoteConnection = 0
+        startTimings = [:]
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
         pongs = [:]

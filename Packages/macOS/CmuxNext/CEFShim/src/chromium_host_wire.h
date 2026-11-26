@@ -33,6 +33,8 @@ enum Kind : uint32_t {
   kStats = 8,      // the host answers kStatsReply
   kQuit = 9,
   kEdit = 10,      // v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo
+  kAttach = 11,    // remote Cocoa (--remote-cocoa, fork API 37): v0 low, v1 high 32 bits of the cmux view id
+                   // the page's views go into (cmux_rc_client_register_view); 0 detaches
   // host -> cmux
   kReady = 101,         // v0 fork API version, v1 host pid
   kContext = 102,       // v0 CAContext id (bits of a uint32)
@@ -43,6 +45,10 @@ enum Kind : uint32_t {
                         // the host's Send*Event on its UI thread), v5 frames refused (unknown kind)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
+  // remote Cocoa (--remote-cocoa, fork API 37)
+  kRemoteServer = 109,    // payload the host's bootstrap name (cmux_rc_client_connect)
+  kRemoteAttached = 110,  // v0 1 the page's views are in cmux's view, 0 they left it
+  kUnhandledKey = 111,    // a key down the page did not handle: v0 key code, flags = NSEventModifierFlags, ch, unmod
 };
 
 struct Header {

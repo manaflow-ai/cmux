@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import Foundation
 import Testing
 
 /// The wire between cmux and the Chromium host app: the same golden frame as
@@ -56,6 +57,36 @@ import Testing
         let length = UInt32(ChromiumHostFrame.maxPayload + 1)
         for index in 0..<4 { bytes[4 + index] = UInt8(truncatingIfNeeded: length >> (8 * UInt32(index))) }
         #expect(ChromiumHostFrame.decode(bytes[...]) == .invalid)
+    }
+
+    /// Remote Cocoa (fork API 37) kinds: the same numbers as chromium_host_wire.h.
+    @Test func remoteCocoaKindsMatchTheHost() {
+        #expect(ChromiumHostFrame.Kind.attach.rawValue == 11)
+        #expect(ChromiumHostFrame.Kind.remoteServer.rawValue == 109)
+        #expect(ChromiumHostFrame.Kind.remoteAttached.rawValue == 110)
+        #expect(ChromiumHostFrame.Kind.unhandledKey.rawValue == 111)
+    }
+
+    /// A view id crosses as two 32-bit halves (v0 low, v1 high), as the host reassembles it.
+    @Test func attachCarriesA64BitViewID() {
+        let id: UInt64 = (1 << 62) + 7
+        let frame = ChromiumHostFrame(.attach, v: .init(Int32(bitPattern: UInt32(truncatingIfNeeded: id)),
+                                                        Int32(bitPattern: UInt32(truncatingIfNeeded: id >> 32))))
+        guard case .frame(let decoded, _) = ChromiumHostFrame.decode(frame.encoded()[...]) else {
+            Issue.record("no frame")
+            return
+        }
+        let low = UInt64(UInt32(bitPattern: decoded.v[0]))
+        let high = UInt64(UInt32(bitPattern: decoded.v[1]))
+        #expect(low | (high << 32) == id)
+    }
+
+    /// A second host gets its own data folder (one browser process per folder) and the remote Cocoa switch.
+    @Test func aRemoteVariantHasItsOwnDataFolder() {
+        let base = ChromiumHostConfiguration(executable: URL(fileURLWithPath: "/h"), arguments: ["--framework=/f", "--root-cache=/r"])
+        let variant = base.variant(suffix: "1", remoteCocoa: true)
+        #expect(variant.arguments == ["--framework=/f", "--root-cache=/r-1", "--remote-cocoa"])
+        #expect(base.variant(suffix: nil, remoteCocoa: false) == base)
     }
 
     @Test func keepsAnUnknownKind() {

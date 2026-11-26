@@ -33,6 +33,18 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             arguments: arguments(layout: layout, rootCache: rootCache, bundleIdentifier: bundleIdentifier, environment: environment))
     }
 
+    /// The same host for another page of this app: its own data folder (`<root cache>-<suffix>`, as Chromium's
+    /// process singleton holds one per browser process) and, with `remoteCocoa`, the remote Cocoa mode (fork API 37:
+    /// the page's own views in cmux's window; `browser_host_main.mm`).
+    public func variant(suffix: String?, remoteCocoa: Bool) -> ChromiumHostConfiguration {
+        var copy = self
+        if let suffix {
+            copy.arguments = arguments.map { $0.hasPrefix("--root-cache=") ? $0 + "-" + suffix : $0 }
+        }
+        if remoteCocoa, !copy.arguments.contains("--remote-cocoa") { copy.arguments.append("--remote-cocoa") }
+        return copy
+    }
+
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
                           environment: [String: String]) -> [String] {
         // The host refuses a fork without layer hosting, so the switch set is the one for

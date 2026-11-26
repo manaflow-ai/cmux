@@ -12,6 +12,10 @@ import QuartzCore
 /// it turns its mouse, scroll and key events into wire frames for the host
 /// and Edit menu actions into edit frames. It holds no session: ``sink``
 /// takes the frames, ``onGeometry`` the size and screen place.
+///
+/// Remote Cocoa (``remoteCocoa``, fork API 37): neither. The page's own `WebContentsViewCocoa` arrives as a subview
+/// (made in this process by Chromium's remote_cocoa bridges; ``onPageView``) and handles its own input, IME, cursor,
+/// drag and drawing; this view only holds it, so it takes no first responder and forwards nothing.
 public final class ChromiumHostPageView: NSView {
     /// Where frames for the host go.
     var sink: ((ChromiumHostFrame) -> Void)?
@@ -23,6 +27,10 @@ public final class ChromiumHostPageView: NSView {
     private var remote: CALayer?
     private var tracking: NSTrackingArea?
     private var lastGeometry: ChromiumHostGeometry?
+    /// Remote Cocoa: the page's views are subviews; nothing is forwarded.
+    var remoteCocoa = false
+    /// Remote Cocoa: a subview arrived (the page's `WebContentsViewCocoa`).
+    var onPageView: ((NSView) -> Void)?
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -38,7 +46,22 @@ public final class ChromiumHostPageView: NSView {
 
     /// Unflipped: the host's root layer has its origin at the bottom left.
     public override var isFlipped: Bool { false }
-    public override var acceptsFirstResponder: Bool { true }
+    public override var acceptsFirstResponder: Bool { !remoteCocoa }
+
+    public override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if remoteCocoa { onPageView?(subview) }
+    }
+
+    /// Remote Cocoa: the page's `RenderWidgetHostViewCocoa` (the view that takes keys), when it is here.
+    public var pageKeyView: NSView? {
+        var stack = subviews
+        while let view = stack.popLast() {
+            if NSStringFromClass(type(of: view)).hasSuffix("RenderWidgetHostViewCocoa") { return view }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Shows context `id` (0 shows nothing: the host ended or restarts).
@@ -89,6 +112,7 @@ public final class ChromiumHostPageView: NSView {
     // MARK: Focus
 
     public override func becomeFirstResponder() -> Bool {
+        if remoteCocoa { return false }
         sink?(ChromiumHostFrame(.focus, v: .init(1)))
         return true
     }
@@ -131,6 +155,7 @@ public final class ChromiumHostPageView: NSView {
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) { // perf-hot: 5us cef-host-input (every scroll event)
+        guard !remoteCocoa else { return super.scrollWheel(with: event) }
         let point = pagePoint(event)
         // Pixel deltas, as cefclient's off-screen view reads them. `cgEvent` is read once per event, as
         // Chromium's own Mac wheel path (`WebMouseWheelEventBuilder`) reads it.
@@ -142,6 +167,7 @@ public final class ChromiumHostPageView: NSView {
     }
 
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) { // perf-hot: 5us cef-host-input (every mouse event)
+        guard !remoteCocoa else { return }
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
@@ -162,6 +188,7 @@ public final class ChromiumHostPageView: NSView {
     public override func flagsChanged(with event: NSEvent) { key(event, phase: 2) }
 
     private func key(_ event: NSEvent, phase: Int32) { // perf-hot: 5us cef-host-input (every key event)
+        guard !remoteCocoa else { return }
         var frame = ChromiumHostFrame(.key, v: .init(phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)),
                                       flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
         if event.type != .flagsChanged {

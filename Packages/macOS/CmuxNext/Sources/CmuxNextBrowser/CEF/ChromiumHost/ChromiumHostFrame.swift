@@ -9,9 +9,14 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
+        /// Remote Cocoa (fork API 37): the cmux view the page's own views go into.
+        case attach = 11
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
         case rendererGone = 108
+        /// Remote Cocoa (fork API 37): the host's bootstrap name, whether the page's views are in cmux, a key the page
+        /// did not handle.
+        case remoteServer = 109, remoteAttached = 110, unhandledKey = 111
     }
 
     static let headerSize = 64
