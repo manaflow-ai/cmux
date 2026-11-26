@@ -9,10 +9,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::deck::{Deck, done_status};
+use crate::deck::{Action, Deck, done_status};
 use crate::iterm::Profiles;
 use crate::job::{Failure, Job, Ledger, Pause};
-use crate::model::{Counts, Finding, Profile, SourceKind};
+use crate::model::{Counts, Family, Finding, Profile, SourceKind};
 use crate::preview;
 use crate::request::{self, Request};
 use crate::scan::{self, ChromiumFacts, ClassicAvailability, FileAccess};
@@ -20,9 +20,15 @@ use crate::state::State;
 
 pub const PREFIX: &str = "import_suggest_";
 
-const OPS: [&str; 31] = [
+const OPS: [&str; 37] = [
     "import_suggest_cards",
     "import_suggest_fingerprint",
+    "import_suggest_finding_facts",
+    "import_suggest_job_facts",
+    "import_suggest_ledger_put",
+    "import_suggest_ledger_remove",
+    "import_suggest_action_facts",
+    "import_suggest_kind_facts",
     "import_suggest_state_hides",
     "import_suggest_state_dismiss",
     "import_suggest_state_restore",
@@ -207,6 +213,47 @@ pub fn call(op: &str, request: Value) -> Result<Value, String> {
         "import_suggest_fingerprint" => {
             Ok(json!(field::<Finding>(&request, "finding")?.fingerprint()))
         }
+        "import_suggest_finding_facts" => {
+            let finding: Finding = field(&request, "finding")?;
+            Ok(json!({
+                "kinds": finding.kinds(),
+                "offersNothingNew": finding.offers_nothing_new(),
+                "fingerprint": finding.fingerprint(),
+            }))
+        }
+        "import_suggest_job_facts" => {
+            let job: Job = field(&request, "job")?;
+            let family: Option<Family> = field(&request, "family")?;
+            Ok(json!({
+                "fraction": job.fraction(),
+                "nextStep": job.next_step(),
+                "isActive": job.is_active(),
+                "resumesQuietly": job.resumes_quietly(family),
+            }))
+        }
+        "import_suggest_ledger_put" => {
+            let mut ledger: Ledger = field(&request, "ledger")?;
+            ledger.put(field(&request, "job")?);
+            reply(&ledger)
+        }
+        "import_suggest_ledger_remove" => {
+            let mut ledger: Ledger = field(&request, "ledger")?;
+            ledger.remove(&field::<String>(&request, "id")?);
+            reply(&ledger)
+        }
+        "import_suggest_action_facts" => {
+            let action: Action = field(&request, "action")?;
+            Ok(
+                json!({ "startsWork": action.starts_work(), "confirmLabel": action.confirm_label() }),
+            )
+        }
+        "import_suggest_kind_facts" => {
+            let kind: SourceKind = field(&request, "kind")?;
+            Ok(json!({
+                "startReadsAnotherApp": kind.start_reads_another_app(),
+                "displayName": kind.display_name(),
+            }))
+        }
         "import_suggest_request" => {
             let NewRequest { browser, site, reason, requested_at } = parse(request)?;
             let made = Request::new(browser, site, &reason, requested_at);
@@ -376,6 +423,40 @@ mod tests {
         .unwrap();
         assert_eq!(paused["job"]["phase"], "paused");
         assert_eq!(paused["isActive"], json!(false));
+    }
+
+    #[test]
+    fn facts_answer_for_findings_jobs_actions_and_kinds() {
+        let finding = json!({ "id": "browser.chrome", "kind": "browser", "browser": "chrome", "name": "Chrome",
+            "profiles": [{ "directoryName": "Default", "kinds": ["cookies", "bookmarks", "history"] }] });
+        let facts = call("import_suggest_finding_facts", json!({ "finding": finding })).unwrap();
+        assert_eq!(facts["kinds"], json!(["history", "bookmarks", "cookies"]));
+        assert_eq!(facts["offersNothingNew"], json!(false));
+        let job =
+            call("import_suggest_job_from_finding", json!({ "finding": finding, "now": 1.0 }))
+                .unwrap();
+        let chromium =
+            call("import_suggest_job_facts", json!({ "job": job, "family": "chromium" })).unwrap();
+        assert_eq!(chromium["resumesQuietly"], json!(false));
+        assert_eq!(chromium["nextStep"], json!(0));
+        let firefox =
+            call("import_suggest_job_facts", json!({ "job": job, "family": "firefox" })).unwrap();
+        assert_eq!(firefox["resumesQuietly"], json!(true));
+        let ledger =
+            call("import_suggest_ledger_put", json!({ "ledger": {}, "job": job })).unwrap();
+        let again =
+            call("import_suggest_ledger_put", json!({ "ledger": ledger, "job": job })).unwrap();
+        assert_eq!(again["jobs"].as_array().unwrap().len(), 1);
+        let gone = call(
+            "import_suggest_ledger_remove",
+            json!({ "ledger": again, "id": "browser.chrome" }),
+        )
+        .unwrap();
+        assert!(gone["jobs"].as_array().unwrap().is_empty());
+        let retry = call("import_suggest_action_facts", json!({ "action": "retry" })).unwrap();
+        assert_eq!(retry, json!({ "startsWork": true, "confirmLabel": "retry" }));
+        let iterm = call("import_suggest_kind_facts", json!({ "kind": "iterm2" })).unwrap();
+        assert_eq!(iterm, json!({ "startReadsAnotherApp": true, "displayName": "iTerm2" }));
     }
 
     #[test]
