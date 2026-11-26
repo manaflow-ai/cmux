@@ -1224,9 +1224,25 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1249,9 +1265,25 @@ jobs:
           permission-organization-self-hosted-runners: read
 
       # Why: note-117
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: snapshot-read-token-bot
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - name: Mint the glaeda read token
         id: snapshot-read-token
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.snapshot-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1278,9 +1310,9 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          SNAPSHOT_TOKEN: ${{ (steps.snapshot-read-token-bot.outputs.token || steps.snapshot-read-token.outputs.token) || github.token }}
           # Why: note-118
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           # Why: note-22
@@ -2738,9 +2770,25 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -2769,7 +2817,7 @@ jobs:
           CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           PLACEMENT: app-compile
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           GATEWAY_JOBS: app-compile-fleet
@@ -2988,9 +3036,25 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3030,7 +3094,7 @@ jobs:
           PLACEMENT: rerun-fleet
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
         run: |
@@ -3277,9 +3341,25 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3301,9 +3381,25 @@ jobs:
           permission-organization-self-hosted-runners: read
 
       # Why: note-512
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: snapshot-read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - name: Mint the glaeda read token
         id: snapshot-read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.snapshot-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3331,9 +3427,9 @@ jobs:
           PLACEMENT: handback
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          SNAPSHOT_TOKEN: ${{ (steps.snapshot-read-token-bot.outputs.token || steps.snapshot-read-token.outputs.token) || github.token }}
           # Why: note-440
           SIDE_LABEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SIDE_LANE_RUNNER }}
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
@@ -6080,9 +6176,26 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          permission-actions: read
+
       - name: Mint the owned-pool read token
         id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6098,7 +6211,7 @@ jobs:
         timeout-minutes: 3
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
@@ -6896,9 +7009,26 @@ jobs:
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          permission-actions: read
+
       - name: Mint the owned-pool read token
         id: route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6912,7 +7042,7 @@ jobs:
         id: place
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
           SHA: ${{ github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           WAIT_SECONDS: "120"
