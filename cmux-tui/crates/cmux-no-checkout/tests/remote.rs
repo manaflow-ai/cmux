@@ -122,6 +122,68 @@ async fn nothing_to_commit_and_paths_outside_the_repository_are_refused() {
     mock.close().await;
 }
 
+#[tokio::test]
+async fn chained_links_never_expose_a_sibling_in_either_blob_order_or_a_later_projection() {
+    let sentinel = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(sentinel.path(), b"outside sentinel").unwrap();
+    let name = sentinel.path().file_name().unwrap().to_str().unwrap();
+    for (pivot, leak) in [("a-pivot", "z-leak"), ("z-pivot", "a-leak")] {
+        let target = format!("{pivot}/../{name}");
+        let mock =
+            Mock::start("o/r", &[(pivot, b".", "120000"), (leak, target.as_bytes(), "120000")])
+                .await
+                .unwrap();
+        let mut remote = open(&mock).await;
+        // Cached blobs make the projection order deterministic, in path order.
+        remote.read(pivot).await.unwrap();
+        remote.read(leak).await.unwrap();
+        let projected = remote.project(&patterns(&["**"])).await.unwrap();
+        assert!(std::fs::read(projected.path().join(leak)).is_err());
+        projected.close().unwrap();
+
+        let mut projected = remote.project(&patterns(&[leak])).await.unwrap();
+        let extended = remote.project_into(&patterns(&[pivot]), &mut projected).await;
+        assert!(extended.is_err(), "a later batch must not redirect an existing link");
+        assert!(std::fs::read(projected.path().join(leak)).is_err());
+        projected.close().unwrap();
+        mock.close().await;
+    }
+    assert_eq!(std::fs::read(sentinel.path()).unwrap(), b"outside sentinel");
+}
+
+#[tokio::test]
+async fn safe_link_chains_and_dangling_links_remain_but_writes_never_follow_them() {
+    let mock = Mock::start(
+        "o/r",
+        &[
+            ("dir/file", b"inside", "100644"),
+            ("alias", b"dir", "120000"),
+            ("chain", b"alias/file", "120000"),
+            ("dangling", b"future/file", "120000"),
+            ("cycle-a", b"cycle-b", "120000"),
+            ("cycle-b", b"cycle-a", "120000"),
+        ],
+    )
+    .await
+    .unwrap();
+    let mut remote = open(&mock).await;
+    let mut projected = remote.project(&patterns(&["**"])).await.unwrap();
+    assert_eq!(std::fs::read(projected.path().join("chain")).unwrap(), b"inside");
+    assert_eq!(
+        std::fs::read_link(projected.path().join("dangling")).unwrap(),
+        std::path::Path::new("future/file")
+    );
+    assert!(std::fs::symlink_metadata(projected.path().join("cycle-a")).is_err());
+    remote.write_mode("alias/new", b"redirected".to_vec(), "100644").unwrap();
+    assert!(remote.project_into(&patterns(&["alias/new"]), &mut projected).await.is_err());
+    assert!(!projected.path().join("dir/new").exists());
+    remote.write_mode("chain", b"overwritten".to_vec(), "100644").unwrap();
+    assert!(remote.project_into(&patterns(&["chain"]), &mut projected).await.is_err());
+    assert_eq!(std::fs::read(projected.path().join("dir/file")).unwrap(), b"inside");
+    projected.close().unwrap();
+    mock.close().await;
+}
+
 /// A writer that is not the REST client (a broker, on a lane VM) makes every write of a commit.
 struct Recording {
     inner: GitHub,

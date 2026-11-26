@@ -2,8 +2,8 @@
 //! first use, edits held in memory, a commit made through the git data API, and a projection of
 //! only the paths a command must run.
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::{Component, Path};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, bail};
@@ -252,7 +252,13 @@ impl Remote {
     /// leaves the folder and submodules are left out.
     pub async fn project(&mut self, patterns: &[String]) -> anyhow::Result<Projected> {
         let dir = tempfile::Builder::new().prefix("cmux-no-checkout-").tempdir()?;
-        let mut projected = Projected { dir, files: 0, bytes: 0 };
+        let mut projected = Projected {
+            dir,
+            files: 0,
+            bytes: 0,
+            links: BTreeMap::new(),
+            pending_links: BTreeMap::new(),
+        };
         self.project_into(patterns, &mut projected).await?;
         Ok(projected)
     }
@@ -292,7 +298,7 @@ impl Remote {
             projected.put(&entry.path, &bytes, &entry.mode)?;
             self.read.insert(entry.path, Arc::new(bytes));
         }
-        Ok(())
+        projected.finish_links()
     }
 
     /// Commits this chat's edits on the base as `branch` (created, or fast-forwarded): one blob
@@ -341,6 +347,8 @@ impl Remote {
 /// Paths written to a temporary folder for one run; the folder is deleted on drop.
 pub struct Projected {
     dir: tempfile::TempDir,
+    links: BTreeMap<String, PathBuf>,
+    pending_links: BTreeMap<String, PathBuf>,
     pub files: u64,
     pub bytes: u64,
 }
@@ -354,8 +362,19 @@ impl Projected {
     fn put(&mut self, path: &str, bytes: &[u8], mode: &str) -> anyhow::Result<()> {
         check_path(path)?;
         let at = self.dir.path().join(path);
-        if let Some(parent) = at.parent() {
-            std::fs::create_dir_all(parent)?;
+        // Never let an earlier projection (or a command run in it) redirect a write.
+        let mut parent = self.dir.path().to_owned();
+        for part in path.split('/').take(path.split('/').count() - 1) {
+            parent.push(part);
+            match std::fs::symlink_metadata(&parent) {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(_) => bail!("{path}: projection parent is not a directory"),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(&parent)?,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        if std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            bail!("{path}: projection would overwrite a symbolic link");
         }
         match mode {
             "120000" => {
@@ -363,7 +382,10 @@ impl Projected {
                     return Ok(());
                 }
                 let target = std::str::from_utf8(bytes).context("a link's target is not UTF-8")?;
-                std::os::unix::fs::symlink(target, &at)?;
+                // Blob completion order must not decide whether a chain escapes. Validate the
+                // whole batch, including links from earlier project_into calls, before installing it.
+                self.pending_links.insert(path.to_owned(), PathBuf::from(target));
+                return Ok(());
             }
             "100644" | "100755" => {
                 std::fs::write(&at, bytes)?;
@@ -377,6 +399,75 @@ impl Projected {
         self.files += 1;
         self.bytes += bytes.len() as u64;
         Ok(())
+    }
+
+    fn finish_links(&mut self) -> anyhow::Result<()> {
+        let pending = std::mem::take(&mut self.pending_links);
+        for path in self.links.keys() {
+            if !self.link_resolves_inside(path, &pending) {
+                bail!("{path}: new projection would redirect an existing link outside its folder");
+            }
+        }
+        let safe: Vec<_> = pending
+            .iter()
+            .filter(|(path, _)| self.link_resolves_inside(path, &pending))
+            .map(|(path, target)| (path.clone(), target.clone()))
+            .collect();
+        for (path, target) in safe {
+            std::os::unix::fs::symlink(&target, self.dir.path().join(&path))?;
+            self.files += 1;
+            self.bytes += target.as_os_str().len() as u64;
+            self.links.insert(path, target);
+        }
+        Ok(())
+    }
+
+    fn link_resolves_inside(&self, path: &str, links: &BTreeMap<String, PathBuf>) -> bool {
+        let mut todo: VecDeque<_> =
+            Path::new(path).components().map(|c| c.as_os_str().to_owned()).collect();
+        let mut resolved = PathBuf::new();
+        let mut followed = 0;
+        while let Some(part) = todo.pop_front() {
+            if part == "." {
+                continue;
+            }
+            if part == ".." {
+                if !resolved.pop() {
+                    return false;
+                }
+                continue;
+            }
+            if Path::new(&part).is_absolute() {
+                return false;
+            }
+            resolved.push(part);
+            let target = if let Some(target) = links.get(resolved.to_str().unwrap_or_default()) {
+                Some(target.clone())
+            } else {
+                let at = self.dir.path().join(&resolved);
+                match std::fs::symlink_metadata(&at) {
+                    Ok(meta) if meta.file_type().is_symlink() => {
+                        let Ok(target) = std::fs::read_link(at) else { return false };
+                        Some(target)
+                    }
+                    Ok(_) => None,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(_) => return false,
+                }
+            };
+            if let Some(target) = target {
+                // Match the kernel's symlink traversal limit, including cycles.
+                followed += 1;
+                if followed > 40 || target.is_absolute() {
+                    return false;
+                }
+                resolved.pop();
+                for part in target.components().rev() {
+                    todo.push_front(part.as_os_str().to_owned());
+                }
+            }
+        }
+        true
     }
 
     /// Deletes the folder now, saying so when it cannot (a drop would only try).
