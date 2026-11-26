@@ -14,6 +14,8 @@
     // The look (claude-code/whole: theme, sidebar, transcript, composer).
     "appearance.themeFile": "claude-code-app",
     "sidebar.groupBy": "folder",
+    // The app lists chats with no project as plain rows, with no "No Folder" group header.
+    "sidebar.folderlessUngrouped": true,
     "sidebar.sessionTree": true,
     "sidebar.groupHeader.background": "sections",
     "sidebar.groupHeader.memberCount": false,
@@ -39,6 +41,8 @@
     "agentPane.display.width": 800,
     "agentPane.display.minimap": "off",
     "agentPane.display.harnessPlacement": "compact",
+    // The app's model picker is a short menu (models, then effort), not a searchable list.
+    "agentPane.display.modelPickerStyle": "menu",
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
     "sidebar.showNewWorkspaceChooser": true,
