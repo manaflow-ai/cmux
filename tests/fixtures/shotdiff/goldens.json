@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "defaults": {},
+  "surfaces": {
+    "web/clock": {
+      "sha256": "ceb91f1741228706483e9347841911b728594dfeb150e525a2b3d60caf2cbbf9",
+      "spec": {
+        "regions": [
+          {
+            "name": "clock",
+            "rect": [
+              300,
+              0,
+              90,
+              44
+            ],
+            "ignore": true
+          }
+        ]
+      }
+    },
+    "web/settings": {
+      "sha256": "ceb91f1741228706483e9347841911b728594dfeb150e525a2b3d60caf2cbbf9"
+    },
+    "web/settings-swiftshader": {
+      "sha256": "ceb91f1741228706483e9347841911b728594dfeb150e525a2b3d60caf2cbbf9"
+    }
+  }
+}

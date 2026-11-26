@@ -1,0 +1,79 @@
+name: shotdiff
+# The shared screenshot comparator (scripts/ci/shotdiff.py) and its CI step (.github/actions/shotdiff):
+# unit tests, then the step itself on real Chrome renders (tests/fixtures/shotdiff): an identical re-render,
+# a SwiftShader render and a clock change behind an ignored region must pass; a 6 px button nudge and a
+# shortened label (0.31% and 0.53% of pixels, both under the old 1% moved-pixel rule) must fail.
+on:
+  pull_request:
+    paths:
+      - scripts/ci/shotdiff.py
+      - tests/test_shotdiff.py
+      - tests/fixtures/shotdiff/**
+      - .github/actions/shotdiff/**
+      - .github/workflows/shotdiff.yml
+  push:
+    branches: [main, feat-cmux-next]
+    paths:
+      - scripts/ci/shotdiff.py
+      - tests/test_shotdiff.py
+      - tests/fixtures/shotdiff/**
+      - .github/actions/shotdiff/**
+      - .github/workflows/shotdiff.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shotdiff-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shotdiff:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/shotdiff.py
+            tests/test_shotdiff.py
+            tests/fixtures/shotdiff
+            .github/actions/shotdiff
+      - name: Same renders pass
+        id: same
+        uses: ./.github/actions/shotdiff
+        with:
+          shots: tests/fixtures/shotdiff/same
+          manifest: tests/fixtures/shotdiff/goldens.json
+          store: tests/fixtures/shotdiff/store
+          title: "shotdiff self-check: same renders"
+      - name: Changed renders fail
+        id: changed
+        uses: ./.github/actions/shotdiff
+        with:
+          shots: tests/fixtures/shotdiff/changed
+          manifest: tests/fixtures/shotdiff/goldens.json
+          store: tests/fixtures/shotdiff/store
+          title: "shotdiff self-check: changed renders"
+          warn-only: "true"
+          diff-dir: ${{ runner.temp }}/shotdiff-diffs
+      - name: Judge the self-check
+        env:
+          SAME: ${{ steps.same.outputs.result }}
+          CHANGED: ${{ steps.changed.outputs.result }}
+          CHANGED_JSON: ${{ steps.changed.outputs.json }}
+        run: |
+          set -euo pipefail
+          test "$SAME" = pass
+          test "$CHANGED" = fail
+          python3 -I - "$CHANGED_JSON" <<'PY'
+          import json, sys
+          rows = {r["surface"]: r["status"] for r in json.load(open(sys.argv[1]))}
+          want = {"web/settings": "failed", "web/settings-swiftshader": "failed", "web/clock": "within"}
+          assert rows == want, rows
+          PY
+          ls "$RUNNER_TEMP/shotdiff-diffs/web/settings.diff.png"
+      - name: Unit tests
+        run: '"$RUNNER_TEMP/shotdiff-venv/bin/python" tests/test_shotdiff.py'
