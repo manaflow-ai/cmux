@@ -140,7 +140,7 @@ pub fn new_at(facts: &NewAtFacts) -> NewAt {
     }
     let agent_driven =
         facts.kind == "browser" && matches!(facts.origin.as_str(), "cli" | "mcp" | "script");
-    let own_create = facts.made_in_place && !(agent_driven && !tab);
+    let own_create = facts.made_in_place && (tab || !agent_driven);
     NewAt::Open {
         create: if own_create { in_place(&facts.kind, &facts.op) } else { None },
         made: made(&facts.kind),
@@ -500,7 +500,7 @@ pub fn new_chat_opening(facts: &NewChatFacts) -> NewChatOpening {
         NewChatSide::Dock => (opening.in_dock, opening.focus_dock) = (true, facts.select),
         NewChatSide::BesideDock => opening.split_right = facts.conversation_tab_split,
         NewChatSide::NewDock => {
-            (opening.hidden, opening.select, opening.docks) = (true, false, true)
+            (opening.hidden, opening.select, opening.docks) = (true, false, true);
         }
     }
     opening
