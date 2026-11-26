@@ -99,8 +99,8 @@ pub mod errno {
     pub const ENOSPC: i32 = libc::ENOSPC;
 }
 use errno::{
-    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY,
-    EPERM, EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
+    EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -402,6 +402,9 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
+    /// The access list this overlay records and replays ([`replay`]); `None` unless
+    /// [`Overlay::with_replay`] asked for it.
+    replay: Option<replay::Replay>,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -663,6 +666,8 @@ impl Overlay {
         let cache_index = Mutex::new(cache_on_disk(&cache));
         let content =
             if fetch.cache() { content::Content::open(&state.join("content")) } else { None };
+        // RFD 0065 piece 12: no shared store unless the environment turns one on.
+        let content = content.map(|content| content.with_shared(shared::from_env()));
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
@@ -705,6 +710,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
+            replay: None,
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -760,6 +766,13 @@ impl Overlay {
     #[must_use]
     pub fn content_bytes(&self) -> u64 {
         self.content.as_ref().map_or(0, content::Content::bytes)
+    }
+
+    /// What the content store read through from the shared store (RFD 0065 piece 12; all zero
+    /// while `CMUX_PROJECTION_SHARED_STORE` is off, the default).
+    #[must_use]
+    pub fn shared_transfer(&self) -> shared::Transfer {
+        self.content.as_ref().map(content::Content::transfer).unwrap_or_default()
     }
 
     /// The bytes of the Mac's files cached on the machine now.
@@ -1317,6 +1330,7 @@ impl Overlay {
             Kind::Link => return Err(EINVAL),
             Kind::File => {}
         }
+        self.replay_touch(index);
         let total = entry.size;
         let end = total.min(offset.saturating_add(u64::from(size)));
         if offset >= end {
@@ -1521,8 +1535,13 @@ impl Overlay {
             return Ok(bytes);
         }
         let mut batch = vec![index];
-        // A source with no cache answers one file at a time: read ahead would be thrown away.
-        if self.fetch.cache() && !self.cache_failing.load(Ordering::Relaxed) {
+        // A source with no cache answers one file at a time: read ahead would be thrown away. With
+        // a replayed access list, the folder is read ahead only during a scan ([`replay`]).
+        // The replay check runs first: it counts the misses that detect a scan.
+        if self.fetch.cache()
+            && self.replay_read_ahead(index)
+            && !self.cache_failing.load(Ordering::Relaxed)
+        {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
@@ -2326,6 +2345,12 @@ mod swap;
 
 #[path = "overlay_content.rs"]
 pub mod content;
+
+#[path = "overlay_replay.rs"]
+pub mod replay;
+
+#[path = "overlay_shared.rs"]
+pub mod shared;
 
 #[path = "overlay_age.rs"]
 mod age;
