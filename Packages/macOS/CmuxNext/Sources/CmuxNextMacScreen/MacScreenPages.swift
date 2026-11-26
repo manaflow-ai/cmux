@@ -172,12 +172,6 @@ public final class MacScreenPages {
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
 
-    /// The app's pages: as below, with each ended viewer session's report going to `sessionReports`.
-    public convenience init(store: MacScreenStore, work: BackgroundWork, sessionReports: RemoteRdSessionReports) {
-        self.init(store: store, work: work)
-        self.sessionReports = sessionReports
-    }
-
     /// - Parameters:
     ///   - store: the saved Mac Screen records.
     ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
@@ -205,6 +199,12 @@ public final class MacScreenPages {
             // task-owner: one devices read after a finished run.
             Task { await hub.refreshDevices() }
         }
+    }
+
+    /// The app's pages: as above, with each ended viewer session's report going to `sessionReports`.
+    public convenience init(store: MacScreenStore, work: BackgroundWork, sessionReports: RemoteRdSessionReports) {
+        self.init(store: store, work: work)
+        self.sessionReports = sessionReports
     }
 
     /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
