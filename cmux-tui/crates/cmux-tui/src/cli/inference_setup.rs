@@ -293,14 +293,19 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-async fn setup(options: &Options) -> Result<(), String> {
-    let token = backend_token(&options.token, options.team.as_deref()).await?;
-    let http = cmux_egress::client_builder("cmux_tui::cli::inference_setup")
+/// The client setup's own cmux API calls go out on.
+fn http_client() -> Result<reqwest::Client, String> {
+    cmux_egress::client_builder("cmux_tui::cli::inference_setup")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
+
+async fn setup(options: &Options) -> Result<(), String> {
+    let token = backend_token(&options.token, options.team.as_deref()).await?;
+    let http = http_client()?;
     let machine = Machine { http, options, token };
     if let Some(gw) = &options.gateway {
         // Naming a gateway machine asks for the gateway path: it either works end to end or the team's routing goes

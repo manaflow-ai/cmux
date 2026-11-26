@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 31,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -93,7 +93,7 @@
    "todo": true
   },
   "cmux_tui::cli::app::web_pieces": {
-   "todo": true
+   "none": "a GET of the published web-pieces switch file with Accept and an If-None-Match etag, no redirects: no token, cookie, prompt or person text"
   },
   "cmux_tui::cli::autocloud": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
@@ -102,37 +102,37 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_never_leaves_the_machine"
   },
   "cmux_tui::cli::cloud_client_session": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session/tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_exec_body"
   },
   "cmux_tui::cli::cloud_hands::socket": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/tests.rs::the_socket_sends_the_bearer_only_in_authorization"
   },
   "cmux_tui::cli::cloud_journey": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_journey_tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_write_body"
   },
   "cmux_tui::cli::cloud_start_chat::direct": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
   },
   "cmux_tui::cli::customize::pr": {
-   "todo": true
+   "none": "GETs of published signed customization pointers and bundles with only an Accept header: no token, cookie, prompt or person text"
   },
   "cmux_tui::cli::ext::share": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/ext/tests.rs::search_sends_the_github_token_only_in_authorization"
   },
   "cmux_tui::cli::hub": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/hub_tests.rs::seeded_secrets_ride_only_where_the_hub_needs_them"
   },
   "cmux_tui::cli::inference_gateway": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_tests.rs::seeded_secrets_ride_only_where_the_gateway_needs_them"
   },
   "cmux_tui::cli::inference_gateway_admin": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_admin_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_header"
   },
   "cmux_tui::cli::inference_setup": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_setup_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_header"
   },
   "cmux_tui::cli::key_broker": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/key_broker/tests.rs::the_live_client_sends_the_bootstrap_only_in_authorization"
   },
   "cmux_tui::cli::machine_join": {
    "todo": true

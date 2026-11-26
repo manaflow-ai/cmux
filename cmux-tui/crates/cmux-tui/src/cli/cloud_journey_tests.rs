@@ -240,3 +240,51 @@ fn sweep_picks_stale_idle_journey_machines_only() {
         .collect();
     assert_eq!(sweep::stale(&many, now).len(), sweep::MAX_PER_RUN);
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the journey's file write and its exec's session
+/// mint send the credential only in `Authorization` and the team only in its team header; the file's
+/// bytes ride only in the write body. tests/egress_seeded.json names this test for
+/// `cmux_tui::cli::cloud_journey`.
+#[test]
+fn seeded_secrets_ride_only_in_authorization_the_team_header_and_the_write_body() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let credential = "SEEDjourneyBearer-d93a";
+    let team = "SEEDjourneyTeam-17be";
+    let data = "SEEDjourneyFileBytes-5af2";
+    let vm = "vm_journeyseeded0123456789";
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let client = exec_client("cmux/test cloud-journey").unwrap();
+    let scope = Scope::new("https://cloud-api.cmux.dev", Some(team)).unwrap();
+    let mut exec = Exec {
+        client: &client,
+        scope: &scope,
+        credential,
+        machine: scope.machine(vm).unwrap(),
+        session: None,
+        direct: false,
+    };
+    runtime.block_on(async {
+        let _ = exec.write("/tmp/seeded", data.as_bytes(), 0o600).await;
+        let _ = exec.run("true", 1_000).await;
+    });
+    let sent: Vec<_> = cmux_egress::capture::requests_to("cloud-api.cmux.dev")
+        .into_iter()
+        .filter(|r| r.target.contains(vm))
+        .collect();
+    assert!(sent.iter().any(|r| r.target.ends_with("/fs/write")), "{sent:?}");
+    assert!(sent.iter().any(|r| r.target.ends_with("/client-session")), "{sent:?}");
+    let places = cmux_egress::capture::leaks(credential);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places.iter().all(|p| p.ends_with(&format!(": header {}", cmux_cloud_client::TEAM_HEADER))),
+        "{places:?}"
+    );
+    // `leaks` finds the base64 form the write body carries.
+    let places = cmux_egress::capture::leaks(data);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].contains("/fs/write") && places[0].ends_with(": body"), "{places:?}");
+}

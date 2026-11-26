@@ -1762,3 +1762,24 @@ fn the_new_tab_pick_reads_the_settings_file() {
     assert_eq!(dev::NewTabPick::of("{}"), dev::NewTabPick::default());
     assert_eq!(dev::NewTabPick::of("not json"), dev::NewTabPick::default());
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): `ext search` sends a GitHub token only in
+/// `Authorization` and the person's search words only in the query.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::ext::share`.
+#[test]
+fn search_sends_the_github_token_only_in_authorization() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDextSearchToken-4b9e";
+    let words = "SEEDextSearchWords-c07a";
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let _ = runtime.block_on(share::search_with(Some(words), Some(token)));
+    let sent = cmux_egress::capture::requests_to("api.github.com");
+    assert!(sent.iter().any(|r| r.target.starts_with("/search/repositories?")), "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].ends_with(": header authorization"), "{places:?}");
+    let places = cmux_egress::capture::leaks(words);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": target")), "{places:?}");
+}

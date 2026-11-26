@@ -616,3 +616,28 @@ fn reply_to_machine_takes_no_store_and_via_needs_one() {
     }
     assert!(parse(&words("mint cloudflare-r2 --bucket handoff --ro --reply-to-machine m")).is_ok());
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the live client's Cloudflare calls send the
+/// bootstrap token only in `Authorization`, never in a path or a mint body.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::key_broker`.
+#[test]
+fn the_live_client_sends_the_bootstrap_only_in_authorization() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let bootstrap = "SEEDkeyBrokerBootstrap-e81f";
+    let account = "0123456789abcdef0123456789abcdef";
+    let live = Live::new().unwrap();
+    let resources = json!({"com.cloudflare.api.account.0123456789abcdef0123456789abcdef": "*"});
+    let _ =
+        mint_token(&live, account, bootstrap, "cmux seeded", resources, "group-1", now_secs() + 60);
+    let _ = delete_token(&live, account, bootstrap, "token-1");
+    let sent: Vec<_> = cmux_egress::capture::requests_to("api.cloudflare.com")
+        .into_iter()
+        .filter(|r| r.target.starts_with(&format!("/client/v4/accounts/{account}/tokens")))
+        .collect();
+    assert!(sent.iter().any(|r| r.method == "POST"), "{sent:?}");
+    assert!(sent.iter().any(|r| r.method == "DELETE"), "{sent:?}");
+    let places = cmux_egress::capture::leaks(bootstrap);
+    assert_eq!(places.len(), 2, "{places:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+}

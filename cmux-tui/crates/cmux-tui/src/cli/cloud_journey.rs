@@ -469,6 +469,16 @@ fn run_tag() -> String {
 
 /// One machine's exec, through a client session minted once and reused, or through the cmux API's
 /// exec route on a provider with no client sessions (cloud_client_session.rs's two routes).
+/// The client the journey's machine file writes, session mints and execs go out on.
+fn exec_client(ua: &str) -> Result<reqwest::Client, String> {
+    cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(ua)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 struct Exec<'a> {
     client: &'a reqwest::Client,
     scope: &'a Scope,
@@ -694,12 +704,7 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         Duration::from_secs(120),
     )
     .map_err(|e| e.to_string())?;
-    let exec_client = cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
-        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(ua)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let exec_client = exec_client(ua)?;
     let scope = Scope::new(&api, args.team.as_deref()).map_err(|e| e.to_string())?;
 
     sweep_step(&mut j, &http, &base).await;

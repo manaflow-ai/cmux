@@ -211,6 +211,16 @@ pub(super) fn resolve(
     secure_origin(api.trim()).map(|origin| (origin, credential))
 }
 
+/// The client a client-session mint and its exec go out on.
+fn http_client() -> Result<reqwest::Client, String> {
+    cmux_egress::client_builder("cmux_tui::cli::cloud_client_session")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 pub(super) fn run(
     command: &Command,
     api: &str,
@@ -224,12 +234,7 @@ pub(super) fn run(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let client = cmux_egress::client_builder("cmux_tui::cli::cloud_client_session")
-        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
     let io = |e: std::io::Error| e.to_string();
     // The machine is a handle on this backend and team from here on: no call below names the
     // backend again (lens review 2026-11-05, finding 2).

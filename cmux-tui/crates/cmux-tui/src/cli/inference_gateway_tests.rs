@@ -621,3 +621,69 @@ fn busy_retry_after_is_full_jitter_within_its_bound() {
     let distinct: std::collections::HashSet<_> = samples.iter().collect();
     assert!(distinct.len() > 5, "spread out, not one value: {distinct:?}");
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture), both of this site's clients: a proxied call
+/// sends the upstream key only in `Authorization` to the upstream (the prompt only in its body), and
+/// the backend socket's upgrade sends the gateway's bearer only in `Authorization` and the team only
+/// in `x-cmux-team`. Neither secret reaches the other host.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::inference_gateway`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_gateway_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let key = "SEEDgwUpstreamKey-77e1";
+    let token = "SEEDgwBackendBearer-0b5a";
+    let team = "SEEDgwTeam-e3c9";
+    let prompt = "SEEDgwPrompt-41fd";
+    let dir = tempfile::tempdir().unwrap();
+    let key_file = dir.path().join("key");
+    std::fs::write(&key_file, format!("{key}\n")).unwrap();
+    let upstream =
+        Upstream::Proxy { base: "https://api.anthropic.com/v1".into(), key_file: Some(key_file) };
+    let provider = Arc::new(Provider::new(upstream.clone(), upstream_client().unwrap()));
+    let (tx, mut rx) = mpsc::channel(32);
+    let body = format!(r#"{{"model":"m","messages":[{{"role":"user","content":"{prompt}"}}]}}"#);
+    answer(&provider, "c1", pending("/v1/messages", &body), &tx).await;
+    let _ = frames(&mut rx).await;
+    let options = Options {
+        api: "https://cloud-api.cmux.dev".into(),
+        team: Some(team.to_owned()),
+        personal: false,
+        token: TokenSource::App,
+        upstream,
+        supervised: false,
+        enable_once: None,
+    };
+    let (_stop, stop) = watch::channel(false);
+    let ended = session(&options, token, provider, Arc::new(Slots::default()), stop).await;
+    assert!(!matches!(ended, Ended::Shutdown), "{ended:?}");
+
+    let upstream_sent = cmux_egress::capture::requests_to("api.anthropic.com");
+    assert!(upstream_sent.iter().any(|r| r.target == "/v1/messages"), "{upstream_sent:?}");
+    let backend_sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(backend_sent.iter().any(|r| r.target.starts_with(CONNECT_PATH)), "{backend_sent:?}");
+    let places = cmux_egress::capture::leaks(key);
+    assert!(!places.is_empty(), "{upstream_sent:?}");
+    assert!(
+        places
+            .iter()
+            .all(|p| p.starts_with("api.anthropic.com ") && p.ends_with(": header authorization")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(prompt);
+    assert!(
+        places.iter().all(|p| p.starts_with("api.anthropic.com ") && p.ends_with(": body")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{backend_sent:?}");
+    assert!(
+        places
+            .iter()
+            .all(|p| p.starts_with("cloud-api.cmux.dev ") && p.ends_with(": header authorization")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty(), "{backend_sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+}

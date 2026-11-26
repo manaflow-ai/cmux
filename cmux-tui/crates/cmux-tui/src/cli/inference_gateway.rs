@@ -618,13 +618,17 @@ async fn stopping(stop: &mut watch::Receiver<bool>) {
     }
 }
 
-async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
-    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
+/// The client every upstream (provider) call goes out on.
+fn upstream_client() -> reqwest::Result<reqwest::Client> {
+    cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("cmux-inference-gateway/", env!("CARGO_PKG_VERSION")))
         .build()
-    {
+}
+
+async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
+    let http = match upstream_client() {
         Ok(http) => http,
         Err(error) => {
             log(&format!("cannot make an HTTP client: {error}"));

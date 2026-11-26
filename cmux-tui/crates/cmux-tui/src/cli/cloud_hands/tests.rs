@@ -558,3 +558,29 @@ async fn a_refresh_running_when_a_new_start_begins_answers_that_its_session_ende
         "answered once, never by the new start: {after:?}"
     );
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the user socket's upgrade carries the bearer
+/// only in `Authorization`. The capture server answers the upgrade `200`, so the session ends after
+/// the request was seen. tests/egress_seeded.json names this test for
+/// `cmux_tui::cli::cloud_hands::socket`.
+#[tokio::test]
+async fn the_socket_sends_the_bearer_only_in_authorization() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDhandsSocketBearer-6d2c";
+    let ended = super::socket::session(
+        "https://cloud-api.cmux.dev",
+        Some(token.to_owned()),
+        Some("1.0.0"),
+        || 0.0,
+        |_| {},
+    )
+    .await;
+    assert!(ended.is_err(), "{ended:?}");
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    let path = cmux_cloud_wire::hands::USER_SOCKET_PATH;
+    assert!(sent.iter().any(|r| r.target.starts_with(path)), "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+}

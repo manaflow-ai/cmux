@@ -738,3 +738,47 @@ fn exec_without_an_api_or_credential_goes_through_the_app() {
     let new = parse(&strings(&["create", "--target", machine])).unwrap();
     assert_eq!(app_exec(&new, none), None);
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the session mint and the machine-exec fallback
+/// send the credential only in `Authorization`, the team only in its team header, and the command
+/// only in the exec body. tests/egress_seeded.json names this test for
+/// `cmux_tui::cli::cloud_client_session`.
+#[test]
+fn seeded_secrets_ride_only_in_authorization_the_team_header_and_the_exec_body() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let credential = "SEEDclientSessionBearer-a5d1";
+    let team = "SEEDclientSessionTeam-62f0";
+    let line = "echo SEEDclientSessionCommand-0c3e";
+    let api = "https://cloud-api.cmux.dev";
+    let command = Command {
+        verb: Verb::Exec { command: line.to_owned(), timeout_ms: 1_000 },
+        machine: VM.to_owned(),
+        ttl: Some(60),
+        api: None,
+        credential_file: None,
+        team: Some(team.to_owned()),
+    };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let _ = run(&command, api, credential, OutputMode::Human, &mut out, &mut err);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let scope = Scope::new(api, Some(team)).unwrap();
+    let machine = scope.machine(VM).unwrap();
+    let client = http_client().unwrap();
+    let _ = runtime.block_on(exec_route(&client, &scope, credential, &machine, line, 1_000));
+    let sent: Vec<_> = cmux_egress::capture::requests_to("cloud-api.cmux.dev")
+        .into_iter()
+        .filter(|r| r.target.contains(VM))
+        .collect();
+    assert!(sent.iter().any(|r| r.target.ends_with("/client-session")), "{sent:?}");
+    assert!(sent.iter().any(|r| r.target.ends_with("/exec")), "{sent:?}");
+    let places = cmux_egress::capture::leaks(credential);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(&format!(": header {TEAM_HEADER}"))), "{places:?}");
+    let places = cmux_egress::capture::leaks("SEEDclientSessionCommand-0c3e");
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].contains("/exec") && places[0].ends_with(": body"), "{places:?}");
+}
