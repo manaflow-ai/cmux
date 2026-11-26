@@ -514,6 +514,10 @@ class LandCarryTests(BranchRepo):
             "draft": False, "base": {"ref": "feat-cmux-next", "repo": repo},
             "head": {"sha": "a" * 40, "repo": repo}, "labels": [{"name": "ready-to-land"}]}}
         state = {"value": "success"}
+        # The hourly full tier rule (on by default) gives every landing head the cheap tier; pin it off so the carry
+        # rule's own full-or-carried verdict shows.
+        saved = os.environ.get("CI_LAND_FULL_PER_PR")
+        os.environ["CI_LAND_FULL_PER_PR"] = "1"
         try:
             head_tier.land_status_at = lambda *a: calls.append(("status", a[1])) or state["value"]
             head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or [
@@ -531,6 +535,10 @@ class LandCarryTests(BranchRepo):
             self.assertEqual(calls, [("status", "b" * 40)])
         finally:
             head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at = real
+            if saved is None:
+                os.environ.pop("CI_LAND_FULL_PER_PR", None)
+            else:
+                os.environ["CI_LAND_FULL_PER_PR"] = saved
 
 
 class GreenPreviousTests(unittest.TestCase):
