@@ -19,7 +19,7 @@ def main():
     ids = list(dict.fromkeys(args.ids))
     query = urlencode({"id": ",".join(map(str, ids)), "country": args.country})
     lookup = f"https://itunes.apple.com/lookup?{query}"
-    with urlopen(lookup, timeout=30) as response:
+    with urlopen(lookup, timeout=30) as response:  # user-agent: Apple's iTunes lookup API, not a CDN of ours
         apps = {app["trackId"]: app for app in json.load(response)["results"]}
     missing = [str(i) for i in ids if not apps.get(i, {}).get("screenshotUrls")]
     if missing:
@@ -34,7 +34,7 @@ def main():
                 app = apps[app_id]
                 screenshots = []
                 for n, url in enumerate(app["screenshotUrls"], start=1):
-                    with urlopen(url, timeout=30) as response:
+                    with urlopen(url, timeout=30) as response:  # user-agent: Apple's mzstatic screenshots, not ours
                         ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(
                             response.headers.get_content_type())
                         if not ext:
