@@ -181,7 +181,7 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.
-    static let transport: URLSession = {
+    public static let transport: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
