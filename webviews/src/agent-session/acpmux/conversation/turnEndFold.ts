@@ -35,6 +35,7 @@ import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPa
 import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
+import { declareMove } from "../../../layout/motionContract";
 import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
@@ -1244,6 +1245,20 @@ export function playTurnEnd(
   let easing = settleEasing;
   let grew = false;
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  // Every fold moves the rows that stay from where they were drawn to their places on its own script
+  // clock, after its copies' exit lead when it takes rows away: those rows rest through the lead and
+  // then move, and the layout-motion judge does not read a script animation as one (it reads keyframe
+  // CSS animations only). So the move is declared, as the contract asks of code that moves rows on
+  // purpose (layout/motionContract.ts `declareMove`): a fold closing, on the thread's rows, from the
+  // swap until the fold settles. Without it each kept row's first step after the lead read as an
+  // undeclared move: the crossing fold (turn-end-fold `steer-*`, 8 each) and a plain turn end under a
+  // followed view (composer-send-one-motion: the sent prompt and its Worked row, 6 each; hq#13423).
+  const undeclare = declareMove({
+    event: "expand",
+    scope: "targets",
+    targets: [thread],
+    by: cross ? "turn-end crossing fold" : "turn-end fold",
+  });
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
   // rows measured and placed again in the long frame the swap renders) plays from the start, so the
   // first painted frame is the fold's first, never most of the way there in one step.
@@ -2128,6 +2143,7 @@ export function playTurnEnd(
     observer?.disconnect();
     scroller?.removeEventListener("scroll", onScroll);
     unscroll();
+    undeclare();
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
   arm(lead);

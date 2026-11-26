@@ -36,6 +36,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { turnView } from "./turns";
 import type { ExitLeadLook } from "./exitLead";
 import type { TurnEndCross, TurnEndLook } from "./turnEndFold";
+import { useStreamAppendDeclaration } from "../devMotionAudit";
 
 type Variant = TurnEndLook | "live";
 
@@ -221,6 +222,11 @@ function TurnEndFoldGallery({
       }),
     [steps, ended, state, long, steered],
   );
+  // While the turn runs its rows grow at the end and the rows above rise with it: the declared
+  // `stream-append` move the pane declares for the same flag (App.tsx `useStreamAppendDeclaration`). Without
+  // it every history row's rise read as an undeclared move (hq#13423). The fold itself is not covered: its
+  // rows animate, and any row placed again after it without one is still judged.
+  useStreamAppendDeclaration(state === "running" && !ended);
   // gallery-capture: runs only from Run the turn, which each arm's play clicks and then waits for its end state.
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
