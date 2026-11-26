@@ -47,7 +47,7 @@ struct StallVerdictTests {
 
     /// The case the heartbeat cannot see: the main thread is asleep in its event wait, so no
     /// stall runs, but the overloaded Mac takes seconds to run the probe's main-queue block.
-    @Test func aSlowProbeAnswerOnAnOverloadedMacIsAStarvedRecord() throws {
+    @Test @MainActor func aSlowProbeAnswerOnAnOverloadedMacIsAStarvedRecord() throws {
         let clock = ManualUptime()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false,
                                                                hangAssertThreshold: nil), uptime: clock.read)
@@ -57,21 +57,43 @@ struct StallVerdictTests {
         watchdog.episodes = recorder
 
         // Under the hang threshold, or blocked (CPU used), or on a calm Mac: not this probe's record.
-        #expect(watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 1_000_000_000, cpuNanos: 0, host: overloaded) == nil)
-        #expect(watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 2_900_000_000, host: overloaded) == nil)
-        #expect(watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 1_000_000, host: calm) == nil)
+        watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 1_000_000_000, cpuNanos: 0, host: { [overloaded] in overloaded })
+        watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 2_900_000_000, host: { [overloaded] in overloaded })
+        watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 1_000_000, host: { [calm] in calm })
+        watchdog.probeReportQueue.sync {}
+        #expect(watchdog.log.records().isEmpty)
 
-        let record = try #require(watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 1_000_000, host: overloaded))
+        // With the reporter unable to run, the main thread can still finish its answer.
+        let observedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        watchdog.probeOutstanding.store(true, ordering: .releasing)
+        watchdog.probeReportQueue.suspend()
+        watchdog.noteProbeAnswered(sentAt: 1, delayNanos: 3_000_000_000, cpuNanos: 1_000_000, observedAt: observedAt) { [overloaded] in
+            #expect(!Thread.isMainThread)
+            return overloaded
+        }
+        #expect(watchdog.log.records().isEmpty)
+        let outstandingWhilePaused = watchdog.probeOutstanding.load(ordering: .acquiring)
+        #expect(outstandingWhilePaused)
+        watchdog.lastHangUptime.store(10, ordering: .releasing)
+        watchdog.probeReportQueue.resume()
+        watchdog.probeReportQueue.sync {}
+
+        let outstandingAfterReport = watchdog.probeOutstanding.load(ordering: .acquiring)
+        #expect(!outstandingAfterReport)
+        let record = try #require(watchdog.log.records().first)
         #expect(record.details["verdict"] == JSONValue.string("starved"))
         #expect(record.duration == .seconds(3))
         #expect(watchdog.log.records().count == 1)
         recorder.drain()
-        let text = try String(contentsOf: try #require(recorder.entries.first?.url), encoding: .utf8)
+        let entry = try #require(recorder.entries.first)
+        #expect(entry.started == observedAt.addingTimeInterval(-3))
+        let text = try String(contentsOf: entry.url, encoding: .utf8)
         #expect(text.contains("verdict: starved"))
         #expect(text.contains("state: recovered"))
 
         // A hang the watchdog already reported in that window keeps its own record.
-        watchdog.lastHangUptime.store(10, ordering: .releasing)
-        #expect(watchdog.noteProbeAnswered(sentAt: 5, delayNanos: 3_000_000_000, cpuNanos: 0, host: overloaded) == nil)
+        watchdog.noteProbeAnswered(sentAt: 5, delayNanos: 3_000_000_000, cpuNanos: 0, host: { [overloaded] in overloaded })
+        watchdog.probeReportQueue.sync {}
+        #expect(watchdog.log.records().count == 1)
     }
 }
