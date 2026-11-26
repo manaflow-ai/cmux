@@ -32,7 +32,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 114,
+   "acpmux": 111,
    "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
@@ -91,7 +91,6 @@
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 6,
-   "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
   }
@@ -153,7 +152,7 @@
     "CmuxNextApp": 5,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 10,
+    "CmuxNextCompat": 11,
     "CmuxNextCrashReporting": 11,
     "CmuxNextDesign": 12,
     "CmuxNextFiles": 2,

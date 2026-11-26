@@ -116,5 +116,74 @@ class FindTest(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+    def test_fast_lane_reads_on_the_app_budget_not_github_token(self):
+        # Run 45761272633 (5a2862fb, 2026-11-26): the lookup on the shared GITHUB_TOKEN quota got a 403 and
+        # the merge rebuilt; run 45730730942: both points' cross-run downloads failed on that quota.
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())
+        steps = {n: {s.get("id") or s.get("name"): s for s in j["steps"]} for n, j in wf["jobs"].items()
+                 if "steps" in j}
+        self.assertEqual(steps["plan"]["plan"]["env"]["GH_TOKEN"], "${{ steps.app.outputs.token }}")
+        self.assertIn("create-github-app-token", steps["plan"]["app"]["uses"])
+        points = [n for n, by in steps.items()
+                  if "Download the machine channel's Linux cmux-tui binaries" in by]
+        self.assertEqual(len(points), 2)
+        for n in points:
+            self.assertIn("create-github-app-token", steps[n]["app"]["uses"])
+            tok = steps[n]["Download the machine channel's Linux cmux-tui binaries"]["with"]["github-token"]
+            self.assertIn("steps.app.outputs.token", tok)
+            self.assertNotIn("github.token", tok)
+
+    def test_a_refusal_names_its_reason(self):
+        import io, urllib.error, urllib.request
+        err = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"message":"API rate limit exceeded for installation"}'))
+        def boom(*a, **k):
+            raise err
+        real = urllib.request.urlopen
+        urllib.request.urlopen = boom
+        try:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403: .*rate limit exceeded"):
+                pr_head.github_api(REPO, "t")("commits/x/pulls")
+        finally:
+            urllib.request.urlopen = real
+
+
+class LandTierTest(unittest.TestCase):
+    """pr-router's machine channel PR head build runs only at a head handed to land (Leo, 2026-11-23: "de facto, im
+    asking for 99% fewer minutes of ci time, period."): tests/test_head_tier.py land_tier_condition."""
+
+    def test_the_job_carries_the_land_tier_condition(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_head_tier import _job_ifs, land_tier_condition
+
+        jobs = _job_ifs((ROOT / ".github/workflows/pr-router.yml").read_text())
+        self.assertIn(land_tier_condition("pull_request"), jobs["machine-channel-pr-head"])
+
+
+class TreeKeyCliTest(unittest.TestCase):
+    """The real tree key CLI, not a fake key: a `key` subcommand it never took made every key empty, so every
+    land-tier head built both thin targets and no merge ever took one (h94 sweep, 2026-11-26)."""
+
+    def test_tree_key_reads_a_real_key(self):
+        import re
+        self.assertRegex(pr_head.tree_key("HEAD"), re.compile(r"^[0-9a-f]{40}$"))
+
+    def test_the_workflow_calls_the_cli_as_it_parses(self):
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        self.assertNotIn('"$tk" key', text)
+        self.assertIn('"$tk" --version v2', text)
+
+    def test_a_head_behind_the_base_does_not_build(self):
+        """find takes a build only when the head's key is the merge's, so a head behind the base (its key differs
+        from its merge with the base) builds a pair no merge can take: 470 head builds, 16.8k runner-minutes, in
+        04:30-07:11Z 2026-11-26 against 6 push builds (ci-min-per-pr-1500)."""
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        plan = text[text.index("if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]"):text.index("# The channel's commit")]
+        self.assertIn('"$tk" --version v2 HEAD^2', plan)
+        self.assertIn('"$head" != "$mine"', plan)
+        self.assertLess(plan.index('"$mine" != "$base"'), plan.index('"$head" != "$mine"'))
+        self.assertLess(plan.index('"$head" != "$mine"'), plan.index('echo "build=$build" >> "$GITHUB_OUTPUT"'))
+
+
 if __name__ == "__main__":
     unittest.main()

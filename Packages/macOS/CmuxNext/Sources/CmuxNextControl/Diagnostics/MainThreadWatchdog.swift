@@ -210,7 +210,9 @@ public final class MainThreadWatchdog: Sendable {
     /// reported: a starvation probe that overlaps one adds no second record (+Starvation).
     let lastHangUptime = Atomic<UInt64>(0)
     /// The starvation probe's chain of checks (+Starvation), and whether its block is still on the main queue.
-    let probeTimer = DemandTimer(owner: "MainThreadWatchdog.starvationProbe")
+    /// A check may run up to 2.5 s early on a wake that already happened (``WakeCoalescer``): at idle it costs no wake
+    /// of its own (0.20/s on cmux20-bench, 2026-11-25).
+    let probeTimer = DemandTimer(owner: "MainThreadWatchdog.starvationProbe", early: .milliseconds(2_500))
     let probeOutstanding = Atomic<Bool>(false)
     /// Starvation records so far: their hang files' keys (+Starvation).
     let probeSequence = Atomic<UInt64>(0)
@@ -360,6 +362,8 @@ public final class MainThreadWatchdog: Sendable {
         if wasAsleep, !asleep {
             mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
+            // The deadlines that may run early run on this wake instead of waking the app again.
+            WakeupLedger.shared.coalescer.wake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
         } else if asleep, !wasAsleep {

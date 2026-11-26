@@ -82,7 +82,7 @@ jobs:
     # One canonical branch: the Freestyle account and the devbox-rebake/* PRs
     # are shared, so a dispatch from any other ref does nothing.
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # A full bake + ladder takes about 20 minutes (run 40399656939); a run still
     # going after 6 hours is stuck, the one case a started bake may end.
     timeout-minutes: 360
@@ -96,7 +96,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          # Only this head's history: pinCmuxTui walks the last 80 cmux-tui
+          # commits (about 250 commits deep on 11-25). fetch-depth 0 also pulls
+          # every one of the repo's ~38k branches, and that fetch ran 52 minutes
+          # in run 45606215332 and lost its runner in run 45601932580.
+          fetch-depth: 2000
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket

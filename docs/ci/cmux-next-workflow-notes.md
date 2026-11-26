@@ -1339,8 +1339,13 @@ Release step), so a push keeps it.
 
 Above `path_route: EVENT_LABELS` in `.github/workflows/cmux-next.yml`.
 
-The labels at the push. A re-run keeps that event, so it reads them
-live: adding full-ci or dev-build and re-running routes on them.
+The event's labels, used only when the live read fails. path_route reads
+the pull request's labels live on every attempt and exports them as
+`needs.path_route.outputs.labels` (`,a,b,`); every job reads that, not
+`github.event.pull_request.labels`. On 2026-11-25 (#53099, cmux#56909) a
+synchronize event delivered after full-ci was added carried no labels; it
+shared the concurrency group, cancelled the labeled run, and deferred every
+Mac tier. Adding full-ci or dev-build and re-running also routes on them.
 
 ## note-98
 
@@ -5154,6 +5159,21 @@ cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-ti
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
 
+## note-head-fail-fast
+
+Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs). Since 11-26 pr-router.yml calls cmux-next-fast-gates.yml too, so its fail-fast job runs inside the router's run: it reads that run's failed jobs and, never cancelling its own run, cancels only the other HEAVY runs of the head; a fast gates run is no longer a HEAVY target of the others (its path is pr-router.yml, about two minutes on Linux).
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
+(controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the
+head's other jobs kept running for 238,776 runner-min a day. A red head never lands as it is. So when one of the
+jobs a head most often first fails on (app compile, fast tier, fast tier cargo, web bundles, generated files, fast
+gates, tooling-tests, pr pipeline) fails, a caller job that needs only that job runs
+`head-fail-fast.yml`: unless the failed job is red on the base too (land-judge excuses that red), it cancels the
+head's other heavy pull_request runs still queued or running, never its own run, and lists them in its summary.
+Replayed on that day's jobs, these triggers fire on 2,053 heads and cut about 51.7k runner-min a day net (54.2k no longer spent after the trigger, less 2.4k re-spent on the 250 heads later rerun). The failed check stays the head's verdict. `vars.CI_HEAD_FAIL_FAST` set to `0` turns it off; a full-ci label or a
+fork's pull request never cancels. Rules: `scripts/ci/head_fail_fast.py`.
+
 ## note-559
 
 Above the fast-tier-cargo job's env in `.github/workflows/cmux-next.yml`, its "List the changed paths" and run
@@ -5203,8 +5223,8 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
 - Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
-- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
-  (`dev_daily`) compiles are unchanged.
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
+  (2026-11-25-fleet-fallback.md). DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 

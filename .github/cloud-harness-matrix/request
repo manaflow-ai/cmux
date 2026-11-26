@@ -1,0 +1,3 @@
+# Landing a change to this file on feat-cmux-next runs cloud-harness-matrix.yml once. The last line is the cells.
+# 2026-11-26 Codex cell after the staging test sweep (hq#13934)
+codex-app-start

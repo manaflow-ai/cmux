@@ -312,7 +312,7 @@ class FFICacheTest(unittest.TestCase):
             self.assertTrue(word in text, "cmux-next-ios-sim.sh lacks " + word)
         # A hit is the only path that skips the build.
         hit = text.index('"${ffi_cache[@]}" restore ')
-        self.assertLess(hit, text.index("build-xcframework.sh >"))
+        self.assertLess(hit, text.index('"${ffi_cache[@]}" build '))
 
     def ffi_block(self):
         text = SCRIPT.read_text()
@@ -384,11 +384,84 @@ class FFICacheTest(unittest.TestCase):
             self.assertIn(word, summary)
 
     def test_no_key_builds_quietly(self):
-        p, calls, summary = self.run_block("import sys; sys.exit(3)\n")
+        # The real helper's build runs the command and writes its exit code; a no-key step is quiet.
+        p, calls, summary = self.run_block(
+            "import subprocess, sys\nif sys.argv[1] != 'build': sys.exit(3)\n"
+            "rc = subprocess.call(sys.argv[4:]); open(sys.argv[3], 'w').write('%d\\n' % rc); sys.exit(rc)\n")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("built", calls)
         self.assertNotIn("warning", p.stderr + summary)
         self.assertIn("HOW=built", p.stdout)
+
+    def test_warm_build_runs_in_a_slot_and_its_failure_fails_the_step(self):
+        helper = HELPER.read_text()
+        build = 'mkdir -p "$(dirname "$0")/../../CmuxMobileKit/Frameworks"; echo "built in $CARGO_TARGET_DIR" >> "$OUT"'
+        p, calls, summary = self.run_block(helper, build)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("built in %s" % (self.cache / "ios-ffi-target/0"), calls)
+        self.assertIn("ios-ffi target: slot 0 (cold)", summary)
+        p, calls, summary = self.run_block(helper, build_body="exit 5")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("CmuxMobileLinkFFI.xcframework build failed", p.stderr)
+
+    def test_build_slots_trim_and_toolchain(self):
+        import importlib.util as iu
+        spec = iu.spec_from_file_location("ios_ffi_cache_t", HELPER)
+        m = iu.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        os.environ["CMUX_IOS_FFI_PATH_PACKAGES"] = self.env["CMUX_IOS_FFI_PATH_PACKAGES"]
+        self.addCleanup(os.environ.pop, "CMUX_IOS_FFI_PATH_PACKAGES", None)
+        write(self.checkout / "cmux-tui/crates/cmux-wg/Cargo.toml", '[package]\nname = "cmux-wg"\n')
+        self.assertEqual(m.local_crates(self.checkout), {"cmux_wg"})
+        self.assertEqual(m.crate_of("libcmux_wg-0123abcd.rlib"), "cmux_wg")
+        self.assertEqual(m.crate_of("cmux-wg-0123abcd"), "cmux_wg")
+        self.assertEqual(m.crate_of(".cargo-lock"), "")
+        slot = self.tmp / "slot"
+        deps = slot / "aarch64-apple-ios/release/deps"
+        fp = slot / "aarch64-apple-ios/release/.fingerprint"
+        for f in ("libcmux_wg-old.rlib", "libcmux_wg-new.rlib", "libtokio-aaaa.rlib"):
+            write(deps / f, "x")
+        (fp / "cmux-wg-old").mkdir(parents=True)
+        (fp / "cmux-wg-new").mkdir(parents=True)
+        old = 1000.0
+        for f in (deps / "libcmux_wg-old.rlib", deps / "libtokio-aaaa.rlib", fp / "cmux-wg-old"):
+            os.utime(f, (old, old))
+        removed, _ = m.trim_target(slot, self.checkout, started=2000.0)
+        self.assertEqual(removed, 2)
+        self.assertEqual(sorted(os.listdir(deps)), ["libcmux_wg-new.rlib", "libtokio-aaaa.rlib"])
+        self.assertEqual(os.listdir(fp), ["cmux-wg-new"])
+        # A crate this build did not rebuild keeps its artifacts.
+        os.utime(deps / "libcmux_wg-new.rlib", (old, old))
+        self.assertEqual(m.trim_target(slot, self.checkout, started=2000.0)[0], 0)
+        # Past the cap the slot is emptied, its toolchain stamp kept.
+        write(slot / "toolchain.txt", "tc")
+        m.TARGET_CAP_BYTES = 1
+        m.trim_target(slot, self.checkout, started=2000.0)
+        self.assertEqual(os.listdir(slot), ["toolchain.txt"])
+        # A new toolchain empties the slot; a busy slot sends the next build to slot 1.
+        os.environ["CMUX_CI_CACHE_DIR"] = str(self.cache)
+        self.addCleanup(os.environ.pop, "CMUX_CI_CACHE_DIR", None)
+        os.environ["CMUX_IOS_FFI_TOOLCHAIN"] = "tc1"
+        self.addCleanup(os.environ.pop, "CMUX_IOS_FFI_TOOLCHAIN", None)
+        m.TARGET_CAP_BYTES = 1 << 40
+        rc_file = self.tmp / "rc"
+        s0 = self.cache / "ios-ffi-target/0"
+        self.assertEqual(m.build(self.checkout, str(rc_file), ["sh", "-c", 'touch "$CARGO_TARGET_DIR/artifact"']), 0)
+        self.assertTrue((s0 / "artifact").exists())
+        self.assertEqual(rc_file.read_text(), "0\n")
+        os.environ["CMUX_IOS_FFI_TOOLCHAIN"] = "tc2"
+        self.assertEqual(m.build(self.checkout, str(rc_file), ["sh", "-c", "exit 4"]), 4)
+        self.assertEqual(rc_file.read_text(), "4\n")
+        self.assertFalse((s0 / "artifact").exists())
+        self.assertEqual((s0 / "toolchain.txt").read_text(), "tc2")
+        import fcntl
+        with open(self.cache / "ios-ffi-target/0.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            out = subprocess.run([sys.executable, "-I", str(HELPER), "build", str(self.checkout), str(rc_file),
+                                  "sh", "-c", 'echo "dir=$CARGO_TARGET_DIR"'], env=dict(self.env, CMUX_IOS_FFI_TOOLCHAIN="tc2"),
+                                 capture_output=True, text=True).stdout
+        self.assertIn("slot 1 (cold)", out)
+        self.assertIn("dir=%s" % (self.cache / "ios-ffi-target/1"), out)
 
     def test_failed_build_fails_the_step(self):
         p, calls, summary = self.run_block("import sys; sys.exit(3)\n", build_body="exit 5")
@@ -480,7 +553,10 @@ class EntryPointsCallIt(unittest.TestCase):
         self.assertLess(text.index("restore-ios-patch-lock.sh"), text.index("cargo fetch --locked"))
         for line in ("trap 'exit 129' HUP", "trap 'exit 130' INT", "trap 'exit 143' TERM"):
             self.assertIn(line, text)
-        self.assertIn('rm -f "$rust_dir/target/ios-patches/Cargo.lock.orig"', text)
+        # The saved lock sits where the helper looks (this checkout's target/, not the shared
+        # CARGO_TARGET_DIR), and a normal restore removes it.
+        self.assertIn('lock_orig="$rust_dir/target/ios-patches/Cargo.lock.orig"', text)
+        self.assertIn('rm -f "$lock_orig"', text)
 
     def test_ios_ffi_cache_restores_before_its_locked_fetch(self):
         text = HELPER.read_text()

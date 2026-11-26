@@ -122,6 +122,7 @@ impl Tickets for MachineTickets {
             peer_key: None,
             peers: self.peers.keys().cloned().collect(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 
@@ -135,6 +136,7 @@ impl Tickets for MachineTickets {
             peer_key: Some(peer.to_owned()),
             peers: Vec::new(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 }

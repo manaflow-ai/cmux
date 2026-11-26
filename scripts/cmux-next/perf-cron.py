@@ -342,9 +342,11 @@ PARTS = [
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
-    # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+    # six benches take about 20 minutes. First the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
-    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
+    # goal: the rows behind goal god-chat-ratios in cmuxterm-hq's NOW (god_chat_replay_ratio_max reads
+    # webui.god_ratio.transcript_replay.long.*), so a due run of it goes first (part_order); they went 4 days unread.
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
@@ -374,8 +376,15 @@ PARTS = [
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
-    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
-    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    # goal: both parts feed NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max, so once due they go
+    # right after the build (part_order). Without it a part that failed in the newest tip went behind every stale
+    # part: both failed at b4a3f5019f7f (2026-11-25, "reads visible ..., not hidden", before cmux#57063), stored no
+    # row, and at tip c2b1760e0a63 sat 4th and 5th of 23 Linux parts behind one controller request a tick, so the
+    # two rows read the same values from 2026-11-25 02:20Z on.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -1299,10 +1308,13 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-god":
         only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
-                "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
+        # It runs first: behind the suite (about 20 minutes) its deadline left room for one round, under the
+        # GOD_PAIRED_MIN_ROUNDS a paired row needs, and cmuxterm-hq's god_chat_replay_ratio_max read nothing after
+        # 2026-11-21.
+        return {"paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
                            os.path.join(root, "webviews"),
-                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"})}
+                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"}),
+                "suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1467,11 +1479,29 @@ def build_failed_tip(cur):
             and any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values()))
 
 
+# A build part's failure that ran nothing of the commit: the fleet could not fetch its source (NOT_STARTED_RE, and the
+# shapes of it a record keeps once its 200-character why cuts that suffix off). Such a tip says nothing about the base.
+BUILD_NEVER_RAN_RE = re.compile(r"source download failed \d+ times?, before the job started|GitHub refused the fetch"
+                                r"|no reviewed tip could be fetched|not fetched \(git: unable to access")
+
+
 def last_tip_build_failed(state):
-    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure)."""
+    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure). A build
+    that never ran (BUILD_NEVER_RAN_RE) is no failure of the app: tip c2b1760e's checkout was refused (HTTP 403,
+    2026-11-26) before the controller's NOT_STARTED_RE yield existed, and the next tip, 60a23ed3, whose source fetch
+    the controller's git proxy answered 503, then took it for a broken base and held the Mac behind its Linux parts."""
     entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
-    return bool(entry) and (bool(entry.get("build_failed"))
-                            or "build_failed" in (entry.get("failed_why") or {}).values())
+    if not entry:
+        return False
+    if BUILD_NEVER_RAN_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
+        return False
+    return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
+
+
+def build_never_ran(cur):
+    """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
+    build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
+    return isinstance(build, dict) and build.get("state") == "failed" and bool(BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
 def unread_missing(state, cur):
@@ -1504,7 +1534,11 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
         # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
         since = parse_started(gave.get("at"))
-        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+        # A tip superseded for its build while the base looked broken keeps its Linux parts for the bound; once that
+        # judgement no longer holds (its build never ran, or the tip before built), they end now, as below.
+        base_ok = str(gave.get("why") or "").startswith("its app build failed") and (
+            build_never_ran(cur) or not last_tip_build_failed(state))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS and not base_ok:
             return None
         for name in list(cur["parts_todo"]):
             cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
@@ -1516,7 +1550,7 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # 10:32Z with 24 Linux parts to do, and tabs, which NOW's tabs-keep-speed reads, had no row for 8 days).
         why = f"its app build failed; {newest[:12]} is newer"
         cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
-        if not last_tip_build_failed(state):
+        if build_never_ran(cur) or not last_tip_build_failed(state):
             # The Mac waits on no Linux part: the tip ends now and the newer tip claims the Mac at this tick, its own
             # Linux parts running at once with it (decide). The Linux parts that ran with the build already reported
             # in that tick; the rest end 'superseded', and the build's failure stays on record (finish_measurement).
@@ -2800,14 +2834,18 @@ GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$|^webui\.chat_open_paired\.)")
 # The web-ui-god part's paired transcript-replay rounds (transcript-replay.bench.ts PAIRED=1, cmux#43874): at least MIN
 # rounds, then more until each board row's (GOD_PAIRED_BOARD_RE, cmuxterm-hq god_chat_replay_ratio_max) median has a
-# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the part's benches have run under
-# DEADLINE_S with room for one more round as long as the longest so far (the Linux job's cap is 40 minutes with about
-# 5 of setup); each round is cut at ROUND_TIMEOUT_S.
+# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the rounds have run under DEADLINE_S
+# (counted from the first round, so the suite that runs after them takes none of it) with room for one more round as
+# long as the longest so far; each round is cut at ROUND_TIMEOUT_S. The rounds share one pane build (PANE_BUILD_S cap).
+# Sizes: one round played the god session for 440 s live (510 s with its own build) on a 16-core host at load 19, and
+# the old 600 s cut killed the first round of every run from 2026-11-21 (perf cron job log, 2026-11-25 22:30Z), so a
+# round gets ROUND_TIMEOUT_S and the deadline holds MIN rounds of that length.
 GOD_PAIRED_MIN_ROUNDS = 5
 GOD_PAIRED_MAX_ROUNDS = 12
 GOD_PAIRED_CI_WIDTH = 0.1
-GOD_PAIRED_DEADLINE_S = 1950
-GOD_PAIRED_ROUND_TIMEOUT_S = 600
+GOD_PAIRED_ROUND_TIMEOUT_S = 1200
+GOD_PAIRED_DEADLINE_S = 4500
+GOD_PAIRED_PANE_BUILD_S = 600
 GOD_PAIRED_BOARD_RE = re.compile(r"^webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)$")
 PERF_ROW_MARK = "PERF_ROW "
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
@@ -2965,6 +3003,45 @@ def streak_parts(streak):
     return sorted(set.intersection(*sets)) if sets else []
 
 
+# The issue's task block: one entry per open bisect group with its stage, so an agent (or the next one) resumes where
+# the last left off instead of reading lane memory (docs/reading/2026-11-25-openai-performance-factory.md in hq: "a
+# perf alert becomes a task that agents carry to recovery"). The cron writes the stages it can judge itself; a lane
+# that names a root cause or opens a fix says so in a comment, since the next tick rewrites this block.
+TASK_MARK = "<!-- cmux-next-perf-task -->"
+TASK_NEXT = {
+    "needs investigation": "the cron bisects the range a step per tick; nothing to do until a culprit is named",
+    "culprit named": "disprove the culprit: does a revert of it recover the rows, did the rows move at it on another "
+                     "host? Then comment the root cause, or that the culprit is wrong",
+    "recovering": "within threshold again; the cron closes the rows after their recovery runs, nothing to do",
+}
+
+
+def task_stage(rows, rng, regs):
+    """A bisect group's stage: recovering (every row within its threshold in its latest run), culprit named (the
+    bisect ended on one commit), else needs investigation."""
+    by = {r["name"]: r for r in regs}
+    if rows and all(by.get(n, {}).get("recovering") for n in rows):
+        return "recovering"
+    return "culprit named" if rng.get("culprit") else "needs investigation"
+
+
+def task_block(state):
+    """The issue's task block: {"tasks": [{id, stage, next, rows, opened_at, range, culprit, pr}]} as fenced JSON."""
+    regs = state.get("regressions") or []
+    tasks = []
+    for g in bisect_groups(state):
+        rng, rows = g["range"], g["rows"]
+        opened = [str((r.get("first_bad") or {}).get("measured_at") or "") for r in regs if r["name"] in rows]
+        opened = sorted(o for o in opened if o)
+        named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+        stage = task_stage(rows, rng, regs)
+        tasks.append({"id": f"{str(rng['good'])[:11]}..{str(rng['bad'])[:11]}", "stage": stage, "next": TASK_NEXT[stage],
+                      "rows": rows, "opened_at": opened[0] if opened else None,
+                      "range": {"good": rng["good"], "bad": rng["bad"], "steps": rng.get("steps", 0)},
+                      "culprit": rng.get("culprit"), "pr": (named or {}).get("pr")})
+    return [TASK_MARK, "```json", json.dumps({"tasks": tasks}, sort_keys=True), "```"]
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -3004,6 +3081,7 @@ def issue_body(state, repo, now):
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
+        lines += ["", "Task state (one entry per culprit range; the cron rewrites it each tick):", "", *task_block(state)]
     else:
         lines.append("No confirmed regression.")
     lines += ["", *budget_issue_lines(state, now)]
@@ -3831,12 +3909,13 @@ def linux_run_seconds(part):
 def linux_job_minutes(part):
     """The timeout of a Linux part's job (pure): its setup and every bench's cap, so GitHub never kills a part that
     is still within them (a killed job leaves no result; infinite-items, a build and a suite of up to 30 minutes
-    each, outlived the old flat 40 minutes). The paired god rounds stop starting a round at GOD_PAIRED_DEADLINE_S
-    after the part's start, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more."""
+    each, outlived the old flat 40 minutes). The paired god rounds build the pane once (GOD_PAIRED_PANE_BUILD_S), stop
+    starting a round at GOD_PAIRED_DEADLINE_S after the first, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more;
+    the part's other runs follow them."""
     runs = linux_bench_runs("", part)
     benches = sum(linux_run_seconds(part) for name in runs if name != "paired")
     if "paired" in runs:
-        benches = max(benches, GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S)
+        benches += GOD_PAIRED_PANE_BUILD_S + GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S
     return LINUX_SETUP_MINUTES + -(-benches // 60)
 
 
@@ -4416,8 +4495,11 @@ def cmd_run_linux_part(o):
         env, tail = prepare_ghostty(ROOT, env)
     for name, (argv, cwd, extra) in runs.items():
         if name == "paired":
-            report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
-            tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+            with tempfile.TemporaryDirectory() as pane:
+                shared, line = paired_pane_build(cwd, {**env, **extra}, pane)
+                print(f"perf-cron web-ui-god: {line}")
+                report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra, **shared}, time.monotonic())
+            tail += [line, f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
         stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
@@ -4474,9 +4556,24 @@ def perf_rows(text):
     return out
 
 
+def paired_pane_build(cwd, env, out, run=subprocess.run):
+    """The agent pane built once into OUT for every paired round (bench/support/prebuild.ts, as web-ui-suite.ts shares
+    it): ({CMUX_BENCH_PANE_DIR: OUT}, a line), or ({}, a line) when it failed and each round builds its own."""
+    at = time.monotonic()
+    try:
+        code = run(["bun", "bench/support/prebuild.ts", "pane", out], cwd=cwd, env=env, capture_output=True,
+                   text=True, timeout=GOD_PAIRED_PANE_BUILD_S).returncode
+    except subprocess.TimeoutExpired:
+        code = f"timeout ({GOD_PAIRED_PANE_BUILD_S} s)"
+    seconds = round(time.monotonic() - at)
+    if code == 0 and os.path.exists(os.path.join(out, ".shared-build-done")):
+        return {"CMUX_BENCH_PANE_DIR": out}, f"paired pane build: {seconds} s"
+    return {}, f"paired pane build: exit {code} after {seconds} s, each round builds its own"
+
+
 def run_paired_rounds(argv, cwd, env, started, clock=time.monotonic, run=subprocess.run):
     """The web-ui-god part's paired rounds (GOD_PAIRED_*), until settled, the deadline or MAX rounds:
-    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the part's start on CLOCK."""
+    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the first round's start on CLOCK."""
     rounds, longest, stopped = [], 0.0, "max rounds"
     for _ in range(GOD_PAIRED_MAX_ROUNDS):
         if paired_settled(rounds):
@@ -5200,10 +5297,21 @@ def result_plan(o, state, t):
     write_outputs(o.output, out)
 
 
+# The controller's error for a step that never started: its source download (the checkout's fetch) failed every
+# try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
+# build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
+# build_failed though no build ran.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started")
+
+
 def result_files(value):
     """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
-    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded. A step that
+    failed before it started (NOT_STARTED_RE: the fleet could not fetch the source) ran nothing of the commit: it is
+    a yield, so the part runs again (MAX_YIELDS bounds it), and a build part's is no build failure."""
     tail = [line for line in (value.get("error"),) if line]
+    if value["state"] == "failed" and NOT_STARTED_RE.search(str(value.get("error") or "")):
+        value = {**value, "state": "yielded"}
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
             "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),

@@ -50,12 +50,14 @@ jobs:
       - name: Dispatch cmux-next-dev-daily-dispatch.yml on main
         env: &kick-env
           BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          # The quota-goblin CI pool's tokens (leo-workspace gh-app-roles push.actions_secrets), each its own hour.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           REPO_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           KICK: |
             kick() {
               local token out
-              for token in "$BOT_TOKEN" "$REPO_TOKEN"; do
+              for token in "$BOT_TOKEN" ${POOL_TOKENS:-} "$REPO_TOKEN"; do
                 [ -n "$token" ] || continue
                 if out="$(GH_TOKEN="$token" "$@" 2>&1)"; then
                   [ -z "$out" ] || printf '%s\n' "$out"

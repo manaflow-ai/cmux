@@ -31,6 +31,7 @@ import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
 import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
+import { useModelPickerStyle } from "./chatDisplay";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
@@ -1194,12 +1195,16 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
+  const pickerStyle = useModelPickerStyle();
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quick || harnessFixed || current?.folder) return undefined;
+    // Model Picker Style "menu" (chatDisplay.ts MODEL_PICKER_STYLE_KEY, a look's pick, after the
+    // Claude Code app): every chip opens that compact menu, a New Tab's too; More models still
+    // opens the full picker with every harness.
+    if (!quick || harnessFixed || current?.folder || pickerStyle === "menu") return undefined;
     // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
     // opens loses that press's click, so another popover never receives its outside dismissal.
     // The rows stay lazy until the picker opens.
@@ -1285,6 +1290,7 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [
     modelsNeeded,
     quick,
+    pickerStyle,
     harnessFixed,
     forkTargets,
     forkHarnesses,

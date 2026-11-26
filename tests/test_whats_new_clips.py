@@ -29,6 +29,52 @@ SHA = "b" * 64
 URL = clips.URL_PREFIX + "sidebar-archive/0123456789ab.webp"
 
 
+class SettingsStepTests(unittest.TestCase):
+    """A clip opens Settings in front (`"focus": true`), opens a row that is there, and never sets a userOnly row."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.schema = Path(folder.name) / "settings-schema.json"
+        self.schema.write_text(json.dumps({"rows": [
+            {"key": "mobile.autoApprovePhones", "agent_settable": False, "agent_refusal": "userOnly"},
+            {"key": "home.chiefBubbleStyle", "agent_settable": True, "agent_refusal": None}],
+            "page": {"categories": [{"id": "appearance", "lead": ["looksGallery"], "trail": ["customizeLibrary"]}]}}))
+
+    def problems(self, *steps):
+        return clips.settings_problems(list(steps), self.schema)
+
+    def test_open_settings_needs_focus(self):
+        step = {"title": "Settings", "rpc": {"method": "action.run", "params": {
+            "action": "openSettings", "arguments": {"setting": "home.chiefBubbleStyle"}}}}
+        self.assertTrue(any('"focus": true' in p for p in self.problems(step)))
+        step["rpc"]["params"]["focus"] = True
+        self.assertEqual(self.problems(step), [])
+
+    def test_open_settings_names_a_row_that_is_there(self):
+        step = {"title": "Settings", "rpc": {"method": "action.run", "params": {
+            "action": "openSettings", "arguments": {"setting": "updates.gone"}, "focus": True}}}
+        self.assertTrue(any("no row or card updates.gone" in p for p in self.problems(step)))
+        self.assertEqual(self.problems({**step, "optional": "the before app has no updates.gone"}), [])
+
+    def test_open_settings_names_a_card_that_is_there(self):
+        def opening(key):
+            return {"title": "Card", "rpc": {"method": "action.run", "params": {
+                "action": "openSettings", "arguments": {"setting": key}, "focus": True}}}
+        for key in ("card.looksGallery", "card.customizeLibrary", "card.looksGallery.install"):
+            self.assertEqual(self.problems(opening(key)), [], key)
+        self.assertTrue(any("no row or card card.gone" in p for p in self.problems(opening("card.gone"))))
+
+    def test_a_user_only_row_is_never_set(self):
+        self.assertTrue(any("agents may not change mobile.autoApprovePhones" in p for p in self.problems(
+            {"title": "On", "cmux": ["settings", "set", "mobile.autoApprovePhones", "true"]})))
+        self.assertTrue(self.problems({"title": "Off", "cmux": ["settings", "reset", "mobile.autoApprovePhones"]}))
+        self.assertEqual(self.problems({"title": "Theme", "cmux": ["settings", "set", "home.chiefBubbleStyle", "theme"]}), [])
+
+    def test_the_shipped_specs_pass(self):
+        self.assertEqual([p for p in clips.check() if "settings" in p.lower() or "focus" in p], [])
+
+
 class SpecTests(unittest.TestCase):
     def test_a_good_spec_has_no_problems(self):
         self.assertEqual(clips.spec_problems(SPEC), [])

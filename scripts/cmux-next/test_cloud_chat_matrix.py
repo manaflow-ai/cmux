@@ -142,7 +142,7 @@ class FixtureTests(unittest.TestCase):
     def test_a_claude_start_passes_a_login_only_when_asked(self):
         self.assertEqual(self.args.login, "")
         self.assertEqual(matrix.start_login("claude", self.args.login), [])
-        self.assertEqual(matrix.start_login("claude", "none"), ["--login", "none"])
+        self.assertEqual(matrix.start_login("claude", "none"), [])
         self.assertEqual(matrix.start_login("codex", "none"), [])
 
     def test_a_stale_machine_list_refusal_is_asked_again(self):
@@ -246,7 +246,7 @@ class GrantTests(unittest.TestCase):
             m.quit()
             self.assertEqual(sorted(words for words, _ in calls), sorted([["cloud", "secret", "rm", e] for e in entries]
                              + [["cloud", "connections", "--remove", "conn-1", "--keychain-account", "claude-token-0a1b2c3d"]]))
-        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
+        self.assertEqual(matrix.start_login("claude", "pass"), [])
 
 
 class TrustTests(unittest.TestCase):

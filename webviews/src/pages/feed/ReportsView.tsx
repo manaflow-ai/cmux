@@ -99,6 +99,7 @@ function ReportDetail({ store, snap, strings, report }: FeedProps & { report: Fe
       </div>
       {snap.reportNotSent === report.id ? (
         <p className="feed-report-not-sent" role="alert">
+          {/* retry-prompt-ok: "Try again" means sending the person's reply again, their call */}
           {t("reports.notSent")}
         </p>
       ) : null}

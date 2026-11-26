@@ -14,6 +14,7 @@
 
 pub mod lease;
 pub mod libvirt;
+pub mod pods;
 pub mod serve;
 pub mod source;
 
@@ -131,6 +132,25 @@ pub trait HypervisorDriver {
     fn destroy(&self, slot: &SlotName) -> Result<()>;
     /// Every `cmux-*` VM on this hypervisor, whatever made it.
     fn list(&self) -> Result<Vec<Slot>>;
+}
+
+/// The driver a `serve` or `ls` picked at run time (`--driver`).
+impl HypervisorDriver for Box<dyn HypervisorDriver> {
+    fn create(&self, slot: &SlotName, spec: &SlotSpec) -> Result<SlotState> {
+        (**self).create(slot, spec)
+    }
+    fn pause(&self, slot: &SlotName, mode: PauseMode) -> Result<SlotState> {
+        (**self).pause(slot, mode)
+    }
+    fn resume(&self, slot: &SlotName) -> Result<SlotState> {
+        (**self).resume(slot)
+    }
+    fn destroy(&self, slot: &SlotName) -> Result<()> {
+        (**self).destroy(slot)
+    }
+    fn list(&self) -> Result<Vec<Slot>> {
+        (**self).list()
+    }
 }
 
 #[cfg(test)]

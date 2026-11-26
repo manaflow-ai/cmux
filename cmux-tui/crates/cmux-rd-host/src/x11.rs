@@ -94,6 +94,7 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
+        sharp_text: cfg.sharp_text,
     })?;
     let desktop = X11Desktop {
         injector: Injector::new(&cfg.display)?,

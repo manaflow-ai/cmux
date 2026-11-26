@@ -210,6 +210,56 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
 
+    def stuck_setup(self):
+        verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        red = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        older = {3: (red, True), 2: (red, True), 1: ({k: ("rust", "success") for k in red}, True)}
+        return verdicts, runs, older
+
+    def test_a_known_red_is_bisected_between_its_last_green_and_first_red(self) -> None:
+        # Batch run 45768539377 (2026-11-26) skipped 43 of 48 reds as known: they get a bisect, legs collapsed.
+        verdicts, runs, older = self.stuck_setup()
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
+        self.assertEqual(found, [])
+        stuck = pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites)
+        self.assertEqual(stuck, [("rust / test (linux, 1)", "rust", "d" * 40, "c" * 40)])
+
+    def test_a_stuck_red_waits_for_its_running_bisect_and_stops_after_rebisects(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        probe = run(4, "c" * 40, "2026-11-21T08:30:00Z", status="in_progress", title=f"probe rust test at {'c' * 40}")
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites), [])
+        probe["status"] = "completed"
+        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites)), 1)
+        red = older[3][0]
+        more = [run(10 + i, f"{i:x}" * 40, f"2026-11-21T0{i}:30:00Z") for i in range(5, 5 + pmb.MAX_REBISECTS)]
+        for r in more:
+            older[r["id"]] = (red, True)
+        # More red batch runs since the first red one than MAX_REBISECTS, with a bisect done: named only.
+        runs2 = [run(3, "b" * 40, "2026-11-21T10:00:00Z")] + more[::-1] + runs[1:]
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs2, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_red_needs_a_green_in_reach(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        older[1] = (older[2][0], True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_probe_starts_mid_range_and_its_judge_accepts_it(self) -> None:
+        commits = ["c1", "c2", "c3", "c4", "c5"]
+        probe = pmb.stuck_probe("rust / test", "rust", "test", "g", "c5", "9", commits)
+        self.assertEqual((probe.sha, probe.good, probe.bad), ("c3", "g", "c5"))
+        self.assertEqual(pmb.stuck_probe("rust / test", "rust", "test", "c4", "c5", "9", commits).sha, "c5")
+        origin = {"id": 9, "head_sha": "c7", "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "main",
+                  "display_title": "batch tick"}
+        covered = lambda good, head: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+        self.assertEqual(pmb.probe_refusal(probe, "main", origin, [("rust / test", "rust", "g")], covered), "")
+
+    def test_a_one_commit_stuck_range_that_passes_is_a_flake(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c5", "c4", "c5", "1")
+        self.assertEqual(pmb.next_step(probe, "success", ["c5"])[0], "flake")
+        self.assertEqual(pmb.next_step(probe, "failure", ["c5"]), ("culprit", "c5"))
+
 
 class RateLimitTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -432,6 +482,21 @@ class GuardTest(unittest.TestCase):
 
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
 
 
 class PushTest(unittest.TestCase):

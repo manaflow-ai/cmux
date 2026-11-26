@@ -34,9 +34,13 @@ pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambd
 
 note "python"
 # cueval needs Python 3.10 or later; the image has only the Command Line Tools' 3.9.
-py_sum=$(pin python sha256) py_tgz="$cache/python-$py_sum.tar.gz"
+# The Python pin is bench_v2's (pins.json has no top-level "python"); an empty
+# sum would match a missing file's empty shasum and fail later as "unpack".
+py_sum=$(pin bench_v2 python sha256) py_url=$(pin bench_v2 python url)
+[[ "$py_sum" =~ ^[0-9a-f]{64}$ && -n "$py_url" ]] || { finish "pins.json has no bench_v2.python sha256 and url"; exit 4; }
+py_tgz="$cache/python-$py_sum.tar.gz"
 if [[ "$(shasum -a 256 "$py_tgz" 2>/dev/null | awk '{print $1}')" != "$py_sum" ]]; then
-  curl -fsSL --retry 3 --retry-all-errors -o "$py_tgz.part" "$(pin python url)" && mv "$py_tgz.part" "$py_tgz"
+  curl -fsSL --retry 3 --retry-all-errors -o "$py_tgz.part" "$py_url" && mv "$py_tgz.part" "$py_tgz"
 fi
 [[ "$(shasum -a 256 "$py_tgz" 2>/dev/null | awk '{print $1}')" == "$py_sum" ]] || { rm -f "$py_tgz"; finish "could not fetch the pinned Python"; exit 4; }
 tar -xzf "$py_tgz" -C "$work" || { finish "could not unpack the pinned Python"; exit 4; }
