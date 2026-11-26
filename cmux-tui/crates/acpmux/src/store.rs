@@ -971,7 +971,7 @@ pub enum CreatorKind {
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SubsessionLink {
     /// The parent session's id.

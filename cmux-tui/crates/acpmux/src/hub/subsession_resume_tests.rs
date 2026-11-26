@@ -35,6 +35,7 @@ async fn child_of(hub: &Arc<Hub>, parent: &Session) -> Arc<Session> {
             short_name: "helper".to_owned(),
             depth: 1,
             offered: false,
+            ..Default::default()
         }),
         ..NewRequest::default()
     };

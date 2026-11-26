@@ -859,6 +859,7 @@ async fn repeated_slot_waits_mark_only_the_two_edges_without_records() {
         short_name: "child".into(),
         depth: 1,
         offered: false,
+        ..Default::default()
     });
     let child = v1.insert_test_session(child);
     let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
@@ -922,6 +923,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
             short_name: id.into(),
             depth: 1,
             offered: false,
+            ..Default::default()
         });
         value
     };
