@@ -194,6 +194,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-home-rules",
  "cmux-interactivity",
  "cmux-keymap",
  "cmux-launch-image",
@@ -415,6 +416,14 @@ dependencies = [
 
 [[package]]
 name = "cmux-health-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-home-rules"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -687,6 +696,7 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "serde",
  "serde_json",
 ]
 
