@@ -96,10 +96,13 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
   # same action and steps; CLAAssistant.runs-on becomes
   # CLA_GATE_RUNNER_EXPRESSION and its leading runner guard the
   # CLA_GATE_RUNNER_GUARD_* triple, plus the two comments that describe them.
+  # #47967 pinned 3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+  # for this move, but its bytes were never pushed anywhere, so cmux#48035
+  # re-pins the bytes its policy pull request carries.
   %w[
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
-    3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+    15205defbfffe1d564802b2e253ce5182e4ed500607239098ad5931504ee407e
   ].freeze
 ].freeze
 # Reviewed successors that also move the action, as [from action reference,
@@ -233,14 +236,48 @@ CLA_GATE_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
   echo "::error::CLA policy requires a GitHub-hosted, Blacksmith or gate JIT runner"
   exit 1
 SH
+# Freestyle VMs (cmuxterm-hq tools/fleet-reconcilers/freestyle_runners.py,
+# PREFIX "fsr-") also serve both labels a CLA job can name: the gate label
+# (GATE_LABEL, OVERFLOW_LABELS) and blacksmith-4vcpu-ubuntu-2404 (PEER_LABELS).
+# A job that lands on one fails the gate or Blacksmith guard, so neither
+# selector's route is reliable while Freestyle serves it. Each Freestyle VM
+# registers a one-job JIT runner and is deleted after its jobs; like the gate
+# prefix, the name catches a misrouted job and runs-on is the control. The
+# persistent pool's names (cmux-runner-pool-*, cmux-oneshot-*) and owned hosts
+# (glaeda) stay refused.
+CLA_FREESTYLE_RUNNER_PREFIX = "fsr-".freeze
+CLA_FREESTYLE_RUNNER_PREFIXES = (CLA_GATE_RUNNER_PREFIXES + [CLA_FREESTYLE_RUNNER_PREFIX]).freeze
+CLA_FREESTYLE_RUNNER_GUARD_NAME = "Require GitHub-hosted, Blacksmith, gate JIT or Freestyle runner".freeze
+CLA_FREESTYLE_RUNNER_GUARD_IF = (
+  "(#{(
+    ["runner.environment != 'github-hosted'"] +
+    CLA_FREESTYLE_RUNNER_PREFIXES.map { |prefix| "!startsWith(runner.name, '#{prefix}')" }
+  ).join(' && ')}) || contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}')"
+).freeze
+CLA_FREESTYLE_RUNNER_STEP_IF = (
+  "((#{(
+    ["runner.environment == 'github-hosted'"] +
+    CLA_FREESTYLE_RUNNER_PREFIXES.map { |prefix| "startsWith(runner.name, '#{prefix}')" }
+  ).join(' || ')}) && !contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}'))"
+).freeze
+CLA_FREESTYLE_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  echo "::error::CLA policy requires a GitHub-hosted, Blacksmith, gate JIT or Freestyle runner"
+  exit 1
+SH
 # Each accepted runner identity guard is one exact [name, if, run] triple.
 CLA_RUNNER_GUARD_STEPS = [
   [CLA_HOSTED_RUNNER_GUARD_NAME, CLA_HOSTED_RUNNER_GUARD_IF, CLA_HOSTED_RUNNER_GUARD_RUN].freeze,
   [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze,
-  [CLA_GATE_RUNNER_GUARD_NAME, CLA_GATE_RUNNER_GUARD_IF, CLA_GATE_RUNNER_GUARD_RUN].freeze
+  [CLA_GATE_RUNNER_GUARD_NAME, CLA_GATE_RUNNER_GUARD_IF, CLA_GATE_RUNNER_GUARD_RUN].freeze,
+  [CLA_FREESTYLE_RUNNER_GUARD_NAME, CLA_FREESTYLE_RUNNER_GUARD_IF, CLA_FREESTYLE_RUNNER_GUARD_RUN].freeze
 ].freeze
 # A later privileged step must carry one of these as a top-level AND term.
-CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_GATE_RUNNER_STEP_IF].freeze
+CLA_RUNNER_STEP_IFS = [
+  CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_GATE_RUNNER_STEP_IF, CLA_FREESTYLE_RUNNER_STEP_IF
+].freeze
+# Terms that carry their own || inside one parenthesized group.
+CLA_GROUPED_RUNNER_STEP_IFS = (CLA_RUNNER_STEP_IFS - [CLA_HOSTED_RUNNER_STEP_IF]).freeze
 CLA_DOCUMENT_PATH = "CLA.md".freeze
 CLA_DOCUMENT_VERSION = "v2.2".freeze
 CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
@@ -251,16 +288,20 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-# The App-token guard (the GUARD_APP_TOKEN_STEP layout below). The previous
-# pin, 9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41, was
-# the #13871 guard; any other bytes, earlier ones included, need a trusted
+# The App-token guard (the GUARD_APP_TOKEN_STEP layout below) on the gate
+# selector (CLA_GATE_RUNNER_EXPRESSION) with the CLA_GATE_RUNNER_GUARD_*
+# triple. The previous pins were
+# 0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca87985502b4f9545c59a31b26, the same
+# guard on CLA_TRUSTED_RUNNER_EXPRESSION, and
+# 9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41, the
+# #13871 guard; any other bytes, earlier ones included, need a trusted
 # review. tests/test_cla_guard_metadata_routing.py keeps this equal to the
 # workflow's digest.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca87985502b4f9545c59a31b26"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "1089255a5c218932b10538a168d390125c1d923bf6f96cbf380f8acd693a0e9e"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "2d09d074b6249688915a5ecb0050575bf313b774b7def5121a5a2368939831b6"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1812,7 +1853,7 @@ def top_level_and_terms(condition)
   terms
 end
 
-def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
+def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER, guard_name: nil)
   condition = step.is_a?(Hash) ? step["if"].to_s.gsub(/\s+/, " ").strip : ""
   # The runner identity must be a top-level AND term. A substring check would
   # accept `runner.environment == 'github-hosted' || true`, and a naive split
@@ -1823,19 +1864,24 @@ def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
   # term: the hosted-only term would silently skip them there and let the
   # check go green without doing its work.
   # A job on the gate selector gates its steps on the gate term, which admits
-  # the gate JIT VMs as well as the selector's fallbacks.
+  # the gate JIT VMs as well as the selector's fallbacks. The Freestyle term
+  # admits every runner the gate term does, plus Freestyle's, which serve both
+  # selectors. Behind the Freestyle guard only the Freestyle term counts: any
+  # narrower term would skip the steps on a Freestyle VM and report success.
   accepted = if runs_on == CLA_RUNNER
     CLA_RUNNER_STEP_IFS
   elsif runs_on == CLA_GATE_RUNNER_EXPRESSION
-    [CLA_GATE_RUNNER_STEP_IF]
+    [CLA_GATE_RUNNER_STEP_IF, CLA_FREESTYLE_RUNNER_STEP_IF]
   else
-    [CLA_EPHEMERAL_RUNNER_STEP_IF]
+    [CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_FREESTYLE_RUNNER_STEP_IF]
   end
+  accepted &= [CLA_FREESTYLE_RUNNER_STEP_IF] if
+    guard_name == CLA_FREESTYLE_RUNNER_GUARD_NAME && runs_on != CLA_RUNNER
   terms = top_level_and_terms(condition)
   fail!("#{name} is not restricted to a GitHub-hosted or Blacksmith runner") unless
     terms &&
     terms.any? { |term| accepted.include?(term) } &&
-    terms.none? { |term| ![CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_GATE_RUNNER_STEP_IF].include?(term) && term.include?("||") }
+    terms.none? { |term| !CLA_GROUPED_RUNNER_STEP_IFS.include?(term) && term.include?("||") }
 end
 
 def assert_hosted_runner_job_steps(job_value, name)
@@ -1843,7 +1889,9 @@ def assert_hosted_runner_job_steps(job_value, name)
   fail!("#{name} must have a runner identity guard") if job_steps.empty?
   assert_hosted_runner_guard_step(job_steps.first, name)
   job_steps.drop(1).each_with_index do |step, index|
-    assert_hosted_runner_step(step, "#{name} step #{index + 2}", runs_on: job_value["runs-on"])
+    assert_hosted_runner_step(
+      step, "#{name} step #{index + 2}", runs_on: job_value["runs-on"], guard_name: job_steps.first["name"]
+    )
   end
 end
 
@@ -2795,6 +2843,69 @@ def run_runner_regression_matrix!
   }.each do |name, step|
     expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
     checks += 1
+  end
+
+  # The Freestyle triple, written out: the gate triple's prefixes plus the
+  # Freestyle VMs', never a persistent pool VM, a oneshot or an owned host.
+  freestyle_guard = {
+    "name" => "Require GitHub-hosted, Blacksmith, gate JIT or Freestyle runner",
+    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'cmux-gha-runner-gt-') && !startsWith(runner.name, 'fsr-')) || contains(runner.name, 'glaeda')",
+    "run" => "set -euo pipefail\necho \"::error::CLA policy requires a GitHub-hosted, Blacksmith, gate JIT or Freestyle runner\"\nexit 1\n"
+  }
+  fail!("Freestyle runner guard regression failed") unless
+    freestyle_guard["if"] == CLA_FREESTYLE_RUNNER_GUARD_IF &&
+    normalize_run_text(freestyle_guard["run"]) == CLA_FREESTYLE_RUNNER_GUARD_RUN
+  assert_hosted_runner_guard_step(freestyle_guard, "regression CLA job")
+  checks += 2
+  {
+    "fsr-1126-101500-0a1b2c" => true,
+    "cmux-gha-runner-gt-1120-104616-95d6d8" => true,
+    "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "cmux-runner-pool-gcp-07-1" => false,
+    "cmux-oneshot-pool-07-1126-101500" => false,
+    "cmux-gha-runner-1120-104616-95d6d8" => false,
+    "fsr-glaeda-1" => false,
+    "cmuxs-mac-mini-5-glaeda-1" => false
+  }.each do |runner_name, expected|
+    admitted = CLA_FREESTYLE_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
+      !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
+    fail!("Freestyle runner name regression failed for #{runner_name}") unless admitted == expected
+    checks += 1
+  end
+  {
+    "Freestyle guard on the oneshot prefix" => freestyle_guard.merge(
+      "if" => CLA_FREESTYLE_RUNNER_GUARD_IF.sub("'fsr-'", "'cmux-oneshot-'")
+    ),
+    "Freestyle guard on every name" => freestyle_guard.merge(
+      "if" => CLA_FREESTYLE_RUNNER_GUARD_IF.sub("'fsr-'", "''")
+    ),
+    "Freestyle guard without the owned-name refusal" => freestyle_guard.merge(
+      "if" => CLA_FREESTYLE_RUNNER_GUARD_IF.sub(" || contains(runner.name, 'glaeda')", "")
+    ),
+    "Freestyle name with the gate condition" => freestyle_guard.merge("if" => CLA_GATE_RUNNER_GUARD_IF),
+    "gate name with the Freestyle condition" => freestyle_guard.merge("name" => CLA_GATE_RUNNER_GUARD_NAME),
+    "Freestyle guard shell" => freestyle_guard.merge("run" => "exit 0")
+  }.each do |name, step|
+    expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
+    checks += 1
+  end
+  freestyle_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') || startsWith(runner.name, 'cmux-gha-runner-gt-') || startsWith(runner.name, 'fsr-')) && !contains(runner.name, 'glaeda'))"
+  fail!("Freestyle runner step condition regression failed") unless freestyle_term == CLA_FREESTYLE_RUNNER_STEP_IF
+  # Behind the Freestyle guard, on either selector Freestyle serves, a step on
+  # a narrower term would skip on a Freestyle VM and still report success.
+  [CLA_GATE_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION, "blacksmith-4vcpu-ubuntu-2404"].each do |runner|
+    narrow_term = runner == CLA_GATE_RUNNER_EXPRESSION ? CLA_GATE_RUNNER_STEP_IF : CLA_EPHEMERAL_RUNNER_STEP_IF
+    freestyle_job = {
+      "runs-on" => runner,
+      "steps" => [freestyle_guard, { "if" => "github.event_name == 'issue_comment' && #{freestyle_term}", "run" => "echo privileged" }]
+    }
+    assert_hosted_runner_job_steps(freestyle_job, "regression CLA job")
+    narrow_job = Marshal.load(Marshal.dump(freestyle_job))
+    narrow_job["steps"][1]["if"] = narrow_term
+    expect_policy_error("narrower step behind the Freestyle guard on #{runner}") do
+      assert_hosted_runner_job_steps(narrow_job, "regression CLA job")
+    end
+    checks += 2
   end
 
   ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) && !contains(runner.name, 'glaeda'))"
