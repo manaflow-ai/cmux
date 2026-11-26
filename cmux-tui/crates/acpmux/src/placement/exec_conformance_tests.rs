@@ -1,9 +1,10 @@
 use super::*;
-use crate::placement::run_vm::{Ran, ShellHarness, on_fork};
+use crate::placement::run_vm::{Call, Ran, ShellHarness, on_fork};
 use crate::placement::sub_fork::Machines;
 use crate::placement::sub_fork::tests::fork_of;
 use crate::placement::sub_fork_run::{ForkLink, Job, Lines, run_job};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt as _;
 use std::sync::{Arc, Mutex};
 
@@ -66,7 +67,8 @@ enum Fault {
 }
 
 /// Local: `sh -c` here, as `run_vm::run_here` runs it, with the case's environment. Routed: the
-/// real [`on_fork`] on a copied disk, its lines written to stdout as `run_vm::fork_or_here` does.
+/// real [`on_fork`] on a copied disk with this process's environment and the case's, each fd's
+/// bytes kept as `run_vm::fork_or_here` replays them (one stream when the case's are merged).
 struct FakeRunner {
     fault: Fault,
 }
@@ -75,8 +77,9 @@ impl Runner for FakeRunner {
     async fn run(&self, mode: Mode, case: &Case, dir: &Path) -> anyhow::Result<Outcome> {
         if mode == Mode::Local {
             let argv = vec!["/bin/sh".to_owned(), "-c".to_owned(), case.command.to_owned()];
-            let env: Vec<(String, String)> =
+            let mut env: Vec<(String, String)> =
                 case.env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+            env.push((super::super::exec_router::ROUTED_ENV.to_owned(), "here".to_owned()));
             let (exit, stdout, stderr) = capture(&argv, dir, &env, &[], case.streams)?;
             return Ok(Outcome { exit, stdout, stderr, ran: "here", cause: None });
         }
@@ -84,20 +87,16 @@ impl Runner for FakeRunner {
         *machines.parent.lock().unwrap() = dir.to_owned();
         let link = ShellLink { disks: machines.disks.clone(), parent: dir.to_owned() };
         let before = (self.fault == Fault::LoseFiles).then(|| fork_of(dir));
-        let mut lines = Vec::new();
-        let mut out = |l: &str| lines.push(l.to_owned());
-        let ran = on_fork(
-            machines,
-            &link,
-            "vm_c",
-            "a conformance case",
-            case.command,
-            dir,
-            None,
-            &mut out,
-        )
-        .await;
-        let stdout: Vec<u8> = lines.iter().flat_map(|l| format!("{l}\n").into_bytes()).collect();
+        let merged = case.streams == Streams::Merged;
+        let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        env.extend(case.env.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))));
+        let call =
+            Call { class: "a conformance case", command: case.command, cwd: dir, env, merged };
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let mut out = |fd: u8, data: &[u8]| {
+            if fd == 2 && !merged { &mut stderr } else { &mut stdout }.extend_from_slice(data)
+        };
+        let ran = on_fork(machines, &link, "vm_c", &call, &mut out).await;
         let (exit, ran, cause) = match ran {
             Ran::Done { exit, .. } => (exit, "fork", None),
             Ran::Here { row } => (-1, "here", row.cause),
@@ -107,7 +106,7 @@ impl Runner for FakeRunner {
             restore(before.path(), dir);
         }
         let exit = if self.fault == Fault::ZeroExit { 0 } else { exit };
-        Ok(Outcome { exit, stdout, stderr: Vec::new(), ran, cause })
+        Ok(Outcome { exit, stdout, stderr, ran, cause })
     }
 }
 
@@ -137,11 +136,10 @@ fn print_rows(rows: &[Row]) -> String {
     rows.iter().map(|r| serde_json::to_string(r).unwrap() + "\n").collect()
 }
 
-/// The whole corpus, routed through the real fork path on a copied disk: every case without a
-/// known divergence is identical, every known divergence still diverges (so a fix drops its
-/// note), every routed side really ran on the fork, and the rows and summary say so.
+/// The whole corpus, routed through the real fork path on a copied disk: every case is
+/// identical, every routed side really ran on the fork, and the rows and summary say so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_corpus_is_identical_local_and_routed_but_its_known_divergences() {
+async fn every_case_of_the_corpus_is_identical_local_and_routed() {
     let root = tempfile::tempdir().unwrap();
     let mut seen = Vec::new();
     let rows = run_suite(&FakeRunner { fault: Fault::None }, root.path(), CORPUS, |r| {
@@ -156,33 +154,22 @@ async fn the_corpus_is_identical_local_and_routed_but_its_known_divergences() {
             continue;
         }
         assert_eq!(row.routed_ran, "fork", "{}: the routed side ran on the fork\n{dump}", row.case);
-        if row.known.is_none() {
-            assert!(row.identical, "{} differs: {:?}\n{dump}", row.case, row.diffs);
-        } else {
-            assert!(
-                !row.identical,
-                "{}: its known divergence is gone, drop the note\n{dump}",
-                row.case
-            );
-        }
+        assert!(row.identical, "{} differs: {:?}\n{dump}", row.case, row.diffs);
+        assert!(row.line().starts_with("ok "), "{}", row.line());
     }
     let s = Summary::of(&rows);
     assert!(s.ok, "{}\n{dump}", s.line());
-    assert!(s.unexpected.is_empty() && s.known_gone.is_empty() && s.not_routed.is_empty());
-    let known = CORPUS.iter().filter(|c| c.known.is_some()).count();
-    assert_eq!(s.known, known);
-    assert_eq!(s.identical, format!("{}/{}", s.total - known, s.total));
-    // The cases the brief names are all there and not known-divergent.
-    for name in [
-        "cargo-build-test",
-        "shell-writes-files",
-        "failing-exit",
-        "stdout-stderr-order",
-        "files-create-delete-rename-symlink",
-    ] {
-        let case = CORPUS.iter().find(|c| c.name == name).expect(name);
-        assert!(case.known.is_none(), "{name} must be identical, not a known divergence");
-    }
+    assert!(s.unexpected.is_empty() && s.not_routed.is_empty());
+    assert_eq!(s.identical, format!("{}/{}", s.total, s.total));
+    // What each once-known case proves, read off the routed side itself.
+    let routed = |case: &str| root.path().join(case).join("routed");
+    let row = |name: &str| rows.iter().find(|r| r.case == name).unwrap();
+    assert!(
+        row("stderr-stays-stderr").stdout.is_none() && row("stderr-stays-stderr").stderr.is_none()
+    );
+    assert!(routed("empty-dir").join("empty/inner").is_dir());
+    let mode = std::fs::metadata(routed("private-mode").join("secret.txt")).unwrap();
+    assert_eq!(mode.permissions().mode() & 0o777, 0o600);
     // The failing case's exit is its own on both sides, and the rename case's tree came back.
     let failing = rows.iter().find(|r| r.case == "failing-exit").unwrap();
     assert_eq!(failing.exit, Some(Pair { local: 7, routed: 7 }));
@@ -348,7 +335,41 @@ fn the_corpus_names_are_unique_and_every_exemption_says_why() {
     names.dedup();
     assert_eq!(names.len(), CORPUS.len());
     assert!(EXEMPT.iter().all(|(p, why)| !p.contains('/') && why.len() > 20));
-    assert!(CORPUS.iter().all(|c| c.known.is_none_or(|k| k.len() > 20)));
+}
+
+/// Leo, 2026-11-26: "100% identical on prod". The cases the router once differed on are must-match
+/// cases like the rest, and the brief's cases are all there: no case may be dropped to pass.
+#[test]
+fn the_once_known_differences_and_the_briefs_cases_are_all_must_match_cases() {
+    for name in [
+        "cargo-build-test",
+        "shell-writes-files",
+        "failing-exit",
+        "stdout-stderr-order",
+        "files-create-delete-rename-symlink",
+        "stderr-stays-stderr",
+        "no-trailing-newline",
+        "exported-env",
+        "empty-dir",
+        "private-mode",
+        "non-utf8-output",
+        "whole-env",
+    ] {
+        assert!(CORPUS.iter().any(|c| c.name == name), "{name} is in the corpus");
+    }
+    let split = |n: &str| CORPUS.iter().find(|c| c.name == n).unwrap().streams == Streams::Split;
+    assert!(split("stderr-stays-stderr") && split("whole-env"));
+}
+
+/// `whole-env` leaves out exactly the held-back names and the suite's switch, nothing else.
+#[test]
+fn the_env_listing_leaves_out_only_the_held_back_names_and_the_switch() {
+    let case = CORPUS.iter().find(|c| c.name == "whole-env").unwrap();
+    let listing =
+        b"CMUX_EXEC_ROUTE=routed\0CMUX_VM_ID=vm_a\0GH_TOKEN=x\0HOME=/h\0MULTI=a\nb\0PATH=/bin\0";
+    assert_eq!(normalize_case(case, listing), b"HOME=/h\0MULTI=a\nb\0PATH=/bin\0");
+    let plain = CORPUS.iter().find(|c| c.name == "failing-exit").unwrap();
+    assert_eq!(normalize_case(plain, listing), listing.to_vec());
 }
 
 #[test]

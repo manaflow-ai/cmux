@@ -46,11 +46,18 @@
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
 pub mod exec_conformance;
+pub mod exec_conformance_report;
+pub mod exec_conformance_tree;
 pub mod exec_router;
 pub(crate) mod move_targets;
 pub mod run_vm;
+pub mod run_vm_env;
+pub mod run_vm_rows;
+pub mod run_vm_shell;
+pub mod run_vm_tree;
 pub mod sub_fork;
 pub mod sub_fork_run;
+pub mod sub_fork_wire;
 pub mod work_place;
 pub mod work_wire;
 
