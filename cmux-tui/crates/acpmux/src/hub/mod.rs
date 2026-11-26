@@ -503,8 +503,6 @@ mod workflow_runs;
 pub(crate) mod worktree_care;
 mod wrap_up_offer;
 mod xai;
-pub(crate) use auto_give::TurnStop;
-
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
