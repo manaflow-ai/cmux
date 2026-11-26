@@ -320,7 +320,7 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
             return;
         }
-        held_rows::flush(hub, conn);
+        let _held_row = held_rows::flush_sharing(hub, conn, Some(&ev));
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -357,7 +357,14 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                        held_rows::row_notice(
+                            &ev.session_id,
+                            &summary,
+                            kind,
+                            &rec.kind,
+                            rec.seq,
+                            ev.list_seq,
+                        ),
                     ),
                     row,
                 );

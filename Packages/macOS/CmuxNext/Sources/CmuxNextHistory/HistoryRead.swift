@@ -21,17 +21,18 @@ public nonisolated struct HistoryRead: Sendable {
         public let title: String
         public let detail: String?
         public let symbol: String
-        /// The read did not answer: choosing the row reads again.
+        /// The read did not answer; the reader reads again by itself (no Try Again: Leo, 2026-11-22, "vacuous
+        /// decisions like that should be just done").
         public let canRetry: Bool
     }
 
-    /// Unanswered (with or without the rows other owners gave): Try Again. Not complete yet (``pending``, with
+    /// Unanswered (with or without the rows other owners gave): failed, read again by itself. Not complete yet (``pending``, with
     /// or without rows, also for a read with a text): still loading, and the reader reads again by itself. An unfiltered
     /// Recently Closed with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
     /// The palette filters its rows by the typed text itself, so there this row shows only before the person types.
     public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
-            return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,
+            return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: nil,
                           symbol: "exclamationmark.triangle", canRetry: true)
         }
         if !pending.isEmpty {
@@ -42,8 +43,6 @@ public nonisolated struct HistoryRead: Sendable {
         return Status(id: "history.status.empty", title: HistoryStrings.menuNothingClosed, detail: nil, symbol: "clock.arrow.circlepath",
                       canRetry: false)
     }
-
-    public static var tryAgain: String { HistoryStrings.tryAgain }
 }
 
 extension TitlebarHistoryClosedSection {

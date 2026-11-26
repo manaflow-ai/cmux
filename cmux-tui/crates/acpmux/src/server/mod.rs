@@ -171,8 +171,10 @@ pub(crate) mod outbox;
 mod pairing;
 mod paused_files;
 pub mod peer_auth;
+mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
+mod peer_targeted;
 pub mod peer_text;
 mod pending;
 #[cfg(test)]
@@ -1046,7 +1048,7 @@ impl Conn {
 
     fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row, in_order: bool) {
         self.raise_gate();
-        let redacted = if self.origin == Origin::Peer {
+        let redacted = if self.origin == Origin::Peer && message_has_hosts(msg) {
             let mut copy = msg.clone();
             let changed = match &mut copy {
                 Message::Notification { params: Some(params), .. } => {
@@ -2167,3 +2169,13 @@ use requests::handle_notification;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 pub(crate) use vault::reply as vault_reply;
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
+
+/// Whether a message sent down a peer link has a sender host to redact
+/// (`pending::redact_message_hosts`); only those are copied before sending.
+fn message_has_hosts(msg: &Message) -> bool {
+    match msg {
+        Message::Notification { params: Some(params), .. } => pending::has_message_hosts(params),
+        Message::Response { result: Some(result), .. } => pending::has_message_hosts(result),
+        _ => false,
+    }
+}
