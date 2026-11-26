@@ -491,3 +491,54 @@ fn the_first_keyframe_leaves_within_one_frame_interval() {
         assert!(first <= interval, "first keyframe after {first:?}, over {interval:?}");
     }
 }
+
+/// [`InstantEncoder`] that, like OpenH264, only makes Constrained Baseline.
+struct BaselineOnlyEncoder;
+
+impl FrameSource for BaselineOnlyEncoder {
+    fn capture(&mut self, damage: Rect) -> Res<()> {
+        InstantEncoder.capture(damage)
+    }
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+        InstantEncoder.encode(force_idr, pts_us, out)
+    }
+    fn set_bitrate(&mut self, _kbps: u32) {}
+    fn kbps(&self) -> u32 {
+        1000
+    }
+    fn encoder_name(&self) -> String {
+        "baseline-only test encoder".into()
+    }
+    fn constrained_baseline(&self) -> bool {
+        true
+    }
+}
+
+fn opened_for_high(frames: Box<dyn FrameSource>) -> OpenedDesktop {
+    let desktop = FakeDesktop {
+        seen: Arc::new(Seen::default()),
+        quiet: UnixStream::pair().expect("socket pair"),
+    };
+    OpenedDesktop {
+        desktop: Box::new(desktop),
+        frames,
+        cursor: false,
+        profile: "high".into(),
+        open_us: 0,
+        ready_us: 0,
+    }
+}
+
+/// The desktop `cmux-rd serve` opened during the handshake (for the host's `high`) serves a
+/// `h264.baseline` viewer when its encoder only makes Constrained Baseline (OpenH264): opening
+/// it again put 340-410 ms between the viewer's start and the first keyframe. An encoder that
+/// honours the profile (VAAPI, x264, VideoToolbox) still opens again for baseline.
+#[test]
+fn a_baseline_viewer_keeps_the_handshakes_desktop_when_the_encoder_only_makes_baseline() {
+    let openh264 = opened_for_high(Box::new(BaselineOnlyEncoder));
+    assert!(openh264.serves_profile("baseline"));
+    assert!(openh264.serves_profile("high"));
+    let hardware = opened_for_high(Box::new(InstantEncoder));
+    assert!(!hardware.serves_profile("baseline"));
+    assert!(hardware.serves_profile("high"));
+}
