@@ -403,8 +403,12 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    // A listing read of a peer left undialed is answered from its last-known row: no dial.
-    if let Some(row) = super::peer_demand_wait::use_peer(hub, m, params).await {
+    // Cloud mobile forwarding is refused by the existing gated/inner path. Skip the lazy-demand
+    // path first so a refused request cannot wake or dial a peer before that guard runs. A listing
+    // read of any other peer left undialed is answered from its last-known row, with no dial.
+    if !super::remote_guard::cloud_mobile(params)
+        && let Some(row) = super::peer_demand_wait::use_peer(hub, m, params).await
+    {
         return Some(Ok(row));
     }
     let reply = gated(hub, conn, m, params).await;

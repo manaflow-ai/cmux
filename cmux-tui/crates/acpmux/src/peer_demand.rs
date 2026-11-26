@@ -1,7 +1,7 @@
 //! A peer costs nothing until something needs it. After a crash on a Mac with about 130 saved
 //! peers, its daemon dialed every one within seconds of starting (an ssh login each, a second for
 //! the token read beside each first dial) and the load reached 214. A cap on concurrent logins
-//! (`peer_ssh_logins.rs`) spreads that out; this removes it (Leo, 2026-11-25: "but why limit
+//! (the concurrent-login scheduling proposed in #56369) spreads that out; this removes it (Leo, 2026-11-25: "but why limit
 //! peering? why not optimize it on our protools instead?").
 //!
 //! - A saved peer is not dialed when the daemon starts (`lazily`, `Hub::start_saved_peers`). Its
