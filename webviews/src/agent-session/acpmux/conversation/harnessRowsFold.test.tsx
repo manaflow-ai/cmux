@@ -79,13 +79,17 @@ const steered = (burst: AcpmuxRow[]): AcpmuxRow[] => [
 const view = (rows: AcpmuxRow[], expanded: ReadonlySet<string> = new Set()) =>
   turnView(rows, expanded, { agentFamily: "claude", now: START + 900_000 }).filter((r) => r.kind !== "date");
 const ids = (rows: AcpmuxRow[]) => rows.map((r) => r.id);
-/// The view with the fold after the person's steer opened, and that fold.
+/// The view with the turn's fold opened, and that fold: the last "Worked for" over the answer (the
+/// late steer draws under it and over the answer, `lateSteersLast`).
 const opened = (rows: AcpmuxRow[]) => {
   const closed = view(rows);
-  const fold = closed.find((r) => r.kind === WORKED && closed.indexOf(r) > ids(closed).indexOf("s-1"));
+  const fold = closed.findLast((r) => r.kind === WORKED && closed.indexOf(r) < ids(closed).indexOf("a-1"));
   expect(fold).toBeDefined();
   return { closed, fold: fold!, open: view(rows, new Set([fold!.id])) };
 };
+/// `open` with its run of messages between agents opened too (messageRuns.ts groups them in the fold).
+const messagesOpen = (rows: AcpmuxRow[], open: AcpmuxRow[]) =>
+  view(rows, new Set(open.filter((r) => r.kind === WORKED || r.id.startsWith("messageRun-")).map((r) => r.id)));
 const label = (line: AcpmuxRow) =>
   renderToStaticMarkup(<BackgroundTurnLine row={line} expanded={false} onToggle={() => {}} />);
 
@@ -113,14 +117,15 @@ test("peer messages fold into the Worked for; alone they stay the received messa
   const rows = steered([peer(0), peer(1)]);
   const { closed, open } = opened(rows);
   expect(ids(closed).filter((id) => id.startsWith("p-"))).toEqual([]);
-  expect(ids(open)).toEqual(expect.arrayContaining(["p-0", "p-1"]));
+  expect(ids(messagesOpen(rows, open))).toEqual(expect.arrayContaining(["p-0", "p-1"]));
   expect(open.some((r) => r.backgroundRun)).toBe(false);
 });
 
 test("an inbox relay folds into the Worked for", () => {
-  const { closed, open } = opened(steered([inbox(0)]));
+  const rows = steered([inbox(0)]);
+  const { closed, open } = opened(rows);
   expect(ids(closed)).not.toContain("i-0");
-  expect(ids(open)).toContain("i-0");
+  expect(ids(messagesOpen(rows, open))).toContain("i-0");
 });
 
 test("a mixed burst reads as each kind's count", () => {
