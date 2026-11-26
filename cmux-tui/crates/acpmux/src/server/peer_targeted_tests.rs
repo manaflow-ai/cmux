@@ -11,7 +11,7 @@ use serde_json::json;
 async fn explicit_requests_dial_only_the_selected_machines_after_admission() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-targeted-dial");
     test_dial::refuse_all();
-    let hub = Hub::started_lazily_for_test(dir.path(), 6).await;
+    let hub = Hub::started_lazily_for_test(dir.path(), 7).await;
     let mut client = Client::connect(&hub);
     for (id, host) in [("steered", "m0"), ("reported", "m1"), ("already-steered", "m5")] {
         hub.briefs.put(json!({"briefId": id, "host": host, "lastSteerKey": "applied"}));
@@ -47,13 +47,22 @@ async fn explicit_requests_dial_only_the_selected_machines_after_admission() {
                 "machine": "m4", "name": "click", "session": "test", "call_id": "call"
             }),
         ),
+        (
+            method::MUX_HARNESSES,
+            json!({"_meta": {"acpmux": {"peer": "m6"}}}),
+        ),
+        (
+            method::MUX_HARNESS_HEALTH,
+            json!({"_meta": {"acpmux": {"peer": "m6"}}}),
+        ),
     ];
     for (i, (method, params)) in requests.into_iter().enumerate() {
         client.send(Message::request(10 + i as i64, method, params)).await;
     }
     let parked = |i| hub.peer_by_name(&format!("m{i}")).unwrap().idle_parked();
     until("an addressed machine stayed parked", || (0..5).all(|i| !parked(i))).await;
-    until("the addressed machines never dialed", || test_dial::attempts().len() >= 5).await;
+    until("the addressed machines never dialed", || test_dial::attempts().len() >= 6).await;
+    assert!(!parked(6), "a selected harness read left its peer parked");
     assert!(parked(5), "a replay or rejected request woke its machine");
     hub.begin_shutdown();
     test_dial::clear();
