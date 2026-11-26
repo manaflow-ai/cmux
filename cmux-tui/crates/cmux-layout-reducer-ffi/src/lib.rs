@@ -54,6 +54,7 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
@@ -99,6 +100,7 @@ mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
+mod dock_model;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
@@ -669,6 +671,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if dock_model::handles(operation) => dock_model::respond(operation, request)?,
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
