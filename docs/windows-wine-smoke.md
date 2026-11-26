@@ -28,7 +28,14 @@ checks take seconds, and an edit-build-check loop needs no Windows machine.
 | cmux-relay | `--version` | PASS, 0 s | not checked there |
 | cmux-relay | `serve` on loopback; Linux `curl` gets `/healthz` `{"status":"ok"}` and a `101` WebSocket upgrade on `/v1/relay` | PASS, 3 s (ready in under 1 s) | not checked there |
 | chatmux-relay | `--version`, `--help` | PASS, 0 s | not checked there |
-| cmux-tui, cmux-tui-hook, cmux-tui-host | `--version`; cmux-tui: `remote-probe` refusal, the long-path unit tests, the long state path smoke and the process-exit smoke | not measured yet: at feat-cmux-next on 2026-11-26 the daemon does not cross-compile for Windows (acpmux and cmux-tui-core use cfg(unix) crates unconditionally); the job runs them once it builds | run |
+| cmux-tui | `--version` | PASS, 2 s | run |
+| cmux-tui | `remote-probe --json` refuses with "remote daemon commands require Unix sockets" | PASS, 1 s | run |
+| cmux-tui | `socket_start_lock_acquires_a_new_lock_file` (`cmux-tui-core-tests.exe`) | PASS, 1 s | run |
+| cmux-tui | `registry_opens_and_persists_under_a_long_windows_state_root` | cannot run: resolving the `\\?\` state directory fails under Wine 9.0 with ERROR_MORE_DATA (234) | run |
+| cmux-tui | `normalize_long_windows` | matches 0 tests in this binary, under Wine and on the runner alike: those tests moved to `cmux-tui-platform`. The Wine check requires each filter to run at least one test | runs 0 tests |
+| cmux-tui | the long state path smoke and the process-exit smoke | cannot run: both start the daemon, which fails with WSAEAFNOSUPPORT (10047) because its Windows socket is AF_UNIX and Wine 9.0 has none | run |
+| cmux-tui-hook | `--help` (it has no `--version`: it reads a native event) | PASS, 1 s | not checked there |
+| cmux-tui-host | started without a bootstrap pipe, it refuses with "not a bootstrap pipe name" | PASS, 2 s | not checked there |
 
 The relay check exercises Winsock, tokio's Windows I/O driver and TLS-free HTTP over loopback. A
 `--version` alone would not.
@@ -40,12 +47,18 @@ The relay check exercises Winsock, tokio's Windows I/O driver and TLS-free HTTP 
 - CLI parsing and refusal paths (`--version`, `--help`, `remote-probe` refusing with "remote daemon
   commands require Unix sockets").
 - TCP sockets: binding, accepting, HTTP and WebSocket upgrade, tested against a Linux client.
-- Files and paths through Win32: `\\?\` long paths, `CreateFileW`, `MoveFileExW` and lock files. Wine maps
+- Files and paths through Win32: creating `\\?\` long paths, `CreateFileW`, `MoveFileExW` and lock files. Wine maps
   these onto the Linux filesystem, so the code paths run, but NTFS's own limits do not apply.
 - Process spawn and exit codes via `CreateProcessW` (Python's `subprocess` and the daemon's own spawns).
 - Windows Python with native wheels (pywinpty loads; CPython 3.12.10 runs the smoke scripts).
 
 ## What Wine cannot verify (stays on the Windows runner)
+
+- **AF_UNIX sockets, so the running daemon.** On Windows the daemon listens on an AF_UNIX socket (Windows
+  10 1803 and later). Wine 9.0's Winsock has no AF_UNIX: `socket(AF_UNIX, ...)` fails with WSAEAFNOSUPPORT
+  (10047), so `cmux-tui` exits before it publishes its socket. The long state path smoke, the process-exit
+  smoke and anything else that talks to a live daemon need the Windows runner. Newer Wine development
+  releases add AF_UNIX; recheck when the runner image's Wine moves past 9.0.
 
 - **ConPTY.** Under Wine 9.0, `CreatePseudoConsole` returns `S_OK`, but the child's output goes to the
   parent's own stdout instead of the pseudo console's pipe: 0 bytes came back on the pipe. And
@@ -60,6 +73,10 @@ The relay check exercises Winsock, tokio's Windows I/O driver and TLS-free HTTP 
   named-pipe security, Defender and SmartScreen, Authenticode and code signing, the registry as a real
   Windows install leaves it, NTFS semantics (case, reserved names, `MAX_PATH` without the long-path key), and
   console code pages.
+- **Long `\\?\` path resolution.** Under Wine 9.0, resolving the long state directory in
+  `registry_opens_and_persists_under_a_long_windows_state_root` fails with ERROR_MORE_DATA (234). Creating and
+  opening long paths works (the lock-file test and the long state tree in the daemon smoke both get that far),
+  but the resolve step does not. That test stays on the runner.
 - **Performance.** Wine timings are not Windows timings.
 
 A pass under Wine is a fast early signal. Release confidence still comes from `build-windows`.
