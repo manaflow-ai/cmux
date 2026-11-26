@@ -20,11 +20,11 @@ import SwiftUI
     }
 
     /// A deferred tab refresh is scheduled on the main actor. Wait for the
-    /// value the test reads, with a bound, instead of assuming a number of
-    /// scheduler turns is enough under load.
+    /// value the test reads, with a wall-clock bound, instead of assuming a
+    /// number of scheduler turns is enough under load.
     static func waitForKitTabBuilds(_ source: WorkspaceTabsSource, _ expected: Int) async throws {
-        for _ in 0..<3000 where source.kitTabBuilds < expected {
-            try await Task.sleep(for: .milliseconds(10))
+        try await waitUntil("kit tab builds to reach \(expected)") {
+            source.kitTabBuilds >= expected
         }
         try #require(source.kitTabBuilds == expected,
                      "kit tab builds reached " + String(expected) + " within 30 s")
@@ -33,10 +33,22 @@ import SwiftUI
     /// Waits for a streamed value and the state derived from it, with a bound
     /// that still lets the following assertions explain the card contract.
     static func waitUntil(_ what: String, _ condition: @escaping () -> Bool) async throws {
-        for _ in 0..<3000 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(30))
+        while !condition() {
+            let left = deadline - clock.now
+            guard left > .zero else { break }
+            try await Task.sleep(for: min(.milliseconds(10), left))
         }
         try #require(condition(), what + " within 30 s")
+    }
+
+    /// Lets every main-actor task already queued before this marker run. This
+    /// is a scheduler barrier, so negative assertions cover late work too.
+    static func waitForScheduledMainActorTurn() async throws {
+        let marker = SourceChanges()
+        Task { @MainActor in marker.count = 1 }
+        try await waitUntil("the scheduled main-actor turn") { marker.count == 1 }
     }
 
     /// A publish that changes another workspace (or nothing the kit shows)
@@ -185,6 +197,7 @@ import SwiftUI
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
+        try await Self.waitForScheduledMainActorTurn()
         #expect(source.kitTabBuilds == before + 1)
     }
 
@@ -223,7 +236,11 @@ import SwiftUI
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
+        try await Self.waitForScheduledMainActorTurn()
+        #expect(source.kitTabBuilds == before)
         source.overviewIdleChanged(true)
+        try await Self.waitForKitTabBuilds(source, before + 1)
+        try await Self.waitForScheduledMainActorTurn()
         #expect(source.kitTabBuilds == before + 1)
         source.overviewVisibilityChanged(false)
     }
@@ -261,6 +278,7 @@ import SwiftUI
     @Test func cardFeedCopiesOnlyOnCatchUp() async throws {
         let mock = MockAgentSession(
             summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            richFirstTurn: false,
             sleep: { _ in await Task.yield() }
         )
         mock.chunkSize = 8
@@ -270,9 +288,10 @@ import SwiftUI
         let start = feed.pulls
         let before = chat.turns
         chat.send(prompt: "go")
-        // Many streamed changes arrive; the card copies none of them.
-        try await Self.waitUntil("streamed chat turns and stale card") {
-            chat.turns != before && feed.stale
+        // The short mock turn completes after many streamed changes. The card
+        // becomes stale on the first change, but copies none of the stream.
+        try await Self.waitUntil("streamed chat turn completion") {
+            chat.turns != before && chat.turns.last?.status == .completed
         }
         #expect(feed.pulls == start)
         #expect(feed.stale)
