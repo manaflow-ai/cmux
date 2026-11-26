@@ -24,7 +24,10 @@ const CATEGORIES = new Set(["transcript", "mux", "wire", "all"]);
 
 /// The hold's params: acpmux's `AttachParams` with `hold` set, only the keys a hold sends (each one the
 /// relay's params rule checks).
-export type HoldAttach = Pick<AttachParams, "sessionId" | "hold" | "eventStream" | "kinds" | "visible" | "attending"> & {
+export type HoldAttach = Pick<
+  AttachParams,
+  "sessionId" | "hold" | "eventStream" | "kinds" | "visible" | "attending"
+> & {
   hold: true;
   eventStream: true;
   kinds: string[];
