@@ -1313,6 +1313,8 @@ export function paneSnapshotEffect({
             return;
           }
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
+          if (streamingRowBlocked()) acpmuxPerf.render("guard:blocked"); // L13DIAG
+          if (pendingPaneDraw.pending) acpmuxPerf.render("guard:pending"); // L13DIAG
           const thought =
             drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
               ? thoughtOnly(received, next)
@@ -1334,6 +1336,30 @@ export function paneSnapshotEffect({
           // A redraw of the whole pane is a transition a key can go before, unless it answers what
           // the person just did or opens another chat (paneSnapshotLane.ts).
           const drewBefore = drawnSnapshot.current;
+          // L13DIAG: which fields made the pane draw.
+          if (drewBefore && (globalThis as any).__l13diag !== false) {
+            const a = drewBefore as unknown as Record<string, unknown>;
+            const b = next as unknown as Record<string, unknown>;
+            for (const k of new Set([...Object.keys(a), ...Object.keys(b)]))
+              if (!Object.is(a[k], b[k])) acpmuxPerf.render(`why:${k}`);
+            if (a.rows !== b.rows) {
+              const ra = drewBefore.rows;
+              const rb = next.rows;
+              acpmuxPerf.render(`why:rows:len${rb.length - ra.length}`);
+              let changed = 0;
+              for (let i = 0; i < Math.min(ra.length, rb.length); i++)
+                if (ra[i] !== rb[i]) {
+                  changed++;
+                  acpmuxPerf.render(`why:row:${rb[i]!.kind}`);
+                  if (ra[i]!.id !== rb[i]!.id) acpmuxPerf.render("why:row:idmoved");
+                  else
+                    for (const k of new Set([...Object.keys(ra[i]!), ...Object.keys(rb[i]!)]))
+                      if (!Object.is((ra[i] as any)[k], (rb[i] as any)[k])) acpmuxPerf.render(`why:rowkey:${k}`);
+                }
+              acpmuxPerf.render(`why:rowschanged${Math.min(changed, 5)}`);
+              for (let i = ra.length; i < rb.length; i++) acpmuxPerf.render(`why:newrow:${rb[i]!.kind}`);
+            }
+          }
           drawnSnapshot.current = next;
           drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
             setSnapshot((previous) => {

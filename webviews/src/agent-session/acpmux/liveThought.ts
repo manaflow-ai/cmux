@@ -16,6 +16,8 @@ import { isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
+import { acpmuxPerf } from "./perf"; // L13DIAG
+const why = (k: string): undefined => (acpmuxPerf.render(`thoughtOnly:${k}`), undefined); // L13DIAG
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
 /// last item is still `from` draws `to`. `ahead`: the chunks since `from`, which the row's version
@@ -123,25 +125,28 @@ export function thoughtOnly(
   next: AcpmuxSnapshot,
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
-  if (index === undefined || !sameButRows(previous, next)) return undefined;
+  if (index === undefined) return why("noone");
+  if (!sameButRows(previous, next)) return why("butrows");
   const row = previous.rows[index];
   const now = next.rows[index];
-  if (!row || !now || row.id !== now.id || now.kind !== "activity" || now.streaming !== true) return undefined;
-  if (!sameExcept(row, now, ROW_KEYS)) return undefined;
+  if (!row || !now || row.id !== now.id || now.kind !== "activity") return why("kind");
+  if (now.streaming !== true) return why("notstreaming");
+  if (!sameExcept(row, now, ROW_KEYS)) return why("rowkeys");
   const was = row.items;
   const items = now.items;
-  if (!was || !items || was.length !== items.length || !items.length) return undefined;
+  if (!was || !items || was.length !== items.length || !items.length) return why(`len${(items?.length??0)-(was?.length??0)}`);
   const last = items.length - 1;
-  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return undefined;
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return why("earlier");
   const before = was[last]!;
   const after = items[last]!;
-  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return undefined;
-  if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text)) return undefined;
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return why("notthought");
+  if (!sameExcept(before, after, ITEM_KEYS)) return why("itemkeys:"+Object.keys(after).filter(k=>!Object.is((before as any)[k],(after as any)[k])).join(","));
+  if (!after.text.startsWith(before.text)) return why("notprefix");
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  if (!sameThought(drawnNow, before)) return undefined;
+  if (!sameThought(drawnNow, before)) return why(drawnNow ? "drawnstale" : "notdrawn");
   return { id: now.id, before, after };
 }
 
