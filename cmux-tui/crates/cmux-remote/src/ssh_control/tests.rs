@@ -451,7 +451,7 @@ async fn unavailable_socket_is_retried_once_on_reconnect() {
     assert!(share.client_arguments(&target).await.unwrap().is_empty());
     assert!(share.client_arguments(&target).await.unwrap().is_empty());
     assert_eq!(fake.authentications(), 1, "no repeated prompts within one connect");
-    share.retry_unavailable();
+    share.retry_unavailable(&[target.clone()]).await;
     let (first, second) =
         tokio::join!(share.client_arguments(&target), share.client_arguments(&target));
     let first = first.unwrap();

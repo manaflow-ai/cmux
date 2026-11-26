@@ -254,7 +254,7 @@ pub trait ReconnectGroupSource: Send + Sync {
     /// Starts one route-discovery pass for a reconnect. The pass may retry
     /// several routes, but sources should reset one-time negative caches only
     /// here, rather than once per route attempt.
-    fn begin_resolution(&self) {}
+    async fn begin_resolution(&self) {}
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 
@@ -1328,20 +1328,19 @@ impl ClientConnection {
             .reconnect_groups
             .as_ref()
             .map_or(Duration::ZERO, |source| source.resolution_time_excluded());
+        let recovery_deadline = match (policy_deadline, caller_deadline) {
+            (Some(policy), Some(caller)) => Some(policy.min(caller)),
+            (Some(policy), None) => Some(policy),
+            (None, Some(caller)) => Some(caller),
+            (None, None) => None,
+        };
         let effective_recovery_deadline = || {
             let excluded = self
                 .reconnect_groups
                 .as_ref()
                 .map_or(Duration::ZERO, |source| source.resolution_time_excluded())
                 .saturating_sub(recovery_auth_excluded_at_start);
-            let policy_deadline = policy_deadline
-                .and_then(|deadline| deadline.checked_add(excluded).or(Some(deadline)));
-            match (policy_deadline, caller_deadline) {
-                (Some(policy), Some(caller)) => Some(policy.min(caller)),
-                (Some(policy), None) => Some(policy),
-                (None, Some(caller)) => Some(caller),
-                (None, None) => None,
-            }
+            recovery_deadline.and_then(|deadline| deadline.checked_add(excluded).or(Some(deadline)))
         };
         let remaining = |bound: Duration| {
             effective_recovery_deadline()
@@ -1366,7 +1365,7 @@ impl ClientConnection {
         // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
         group.abandon();
         if let Some(source) = &self.reconnect_groups {
-            source.begin_resolution();
+            source.begin_resolution().await;
         }
         loop {
             if self.closed.load(Ordering::Acquire) {
