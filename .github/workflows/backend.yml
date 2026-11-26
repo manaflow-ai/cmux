@@ -82,13 +82,17 @@ on:
 permissions:
   contents: read
 
-# Independent NEXT pushes must not wait for another run's tests or promotion gates.
+# feat-cmux-next pushes share one group (ci-runner-min-per-day-100k; Leo 2026-11-21: "de facto, im asking
+# for 99% fewer minutes of ci time, period."): a started run finishes, and a newer push replaces the one still
+# pending, so a burst of merges runs the tests and staging deploy once on the newest tip instead of once per
+# commit (05:30-16:18Z 11-25: 25 push runs, 2,226 runner-min; six started 11:31-11:50 alone). A replaced run
+# never started a job, so prod-promote.ts's G1 reads it as no evidence (no deploy-staging), never a red deploy.
+# The `-push` key keeps a dispatch (staging, promote, rollback) out of the pushes' group.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
-# Retain pending jobs: a slower older test run must not replace a newer pending deployment.
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
-  # every superseded head); pushes to the base branches each finish.
+  # every superseded head); a started push run on a base branch finishes (a cancelled deploy-staging is a red deploy).
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -125,6 +129,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/
+            /.gitmodules
       - id: route
         env:
           EVENT_NAME: ${{ github.event_name }}
