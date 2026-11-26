@@ -71,7 +71,6 @@ impl Fixture {
             keys: vec![self.signer.key("fixture")],
             running_cmux: "1.0.0".to_owned(),
             reexec_guard: None,
-            self_exe: None,
             env: env_for(self.home.path()),
             now_ms: NOW_MS,
             self_exe: None,
