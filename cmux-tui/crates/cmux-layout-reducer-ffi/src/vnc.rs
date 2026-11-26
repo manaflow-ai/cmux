@@ -15,3 +15,14 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
     let answer = cmux_vnc::json::respond(operation, request).map_err(|_| ERR_INVALID)?;
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_mac_door_answers_a_vnc_op() {
+        assert!(super::handles(b"vnc_version"));
+        let answer = super::respond(b"vnc_version", br#"{"banner":"UkZCIDAwMy4wMDgK"}"#).unwrap();
+        let answer: serde_json::Value = serde_json::from_slice(&answer).unwrap();
+        assert_eq!(answer["minor"], 8);
+    }
+}
