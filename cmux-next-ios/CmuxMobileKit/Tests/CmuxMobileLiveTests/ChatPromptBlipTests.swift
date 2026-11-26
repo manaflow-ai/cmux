@@ -18,7 +18,11 @@ import Testing
         private let lock = NSLock()
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
         private var _fullAccess: Bool
-        init(fullAccess: Bool = true) { _fullAccess = fullAccess }
+        let answersPrompts: Bool
+        init(fullAccess: Bool = true, answersPrompts: Bool = true) {
+            _fullAccess = fullAccess
+            self.answersPrompts = answersPrompts
+        }
         var fullAccess: Bool {
             get { lock.withLock { _fullAccess } }
             set { lock.withLock { _fullAccess = newValue } }
@@ -50,7 +54,7 @@ import Testing
                     return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"Full access is off for this device: turn it on for this device in Settings > Devices on the Mac","data":{"reason":"remote.full_access_required"}}}"#.utf8)]
                 }
                 mac.prompted(text, meta?["promptId"] as? String ?? "", meta?["resend"] as? Bool ?? false)
-                return [reply(#"{"stopReason":"end_turn"}"#)]
+                return mac.answersPrompts ? [reply(#"{"stopReason":"end_turn"}"#)] : []
             default:
                 return [reply("{}")]
             }

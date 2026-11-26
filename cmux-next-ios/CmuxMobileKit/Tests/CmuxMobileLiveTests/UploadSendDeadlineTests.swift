@@ -97,6 +97,26 @@ import CmuxMobileTransport
     }
     #endif
 
+    @Test func aWrittenPromptWithNoReplyOrJournalEchoStillTimesOut() async throws {
+        let mac = ChatPromptBlipTests.Mac(answersPrompts: false)
+        let (hub, _, source, store) = try await ChatPromptBlipTests().openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        let timer = LinkTestClock()
+        defer { timer.stop() }
+        store.sendClock = timer
+        store.send(prompt: "still there")
+        let id = try #require(store.turns.last?.promptID)
+        let wait = HeldPromptSlowWriteTests()
+        await wait.eventually {
+            mac.prompts.count == 1 && !source.isDeliveringPrompt(id) && timer.nextDeadline != nil
+        }
+        try #require(mac.prompts.count == 1 && !source.isDeliveringPrompt(id))
+        timer.advance(by: .seconds(60))
+        await wait.eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.localSend == .notSent)
+        await hub.bind(nil)
+    }
+
     @Test func aSingleChannelWriteMayKeepDrainingAcrossStallWindows() async throws {
         let wire = Upload(writeStep: .milliseconds(200))
         let path = try await LinkUpload.upload(.data(Data(repeating: 42, count: 8192)), name: "clip.bin",

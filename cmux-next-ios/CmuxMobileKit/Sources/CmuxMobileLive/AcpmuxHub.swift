@@ -976,7 +976,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func isDeliveringPrompt(_ promptID: String) -> Bool {
         #if canImport(CmuxMobileLinkFFI)
-        sendTasks[promptID] != nil || promptPayloads[promptID] != nil
+        sendTasks[promptID] != nil || writingPromptID == promptID ||
+            (promptPayloads[promptID] != nil && promptOutbox.unwritten().contains(promptID))
         #else
         sendTasks[promptID] != nil
         #endif
@@ -1183,6 +1184,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// retried with a jittered, capped backoff, queued while the link is down and given back
     /// past ``heldPromptWindow``. This source only writes what it hands out and reports back.
     private let promptOutbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: UInt64.random(in: 0...UInt64.max))
+    /// The bounded channel write in progress. Waiting for the RPC reply has no write deadline.
+    private var writingPromptID: String?
     /// The wake for the outbox's next hold or retry.
     private var promptWake: Task<Void, Never>?
 
@@ -1214,6 +1217,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let request = promptOutbox.nextRequest(nowMs: nowMs) {
             if var prompt = promptPayloads[request.promptId] {
                 prompt.resend = request.resend
+                writingPromptID = prompt.promptID
                 Task { [weak self] in await self?.writePrompt(prompt, hub: hub) }
             } else {
                 _ = promptOutbox.answered(promptId: request.promptId)
@@ -1292,6 +1296,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
         do {
             let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: sessionID))
+            if writingPromptID == prompt.promptID { writingPromptID = nil }
             promptOutbox.wrote(promptId: prompt.promptID)
             promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
             pumpPrompts()
@@ -1303,6 +1308,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 promptFailed(prompt, error, written: true)
             }
         } catch {
+            if writingPromptID == prompt.promptID { writingPromptID = nil }
             promptFailed(prompt, error, written: false)
         }
         pumpPrompts()
