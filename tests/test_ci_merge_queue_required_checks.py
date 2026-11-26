@@ -45,10 +45,10 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # Checks that judge a pull request's author and head in workflows a pull request
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
-# would run with those names' authority. The no-op bridge uses the standard
-# Blacksmith expression because it has no token, checkout, or candidate code, led by cmux-linux, the persistent
-# pool: it needs no one-job VM, and on 2026-11-21 the gate JIT label queued its jobs for hours while that pool
-# sat idle (tests/test_ci_required_gate_label.py POOL_JOBS).
+# would run with those names' authority. The no-op bridge has no token, checkout, or candidate code, so it runs
+# on cmux-linux, the persistent pool, like every own-branch Linux job (only the fleet-wide CI_OVERFLOW_LINUX
+# switch ahead of it): it needs no one-job VM, and on 2026-11-21 the gate JIT label queued its jobs for hours
+# while that pool sat idle (tests/test_ci_required_gate_label.py POOL_JOBS).
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
@@ -65,7 +65,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-linux' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
@@ -127,9 +127,47 @@ def merge_group_name(name: str) -> str:
     return last[1:-1]
 
 
+def negated_clauses(condition: str) -> list[str]:
+    """Return the inner text of each balanced `!(...)` clause in an `if` expression."""
+    found = []
+    start = condition.find("!(")
+    while start != -1:
+        depth, index = 0, start + 1
+        while index < len(condition):
+            if condition[index] == "(":
+                depth += 1
+            elif condition[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    found.append(condition[start + 2:index].strip())
+                    break
+            index += 1
+        start = condition.find("!(", start + 2)
+    return found
+
+
+def bare_condition(condition: str) -> str:
+    text = condition.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    return text.strip()
+
+
+def excludes(condition: str, other: str) -> bool:
+    """True when `condition` requires `!(X)` and `other` ends with `&& X`: never both run.
+
+    backend-migrations.yml's gate and gate-no-change (#57278) split one required check this way, on
+    the plan's answer; the job that skips publishes its unevaluated name expression, not the check.
+    """
+    other = bare_condition(other)
+    return any(clause and other.endswith("&& " + clause) for clause in negated_clauses(bare_condition(condition)))
+
+
 def merge_group_check_names() -> dict[str, list[str]]:
     """Collect check names that can be emitted for merge-group runs."""
     names: dict[str, list[str]] = {}
+    # (workflow, check name) -> the `if` of each job already counted for it.
+    seen: dict[tuple[str, str], list[str]] = {}
     for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict) or "merge_group" not in triggers(document):
@@ -150,6 +188,12 @@ def merge_group_check_names() -> dict[str, list[str]]:
                 except (AssertionError, KeyError, TypeError):
                     continue
                 name = REQUIRED_CHECK
+            if any(
+                excludes(condition, prior) or excludes(prior, condition)
+                for prior in seen.get((path.name, name), [])
+            ):
+                continue
+            seen.setdefault((path.name, name), []).append(condition)
             names.setdefault(name, []).append(path.name)
     return names
 
@@ -250,6 +294,13 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
         """The required job must remain eligible on merge-group events."""
         self.workflow["jobs"]["complexity"]["if"] = "github.event_name != 'merge_group'"
         self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_only_complementary_jobs_share_a_required_name(self) -> None:
+        """Jobs split on `!(X)` / `&& X` never both run; any other pair is still a duplicate."""
+        split = "needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false'"
+        self.assertTrue(excludes(f"always() && !({split})", f"${{{{ !cancelled() && {split} }}}}"))
+        self.assertFalse(excludes("always()", f"${{{{ !cancelled() && {split} }}}}"))
+        self.assertFalse(excludes(f"always() && !({split})", "${{ !cancelled() }}"))
 
 
 if __name__ == "__main__":

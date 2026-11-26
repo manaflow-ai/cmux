@@ -11,7 +11,7 @@ import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cloud-journey-prod.yml"
 WANT = (
-    "CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && "
+    "CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && "
     "(secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}"
 )
 
@@ -22,7 +22,7 @@ class OwnLoginTest(unittest.TestCase):
         self.assertIn(WANT, lines)
 
     def test_stub_leg_gets_no_login(self):
-        # The expression's `|| ''` keeps the stub leg free of any Claude secret.
+        # The expression's `|| ''` keeps the stub legs and the Codex rows free of any Claude secret.
         self.assertTrue(WANT.endswith("|| '' }}"))
 
 

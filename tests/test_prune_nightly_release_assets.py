@@ -122,5 +122,48 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
                 MODULE.main()
 
 
+class NightlyPruneFrozenFeedTests(unittest.TestCase):
+    """Nightly is arm64 only; the last x86_64 and universal build backs frozen feeds."""
+
+    @staticmethod
+    def assets() -> list:
+        prefix = "cmux-nightly-macos-"
+        names = []
+        # Builds 1-10 shipped every variant; 11-200 ship arm64 only.
+        for build in range(1, 11):
+            names += [f"{prefix}{variant}-{build}.dmg" for variant in ("arm64", "x86_64", "universal")]
+            names.append(f"{prefix}x86_64-{build}-{build - 1}.delta")
+        for build in range(11, 201):
+            names.append(f"{prefix}arm64-{build}.dmg")
+        names.append(f"cmuxd-remote-manifest-10.json")
+        return [
+            MODULE.ReleaseAsset(asset_id=index, name=name, build=MODULE.extract_build(name))
+            for index, name in enumerate(names)
+        ]
+
+    def test_newest_x86_64_and_universal_build_is_never_pruned(self) -> None:
+        assets = self.assets()
+        self.assertEqual(MODULE.frozen_feed_builds(assets), {10})
+        to_delete, _ = MODULE.partition_assets(assets, 100, len(assets) + 4, 950)
+        deleted = {asset.name for asset in to_delete}
+        for name in (
+            "cmux-nightly-macos-x86_64-10.dmg",
+            "cmux-nightly-macos-universal-10.dmg",
+            "cmux-nightly-macos-x86_64-10-9.delta",
+            "cmux-nightly-macos-arm64-10.dmg",
+            "cmuxd-remote-manifest-10.json",
+        ):
+            self.assertNotIn(name, deleted)
+        self.assertIn("cmux-nightly-macos-x86_64-9.dmg", deleted)
+        self.assertIn("cmux-nightly-macos-arm64-100.dmg", deleted)
+        self.assertNotIn("cmux-nightly-macos-arm64-101.dmg", deleted)
+
+    def test_asset_cap_skips_frozen_build(self) -> None:
+        assets = self.assets()
+        kept = [asset for asset in assets if asset.build >= 101 or asset.build == 10]
+        to_delete, _ = MODULE.partition_assets(kept, 100, len(kept), 50)
+        self.assertNotIn(10, {asset.build for asset in to_delete})
+
+
 if __name__ == "__main__":
     unittest.main()

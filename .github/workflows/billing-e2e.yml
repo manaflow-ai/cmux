@@ -23,6 +23,6 @@ permissions: {}
 jobs:
   registration:
     timeout-minutes: 5
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - run: echo "Billing E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

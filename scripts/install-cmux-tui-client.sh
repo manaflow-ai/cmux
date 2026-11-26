@@ -24,6 +24,10 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
+# The attestation is verified offline from a Sigstore bundle when one is cached
+# (CMUX_TUI_ATTESTATION_CACHE) or published beside the manifest; only a miss calls
+# the GitHub attestations API, and its bundle is cached for the next install.
+#
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
@@ -86,28 +90,156 @@ mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# The GitHub token's installation quota is shared by every workflow in the
+# repository; once it is spent (HTTP 403 "API rate limit exceeded for
+# installation"), `gh attestation verify` cannot list the manifest's attestations.
+# The attestations of a public repository are also readable without a token, on
+# the runner address's own budget, so fetch the Sigstore bundles that way and
+# verify each one offline with `gh attestation verify --bundle`. That checks the
+# same signer, repository and source commit against the Sigstore trust root as the
+# API lookup (which fetches these same bundles), so it admits nothing the lookup
+# would refuse; any failure here falls back to waiting out the quota.
+verify_attestation_bundles_anonymously() { # <owner/repo> <verify args...>
+  local repo="$1"; shift
+  local digest listing api="${GITHUB_API_URL:-https://api.github.com}" bundle n=0 i
+  digest="$(sha256_of "$MANIFEST")"
+  listing="$MANIFEST.attestations.json"
+  rm -f "$listing" "$MANIFEST".anon-*.sigstore.json
+  if ! curl --proto '=https' --tlsv1.2 -fsS --connect-timeout 10 --max-time 60 \
+      -A cmux-tui-installer -H 'Accept: application/vnd.github+json' \
+      -o "$listing" "$api/repos/$repo/attestations/sha256:$digest"; then
+    rm -f "$listing"
+    echo "warning: the unauthenticated attestation read failed too; waiting out the quota" >&2
+    return 1
+  fi
+  n="$(python3 -c '
+import json, sys
+attestations = json.load(open(sys.argv[1])).get("attestations") or []
+count = 0
+for attestation in attestations:
+    if isinstance(attestation.get("bundle"), dict):
+        json.dump(attestation["bundle"], open(f"{sys.argv[2]}-{count}.sigstore.json", "w"))
+        count += 1
+print(count)
+' "$listing" "$MANIFEST.anon" 2>/dev/null)" || n=0
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  rm -f "$listing"
+  for ((i = 0; i < n; i++)); do
+    bundle="$MANIFEST.anon-$i.sigstore.json"
+    if gh attestation verify "$MANIFEST" --bundle "$bundle" "$@" >&2; then
+      rm -f "$MANIFEST".anon-*.sigstore.json
+      echo "cmux-tui manifest attestation verified offline from a bundle read without the rate-limited token" >&2
+      return 0
+    fi
+  done
+  rm -f "$MANIFEST".anon-*.sigstore.json
+  echo "warning: no attestation bundle read without the token verified ($n read); waiting out the quota" >&2
+  return 1
+}
+
 # Fail closed: without a valid attestation nothing from the manifest is used, so
 # no binary it names is downloaded or executed.
-verify_manifest_attestation() {
+#
+# The Sigstore bundle is checked offline first (`gh attestation verify --bundle`
+# reads no GitHub API), so concurrent nightlies do not drain the App
+# installation quota: run 45583224796 failed all three legs on "API rate limit
+# exceeded for installation" while 7+ nightlies ran at once. Bundles come from,
+# in order: the attestation cache (keyed by manifest sha256; a bundle is still
+# verified every time, so a bad cache entry only falls through), the
+# digest-keyed bundle cmux-tui-artifacts.yml publishes under
+# cmux-tui-attestations/, then one API lookup whose bundle is cached for the next install.
+ATTESTATION_CACHE="${CMUX_TUI_ATTESTATION_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-attestations}"
+ATTEST_ARGS=()
+attest_args() {
   local repo="${ATTEST_SIGNER_WORKFLOW%%/.github/*}"
-  local -a args=(--repo "$repo" --signer-workflow "$ATTEST_SIGNER_WORKFLOW")
+  ATTEST_ARGS=(--repo "$repo" --signer-workflow "$ATTEST_SIGNER_WORKFLOW")
+  [[ -n "$EXPECTED_COMMIT" ]] && ATTEST_ARGS+=(--source-digest "$EXPECTED_COMMIT")
+  return 0
+}
+verify_bundle_offline() { # <bundle>
+  [[ -s "$1" ]] || return 1
+  gh attestation verify "$MANIFEST" --bundle "$1" "${ATTEST_ARGS[@]}" >/dev/null 2>&1
+}
+cache_bundle() { # <source> <dest>
+  mkdir -p "$ATTESTATION_CACHE" 2>/dev/null || return 0
+  local tmp
+  tmp="$(mktemp "$ATTESTATION_CACHE/bundle.XXXXXX" 2>/dev/null)" || return 0
+  if cp "$1" "$tmp" 2>/dev/null && mv -f "$tmp" "$2" 2>/dev/null; then return 0; fi
+  rm -f "$tmp"
+  return 0
+}
+# Keep the bundle the API lookup just verified, so the next install of this
+# manifest on this host reads no API. Best effort: any failure only skips it,
+# and the cached bundle is verified again before every use.
+save_verified_bundle() { # <verify-json> <dest>
+  local bundle="$1.bundle"
+  if python3 -c '
+import json, sys
+bundle = json.load(open(sys.argv[1]))[0]["attestation"]["bundle"]
+if not isinstance(bundle, dict):
+    raise SystemExit(1)
+json.dump(bundle, open(sys.argv[2], "w"))
+' "$1" "$bundle" 2>/dev/null; then
+    cache_bundle "$bundle" "$2"
+  fi
+  rm -f "$bundle"
+  return 0
+}
+verify_manifest_attestation() {
   command -v gh >/dev/null 2>&1 || {
     echo "error: verifying the cmux-tui manifest attestation needs the GitHub CLI (gh); pass --allow-unattested only for local development" >&2
     exit 1
   }
-  [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
+  attest_args
+  local digest cached published origin bundle_url
+  digest="$(sha256_of "$MANIFEST")"
+  cached="$ATTESTATION_CACHE/$digest.sigstore.json"
+  if verify_bundle_offline "$cached"; then
+    echo "cmux-tui manifest attestation verified offline from cached bundle $cached" >&2
+    return 0
+  fi
+  # The publisher (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore
+  # bundle") uploads the bundle for the manifest's digest, write-once, to
+  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. One short try:
+  # a commit published before bundles were is a plain 404. A missing or rejected
+  # bundle falls through to the API lookup below, so a bundle never admits
+  # anything the lookup would refuse.
+  origin="${CMUX_TUI_ATTEST_BUNDLE_BASE:-$(printf '%s' "$MANIFEST_URL" | sed -E 's#^(https?://[^/]+)/.*#\1#')/cmux-tui-attestations}"
+  bundle_url="$origin/sha256-$digest.sigstore.json"
+  published="$MANIFEST.sigstore.json"
+  rm -f "$published"
+  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$published" 0 2>/dev/null; then
+    if verify_bundle_offline "$published"; then
+      echo "cmux-tui manifest attestation verified offline from $bundle_url" >&2
+      cache_bundle "$published" "$cached"
+      rm -f "$published"
+      return 0
+    fi
+    echo "warning: the published Sigstore bundle at $bundle_url did not verify; asking the GitHub attestations API instead" >&2
+  fi
+  rm -f "$published"
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
   # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
-  # failure is a verdict and stays final.
+  # failure is a verdict and stays final. Before each wait, read the bundles
+  # without the token (verify_attestation_bundles_anonymously): run
+  # 45583224796 spent all four retries on a drained installation quota.
   local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
   local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
-  local output status
+  local output status json="$MANIFEST.verify.json"
   while :; do
     status=0
-    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    output="$(gh attestation verify "$MANIFEST" "${ATTEST_ARGS[@]}" --format json 2>&1 >"$json")" || status=$?
     [[ -n "$output" ]] && printf '%s\n' "$output" >&2
-    [[ $status -eq 0 ]] && return 0
+    if [[ $status -eq 0 ]]; then
+      save_verified_bundle "$json" "$cached"
+      rm -f "$json"
+      return 0
+    fi
+    if [[ "$output" == *"rate limit"* ]] && verify_attestation_bundles_anonymously "${ATTEST_SIGNER_WORKFLOW%%/.github/*}" "${ATTEST_ARGS[@]}"; then
+      rm -f "$json"
+      return 0
+    fi
     if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
       echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
       sleep "$delay"
@@ -115,6 +247,7 @@ verify_manifest_attestation() {
       delay=$((delay * 2))
       continue
     fi
+    rm -f "$json"
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
   done

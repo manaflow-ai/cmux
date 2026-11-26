@@ -334,7 +334,7 @@ class ClassicNightlyJobConditions(unittest.TestCase):
                 event = rng.choice(("push", "schedule", "workflow_dispatch"))
                 context = {
                     "github.event_name": event,
-                    "github.event.schedule": rng.choice(("17 */6 * * *", "47 8 * * *")) if event == "schedule" else "",
+                    "github.event.schedule": rng.choice(("17 */6 * * *", "2,17,32,47 * * * *", "5 8 * * *")) if event == "schedule" else "",
                     "inputs.seed_only": rng.choice((True, False)) if event == "workflow_dispatch" else None,
                     "vars.CI_PR_POOL_OWNED": rng.choice(("", "1", "0")),
                 }

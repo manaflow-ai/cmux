@@ -534,7 +534,7 @@ jobs:
       - name: Checkout feat-cmux-next
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/cmux-next

@@ -39,7 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          sparse-checkout: scripts/ci/prune_pr_media.py
+          sparse-checkout: |
+            scripts/ci/prune_pr_media.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Prune

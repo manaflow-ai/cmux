@@ -72,7 +72,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           path: .signing-workflows/feat-cmux-next
           sparse-checkout: .github/workflows
           persist-credentials: false
@@ -168,6 +168,9 @@ jobs:
           # branches, and rc/cnx-ios-builder (the iPhone INTERNAL builder runs
           # its own frozen copy of ios-internal-nightly.yml).
           ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
+          # Every repository variable, so a runs-on variable a branch adds needs no line below
+          # (runs_on_values.py ALL_VARIABLES_ENV); the list keeps the defaults some reads carry.
+          CMUX_CI_RUNS_ON_ALL_VARIABLES: ${{ toJSON(vars) }}
           CMUX_CI_RUNS_ON_VARIABLES: |
             CI_BLACKSMITH_MACOS=${{ vars.CI_BLACKSMITH_MACOS }}
             CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
@@ -177,6 +180,7 @@ jobs:
             CI_DEPLOY_SKIP_FLEET=${{ vars.CI_DEPLOY_SKIP_FLEET }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
             CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
@@ -191,6 +195,7 @@ jobs:
             CI_NIGHTLY_MINI_SIGNER=${{ vars.CI_NIGHTLY_MINI_SIGNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}

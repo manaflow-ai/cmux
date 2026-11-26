@@ -379,6 +379,7 @@ jobs:
             --artifact-directory assets/chatmux-relay
 
       - name: Attest raw binary subjects
+        id: attest_subjects
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -392,6 +393,34 @@ jobs:
           # These are file subjects, not OCI images. No artifact-metadata
           # storage records are created for this R2 publication.
           push-to-registry: false
+
+      # The installer (scripts/install-cmux-tui-client.sh) verifies the manifest offline from this bundle before it
+      # asks GitHub's attestations API, so a spent installation quota cannot hold a nightly leg (classic nightly
+      # runs 45539773839-45569593374, 2026-11-25: 15 minutes asleep on the quota per leg, then red). The bundle is
+      # checked against the Sigstore trust root, so publishing it admits nothing the API lookup would refuse.
+      - name: Publish the manifest's Sigstore bundle
+        if: hashFiles('assets/cmux-tui/manifest.json') != ''
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUNDLE: ${{ steps.attest_subjects.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          [[ -s "$BUNDLE" ]] || { echo "::warning title=no attestation bundle::the attest step gave no bundle; installers use the attestations API"; exit 0; }
+          digest="$(sha256sum assets/cmux-tui/manifest.json | awk '{print $1}')"
+          # A rerun re-signs, so its bundle's bytes differ from the published one; any valid
+          # bundle for these manifest bytes verifies. --keep-existing leaves the published
+          # bytes at this immutable key and never writes over them (a rerun reuses them).
+          python3 scripts/ci/upload-r2-object.py --write-once --keep-existing \
+            --file "$BUNDLE" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --key "cmux-tui-attestations/sha256-$digest.sigstore.json" \
+            --content-type application/json \
+            --cache-control "public, max-age=31536000, immutable" \
+            || { echo "::warning title=bundle not published::upload failed; installers use the attestations API"; exit 0; }
+          echo "Published: https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json"
 
       - name: Upload to R2
         env:

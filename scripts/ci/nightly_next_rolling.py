@@ -22,6 +22,15 @@ builds alongside a running one instead of waiting behind it"):
   (workflow_run on Nightly macOS build), which promotes the newest tip then, so
   a burst of landings still becomes one build of the newest tip and no build is
   ever cancelled. --window-minutes now only spaces starts when a run list lags.
+- even cadence (--cadence-minutes, CADENCE_MINUTES): a promotion that would start a
+  build waits until the newest start is that old, whatever is building, so starts
+  are at least one cadence apart and the start that is due takes the newest
+  buildable commit, coalescing every landing in between (newest push wins). A gap
+  already longer than the cadence promotes at once. Before it, "nothing is
+  building" promoted at once however young the newest start was: two starts a
+  minute apart on 2026-11-25 (01:03/01:04Z, 04:03/04:04Z) and 25 starts under 10
+  minutes apart in 48 h (Leo, 2026-11-25, ask-f1544451a4: "at least evenly space
+  them out a bit instead of nothing for 3 hours then 3 at once?").
 
 "Building" means holding the push group (nightly_next_feed_watch.holds_push_group: a
 push or the loop's retry dispatch; run_holds_group): a run whose nightly-next-one ran
@@ -80,8 +89,14 @@ may wait at the push slot, and a promotion would get GitHub to cancel its pendin
 read, promotes, with a warning: the promotion ignores a request that does not
 move nightly-next forward.
 
-usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10] [--slots N]
-Writes go=true|false and reason=... to $GITHUB_OUTPUT when it is set.
+The fast pass (nightly_fast_pass.py; Leo, 2026-11-25: "when can we get the next nightly. like just the fast
+pass way to go"): when everything between nightly-next's head and the tip is a safe fix (a few small commits,
+none on the release surface, CI, build or dependency files; the diff read from this checkout, the
+surface from main's .github/release-surface.txt), the even cadence is
+FAST_PASS_CADENCE_MINUTES (5) instead of 20. Nothing else changes: a running build still holds the next start.
+
+usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10] [--cadence-minutes 20] [--slots N]
+Writes go=true|false, fast_pass=true|false and reason=... to $GITHUB_OUTPUT when it is set.
 """
 from __future__ import annotations
 
@@ -100,8 +115,19 @@ _spec = importlib.util.spec_from_file_location("nightly_next_feed_watch", HERE /
 watch = importlib.util.module_from_spec(_spec)
 sys.modules.setdefault("nightly_next_feed_watch", watch)
 _spec.loader.exec_module(watch)
+_fast_spec = importlib.util.spec_from_file_location("nightly_fast_pass", HERE / "nightly_fast_pass.py")
+fast_pass_rule = importlib.util.module_from_spec(_fast_spec)
+sys.modules.setdefault("nightly_fast_pass", fast_pass_rule)
+_fast_spec.loader.exec_module(fast_pass_rule)
 
 WINDOW_MINUTES = 10.0
+# The even cadence: no build starts within this many minutes of the newest start (a push run's creation, or a
+# promotion that may still start one). Replaying the 97 nightly-next push starts of 2026-11-23 12:00Z to
+# 2026-11-25 12:00Z: 25 starts came under 10 min after the one before (13 under 5); with 20 none comes under 20,
+# the median gap goes 25.1 -> 29.0 min, and the newest commit a start takes waits at most 19.6 min more (p50 0).
+# The tick's 5-minute cron runs the start that falls due. vars.NIGHTLY_NEXT_CADENCE_MINUTES overrides it; 0 is
+# the rule before it.
+CADENCE_MINUTES = 20.0
 # A promotion run is created, decides and moves nightly-next in a few minutes;
 # one older than this that has not finished is stuck, not about to start a build.
 PROMOTION_MINUTES = 15.0
@@ -235,6 +261,14 @@ def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict],
     return min(ages) if ages else None
 
 
+def cadence_wait(since_start: float | None, cadence_minutes: float) -> str:
+    """Why a promotion waits for the even cadence, "" when the newest start is a cadence old (or there is none)."""
+    if since_start is None or not cadence_minutes or since_start >= cadence_minutes:
+        return ""
+    return (f"the newest build started {since_start:.0f} of {cadence_minutes:g} min ago (even cadence); the next start, "
+            f"for the newest buildable commit, is due in {cadence_minutes - since_start:.0f} min")
+
+
 def retry_of(run: dict, head: str) -> bool:
     """Whether a run is the loop's retry dispatch ('Retry nightly-next (N of 2)') of `head`."""
     return (run.get("event") == "workflow_dispatch" and bool(watch.RETRY_TITLE.match(str(run.get("display_title") or "")))
@@ -245,7 +279,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
            promotions: list[dict], oldest_waiting,
            window_minutes: float = WINDOW_MINUTES,
            promotion_minutes: float = PROMOTION_MINUTES,
-           starts: list[dict] | None = None, slots: int = SLOTS) -> tuple[bool, str]:
+           starts: list[dict] | None = None, slots: int = SLOTS,
+           cadence_minutes: float = CADENCE_MINUTES) -> tuple[bool, str]:
     """(promote now, why). head: nightly-next's commit; head_runs: nightly.yml runs on nightly-next
     for it; promotions: recent nightly.yml workflow_dispatch runs on main; oldest_waiting: the
     oldest feat-cmux-next commit after head and when it landed, None when nothing waits, or
@@ -256,7 +291,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     buildable commit (the request walks from the tip). Measuring the window only from landing
     let every tick after a cmux-tui tree stall promote again (2026-10-29 04:25-04:30: three
     starts in four minutes, five builds in flight on contended runners); now the newest start
-    must be a window old too. A started build is never cancelled."""
+    must be a window old too. A started build is never cancelled. Every promotion also waits for
+    the even cadence (cadence_wait), so starts are at least `cadence_minutes` apart."""
     slots = slots_from(slots)
     if not head:
         return True, "nightly-next is unreadable; asking as before"
@@ -324,7 +360,13 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                            f"{since_start:.0f} of {SIGNER_STAGGER_MINUTES:g} min ago; the next starts half a build "
                            "after it, so the two finish apart")
         elif busy_count and not building:
+            due = cadence_wait(since_start, cadence_minutes)
+            if due:
+                return False, f"{busy_count} of {slots} nightly-next slots busy, and {due}"
             return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
+    due = cadence_wait(since_start, cadence_minutes) if not building and oldest_waiting is not None else ""
+    if due:
+        return False, f"nothing holds the slot, but {due}"
     if not building and skipped_retry:
         return True, (f"the open run is a retry of nightly-next's head {head[:12]} and a newer commit waits; ignoring "
                       "the retry and promoting the newest buildable commit now")
@@ -434,30 +476,102 @@ class GhRefused(subprocess.CalledProcessError):
         return f"gh api {self.cmd[-1]} exited {self.returncode}: {self.stderr}"
 
 
-def gh_api(path: str, env=None, run=subprocess.run):
-    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
-    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
-    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
-    builds' nightly-next-one had ended, and the promotion waited until 05:52. A refusal carries gh's own words."""
-    env = os.environ if env is None else env
+# GitHub's secondary limit (a 403 whose page links the Terms of Service) refuses every token for a while. Its docs
+# ask for at least a minute before a retry; the tick waits that once per run, so the serialized tick group is held
+# at most this long.
+SECONDARY_WAIT_SECONDS = 60.0
+SECONDARY_MARKERS = ("secondary rate limit", "terms of service", "abuse detection")
+_secondary_waited = False
+
+
+def secondary_limited(said: str) -> bool:
+    lowered = (said or "").lower()
+    return any(marker in lowered for marker in SECONDARY_MARKERS)
+
+
+def public_get(path: str):
+    """One unauthenticated GET of the public REST API. Its budget is the runner address's, apart from every
+    token's, so a refusal that dried the job's token and the spare one does not cost the tick its answer."""
+    import urllib.request
+    request = urllib.request.Request(f"https://api.github.com/{path}", headers={
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "nightly-next-rolling-rule"})
+    with urllib.request.urlopen(request, timeout=20) as answer:  # noqa: S310 - a fixed https host
+        return json.loads(answer.read().decode("utf-8"))
+
+
+# A bound on each gh api read: a read that hangs is a refused read (and goes on to the next token and the
+# no-token read), never a tick that never decides.
+GH_API_SECONDS = 60
+
+
+def _read_on_tokens(path: str, env, run):
+    """(answer, None) from the first token that reads `path`, else (None, (exit code, gh's last words))."""
     tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
+    refused = (1, "")
     for index, token in enumerate(tokens):
         child = None if token is None else {**env, "GH_TOKEN": token}
-        done = run(["gh", "api", path], capture_output=True, text=True, env=child)
+        try:
+            done = run(["gh", "api", path], capture_output=True, text=True, env=child, timeout=GH_API_SECONDS)
+        except subprocess.TimeoutExpired:
+            done = subprocess.CompletedProcess(["gh", "api", path], 124, "", f"gh api took more than {GH_API_SECONDS} s")
         if done.returncode == 0:
             if index:
                 print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
-            return json.loads(done.stdout)
-        said = " ".join((done.stderr or "").split())[-300:]
+            return json.loads(done.stdout), None
+        refused = (done.returncode, " ".join((done.stderr or "").split())[-300:])
         if index + 1 < len(tokens):
-            print(f"gh api {path.split('?')[0]} was refused ({said}); reading it on the spare token")
-            continue
-        raise GhRefused(done.returncode, ["gh", "api", path], done.stdout, said)
+            print(f"gh api {path.split('?')[0]} was refused ({refused[1]}); reading it on the spare token")
+    return None, refused
+
+
+def gh_api(path: str, env=None, run=subprocess.run, anonymous=None, sleep=None):
+    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
+    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
+    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
+    builds' nightly-next-one had ended, and the promotion waited until 05:52.
+
+    Refused there too, it goes out once with no token through `anonymous` (main passes public_get; the
+    repository is public), whose budget is the runner address's. When gh's last words are GitHub's secondary
+    limit, `sleep` (main passes time.sleep) waits SECONDARY_WAIT_SECONDS, once per process, and the reads go out
+    one more time. Ticks 45700034320 to 45706304238 (2026-11-25 18:12 to 21:43Z) all waited on "could not read
+    the running builds", a secondary-limit 403 on both tokens, and nightly-next sat at 4755643e for 3.5 h.
+    A refusal carries gh's own words."""
+    global _secondary_waited
+    env = os.environ if env is None else env
+    short = path.split('?')[0]
+    for _attempt in range(2):
+        answer, refused = _read_on_tokens(path, env, run)
+        if refused is None:
+            return answer
+        code, said = refused
+        if anonymous is not None:
+            try:
+                answer = anonymous(path)
+            except Exception as error:  # noqa: BLE001 - the refusal below names the tokens' words
+                print(f"gh api {short}: the tokens were refused ({said}); the read with no token failed too ({error!r})")
+            else:
+                print(f"gh api {short}: the tokens were refused ({said}); read with no token")
+                return answer
+        if sleep is None or _secondary_waited or not secondary_limited(said):
+            break
+        _secondary_waited = True
+        wait = float(env.get("ROLLING_SECONDARY_WAIT_SECONDS") or SECONDARY_WAIT_SECONDS)
+        print(f"gh api {short}: GitHub's secondary limit ({said}); waiting {wait:g} s once, then reading again")
+        sleep(wait)
+    raise GhRefused(code, ["gh", "api", path], "", said)
+
+
+def production_api(path: str):
+    """gh_api as the tick runs it: both tokens, then no token, then one secondary-limit wait."""
+    import time
+    return gh_api(path, anonymous=public_get, sleep=time.sleep)
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
              window_minutes: float = WINDOW_MINUTES, ls_remote=None, local_gap=None,
-             slots: int = SLOTS) -> tuple[bool, str]:
+             slots: int = SLOTS, cadence_minutes: float = CADENCE_MINUTES,
+             fast_pass=None) -> tuple[bool, str]:
     """Read the head with `ls_remote` (main passes git ls-remote) and then the API, the rest
     through the API (the job's token), and decide. The gap to the tip comes from `local_gap`
     (main passes git_oldest_after, the tick's checkout) when it can answer, else the compare API.
@@ -494,6 +608,30 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
             print(f"{error}; reading the gap to the tip through the compare API")
     if local == (None,):
         return False, f"nightly-next ({head[:12]}) already has the tip {tip[:12]}; nothing waits to be promoted"
+    # The fast pass: a safe fix waits a shorter even cadence; everything else below is unchanged.
+    cadence_minutes, prefix = _fast_cadence(head, tip, local, fast_pass, cadence_minutes)
+    go, reason = _evaluate_runs(now, repo, tip, head, local, api, window_minutes, slots, cadence_minutes)
+    return go, prefix + reason
+
+
+def _fast_cadence(head: str, tip: str, local, fast_pass, cadence_minutes: float) -> tuple[float, str]:
+    """The cadence for this gap, and a reason prefix when the fast pass shortens it. Only a gap this
+    checkout holds is classified (local is not None); anything else keeps the cadence."""
+    if fast_pass is None or local is None:
+        return cadence_minutes, ""
+    try:
+        verdict = fast_pass(head, tip)
+    except Exception as error:  # noqa: BLE001 - the fast pass only ever shortens a wait
+        print(f"fast pass: no: could not classify {head[:12]}..{tip[:12]} ({error!r})")
+        return cadence_minutes, ""
+    print(f"fast pass: {'yes' if verdict.fast else 'no'}: {verdict.reason}")
+    if not verdict.fast:
+        return cadence_minutes, ""
+    return min(cadence_minutes, fast_pass_rule.FAST_PASS_CADENCE_MINUTES), f"fast pass ({verdict.reason}); "
+
+
+def _evaluate_runs(now, repo, tip, head, local, api, window_minutes, slots, cadence_minutes) -> tuple[bool, str]:
+    """evaluate's reads of the running builds and its decision, once nightly-next's head is known."""
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
         # One listing of nightly-next's recent runs, kept to the push group's (pushes and the loop's
@@ -522,13 +660,17 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
 
         return decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
                       oldest_waiting=gap(), window_minutes=window_minutes,
-                      starts=recent, slots=slots)
+                      starts=recent, slots=slots, cadence_minutes=cadence_minutes)
     except Exception as error:  # noqa: BLE001
         if since_start is not None and since_start < window_minutes:
             print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); "
                   f"a build started {since_start:.0f} min ago, so waiting")
             return False, (f"could not read the running builds ({error!r}); the newest build started "
                            f"{since_start:.0f} of {window_minutes:g} min ago, so waiting")
+        due = cadence_wait(since_start, cadence_minutes)
+        if due:
+            print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); {due}")
+            return False, f"could not read the running builds ({error!r}); {due}"
         live = may_wait_at_slot(now, recent)
         if live:
             why = (f"could not read the running builds ({error!r}); {live}, and a promotion now would get it "
@@ -544,17 +686,23 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--tip", required=True, help="the feat-cmux-next commit the tick checked out")
     parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
+    parser.add_argument("--cadence-minutes", type=float,
+                        default=float(os.environ.get("NIGHTLY_NEXT_CADENCE_MINUTES") or CADENCE_MINUTES),
+                        help="minimum minutes between build starts (default $NIGHTLY_NEXT_CADENCE_MINUTES, else 20; 0 is off)")
     parser.add_argument("--slots", default=os.environ.get("NIGHTLY_NEXT_SLOTS", ""),
                         help="signer slots (1 or 2; default $NIGHTLY_NEXT_SLOTS, else 1)")
     args = parser.parse_args(argv)
     slots = slots_from(args.slots)
-    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
-                          ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after, slots=slots)
+    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, api=production_api,
+                          window_minutes=args.window_minutes,
+                          ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after, slots=slots,
+                          cadence_minutes=args.cadence_minutes, fast_pass=fast_pass_rule.evaluate)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
+        fast = "true" if reason.startswith("fast pass (") else "false"
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"go={'true' if go else 'false'}\nreason={reason}\n")
+            handle.write(f"go={'true' if go else 'false'}\nfast_pass={fast}\nreason={reason}\n")
     return 0
 
 

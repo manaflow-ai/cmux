@@ -104,25 +104,57 @@ REGEN = [{"job": re.compile(r"generated files", re.I), "artifact": "cmux-next-ge
 # ---------------------------------------------------------------- GitHub and git
 
 
+API_WAIT_BUDGET_S = int(os.environ.get("RED_AUTOFIX_API_WAIT_S") or 240)
+_api_waited = 0.0
+
+
+def _api_wait(seconds: float, what: str, stderr: str) -> None:
+    """Sleep for a retry, logged, out of the process-wide API_WAIT_BUDGET_S; raise once the budget is spent."""
+    global _api_waited
+    left = API_WAIT_BUDGET_S - _api_waited
+    if left <= 0:
+        raise RuntimeError(f"gh api {what}: wait budget of {API_WAIT_BUDGET_S}s spent; {stderr.strip()[-300:]}")
+    seconds = min(seconds, left)
+    _api_waited += seconds
+    print(f"red-autofix: {what}; waiting {seconds:.0f}s ({_api_waited:.0f}/{API_WAIT_BUDGET_S}s of the budget)",
+          file=sys.stderr, flush=True)
+    time.sleep(seconds)
+
+
 def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, raw: bool = False, run=subprocess.run):
-    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin. A 5xx is retried twice."""
+    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin. A 5xx is retried; the installation's
+    rate limit (shared with every workflow) is waited out, but every wait in this process draws on one budget
+    (API_WAIT_BUDGET_S, env RED_AUTOFIX_API_WAIT_S, default 240 s) and is logged to stderr: per-call waits of up to
+    15 minutes, silent, ran triage past its 10-minute job timeout (run 45612343778, killed after 6 min). A raw read
+    (a job log) passes --allow-escape-sequences: a log holds ANSI colour, and gh 2.80+ refuses to print it without
+    the flag, which left every log unread (the 2026-11-25 nightly duplicate-key red, run 45589942841)."""
     argv = ["gh", "api", "-X", method, path]
     if fields is not None:
         argv += ["--input", "-"]
     if raw:
-        argv += ["-H", "Accept: application/vnd.github.raw"]
-    for attempt in range(4):
+        argv += ["-H", "Accept: application/vnd.github.raw", "--allow-escape-sequences"]
+    limited = 0
+    for attempt in range(8):
         out = run(argv, input=json.dumps(fields) if fields is not None else None, capture_output=True, text=True)
         if out.returncode == 0:
             if raw:
                 return out.stdout
             return json.loads(out.stdout) if out.stdout.strip() else None
+        if raw and "--allow-escape-sequences" in argv and re.search(r"unknown flag: --allow-escape", out.stderr):
+            argv.remove("--allow-escape-sequences")  # a gh older than the flag prints escapes as they are
+            continue
         wait = re.search(r"retry after (\d+)s", out.stderr)
-        transient = re.search(r"HTTP 5\d\d|timeout|connection reset|rate limit", out.stderr, re.I)
-        if not transient or attempt == 3:
+        if re.search(r"API rate limit exceeded|secondary rate limit", out.stderr, re.I) and limited < 4:
+            limited += 1
+            _api_wait(int(wait.group(1)) + 1 if wait else 30 * 2 ** limited, f"{method} {path}: rate-limited",
+                      out.stderr)  # 60, 120, 240 s, then 480, within the budget
+            continue
+        transient = re.search(r"HTTP 5\d\d|timeout|connection reset", out.stderr, re.I)
+        if not transient or attempt >= 3:
             raise RuntimeError(f"gh api {method} {path}: {out.stderr.strip()[-400:]}")
-        time.sleep(min(int(wait.group(1)) + 1, 90) if wait else 5 * (attempt + 1))
-    return None
+        _api_wait(min(int(wait.group(1)) + 1, 90) if wait else 5 * (attempt + 1), f"{method} {path}: transient",
+                  out.stderr)
+    raise RuntimeError(f"gh api {method} {path}: still refused after 8 tries")
 
 
 def git(*argv: str, cwd: Path, check: bool = True) -> str:
@@ -495,6 +527,10 @@ def triage(repo: str, run_id: str, repo_dir: Path, api=gh_api, fetch=None, repla
         tails.extend(log[-LOG_TAIL:])
         report["jobs"].append({"id": job["id"], "name": job.get("name", ""), "step": step,
                                "url": job.get("html_url", ""), "excerpt": (blocks or log[-60:])[:60]})
+    if all(j["excerpt"][:1] and j["excerpt"][0].startswith("(log unread:") for j in report["jobs"]):
+        # No log, no error to hand a fixer: a blind fix run spends a model call and opens nothing.
+        report["action"], report["why"] = "report", "no failed job's log could be read: " + report["jobs"][0]["excerpt"][0]
+        return report
     red = report["red"]
     if fetch:
         fetch(red)
@@ -1165,6 +1201,67 @@ def cmd_diff(args) -> int:
     return 0
 
 
+# A harness that ran out of quota or credit, or lost its login, says so in its answer or on stderr. The fixer then
+# tries the next credential or harness; when every one of them is out, the run fails instead of passing as green.
+LIMIT_RE = re.compile(
+    r"hit your (?:\w+[ -])?limit|usage limit|rate[ _-]?limit|limit reached|credit balance is too low|out of extra usage"
+    r"|quota|resets \w+ \d+|insufficient_quota|overloaded", re.I)
+AUTH_RE = re.compile(r"invalid api key|oauth token|not logged in|please run /login|authentication|unauthori[sz]ed",
+                     re.I)
+
+
+def fixer_result(harness: str, answer: str, err: str, exit_code: int) -> dict:
+    """What one fixer attempt came to: status ok (a schema answer, mechanical or not), limited (quota, credit or
+    login: try the next credential) or failed (anything else: also try the next); with mechanical, summary and why."""
+    data: dict = {}
+    text = answer.strip()
+    if text:
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out: dict = {}
+    why = ""
+    if harness == "claude":
+        result = data.get("result")
+        if data.get("is_error") or data.get("subtype", "success") != "success" or not data:
+            why = str(result or "")
+        else:
+            out = data.get("structured_output") or {}
+            if not out:
+                try:
+                    out = json.loads(result or "{}")
+                except (TypeError, ValueError):
+                    out = {}
+    else:  # codex: --output-last-message holds the schema answer itself
+        out = data
+    if not isinstance(out, dict) or "mechanical" not in out:
+        out = {}
+    tail = " ".join(f"{why} {err[-1500:]}".split())
+    if out and not why:
+        status = "ok"
+    elif LIMIT_RE.search(tail) or AUTH_RE.search(tail):
+        status = "limited"
+    else:
+        status = "failed"
+    if status != "ok" and not why:
+        why = f"exit {exit_code}, no answer" + (f": {tail[-300:]}" if tail else "")
+    return {"status": status, "mechanical": "true" if out.get("mechanical") is True else "false",
+            "summary": " ".join(str(out.get("summary") or "").split())[:400], "why": " ".join(why.split())[:300]}
+
+
+def cmd_fixer_result(args) -> int:
+    answer = Path(args.answer).read_text(errors="replace") if Path(args.answer).exists() else ""
+    err = Path(args.err).read_text(errors="replace") if Path(args.err).exists() else ""
+    got = fixer_result(args.harness, answer, err, args.exit)
+    write_outputs(got)
+    say(f"red-autofix: fixer {args.harness} ({args.credential}): {got['status']}"
+        + (f": {got['why']}" if got["why"] else ""))
+    return 0
+
+
 def cmd_regen(args) -> int:
     report_path = Path(args.report)
     report = json.loads(report_path.read_text())
@@ -1298,12 +1395,19 @@ def main(argv: list[str] | None = None) -> int:
     la.add_argument("--base", default="", help="the target tip the candidate was verified on")
     la.add_argument("--pushed-at", default="")
     la.add_argument("--verified-at", default="")
+    f = sub.add_parser("fixer-result", help="one fixer attempt's outcome: ok, limited or failed")
+    f.add_argument("--harness", choices=["claude", "codex"], required=True)
+    f.add_argument("--credential", default="")
+    f.add_argument("--answer", required=True)
+    f.add_argument("--err", required=True)
+    f.add_argument("--exit", type=int, default=0)
     c = sub.choices["comment"]
     c.add_argument("--fix", default="")
     c.add_argument("--revert", default="")
     args = p.parse_args(argv)
     return {"triage": cmd_triage, "prompt": cmd_prompt, "open": cmd_open, "verify": cmd_verify, "land": cmd_land,
-            "comment": cmd_comment, "regen": cmd_regen, "diff": cmd_diff}[args.cmd](args)
+            "comment": cmd_comment, "regen": cmd_regen, "diff": cmd_diff,
+            "fixer-result": cmd_fixer_result}[args.cmd](args)
 
 
 if __name__ == "__main__":

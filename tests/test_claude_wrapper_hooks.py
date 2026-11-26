@@ -3801,6 +3801,52 @@ def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"disabled integration: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def _with_parent_claude_pid(pid: int):
+    def setup(_tmp: Path, env: dict) -> None:
+        env["CMUX_CLAUDE_PID"] = str(pid)
+    return setup
+
+
+def _dead_pid() -> int:
+    child = subprocess.Popen(["/bin/sh", "-c", "exit 0"])
+    child.wait()
+    return child.pid
+
+
+def test_headless_child_of_live_session_skips_hook_injection(failures: list[str]) -> None:
+    # https://github.com/manaflow-ai/cmux/issues/23401: a `claude -p` that a live
+    # cmux Claude session started from a tool call must not supersede that session.
+    argv = ["-p", "--model", "haiku", "Reply PONG"]
+    code, real_argv, cmux_log, stderr, claudecode, _, _, _, hook_cmux_bin, _ = run_wrapper(
+        socket_state="live",
+        argv=argv,
+        setup_sandbox=_with_parent_claude_pid(os.getpid()),
+    )
+    expect(code == 0, f"headless child: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == argv, f"headless child: expected passthrough args, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"headless child: expected no --settings injection, got {real_argv}", failures)
+    expect(cmux_log == [], f"headless child: expected no cmux calls, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"headless child: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"headless child: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+
+
+def test_headless_without_live_parent_keeps_hook_injection(failures: list[str]) -> None:
+    # A dead parent PID (a stale export) or an interactive nested launch keeps hooks.
+    cases = [
+        ("dead parent", ["-p", "Reply PONG"], _dead_pid()),
+        ("interactive child", ["hello"], os.getpid()),
+        ("prompt after --", ["--", "-p"], os.getpid()),
+    ]
+    for label, argv, pid in cases:
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+            setup_sandbox=_with_parent_claude_pid(pid),
+        )
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in real_argv, f"{label}: expected --settings injection, got {real_argv}", failures)
+
+
 def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="stale",
@@ -3959,6 +4005,8 @@ def main() -> int:
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
+    test_headless_child_of_live_session_skips_hook_injection(failures)
+    test_headless_without_live_parent_keeps_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
     test_app_owned_stale_socket_resume_injects_hooks_and_consumes_marker(failures)
     test_restore_marker_without_valid_resume_id_still_requires_live_socket(failures)
