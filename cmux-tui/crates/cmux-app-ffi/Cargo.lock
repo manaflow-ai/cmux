@@ -483,6 +483,7 @@ dependencies = [
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
+ "cmux-mobile-host-core",
  "cmux-tab-discard",
  "cmux-tasks-core",
  "cmux-window-rules",
@@ -504,6 +505,14 @@ dependencies = [
  "hmac",
  "sha2",
  "subtle",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
