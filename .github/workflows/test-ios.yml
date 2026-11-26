@@ -470,20 +470,33 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
+            # Shared/iOS packages and direct app inputs retain the Linux
+            # package lane. A macOS-only package reaches that lane only when
+            # the classic Xcode graph links it into the iOS app closure.
+            should_run=true
+            if ! grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
+              should_run=false
+            fi
+            classifier_output="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt")"
             if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}" = "true" ]; then
               ios_build=true
+              should_run=true
               echo "Full-ci label present; retaining the simulator build."
             else
-              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
+              ios_build="$(sed -n 's/^run=//p' <<< "$classifier_output")"
+              if [ "$should_run" = "false" ]; then
+                should_run="$ios_build"
+              fi
             fi
             if [ -z "$ios_build" ]; then
               echo "::warning::iOS simulator input classifier returned no verdict; running the build"
               ios_build=true
+              should_run=true
             fi
+            echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
             echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
-            python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt"
+            printf '%s\n' "$classifier_output"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
             echo "should_run=false" >> "$GITHUB_OUTPUT"

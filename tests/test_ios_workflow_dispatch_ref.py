@@ -303,6 +303,35 @@ class IOSChangeDetectionTests(unittest.TestCase):
         origin.mkdir()
         git(origin, "init", "-q", "-b", "main")
         (origin / "README").write_text("root\n")
+        # Keep a small classic Xcode graph in the fixture. The detector must
+        # discover the linked macOS package from XCLocalSwiftPackageReference,
+        # while an unrelated package remains outside the app closure.
+        project = origin / "ios/cmux-ios.xcodeproj/project.pbxproj"
+        project.parent.mkdir(parents=True)
+        project.write_text(
+            """/* Begin XCLocalSwiftPackageReference section */
+                A /* XCLocalSwiftPackageReference \"CmuxPhonePush\" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = ../Packages/macOS/CmuxPhonePush;
+                };
+                B /* XCLocalSwiftPackageReference \"CmuxiOS\" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = CmuxiOS;
+                };
+                /* End XCLocalSwiftPackageReference section */
+            """,
+            encoding="utf-8",
+        )
+        (origin / "ios/CmuxiOS/Package.swift").parent.mkdir(parents=True)
+        (origin / "ios/CmuxiOS/Package.swift").write_text(
+            "// swift-tools-version: 6.0\nlet package = Package(name: \"CmuxiOS\")\n",
+            encoding="utf-8",
+        )
+        (origin / "Packages/macOS/CmuxPhonePush/Package.swift").parent.mkdir(parents=True)
+        (origin / "Packages/macOS/CmuxPhonePush/Package.swift").write_text(
+            "// swift-tools-version: 6.0\nlet package = Package(name: \"CmuxPhonePush\")\n",
+            encoding="utf-8",
+        )
         git(origin, "add", "-A")
         git(origin, "commit", "-q", "-m", "root")
         for number in range(3):  # history the shallow clone must not need
@@ -356,6 +385,21 @@ class IOSChangeDetectionTests(unittest.TestCase):
     def test_a_package_change_runs_only_the_lint(self) -> None:
         self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
                          {"should_run": "false", "should_build": "false", "should_lint": "true"})
+
+    def test_an_unrelated_package_mixed_with_docs_skips_only_the_simulator_build(self) -> None:
+        self.assertEqual(
+            self.detect({
+                "Packages/Shared/CmuxAgentBrands/Sources/Brands.swift": "x\n",
+                "docs/ios-ci.md": "x\n",
+            }),
+            {"should_run": "true", "should_build": "false", "should_lint": "true"},
+        )
+
+    def test_a_classic_xcode_linked_macos_package_runs_the_simulator_build(self) -> None:
+        self.assertEqual(
+            self.detect({"Packages/macOS/CmuxPhonePush/Sources/Push.swift": "x\n"}),
+            {"should_run": "true", "should_build": "true", "should_lint": "true"},
+        )
 
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),

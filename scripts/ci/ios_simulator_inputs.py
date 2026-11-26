@@ -16,8 +16,12 @@ from pathlib import Path
 
 
 _PATH_DEPENDENCY = re.compile(r"\.package\(\s*(?:name:\s*\"[^\"]*\"\s*,\s*)?path:\s*\"([^\"]+)\"")
-_PROJECT_PACKAGE = re.compile(r"\brelativePath\s*=\s*([^;]+);")
+_PROJECT_PACKAGE = re.compile(
+    r"(?ms)XCLocalSwiftPackageReference[^=]*=\s*\{.*?"
+    r"\brelativePath\s*=\s*\"?([^\";\n]+)\"?\s*;"
+)
 _PACKAGE_ROOTS = ("Packages/", "vendor/")
+_DOC_ROOTS = ("docs/",)
 
 
 def _package_dependencies(manifest: Path) -> list[str]:
@@ -80,12 +84,20 @@ def affected(root: Path, changed: list[str]) -> tuple[bool, str]:
         return True, f"could not derive package closure: {error}"
 
     # The Xcode project, app shell, workflow and build helpers are direct app
-    # inputs.  A package-only diff is the sole case eligible for narrowing.
-    package_only = all(any(_under(path, prefix.rstrip("/")) for prefix in _PACKAGE_ROOTS) for path in changed)
-    if not package_only:
+    # inputs.  A package diff can be narrowed when documentation is mixed into
+    # it, since docs do not alter the package graph or compiled sources.
+    package_changes = [
+        path for path in changed
+        if any(_under(path, prefix.rstrip("/")) for prefix in _PACKAGE_ROOTS)
+    ]
+    non_package_changes = [path for path in changed if path not in package_changes]
+    if not package_changes:
+        return True, "a direct iOS/Xcode or CI input changed"
+    if any(not any(_under(path, prefix.rstrip("/")) for prefix in _DOC_ROOTS)
+           for path in non_package_changes):
         return True, "a direct iOS/Xcode or CI input changed"
 
-    for path in changed:
+    for path in package_changes:
         if path.endswith("/Package.swift") or path.endswith("/Package.resolved"):
             # A manifest in the closure can add an edge or alter products.
             if any(_under(path, directory) for directory in closure):
