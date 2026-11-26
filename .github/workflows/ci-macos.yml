@@ -163,7 +163,7 @@ jobs:
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && startsWith(inputs.pr_root_runner, 'glaeda-root-') && contains(inputs.pr_owned_jobs, ' admission ') && inputs.macos == 'true' && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1410,7 +1410,7 @@ jobs:
     needs:
       - macos-compile-admission
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1748,6 +1748,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
       - name: Install pinned nushell (shell-integration tests)
@@ -1993,7 +1994,7 @@ jobs:
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
           # feat-cmux-next ships no Intel app: its pull requests compile the Release check arm64 only.
-          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || github.base_ref == 'feat-cmux-next' && 'arm64' || vars.CI_RELEASE_BUILD_ARCHS }}
+          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || (github.base_ref == 'feat-cmux-next' || github.ref_name == 'feat-cmux-next') && 'arm64' || vars.CI_RELEASE_BUILD_ARCHS }}
         run: |
           set -euo pipefail
           archs="$(./scripts/ci/release-build-archs.sh "$REQUESTED_ARCHS")"
@@ -2287,7 +2288,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -2781,7 +2782,7 @@ jobs:
     # A cancelled run already has its terminal outcome; avoid spending a
     # Blacksmith runner on the status rollup.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane

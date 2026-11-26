@@ -1,4 +1,4 @@
-# Terminal key row: on demand, 44 pt, silent
+# Terminal key row: on demand, classic size, silent
 
 Leo, 2026-11-23: "the buttons atop the composer in the terminal warrant a redesign. why are those things
 always showing? ... and the buttons are really small. and idk why the buttons are the way that they are.
@@ -22,8 +22,30 @@ for it. ever."
 
 ## Size
 
-Key target 28 x 32 pt before, 44 x 44 pt now (Apple's minimum hit target). Glyph 13 to 17 pt, label 14 to
-16 pt, joystick circle 28 to 44 pt (travel 14 to 22).
+Classic's size: a 28 pt row, glyph keys 32 pt wide, word keys hugging their label with 6 pt each side,
+4 pt apart; glyph 13 pt, label 14 pt; joystick circle 28 pt (travel 14).
+
+#53325 made the keys 44 x 44 pt (Apple's minimum hit target), glyph 17 pt, label 16 pt, joystick 44 pt.
+Leo, 2026-11-25: "Did I make the iOS icons in terminal bigger or did aziz? Do we have to make them that big
+so App Store gets approved?" and then "We can just bring it back to what the older size was". 44 pt is the
+Human Interface Guidelines' recommended minimum, not an App Review rule; the system keyboard's own keys are
+smaller. The row is back at 28 pt; the rest of #53325 (on demand, no haptics) stays.
+
+## One touch, one control
+
+Leo, 2026-11-25: "When I tap the composer at certain points it treats it as if I also simultaneously tapped
+one of the combo buttons which needs to be fixed". A key's hit area is its own cap, inside the row's 28 pt:
+nothing of the row takes a touch below its bottom edge, and the 8 pt gap and the composer card below it are
+never a key's. `TerminalComposerTapBleedUITests` taps the card's top edge and the gap under every key and
+the joystick, with the draft empty, one line, nine lines and with attachments, and fails if any key fires;
+a tap in the middle of Esc must fire it (the positive control).
+
+What it found (2026-11-25, fleet simulator, iPhone 17 Pro): no simulator tap on the card's edge or in the gap
+fires a key, at 44 pt or at 28 pt: the views do not overlap, and the 8 pt gap between the row and the card
+takes no control. A simulator tap is an exact point; a finger's is not (unverified on a phone: the likely
+cause is the touch point a finger reports landing in the row just above the card). If the phone still shows
+it at 28 pt, the next step is to give the gap to the composer (`TerminalBottomStack.hitTest`), so a touch
+between the row and the card focuses the field instead of nothing.
 
 ## Every key kept, and why
 
@@ -48,11 +70,11 @@ No key is removed: Leo named the size, the visibility and the noise, not the set
 
 ## Variants (`KeyBarStyle`, gallery `-cmux-mobile-recovery-gallery keybar`)
 
-All three keep 44 pt targets; they differ in what is drawn.
+All three keep the same targets; they differ in what is drawn.
 
-- **caps** (default): each key its own 44 pt glass cap. Clearest targets.
+- **caps** (default): each key its own glass cap. Clearest targets.
 - **strip**: one glass bar behind the row, keys drawn bare (glass only on an armed modifier). Quietest.
-- **inset**: 36 pt glass caps inside 44 pt targets. Lighter look, same hit area.
+- **inset**: glass caps 2 pt smaller each side than their targets. Lighter look, same hit area.
 
 The layout variants (`KeyBarLayout` A/B/C, where the arrows and agents sit) are unchanged and still in the
 gallery.

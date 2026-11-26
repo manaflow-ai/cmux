@@ -507,3 +507,13 @@ test("each step's clock starts when the page saw it begin, and a running copy ke
   );
   expect(hosted?.machineStartedAt).toBe(500);
 });
+
+test("the host's waking push says Waking machine on the machine step until it ends, keeping the step", () => {
+  const machine = cloudStartPushed(begun(), { key: "k-1", step: "machine" });
+  const waking = cloudStartPushed(machine, { key: "k-1", waking: true });
+  expect(waking?.waking).toBe(true);
+  expect(waking?.step).toBe("machine");
+  expect(cloudStartPushed(waking, { key: "k-2", waking: false })?.waking).toBe(true);
+  expect(cloudStartPushed(waking, { key: "k-1", waking: false })?.waking).toBeUndefined();
+  expect(cloudStartPushed(machine, { key: "k-1", waking: "yes" })?.waking).toBeUndefined();
+});

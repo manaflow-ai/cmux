@@ -1,7 +1,15 @@
-// Make cmux Yours (cmux#48416, cmux#49636): a new person's one setup screen, three choices, each already on the
-// recommended answer so Continue alone is a good setup:
+// Make cmux Yours (cmux#48416, cmux#49636): a new person's one setup screen (screen "all", what ships),
+// or, behind `experiments.introWalk` (off by default), the intro walk's four screens (hq RFD 0057): 1 Pick a look
+// (five whole-app look tiles, each with a light and a dark face, and the Tidy switch), 2 How you work,
+// 3 Trust and noise (the agents' permission, explained per mode, and banners and sound), 4 Tune (density,
+// asked only here, and the background rows below). Each opens on what the settings hold, so Return four
+// times is a good setup. The look, trust and noise rows are walk.ts's writes, one publish per click.
+// The rows of screens 2 (How you work, Where chats run) and 4 (Density, Background):
 //   1. How you work: Agents first (recommended; Cmd-T opens the New Tab page, where a chat starts) or
 //      Terminal first (Cmd-T opens a terminal). The words never say "classic".
+//   1b. Where chats run: This Mac (the default) or Cloud (`agentPane.newChatsIn`), each with one
+//      caption, so a Mac with no agent installed still has a way to start (ask c-8f5f7ff8b3). An
+//      older host that sends no `chatsRunIn` gets no row.
 //   2. Density: every density Settings has, by Settings' names (the host sends them).
 //   3. Background: None, Shuffle Paintings or one of a few built-in works, then the two rows
 //      Settings > Appearance draws under its own picker: Opacity (how much of the theme color covers
@@ -20,9 +28,28 @@
 // the state alone and is hidden from assistive tech: the radios carry every answer.
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
+import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
-import type { MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
+import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
+import {
+  LOOK_BUNDLES,
+  NOISES,
+  PERMISSIONS,
+  bundleWrites,
+  noise,
+  noiseWrites,
+  permission,
+  permissionWrites,
+  pickedBundle,
+  tidyOn,
+  tidyWrites,
+  walkValues,
+  type MakeItYoursScreen,
+  type WalkValues,
+  type WalkWrite,
+} from "./walk";
+import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
 export type MakeItYoursLook = "preview" | "segmented" | "form" | "cards" | "rows";
@@ -38,6 +65,13 @@ const WORK_KEYS: Record<WorkStyle, { title: string; detail: string }> = {
     title: "onboarding.makeItYours.work.terminal",
     detail: "onboarding.makeItYours.work.terminal.detail",
   },
+};
+// Where a new chat runs (c-8f5f7ff8b3): Cloud named on the one screen every new person sees. This
+// Mac stays the default.
+const RUN_INS: readonly ChatsRunIn[] = ["local", "cloud"];
+const RUN_IN_KEYS: Record<ChatsRunIn, { title: string; detail: string }> = {
+  local: { title: "onboarding.makeItYours.runIn.local", detail: "onboarding.makeItYours.runIn.local.detail" },
+  cloud: { title: "onboarding.makeItYours.runIn.cloud", detail: "onboarding.makeItYours.runIn.cloud.detail" },
 };
 const MATERIAL_KEYS: Record<MakeItYoursMaterial, string> = {
   none: "onboarding.makeItYours.material.none",
@@ -120,6 +154,140 @@ function OpacitySlider({ value, label, disabled }: { value: number; label: strin
   );
 }
 
+/** The intro walk's writes: one op, one publish. */
+function useWalk() {
+  const { store } = useOnboarding();
+  return (writes: WalkWrite[]) => {
+    if (writes.length > 0) store.call("cmux.onboarding.makeItYours.walk", { writes });
+  };
+}
+
+const PERMISSION_KEYS = {
+  ask: "onboarding.makeItYours.permission.ask",
+  standard: "onboarding.makeItYours.permission.standard",
+  fullAccess: "onboarding.makeItYours.permission.fullAccess",
+} as const;
+const NOISE_KEYS = {
+  quiet: "onboarding.makeItYours.noise.quiet",
+  banners: "onboarding.makeItYours.noise.banners",
+  bannersSound: "onboarding.makeItYours.noise.bannersSound",
+} as const;
+
+/** Screen 1: the five look tiles (House, what the person has, first) and Tidy, off unless already set. */
+function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const picked = pickedBundle(opened, current);
+  const pickedName = LOOK_BUNDLES.find((bundle) => bundle.id === picked);
+  const tidy = tidyOn(current);
+  return (
+    <>
+      <fieldset className="onb-make-group onb-walk" data-screen="look" data-layout="grid">
+        <legend className="onb-make-label">
+          {strings.t("onboarding.makeItYours.look.label")}
+          {pickedName && (
+            <span className="onb-make-label-value" aria-hidden="true">
+              {strings.t(pickedName.nameKey)}
+            </span>
+          )}
+        </legend>
+        <div className="onb-walk-looks">
+          {LOOK_BUNDLES.map((bundle) => {
+            const checked = bundle.id === picked;
+            return (
+              <label key={bundle.id} className="onb-make-option onb-walk-look" data-checked={checked || undefined}>
+                <input
+                  type="radio"
+                  name="look"
+                  value={bundle.id}
+                  aria-label={strings.t(bundle.nameKey)}
+                  aria-description={strings.t(bundle.lineKey)}
+                  checked={checked}
+                  onChange={() => walk(bundleWrites(bundle, opened, current))}
+                />
+                <Faces bundle={bundle} />
+                <span className="onb-walk-look-text">
+                  <span className="onb-walk-look-name">{strings.t(bundle.nameKey)}</span>
+                  <span className="onb-walk-line">{strings.t(bundle.lineKey)}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      <div className="onb-make-group onb-walk-tidy">
+        <span className="onb-make-option-text">
+          <span className="onb-make-option-title" id="onb-walk-tidy-label">
+            {strings.t("onboarding.makeItYours.tidy")}
+          </span>
+          <span className="onb-make-option-detail">{strings.t("onboarding.makeItYours.tidy.detail")}</span>
+        </span>
+        <Switch
+          size="sm"
+          checked={tidy}
+          aria-labelledby="onb-walk-tidy-label"
+          onCheckedChange={(on: boolean) => walk(tidyWrites(on, opened, current))}
+        />
+      </div>
+    </>
+  );
+}
+
+/** Screen 3: how much agents may do (each mode explained; Full Access, as cmux ships, preselected on a
+ * new Mac) and how loudly cmux tells you, each as radios with their line. */
+function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const mode = permission(current);
+  const loud = noise(current);
+  return (
+    <>
+      <fieldset className="onb-make-group onb-make-work" data-screen="trust">
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.permission.label")}</legend>
+        <div className="onb-make-options">
+          {PERMISSIONS.map((value) => (
+            <label key={value} className="onb-make-option" data-checked={mode === value || undefined}>
+              <input
+                type="radio"
+                name="permission"
+                value={value}
+                aria-label={strings.t(PERMISSION_KEYS[value])}
+                checked={mode === value}
+                onChange={() => walk(permissionWrites(value, opened, current))}
+              />
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{strings.t(PERMISSION_KEYS[value])}</span>
+                <span className="onb-make-option-detail">{strings.t(`${PERMISSION_KEYS[value]}.line`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="onb-make-group onb-make-work">
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.noise.label")}</legend>
+        <div className="onb-make-options">
+          {NOISES.map((value) => (
+            <label key={value} className="onb-make-option" data-checked={loud === value || undefined}>
+              <input
+                type="radio"
+                name="noise"
+                value={value}
+                aria-label={strings.t(NOISE_KEYS[value])}
+                checked={loud === value}
+                onChange={() => walk(noiseWrites(value, opened, current))}
+              />
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{strings.t(NOISE_KEYS[value])}</span>
+                <span className="onb-make-option-detail">{strings.t(`${NOISE_KEYS[value]}.line`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </>
+  );
+}
+
 /** Looks whose tiles carry no name: the chosen work's full name shows once, under the row or the
  * preview, instead of six names cut to a word each. */
 const CAPTIONED: ReadonlySet<MakeItYoursLook> = new Set(["preview", "segmented", "form"]);
@@ -127,12 +295,31 @@ const CAPTIONED: ReadonlySet<MakeItYoursLook> = new Set(["preview", "segmented",
 export function MakeItYoursStep({
   choices,
   look = DEFAULT_MAKE_IT_YOURS_LOOK,
+  screen = "all",
+  opened,
 }: {
   choices: MakeItYoursState | null | undefined;
   look?: MakeItYoursLook;
+  /** The walk's screen shown; "all": today's one screen (experiments.introWalk off). */
+  screen?: MakeItYoursScreen | "all";
+  /** The settings when the step opened (what House and the rows' "as before" write back); absent: now. */
+  opened?: WalkValues | null;
 }) {
   const { strings, store } = useOnboarding();
   if (choices == null) return null;
+  const current = walkValues(choices);
+  if (screen === "look" || screen === "trust") {
+    const Screen = screen === "look" ? LookScreen : TrustScreen;
+    return (
+      <div className="onb-make" data-look={look} data-screen={screen}>
+        <Screen opened={opened ?? current} current={current} />
+      </div>
+    );
+  }
+  // Screen 2 asks only how you work; screen 4 (Tune) only density and the background rows.
+  const askWork = screen === "all" || screen === "work";
+  const askTune = screen === "all" || screen === "tune";
+  const walkScreen = screen === "all" ? undefined : screen;
   const backgrounds: MakeItYoursBackground[] = [{ id: NO_BACKGROUND, name: "", preview: null }, ...choices.backgrounds];
   const backgroundLabel = (id: string, name: string) =>
     id === NO_BACKGROUND
@@ -181,6 +368,39 @@ export function MakeItYoursStep({
       </div>
     </Group>
   );
+  // An older host sends no `chatsRunIn`: no row.
+  const runIn =
+    choices.chatsRunIn == null ? null : (
+      <Group look={look} className="onb-make-run-in" label={strings.t("onboarding.makeItYours.runIn.label")}>
+        <div
+          className="onb-make-segments ui-slide-host"
+          style={{ "--onb-make-count": RUN_INS.length } as CSSProperties}
+        >
+          <SlidingIndicator selected={choices.chatsRunIn} selector="[data-checked]" className="onb-make-thumb" />
+          {RUN_INS.map((where) => (
+            <label
+              key={where}
+              className="onb-make-segment ui-slide-item"
+              data-checked={choices.chatsRunIn === where || undefined}
+            >
+              <input
+                type="radio"
+                name="chatsRunIn"
+                value={where}
+                aria-label={strings.t(RUN_IN_KEYS[where].title)}
+                aria-describedby="onb-make-run-in-detail"
+                checked={choices.chatsRunIn === where}
+                onChange={() => store.call("cmux.onboarding.makeItYours.chatsRunIn", { value: where })}
+              />
+              <span>{strings.t(RUN_IN_KEYS[where].title)}</span>
+            </label>
+          ))}
+        </div>
+        <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-run-in-detail">
+          {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
+        </p>
+      </Group>
+    );
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
@@ -294,15 +514,17 @@ export function MakeItYoursStep({
     </Group>
   );
 
-  if (look === "preview") {
+  // The walk shows the preview on Tune, where the picks it draws are made; screen 2 has no stage.
+  if (look === "preview" && askTune) {
     return (
-      <div className="onb-make" data-look={look}>
+      <div className="onb-make" data-look={look} data-screen={walkScreen}>
         <figure className="onb-make-stage" aria-hidden="true">
           <MakeItYoursPreview choices={choices} image={chosen.preview} />
           <figcaption className="onb-make-caption">{chosenLabel}</figcaption>
         </figure>
         <div className="onb-make-choices">
-          {work}
+          {askWork && work}
+          {askWork && runIn}
           {density}
           {background}
         </div>
@@ -310,10 +532,11 @@ export function MakeItYoursStep({
     );
   }
   return (
-    <div className="onb-make" data-look={look}>
-      {work}
-      {density}
-      {background}
+    <div className="onb-make" data-look={look} data-screen={walkScreen}>
+      {askWork && work}
+      {askWork && runIn}
+      {askTune && density}
+      {askTune && background}
     </div>
   );
 }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.layout.columnWidthPresets.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widths a column cycles through, as fractions of the visible strip width."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "العروض التي يتنقل بينها العمود، ككسور من عرض الشريط المرئي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Širine kroz koje kolona kruži, kao dijelovi vidljive širine trake."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bredder, en kolonne skifter mellem, som brøkdele af den synlige bredde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Breiten, durch die eine Spalte wechselt, als Anteile der sichtbaren Breite."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anchos que recorre una columna, como fracciones del ancho visible de la tira."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Largeurs parcourues par une colonne, en fractions de la largeur visible de la bande."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Larghezze tra cui una colonna alterna, come frazioni della larghezza visibile della striscia."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列が切り替える幅です。表示中のストリップ幅に対する割合で指定します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទទឹងដែលជួរឈរប្ដូរវិលជុំ ជាប្រភាគនៃទទឹងបន្ទះដែលមើលឃើញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열이 순환하는 너비로, 보이는 스트립 너비에 대한 비율입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bredder en kolonne veksler mellom, som brøkdeler av den synlige bredden."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Szerokości, między którymi przełącza się kolumna, jako ułamki widocznej szerokości paska."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Larguras pelas quais uma coluna alterna, como frações da largura visível da faixa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ширины, между которыми переключается столбец, в долях видимой ширины ленты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ความกว้างที่คอลัมน์สลับไปมา เป็นสัดส่วนของความกว้างแถบที่มองเห็น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sütunun dönüşümlü kullandığı genişlikler, görünür şerit genişliğinin oranı olarak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ширини, між якими перемикається стовпець, у частках видимої ширини стрічки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các độ rộng mà một cột luân phiên, tính theo tỉ lệ độ rộng dải cột đang hiển thị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "列循环切换的宽度，以可见条带宽度的比例表示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "欄循環切換的寬度，以可見條帶寬度的比例表示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

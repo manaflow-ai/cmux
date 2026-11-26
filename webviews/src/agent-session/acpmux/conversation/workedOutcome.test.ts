@@ -3,14 +3,15 @@
 // plain MCP lines (mcpCalls.ts `mcpPlainLine`): counts, failures, the tests' result and a PR, read
 // from the calls the fold holds.
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readCatalog } from "../../../../scripts/pages/catalog.mjs";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence } from "./workedOutcome";
 import { mcpCall, mcpLabel } from "./mcpCalls";
 
 type Unit = { stringUnit: { value: string } };
-const catalog = JSON.parse(readFileSync(new URL("../Localizable.xcstrings", import.meta.url), "utf8")) as {
+const catalog = readCatalog(fileURLToPath(new URL("../Localizable.xcstrings.d", import.meta.url))) as {
   strings: Record<string, { localizations: { en: Unit | { variations: { plural: Record<string, Unit> } } } }>;
 };
 const english = new Intl.PluralRules("en");

@@ -27,8 +27,14 @@ extension StreamedBrowserDirectory {
     /// stopped running.
     public func cloudDesktopModel(machineID: String, teamID: String, macID: String,
                                   refused: @escaping @MainActor @Sendable (String) -> Void) -> StreamedBrowserModel? {
+        viewOnlyModel(tab: Self.cloudDesktopTab(machineID: machineID, teamID: teamID), macID: macID, refused: refused)
+    }
+
+    /// A view-only `surface` stream of `tab` over `macID`'s link (a Cloud desktop, or a Mac
+    /// display, StreamedMacDisplay.swift), or nil when not linked.
+    func viewOnlyModel(tab: String, macID: String,
+                       refused: @escaping @MainActor @Sendable (String) -> Void) -> StreamedBrowserModel? {
         guard isLive else { return nil }
-        let tab = Self.cloudDesktopTab(machineID: machineID, teamID: teamID)
         return StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
             guard let link = await self?.link(macID: macID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")

@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
+import { useCountedRender } from "../perfRender";
 import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -24,9 +25,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
-  scrollRunning,
   settleScroll,
   stopScroll,
+  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -34,8 +35,6 @@ import { PreviewCard } from "./PreviewCard";
 import { RAIL_ACCESSIBILITY_ID, useRailSide } from "./railSide";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
-import { cutoverSlot } from "./cutoverSlot";
-import { threadMinimapCutover } from "./cutover.experiment";
 import { threadMinimapLayout } from "./layout.experiment";
 import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
@@ -329,7 +328,6 @@ export function ThreadMinimap({
 
 function ThreadMinimapView({
   source,
-  cutoverRow,
   earlier = PromptHeads.EMPTY,
   later = PromptHeads.EMPTY,
   promptCount,
@@ -347,8 +345,6 @@ function ThreadMinimapView({
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
-  /// The New divider in the displayed transcript, when it has news beneath it.
-  cutoverRow?: number;
   /// MinimapSource.update's version: a new one renders the rail.
   version: number;
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
@@ -403,7 +399,6 @@ function ThreadMinimapView({
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
   const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
-  const [cutoverLook] = useState(() => experimentArm(threadMinimapCutover));
   /// How other chats' messages draw (incoming.experiment.ts), read once per pane: folded per run into
   /// one tick (the default), dimmer at rest, both or neither.
   const [incomingLook] = useState(() => INCOMING_LOOK[experimentArm(threadMinimapIncoming)]);
@@ -665,6 +660,9 @@ function ThreadMinimapView({
   /// One height for a fixed arm; the others are never shorter than the prompts on screen (railHeight).
   const heightConfig = railHeightConfig(heightArm);
   const rowPitch = heightConfig.pitch ?? ROW_PITCH;
+  /// Keep the first visible row in a ref so a scroll within one virtual range does not rerender rows.
+  const listFirst = useRef(0);
+  listFirst.current = Math.floor(listTop / rowPitch);
   const boxRail = railHeight(
     turns.length,
     windowHeight,
@@ -1665,8 +1663,6 @@ function ThreadMinimapView({
   if (full)
     return (
       <ScrollMap
-        cutoverRow={cutoverRow}
-        cutoverLook={cutoverLook}
         rows={rows}
         turns={loadedTurns}
         layout={layout}
@@ -1675,6 +1671,7 @@ function ThreadMinimapView({
         scrolls={scrolls}
         placement={placement}
         marks={marks}
+        change={change}
         // The map numbers the loaded turns from 0, one per prompt; the rail's `turns` start with the
         // earlier and pending ones and fold runs of other chats' messages: find its turn by row.
         jump={(turn, how) => {
@@ -1686,7 +1683,6 @@ function ThreadMinimapView({
       />
     );
   if (!shown) return null;
-  const cutover = cutoverRow === undefined ? undefined : cutoverSlot(turns, cutoverRow, ranges);
   const indexAt = (clientY: number) => {
     const node = list.current;
     if (!node) return 0;
@@ -1944,15 +1940,6 @@ function ThreadMinimapView({
             onPointerUp={endScrub}
             onPointerCancel={endScrub}
           >
-            {cutover !== undefined && (
-              <li
-                aria-hidden="true"
-                className="acpmux-minimap__cutover"
-                data-look={cutoverLook}
-                style={{ top: cutover * rowPitch }}
-                data-edge={cutover === 0 ? "start" : cutover === turns.length ? "end" : undefined}
-              />
-            )}
             <TickList
               ticks={ticks}
               rowPitch={rowPitch}
@@ -1962,7 +1949,7 @@ function ThreadMinimapView({
               active={active}
               first={onScreen.first}
               last={onScreen.last}
-              listFirst={Math.floor(listTop / rowPitch)}
+              listFirst={listFirst}
               described={showCard ? cardRow : undefined}
               cardId={cardId}
               actions={actions}
@@ -2062,7 +2049,7 @@ const TickList = memo(function TickList({
   last: number;
   /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
   /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
-  listFirst: number;
+  listFirst: React.RefObject<number>;
   /// The row the open card describes.
   described: number | undefined;
   cardId: string;
@@ -2070,6 +2057,7 @@ const TickList = memo(function TickList({
   /// The rows to draw (tickWindow.ts); spacers stand in for the rest.
   ranges: ReadonlyArray<readonly [number, number]>;
 }) {
+  useCountedRender("ThreadMinimap.TickList");
   const t = useT();
   const marks = usePromptMarks(sessionId);
   /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
@@ -2152,7 +2140,7 @@ const TickList = memo(function TickList({
         <Tick
           entering={entering.pending.has(tick.key)}
           index={index}
-          place={index - listFirst}
+          place={index - listFirst.current}
           last={ticks.length - 1}
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
@@ -2218,6 +2206,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  useCountedRender("ThreadMinimap.Tick");
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
   const [entrance] = useState(place);
