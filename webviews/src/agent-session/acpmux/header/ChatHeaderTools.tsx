@@ -7,7 +7,7 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { keycapLegend } from "../../../ui/keycapLegend";
+import { KeyHint } from "../../../ui/KeyHint";
 import {
   memo,
   useEffect,
@@ -566,11 +566,7 @@ function ChatHeaderToolsView({
       >
         <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
         {inCapsule && glassLook === "labels" && <span className="acpmux-glass-label">{tool.label}</span>}
-        {keycap && (
-          <kbd className="acpmux-glass-keycap" aria-hidden="true">
-            {keycapLegend(keycap)}
-          </kbd>
-        )}
+        {keycap && <KeyHint keys={keycap} className="acpmux-glass-key" aria-hidden="true" />}
       </button>
     );
   };
@@ -647,11 +643,7 @@ function ChatHeaderToolsView({
             onClick={onSearch}
           >
             <HeaderIcon name="search" size={HEADER_GLYPH} />
-            {searchKey && (
-              <kbd className="acpmux-glass-keycap" aria-hidden="true">
-                {keycapLegend(searchKey)}
-              </kbd>
-            )}
+            {searchKey && <KeyHint keys={searchKey} className="acpmux-glass-key" aria-hidden="true" />}
           </button>
         )}
       </div>
@@ -982,7 +974,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
         <Icon name={item.icon} size={14} />
       )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }
@@ -1058,7 +1050,7 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }
