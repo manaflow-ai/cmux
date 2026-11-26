@@ -147,8 +147,9 @@ public final class MacScreenPages {
     /// `remoteDesktop.clipboard`: whether a session syncs clipboard text (default: own devices only).
     public var clipboardSetting: RemoteDesktopSettings.Clipboard = .ownDevicesOnly
     /// Where each viewer session's report goes when it ends (goal screen-share-fast): the app passes
-    /// its crash reporting, which sends only while anonymous telemetry is on. The default drops it.
-    public var sessionReports = RemoteRdSessionReports()
+    /// its crash reporting at construction, which sends only while anonymous telemetry is on. The
+    /// default drops it.
+    public let sessionReports: RemoteRdSessionReports
     /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
     /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
     public var maxFpsCap: Int? {
@@ -174,7 +175,9 @@ public final class MacScreenPages {
     /// - Parameters:
     ///   - store: the saved Mac Screen records.
     ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
-    public init(store: MacScreenStore, work: BackgroundWork) {
+    ///   - sessionReports: where each ended viewer session's report goes (the default drops it).
+    public init(store: MacScreenStore, work: BackgroundWork, sessionReports: RemoteRdSessionReports = RemoteRdSessionReports()) {
+        self.sessionReports = sessionReports
         self.store = store
         host = MacScreenShareHost(work: work)
         hubHost = MacScreenHubHost(share: host)
