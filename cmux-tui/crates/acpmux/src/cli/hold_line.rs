@@ -27,6 +27,9 @@ pub(crate) fn fleet_hold_line_at(hold: &FleetHold, held: Option<u64>, now_ms: u6
         Some(until) => line.push_str(&format!("; lifts in {}", span(until.saturating_sub(now_ms)))),
         None => line.push_str("; never lifts by itself"),
     }
+    if !hold.thaw_order.is_empty() {
+        line.push_str(&format!("; thaws {} first", hold.thaw_order.join(", ")));
+    }
     line.push_str(" (`acpmux session release --fleet` lifts it now)");
     line
 }
@@ -55,6 +58,7 @@ mod tests {
             at: 1_000_000,
             until: Some(1_000_000 + 12 * 3_600_000),
             by: Some("interim-coord".into()),
+            thaw_order: Vec::new(),
         };
         let line = fleet_hold_line_at(&hold, Some(7), 1_000_000 + 2 * 3_600_000);
         assert_eq!(
@@ -68,5 +72,8 @@ mod tests {
             line.contains("set by an unnamed caller 3d00h ago; never lifts by itself"),
             "{line}"
         );
+        let ordered = FleetHold { thaw_order: vec!["*coord*".into(), "lane-*".into()], ..old };
+        let line = fleet_hold_line_at(&ordered, None, 1_000_000);
+        assert!(line.contains("; thaws *coord*, lane-* first ("), "{line}");
     }
 }
