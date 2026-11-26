@@ -83,6 +83,8 @@ OWN_REPOSITORY = {
     "scripts/measure/warm-tree.sh": "fetches only into its own `git init --bare` repository under the measurement root",
     "scripts/measure/git-carry-ready.sh": "run_deepen deepens only its own throwaway borrow clone $d, never the caller's checkout",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
+    "scripts/measure/lane-start-qos-macos.sh":
+        "fetch_arm fetches only into the `git init --bare` directory it just made under the measurement root",
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
