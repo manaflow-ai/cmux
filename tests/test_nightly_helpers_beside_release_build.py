@@ -125,9 +125,12 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
-        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(ACPMUX_JOIN))
-        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(ACPMUX_JOIN))
+        # The publish check sits right before the compile, after every join
+        # (tests/test_nightly_stop_if_publish_doomed.py test_checks_precede_the_compile_and_the_upload),
+        # so a run that can no longer publish stops with nothing left to wait on.
+        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)

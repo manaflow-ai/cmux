@@ -54,14 +54,16 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
-                   'published-build')
+                   'published-build', 'check-nightly-app-store-shelf')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
 # override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
 # jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in')
+                      'publish-nightly-next-github', 'published-in',
+                      # #56483: the CI pool's App keys for a dispatch, on the one-job JIT VM.
+                      'wake-nightly-next-tick', 'dispatch-published-in')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -94,10 +96,12 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 OWNED_SECRET_JOBS = {
     'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
+    'nightly-next-pkg': "builds, signs, notarizes and uploads nightly-next's pre-warming .pkg (#54859) on the same signer label",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
     'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
+    'visual-gate-nightly': "the CI cache's R2 read keys for GhosttyKit (#57515); the mini route-visual-gate-nightly picks",
     'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
     'pick-nightly-next-signer': 'reads the glaeda-route App key for a read-only token to pick the signer Mac; a credentialed control',
     'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
@@ -643,8 +647,10 @@ class NightlyTrustedRouting(unittest.TestCase):
                          'it: give it our runners and add it to OWNED_SECRET_JOBS with the reason, or (Leo\'s call) '
                          'hosted Ubuntu with a reason in test_nightly_owned_minis_only.py')
         self.assertEqual(set(HOSTED_SECRET_JOBS) & set(OWNED_SECRET_JOBS), set())
-        # No stale entry: each one still names a secret job.
-        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found, set())
+        # No stale entry: each one still names a credentialed job (published-in holds only a pull-requests: write
+        # token, CONTROL_SCOPES, and keeps the JIT VM for it).
+        credentialed = {name for name, job in workflow_jobs.jobs(DOC).items() if holds_credential(job)}
+        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - credentialed, set())
         for name, reason in OWNED_SECRET_JOBS.items():
             with self.subTest(job=name):
                 self.assertTrue(reason.strip())

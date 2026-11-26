@@ -152,7 +152,8 @@ def post_publish_runnable() -> list[str]:
 
 
 POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
-                     "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
+                     # nightly-next-pkg (#54859) builds the pre-warming .pkg in the tail: it reads run_tail == 'true'.
+                     "republish-nightly-deltas", "nightly-next-pkg", "published-in", "sign-release-notes", "publish-release-notes",
                      "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):

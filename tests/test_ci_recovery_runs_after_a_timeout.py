@@ -35,6 +35,10 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 READS_FAILURE = re.compile(r"needs\.([\w-]+)\.result\s*==\s*'failure'")
 ANY_NEED_CANCELLED = re.compile(r"contains\(\s*needs\.\*\.result\s*,\s*'cancelled'\s*\)")
 
+# A head fail-fast (head-fail-fast.yml, #54837) cancels a PR head's other heavy runs once a required job is red on
+# its own. A timeout says the runner was slow, not that the change is red, so it must not cancel the head's runs.
+HEAD_FAIL_FAST_REASON = "a head fail-fast cancels the head's other runs only on a red the change made; a timeout is the fleet's"
+
 # (workflow, job, needed job): why a timeout of the needed job is no reason to run the job.
 FAILURE_ONLY = {
     ("auto-resume-nightly-notarization.yml", "poll-outer", "wait-and-staple"):
@@ -47,6 +51,14 @@ FAILURE_ONLY = {
         "a revert needs a compile that judged the merge; a stopped compile judged nothing",
     ("cmux-next.yml", "release-compile-revert", "release-compile-fast-admission"):
         "a revert needs a compile that judged the merge; a stopped admission judged nothing",
+    ("cmux-next-fast-gates.yml", "fast-gates-fail-fast", "fast-gates"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next-guards.yml", "tooling-tests-fail-fast", "tooling-tests"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next.yml", "app-compile-fleet-fail-fast", "app-compile-fleet"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next.yml", "fast-tier-fail-fast", "fast-tier"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next.yml", "fast-tier-cargo-fail-fast", "fast-tier-cargo"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next.yml", "web-bundles-fail-fast", "web-bundles"): HEAD_FAIL_FAST_REASON,
+    ("cmux-next.yml", "generated-files-fail-fast", "generated-files"): HEAD_FAIL_FAST_REASON,
+    ("pr-router.yml", "pipeline-fail-fast", "pipeline"): HEAD_FAIL_FAST_REASON,
 }
 
 # (workflow, job, needed job): the issue that tracks a condition that misses a timeout.

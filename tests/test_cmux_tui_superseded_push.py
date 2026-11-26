@@ -377,7 +377,10 @@ def check_verdicts():
                 else:
                     subprocess.run(["git", "-C", remote, "update-ref", "-d", "refs/pull/7/head"], check=False)
                 api.reset(routes)
-                got = run_check(api, repo, script, "push", ref, head, over_git)
+                # A pull request's head runs only with build on request off (ci-min-per-pr-30 made it the default:
+                # CMUX_TUI_BRANCH_ON_REQUEST=1 asks for a dispatch instead).
+                env = dict(over_git, CMUX_TUI_BRANCH_ON_REQUEST="0") if pull_head == head and want == "false" else over_git
+                got = run_check(api, repo, script, "push", ref, head, env)
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
@@ -481,8 +484,12 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
-    for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+    _check("environment" not in all_jobs["darwin-fallback-plan"], "darwin-fallback-plan has no unused routing environment")
+    # #55067: a feat-cmux-next push saves the daemon tests' cargo build with next-cache-writer's keys; that
+    # environment is the cache writer's, never the routing App's.
+    _check(all_jobs["cmux-next-daemon-tests"].get("environment", "") in
+           ("", "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"),
+           "cmux-next-daemon-tests has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]

@@ -5194,6 +5194,7 @@ jobs:
             /web/data/next-docs/
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
+            /.gitmodules
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
@@ -5306,12 +5307,6 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
-      - name: Log the Mac fallback
-        env:
-          LINUX_RESULT: ${{ needs.generated-files-linux.result }}
-          PARITY: ${{ needs.generated-files-linux.outputs.parity }}
-        run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh fallback
-
       # Why: note-267
       - name: Give this job its own acpmux home
         run: |
@@ -5350,6 +5345,13 @@ jobs:
           # Why: 2026-11-24-swift-test-1.md
           submodules: false
           fetch-depth: 2
+
+      - name: Log the Mac fallback
+        env:
+          LINUX_RESULT: ${{ needs.generated-files-linux.result }}
+          PARITY: ${{ needs.generated-files-linux.outputs.parity }}
+        # After the checkout: the script is in the tree, not on a fresh runner.
+        run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh fallback
 
       # Why: note-269
       - name: Drop stale submodule checkouts (self-hosted reused workspace)

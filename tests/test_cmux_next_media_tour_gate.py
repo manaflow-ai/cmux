@@ -200,7 +200,9 @@ def main():
     route_steps = {step.get("id"): step for step in workflow["jobs"]["route"]["steps"] if step.get("id")}
     _check("last_toured" in route_steps and "media_last_toured.py" in route_steps["last_toured"]["run"],
            "the route finds the last toured tip, so a replaced or deferred tip is in the next tour's range")
-    _check("steps.last_toured.outputs.defer != 'true'" in route_steps["pick"]["if"],
+    # #57326: a tip under the gap is held (no Mac) only when no What's New clip waits; the pick reads the hold.
+    _check("steps.hold.outputs.held != 'true'" in route_steps["pick"]["if"]
+           and "steps.last_toured.outputs.defer == 'true'" in route_steps.get("hold", {}).get("if", ""),
            "a tip under the tour gap takes no Mac")
     _check("needs.route.outputs.base" in workflow["jobs"]["tour"]["env"]["BASE_SHA"],
            "the tour compares the last toured tip with the new one")
