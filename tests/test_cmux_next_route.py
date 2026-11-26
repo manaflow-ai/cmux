@@ -116,17 +116,22 @@ def call_arguments(text: str, index: int) -> str:
 
 def manifest_target_paths() -> set[str]:
     """The path of each target Package.swift declares: its own `path:` when it sets one
-    (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
-    Sources/<name> otherwise."""
+    (CmuxNextTestExitTrace lives in Tests/Support), else the SwiftPM default directory."""
     manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
     paths = set()
-    for start in re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest):
+    for start in re.finditer(r'\.(target|testTarget|executableTarget|plugin)\(\s*name:\s*"([^"]+)"', manifest):
         # Only the target's own top-level `path:` argument: the last target in the list must not read one further
         # down (the package dependencies' `.package(path:)` follow it since #24978), nor one in a nested call.
-        own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
+        arguments = call_arguments(manifest, start.end())
         kind, name = start.groups()
-        default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
-        paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
+        # A target can use .plugin(name:) from a different package. Only a plugin declaration
+        # has a capability and owns a local directory.
+        if kind == "plugin" and not re.search(r"\bcapability\s*:", arguments):
+            continue
+        own = re.search(r'\bpath:\s*"([^"]+)"', arguments)
+        directory = {"testTarget": "Tests", "plugin": "Plugins"}.get(kind, "Sources")
+        path = own.group(1) if own else f"{directory}/{name}"
+        paths.add(f"{PACKAGE}/{path}")
     return paths
 
 
@@ -260,7 +265,7 @@ class GraphCoversThePackage(unittest.TestCase):
         # the manifest declares is covered until then. A directory the manifest does
         # not declare still fails.
         declared = manifest_target_paths()
-        for kind in ("Sources", "Tests"):
+        for kind in ("Sources", "Tests", "Plugins"):
             for directory in sorted((ROOT / PACKAGE / kind).iterdir()):
                 # A folder with no Swift sources (a fixture another language reads) is not a target.
                 if directory.is_dir() and any(directory.rglob("*.swift")):
@@ -290,6 +295,14 @@ class GraphCoversThePackage(unittest.TestCase):
 
 
 class ManifestReader(unittest.TestCase):
+    def test_only_plugin_declarations_own_local_paths(self):
+        manifest = (
+            '.target(name: "Tool", plugins: [.plugin(name: "External", package: "Tools")]),'
+            '.plugin(name: "Policy", capability: .buildTool(), path: "Plugins/MyPolicy")'
+        )
+        with mock.patch.object(Path, "read_text", return_value=manifest):
+            self.assertEqual(manifest_target_paths(), {f"{PACKAGE}/Sources/Tool", f"{PACKAGE}/Plugins/MyPolicy"})
+
     def path_of(self, manifest: str) -> str | None:
         start = re.search(r'\.target\(\s*name:\s*"T"', manifest)
         own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
