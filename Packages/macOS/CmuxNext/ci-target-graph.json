@@ -1380,6 +1380,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -1877,6 +1878,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -2690,6 +2692,12 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "DaemonWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin",
+      "targets": [],
+      "packages": []
     },
     "DesignScalePlugin": {
       "kind": "plugin",
