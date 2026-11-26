@@ -31,6 +31,15 @@ struct TerminalComposer: View {
     @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
     private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
+    #if DEBUG
+    /// The accessibility probes are opt-in so ordinary debug UI tests keep the same
+    /// view hierarchy and query cost as a production launch. The composer-edge test
+    /// enables them explicitly when it needs to inspect hit routing.
+    private var tapProbeEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-cmuxMobileComposerTapProbe")
+    }
+    #endif
+
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
@@ -49,7 +58,11 @@ struct TerminalComposer: View {
         }
         .overlay(alignment: .topLeading) { floatingNotes }
         #if DEBUG
-        .background(alignment: .bottomLeading) { KeyBarFiredProbe(model: model) }
+        .background(alignment: .bottomLeading) {
+            if tapProbeEnabled {
+                KeyBarFiredProbe(model: model)
+            }
+        }
         #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
@@ -290,7 +303,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -312,13 +329,15 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+
+        .accessibilityLabel(model.isUploading ? CmuxMobileTerminalAccessibility.cancelSending : failed ? "Send failed" : "Send")
+
         .accessibilityIdentifier("terminal.composer.send")
     }
 
