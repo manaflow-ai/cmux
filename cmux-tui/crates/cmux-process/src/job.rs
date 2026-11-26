@@ -8,6 +8,15 @@
 //! kill-on-close limit, so a detached child ([`crate::Child::detach`]) and
 //! its tree outlive the handle; a child that is dropped or killed ends with
 //! its tree because [`Job::terminate`] is called first.
+//!
+//! An owned child ([`crate::Command::spawn_owned`]) runs in a job with the
+//! kill-on-close limit ([`Job::owned`]): the kernel closes this process's
+//! handle however it ends (an exit, a panic, a crash, `TerminateProcess`),
+//! and that ends the child and its tree, as the watchdog does on Unix.
+//!
+//! Code that spawns with `std::process::Command` itself (the journal hooks
+//! and plugins) uses the same pieces: spawn with [`CREATE_SUSPENDED`], put
+//! the child in [`Job::owned`], then [`resume`] it.
 
 use std::io;
 use std::os::windows::io::AsRawHandle;
@@ -17,42 +26,93 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 
-pub(crate) use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+/// The creation flag a child is spawned with before it goes in a job.
+pub use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
 
 /// The exit code of every process a terminated job ends (std's `kill` uses 1).
 const TERMINATED: u32 = 1;
 
 /// An anonymous job holding one child and what it starts; the handle closes
-/// on drop (which ends nothing: see the module docs).
+/// on drop (which ends the tree only for [`Job::owned`]: see the module docs).
 #[derive(Debug)]
-pub(crate) struct Job {
+pub struct Job {
     /// The kernel handle as an integer, so [`crate::Child`] stays `Send` and
     /// `Sync` (handles are process-wide values, safe from any thread).
     handle: usize,
 }
 
 impl Job {
-    /// Puts `child` (created suspended) in a new job.
-    pub(crate) fn contain(child: &std::process::Child) -> io::Result<Self> {
+    /// Puts `child` (created suspended) in a new job its tree outlives once
+    /// the handle closes.
+    ///
+    /// # Errors
+    ///
+    /// When the job cannot be made or the child cannot join it.
+    pub fn contain(child: &std::process::Child) -> io::Result<Self> {
+        Self::new(false)?.with(child)
+    }
+
+    /// Puts `child` (created suspended) in a new job that ends it and its
+    /// tree when the handle closes: on drop, or when this process ends.
+    ///
+    /// # Errors
+    ///
+    /// As [`Job::contain`], or when the kill-on-close limit cannot be set.
+    pub fn owned(child: &std::process::Child) -> io::Result<Self> {
+        Self::new(true)?.with(child)
+    }
+
+    fn new(kill_on_close: bool) -> io::Result<Self> {
         // SAFETY: no attributes and no name: an anonymous job.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
         let job = Self { handle: handle as usize };
-        // SAFETY: the job just made and the child's own process handle.
-        if unsafe { AssignProcessToJobObject(handle, child.as_raw_handle() as HANDLE) } == 0 {
-            return Err(io::Error::last_os_error());
+        if kill_on_close {
+            let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .unwrap_or(u32::MAX);
+            // SAFETY: the job just made and a limit structure of the size given.
+            if unsafe {
+                SetInformationJobObject(
+                    handle,
+                    JobObjectExtendedLimitInformation,
+                    std::ptr::from_ref(&information).cast(),
+                    size,
+                )
+            } == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
         }
         Ok(job)
     }
 
+    fn with(self, child: &std::process::Child) -> io::Result<Self> {
+        // SAFETY: this job and the child's own process handle.
+        if unsafe {
+            AssignProcessToJobObject(self.handle as HANDLE, child.as_raw_handle() as HANDLE)
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(self)
+    }
+
     /// Ends every process in the job: the child and what it started.
-    pub(crate) fn terminate(&self) -> io::Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// When the kernel refuses (the job's handle is this value's own).
+    pub fn terminate(&self) -> io::Result<()> {
         // SAFETY: the handle this value owns.
         if unsafe { TerminateJobObject(self.handle as HANDLE, TERMINATED) } == 0 {
             return Err(io::Error::last_os_error());
@@ -70,7 +130,11 @@ impl Drop for Job {
 
 /// Lets a child created suspended run: resumes the threads of `pid` (a
 /// suspended new process has one, its main thread).
-pub(crate) fn resume(pid: u32) -> io::Result<()> {
+///
+/// # Errors
+///
+/// When the threads cannot be listed or resumed, or `pid` has none.
+pub fn resume(pid: u32) -> io::Result<()> {
     // SAFETY: a snapshot of every thread; closed below.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {

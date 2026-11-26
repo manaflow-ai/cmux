@@ -1,6 +1,8 @@
 //! Windows: a child that leads its own group runs in a job with what it
 //! starts, so a drop or a kill ends its whole tree, as a group signal does
-//! on Unix; a detached one's tree outlives the handle.
+//! on Unix; a detached one's tree outlives the handle. An owned child
+//! (`spawn_owned`) and its tree end with the process that owns it, however
+//! that process ends.
 //!
 //! The tree is this test binary: the child re-runs it as `tree_helper` in
 //! the parent role, which starts a grandchild (plain std, so it joins the
@@ -48,6 +50,18 @@ fn tree_helper() {
             std::thread::sleep(HELPER_LIFE);
         }
         Ok("sleeper") => std::thread::sleep(HELPER_LIFE),
+        Ok("owner") => {
+            // Owns a parent-role tree, passes on its grandchild's pid, then
+            // ends without running a destructor: only the kernel closing
+            // this process's handles can end the tree.
+            let (owned, grandchild) = owned_tree();
+            let mut out = std::io::stdout();
+            writeln!(out, "grandchild {grandchild}").unwrap();
+            writeln!(out, "owned {}", owned.id()).unwrap();
+            out.flush().unwrap();
+            std::mem::forget(owned);
+            std::process::exit(0);
+        }
         _ => {}
     }
 }
@@ -75,6 +89,30 @@ fn tree(detached: bool) -> (cmux_process::Child, u32) {
         }
     };
     (child, pid)
+}
+
+/// A helper in the parent role started with `spawn_owned`, and its grandchild.
+fn owned_tree() -> (cmux_process::OwnedChild, u32) {
+    let mut owned = Command::new(std::env::current_exe().unwrap())
+        .args(helper_args())
+        .env(ROLE, "parent")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn_owned()
+        .unwrap();
+    let pid = read_pid(owned.stdout.take().unwrap(), "grandchild ");
+    (owned, pid)
+}
+
+fn read_pid(out: impl std::io::Read, prefix: &str) -> u32 {
+    let mut lines = BufReader::new(out).lines();
+    loop {
+        let line = lines.next().expect("the helper printed a pid").unwrap();
+        if let Some(pid) = line.strip_prefix(prefix) {
+            return pid.trim().parse().unwrap();
+        }
+    }
 }
 
 /// Whether `pid` ends within `limit` (a pid that no longer opens has ended).
@@ -132,4 +170,44 @@ fn a_detached_group_leaders_tree_outlives_its_handle() {
     terminate(grandchild);
     terminate(leader);
     assert!(!ended, "the detached tree's grandchild {grandchild} ended with the handle");
+}
+
+#[test]
+fn a_dropped_owned_child_ends_what_it_started() {
+    let (owned, grandchild) = owned_tree();
+    drop(owned);
+    let ended = ends_within(grandchild, GONE_WITHIN);
+    terminate(grandchild);
+    assert!(ended, "the grandchild {grandchild} outlived its dropped owned child");
+}
+
+#[test]
+fn an_owned_tree_ends_with_the_process_that_owns_it() {
+    let mut owner = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(helper_args())
+        .env(ROLE, "owner")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(owner.stdout.take().unwrap()).lines();
+    // Its test harness prints lines of its own: skip to each one asked for.
+    let mut pid = |prefix: &str| -> u32 {
+        loop {
+            let line = lines.next().expect("the owner printed its tree").unwrap();
+            if let Some(pid) = line.strip_prefix(prefix) {
+                return pid.trim().parse().unwrap();
+            }
+        }
+    };
+    let grandchild = pid("grandchild ");
+    let child = pid("owned ");
+    owner.wait().unwrap();
+    let child_ended = ends_within(child, GONE_WITHIN);
+    let grandchild_ended = ends_within(grandchild, GONE_WITHIN);
+    terminate(grandchild);
+    terminate(child);
+    assert!(child_ended, "the owned child {child} outlived the process that owned it");
+    assert!(grandchild_ended, "the grandchild {grandchild} outlived the process that owned it");
 }

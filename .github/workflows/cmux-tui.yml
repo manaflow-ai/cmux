@@ -1484,7 +1484,8 @@ jobs:
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
           # A child that leads its group runs in a job with what it starts:
-          # a drop or kill ends the tree, a detached one's tree outlives it.
+          # a drop or kill ends the tree, a detached one's tree outlives it;
+          # an owned child's tree (spawn_owned) ends with the process owning it.
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-process \
             --test windows_tree
 
