@@ -454,6 +454,16 @@ pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
 /// One app Cloud verb run as this binary's own `--json` step: its `result`, or its error object
 /// (`cmux vm exec dev -- CMD` reads `exit_code`, `stdout` and `stderr` from it).
 pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Value> {
+    app_step_with_options(global, args, false)
+}
+
+/// Runs one app verb, optionally asking `action.run` to join an existing keyed run without
+/// claiming a missing key.
+pub(super) fn app_step_with_options(
+    global: &GlobalArgs,
+    args: &[String],
+    join_only: bool,
+) -> Result<Value, Value> {
     let mut globals = forwarded_globals(global);
     // One step, so the caller's key is this step's: a retry with it does not run it twice.
     if let Some(key) = &global.idempotency_key {
@@ -461,6 +471,9 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     }
     let mut runner = SelfRunner { globals, ..SelfRunner::new(global) };
     let mut args = args.to_vec();
+    if join_only {
+        args.push("--join-only".to_owned());
+    }
     args.push("--json".to_owned());
     step_result(&runner.cmux(&args))
 }
