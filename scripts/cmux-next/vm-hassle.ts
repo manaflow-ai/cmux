@@ -52,7 +52,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Api, type Exec, STACK, directExec, http, listAllMachines, passwordSignIn, readEnvFile, resolveBackend, scrub, sleep, waitMachine } from "./cloud-journey.ts";
+import { Api, type Exec, STACK, directExec, http, listAllMachines, passwordSignIn, readEnvFile, resolveBackend, scrub, sleep, waitMachine, waitRunning } from "./cloud-journey.ts";
 
 export type Flow = "setup" | "redo" | "cleanup";
 export type PathName = "before" | "after";
@@ -404,7 +404,7 @@ const OPS: Record<Exclude<OpName, "none">, (ctx: Ctx) => Promise<string>> = {
 
 /** Running with a host, and the first exec through (the app's create answer waits for both). */
 async function runningAndExec(ctx: Ctx): Promise<string> {
-  const m = await waitMachine(ctx.api, ctx.machine!, (x) => x.status === "running" && Boolean(x.host), 300_000);
+  const m = await waitRunning(ctx.api, ctx.machine!, 300_000);
   const t0 = Date.now();
   let lastError = "";
   while (Date.now() - t0 < 120_000) {
