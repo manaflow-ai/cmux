@@ -12,6 +12,10 @@ runner, so a golden blessed on a Mac judges a Linux render with the same numbers
   are `scripts/ci/ios_gate_screen_diff.py`'s, so a gate that moves here keeps its outcomes.
 - **Perceptual:** mean SSIM of luma over 8x8 windows, stride 4; pass at or over `min_ssim` (0.98). It catches
   a shifted control or glyph run the ratio lets through, and forgives antialiasing the ratio counts.
+- **Worst tile:** the lowest mean SSIM of any 32x32 tile, always reported (`worst_tile`); with
+  `min_tile_ssim` set (0.9 is a good start) it fails a shortened label or a nudged button that moves far under
+  1% of pixels and barely moves the mean. Off by default so gates moving here keep their outcomes; turn it on
+  once a gate's captures are deterministic (frozen clock, no animation).
 - **Ignore masks:** rectangles nothing is compared in (caret, clock, animation), each with a required `why`.
   SSIM skips any window touching one.
 - **Regions:** named rectangles with their own `channel_tolerance`, `max_changed_ratio`, `min_ssim` (a
@@ -39,7 +43,7 @@ Spec (every field optional):
 
 ```json
 {
-  "channel_tolerance": 16, "max_changed_ratio": 0.01, "min_ssim": 0.98, "scale": 1,
+  "channel_tolerance": 16, "max_changed_ratio": 0.01, "min_ssim": 0.98, "min_tile_ssim": 0, "scale": 1,
   "ignore":  [{"x": 1180, "y": 0, "w": 100, "h": 24, "why": "menu bar clock"}],
   "regions": [{"name": "sidebar", "x": 0, "y": 0, "w": 240, "h": 800, "min_ssim": 0.995}]
 }
@@ -50,7 +54,7 @@ Cross-renderer (lavapipe against Metal, CEF against WebKit): `"max_changed_ratio
 ## Verdict (`cmux-shotdiff.verdict/v1`)
 
 `pass`, `identical`, `reasons[]`, `base`/`head` `{hash, width, height}`, `changed_pixels`, `compared_pixels`,
-`ignored_pixels`, `changed_ratio`, `ssim`, `boxes[]` (changed areas merged on a 16 px grid, at most 64),
+`ignored_pixels`, `changed_ratio`, `ssim`, `worst_tile` (`{x, y, w, h, ssim}`), `boxes[]` (changed areas merged on a 16 px grid, at most 64),
 `regions[]` (`name, pass, changed_ratio, ssim, reasons`), and the `spec` it was judged by.
 
 The diff image: head dimmed to gray, changed pixels red, ignored areas blue, changed boxes outlined orange.
