@@ -44,6 +44,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vnc;
 mod window_layout;
 
 pub use auto_chats::{
@@ -86,6 +87,7 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 
 uniffi::setup_scaffolding!();
