@@ -25,6 +25,9 @@
 # (RECORD, FORMAT, SCHEMA, STATE, STORE, JOURNAL, CACHE, SNAPSHOT, LEDGER, MANIFEST, INDEX); a wire or ABI version
 # is not one. An unlisted one fails the check.
 #
+# The app's Swift and webviews formats and webviews storage keys: persisted-formats/formats.toml. Settings keys:
+# schemas/settings/published-keys.txt and retired-keys.json. One check covers all three.
+#
 # The handbook page: cmuxterm-hq docs/handbook/cutover-ships-its-migration.md.
 
 [[format]]
