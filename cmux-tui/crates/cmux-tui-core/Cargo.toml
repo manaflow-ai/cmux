@@ -123,6 +123,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server (server/forum_routed.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
 cmux-output-paint.workspace = true
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
