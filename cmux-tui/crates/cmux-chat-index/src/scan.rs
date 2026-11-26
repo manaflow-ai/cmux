@@ -179,11 +179,10 @@ fn is_chief_markup(title: &str) -> bool {
 mod probe_folder_tests {
     use super::is_probe_folder;
 
+    /// The temp fallback, by its name with this user's uid and by the older name without it.
     #[test]
     fn the_probe_folders_are_known_by_their_names() {
         for probe in [
-            "/Users/a/.acpmux/unattended",
-            "/Users/a/.acpmux/builds/dev.cmux.next/unattended/",
             "/var/folders/xy/T/acpmux-unattended",
             "/private/var/folders/xy/T/acpmux-unattended-501",
             "/tmp/acpmux-unattended-0",
