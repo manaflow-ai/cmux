@@ -141,7 +141,9 @@ jobs:
           LAND_STATUS_RETRY_S: '20'
         run: |
           if [ "$STATE" = success ]; then
-            desc="The land's tier runs on this head (full; affected, with the full tier hourly on feat-cmux-next; or passed on the head this base merge sits on)"
+            # GitHub refuses a status description over 140 characters ("Validation failed: Description is too long"),
+            # and the post below caps it there too: run 45839458055 (2026-11-26 14:29Z) left this status unposted.
+            desc="Land tier runs here: full, affected (full tier hourly on feat-cmux-next), or carried from the base merge's head"
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
@@ -150,7 +152,7 @@ jobs:
             for token in "$APP_TOKEN" "$JOB_TOKEN"; do
               [ -n "$token" ] || continue
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
-                  -f description="$desc" -f target_url="$RUN_URL" >/dev/null; then
+                  -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null; then
                 exit 0
               fi
             done
