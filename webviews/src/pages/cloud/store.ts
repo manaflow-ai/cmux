@@ -17,6 +17,7 @@ import { archives, capOffer, noticeKey, readDismissed, writeDismissed, type CapO
 import {
   applyEvent,
   defaultMemory,
+  keptMachines,
   memoryChoices,
   normalizeMachine,
   settled,
@@ -49,8 +50,8 @@ import {
   type PlanRefusal,
   type RetentionOverrides,
   type SnapshotListResult,
-  type CloudSurge,
   type CloudUsage,
+  type CloudSurge,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -1142,6 +1143,10 @@ export class CloudStore {
       return { unwatch, take };
     } catch (error) {
       buffer = null;
+      // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
+      // so only the machines that changed draw again. Events need none of this (applyEvent keeps
+      // the others).
+      machines = keptMachines(this.state.machines, machines);
       // A list that failed leaves no watch behind: a quiet re-read or Retry subscribes again, and an
       // early read a signed-out answer drops has nothing left open.
       if (watch) {
