@@ -67,12 +67,18 @@ final class TerminalComposerBarUITests: XCTestCase {
         let missing = Self.scrollerKeys.filter { !seen.contains($0) }
         XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
-        // Keyboard up, filled.
+        // Keyboard up, filled, in a fresh launch: typing after the row's drags
+        // stalls the app's main thread for 30 s on feat-cmux-next, with or
+        // without the row's scroll edge effect and whatever the draft
+        // (cmux#56712); typing into a fresh launch does not.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field after relaunch")
+        Thread.sleep(forTimeInterval: 1.5)
+        field.tap()
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row after relaunch")
         field.typeText(Self.draft)
         Thread.sleep(forTimeInterval: 0.8)
-        // Only a screenshot here: dragging the key row with a draft in the
-        // field stalls the app's main thread for 30 s on feat-cmux-next
-        // (with or without the row's scroll edge effect; cmux#56712).
         shoot(app, "\(look)-kbd-up-filled")
 
         // Keyboard down, filled: the key row's keyboard key hides it.
