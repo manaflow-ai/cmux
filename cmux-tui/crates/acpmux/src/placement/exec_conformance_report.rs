@@ -113,6 +113,9 @@ pub fn compare(
     let (lo, ro) = (normalize_case(case, &local.stdout), normalize_case(case, &routed.stdout));
     let stdout = (lo != ro).then(|| {
         diffs.push("stdout".to_owned());
+        if case.env_listing {
+            diffs.extend(env_diff(&lo, &ro));
+        }
         Pair { local: excerpt(&lo), routed: excerpt(&ro) }
     });
     let (le, re) = (normalize_case(case, &local.stderr), normalize_case(case, &routed.stderr));
@@ -218,4 +221,23 @@ impl Summary {
         }
         line
     }
+}
+
+/// For an `env -0` listing, the names whose entries differ: `env NAME` for each, so a row names
+/// the variable, not a cut-off excerpt of 5 kB of environment.
+fn env_diff(local: &[u8], routed: &[u8]) -> Vec<String> {
+    let entries = |b: &[u8]| -> BTreeMap<String, Vec<u8>> {
+        b.split(|c| *c == 0)
+            .filter(|e| !e.is_empty())
+            .map(|e| {
+                let at = e.iter().position(|c| *c == b'=').unwrap_or(e.len());
+                (String::from_utf8_lossy(&e[..at]).into_owned(), e[at..].to_vec())
+            })
+            .collect()
+    };
+    let (l, r) = (entries(local), entries(routed));
+    let mut names: Vec<&String> = l.keys().chain(r.keys()).collect();
+    names.sort();
+    names.dedup();
+    names.into_iter().filter(|n| l.get(*n) != r.get(*n)).map(|n| format!("env {n}")).collect()
 }
