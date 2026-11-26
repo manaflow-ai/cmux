@@ -72,7 +72,7 @@ cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	com.cmuxterm.appx	1	move	lane A:
 cmux-tui/crates/acpmux/src/hub/route_switch.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/turn_shots.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux"	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env/machine.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env/watch.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -119,7 +119,6 @@ cmux-tui/crates/cmux-rd-host/src/portal.rs	join("cmux")	1	move	lane A: Classic-n
 cmux-tui/crates/cmux-rd-host/src/webrtc_child.rs	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-rd-host/src/webrtc_child.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-remote/src/identity.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-remote/src/identity.rs	/tmp/cmux-remote.sock	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-remote/src/secrets/files.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-server-core/src/layout.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tailnet-front/src/tsnet.rs	join("cmux")	1	keep	test: the tailnet node dir named cmux under the tailnet-front root, not a Classic path
