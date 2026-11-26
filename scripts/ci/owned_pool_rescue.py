@@ -555,6 +555,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
+    ".github/workflows/ios-sim-linux-build.yml",  # feat-cmux-next only: build takes ios_runner_pool's route, retry_runs_on on a re-run
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
