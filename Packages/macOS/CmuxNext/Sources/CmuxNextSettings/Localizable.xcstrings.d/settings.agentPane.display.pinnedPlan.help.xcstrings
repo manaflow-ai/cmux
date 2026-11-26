@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.pinnedPlan.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keeps the agent's task list under the latest message, not over the composer."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُبقي قائمة مهام الوكيل أسفل أحدث رسالة، لا فوق مربع الكتابة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Drži listu zadataka agenta ispod najnovije poruke, a ne iznad polja za pisanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Holder agentens opgaveliste under den seneste besked, ikke over skrivefeltet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hält die Aufgabenliste des Agenten unter der neuesten Nachricht statt über dem Eingabefeld."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantiene la lista de tareas del agente bajo el último mensaje, no sobre el cuadro de escritura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Garde la liste des tâches de l'agent sous le dernier message, et non au-dessus de la zone de saisie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tiene l'elenco delle attività dell'agente sotto l'ultimo messaggio, non sopra il campo di scrittura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントのタスクリストを入力欄の上ではなく、最新のメッセージの下に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រក្សាបញ្ជីកិច្ចការរបស់ភ្នាក់ងារនៅក្រោមសារចុងក្រោយ មិនមែននៅលើប្រអប់សរសេរទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트의 작업 목록을 입력창 위가 아니라 최신 메시지 아래에 둡니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Holder agentens oppgaveliste under den nyeste meldingen, ikke over skrivefeltet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utrzymuje listę zadań agenta pod najnowszą wiadomością, a nie nad polem pisania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantém a lista de tarefas do agente abaixo da mensagem mais recente, não acima da caixa de escrita."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает список задач агента под последним сообщением, а не над полем ввода."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงรายการงานของเอเจนต์ใต้ข้อความล่าสุด ไม่ใช่เหนือช่องพิมพ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanın görev listesini yazma alanının üstünde değil, son mesajın altında tutar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує список завдань агента під останнім повідомленням, а не над полем введення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giữ danh sách công việc của tác tử dưới tin nhắn mới nhất, không phải phía trên ô soạn thảo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将智能体的任务列表保留在最新消息下方，而不是输入框上方。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將代理的任務清單保留在最新訊息下方，而不是輸入框上方。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

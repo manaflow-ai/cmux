@@ -126,8 +126,8 @@ def _digest(text):
 
 def screen_sharing_page_state(nodes, name=None, device_id=None):
     """What the Screen Sharing list showed: its state row (finding, failed, empty) and each Mac
-    row as a short id digest, whether its name is the rig Mac's, and its status line. No ids or
-    other Macs' names are printed."""
+    row as a short id digest, whether its name is the rig Mac's, and its status line; the count of
+    name-keyed rows and a missing page. No ids or other Macs' names are printed."""
     identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
     states = [state for state in ("finding", "failed", "empty") if f"screenSharing.{state}" in identifiers]
     prefix = "screenSharing.device."
@@ -143,9 +143,45 @@ def screen_sharing_page_state(nodes, name=None, device_id=None):
     text = f"page state: {', '.join(states) or 'none'}; Mac rows: {len(rows)}"
     if rows:
         text += " [" + "; ".join(rows) + "]"
+    # Rows keyed by name mean the app never saw CMUX_PAIR_E2E_SHARE_RECEIPT (or is not DEBUG);
+    # no page node means the phone is on another screen. Counts and fixed words only.
+    by_name = sum(1 for node in nodes
+                  if str(node.get("AXIdentifier") or node.get("AXUniqueId") or "").startswith("screenSharing.mac."))
+    if by_name:
+        text += f"; rows keyed by name: {by_name}"
+    if not states and not rows and "screenSharing.page" not in identifiers:
+        text += f"; no Screen Sharing page ({len(nodes)} nodes{_screen_summary(nodes)})"
     if device_id:
         text += f"; wanted {_digest(device_id)}"
     return text
+
+
+_ID_TAIL = re.compile(r"[0-9a-fA-F-]{16,}$")
+
+
+def _screen_summary(nodes, limit=12):
+    """Which screen the phone is on, from fixed UI text: its headings and accessibility ids (a
+    trailing id is digested). Empty when the tree has neither."""
+    headings = []
+    ids = []
+    for node in nodes:
+        identifier = str(node.get("AXIdentifier") or node.get("AXUniqueId") or "")
+        if identifier:
+            tail = _ID_TAIL.search(identifier)
+            if tail:
+                identifier = identifier[:tail.start()] + _digest(tail.group(0))
+            if identifier not in ids:
+                ids.append(identifier)
+        if str(node.get("type", "")) in ("Heading", "NavigationBar"):
+            label = str(node.get("AXLabel", ""))
+            if label and label not in headings:
+                headings.append(label)
+    parts = []
+    if headings:
+        parts.append("headings: " + ", ".join(headings[:limit]))
+    if ids:
+        parts.append("ids: " + ", ".join(ids[:limit]) + (" …" if len(ids) > limit else ""))
+    return ("; " + "; ".join(parts)) if parts else ""
 
 
 # The viewer's cards and alerts, by title, as fixed words (cmux-next-ios ScreenSharingPage).
@@ -209,8 +245,29 @@ class PairSharePhone(ScreenProofPhone):
         # app. The app logs only a digest of the signed nonce in DEBUG builds.
         # With the Mac app closed the daemon serves the phone over rd/1, whose
         # view shows its frame rate only with the meter flag (browser.meter).
-        self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-settings-page", "screenSharing",
+        # Settings, then its Screen Sharing row, as a person gets there. The page itself is not
+        # opened by launch argument: the app builds the Screen Sharing service only once the
+        # account resolves, and a page pushed before that stays blank (run 45757908357: a
+        # Back button and the tab bar, no heading). The row appears only once the service does.
+        self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-tab", "settings",
                         "-cmux-mobile-browser-meter"])
+        deadline = time.monotonic() + 90
+        while (row := self._screen_sharing_row()) is None and time.monotonic() < deadline:
+            time.sleep(1)
+        if row is None:
+            try:
+                self.screenshot("settings-row-missing")
+            except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
+                pass
+            nodes = self.ui.find(lambda node: True)
+            raise PairShareFailure("Settings showed no Screen Sharing row in 90 s, so the app built no "
+                                   f"Screen Sharing service ({len(nodes)} nodes{_screen_summary(nodes)})")
+        self.ui.tap(row)
+
+    def _screen_sharing_row(self):
+        rows = self.ui.find(lambda node: "settings.screenSharing" in (node.get("AXIdentifier"),
+                                                                      node.get("AXUniqueId")))
+        return rows[0] if len(rows) == 1 else None
 
     def request_share(self, name, device_id):
         # The hub and the share host may spell the same id in different case; the phone itself
@@ -235,6 +292,10 @@ class PairSharePhone(ScreenProofPhone):
             self.ui.run(["axe", "gesture", gesture, "--udid", self.ui.udid], check=False)
             time.sleep(1)
         if row is None:
+            try:
+                self.screenshot("share-row-missing")
+            except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
+                pass
             raise PairShareFailure("the rig Mac row was not visible "
                                    f"({screen_sharing_page_state(nodes, name, device_id)})")
         self.ui.tap(row)

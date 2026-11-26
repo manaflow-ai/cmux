@@ -122,7 +122,22 @@ class MacRowTests(unittest.TestCase):
         self.assertEqual(text, "page state: none; Mac rows: 2 [ba7816bf (rig name) Not shared; cb8379ac Offline]; "
                                "wanted ba7816bf")
         self.assertNotIn("Old Mac", text)
-        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0")
+        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0; no Screen Sharing page (0 nodes)")
+
+    def test_a_missing_page_names_the_screen_it_is_on(self):
+        nodes = [{"type": "Heading", "AXLabel": "Workspaces"},
+                 {"AXIdentifier": "workspace.row.0123456789abcdef0123"},
+                 {"AXIdentifier": "tab.settings"}]
+        text = screen_sharing_page_state(nodes)
+        self.assertIn("no Screen Sharing page (3 nodes; headings: Workspaces; ids: workspace.row.", text)
+        self.assertNotIn("0123456789abcdef0123", text)
+        self.assertTrue(text.endswith("tab.settings)"))
+
+    def test_a_list_without_the_e2e_identifiers_says_so(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"}, {"AXIdentifier": "screenSharing.mac.0 e2e rig Mac", "AXLabel": "0 e2e rig Mac"}]
+        text = screen_sharing_page_state(nodes, "0 e2e rig Mac", "abc")
+        self.assertEqual(text, "page state: none; Mac rows: 0; rows keyed by name: 1; wanted ba7816bf")
+        self.assertNotIn("rig Mac", text)
 
     def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
         row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}
@@ -134,6 +149,28 @@ class MacRowTests(unittest.TestCase):
         phone.ui.tap = taps.append
         phone.request_share("rig", "abc-1")
         self.assertEqual(taps, [row, button])
+
+    def test_launch_opens_screen_sharing_from_its_settings_row(self):
+        row = {"AXIdentifier": "settings.screenSharing", "AXLabel": "Screen Sharing"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row])
+        launched, taps = [], []
+        phone.ui.launch = launched.append
+        phone.ui.tap = taps.append
+        phone.launch()
+        self.assertNotIn("-cmux-mobile-settings-page", launched[0])
+        self.assertEqual(launched[0][launched[0].index("-cmux-mobile-tab") + 1], "settings")
+        self.assertEqual(taps, [row])
+
+    def test_launch_with_no_screen_sharing_row_says_the_service_never_came(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"type": "Heading", "AXLabel": "Settings"}])
+        phone.ui.launch = lambda args: None
+        phone.screenshot = lambda name: None
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 90 s.*headings: Settings"):
+                phone.launch()
 
     def test_a_missing_row_says_what_the_page_showed(self):
         phone = PairSharePhone.__new__(PairSharePhone)
