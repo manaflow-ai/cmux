@@ -94,9 +94,9 @@ extension AppServices {
                         return try await MobileSiteDataExporter(model: self.locateTab(surface: SurfaceID(rawValue: request.surface)),
                             currentModel: { self.locateTab(surface: SurfaceID(rawValue: request.surface)) },
                             page: { self.cache.existingBrowser($0.id)?.tab }, identity: { $0 },
-                            snapshot: { model, page in .init(profileID: page.profileID.rawValue,
+                            snapshot: { model, page in .init(profileID: BrowserProfileRecord.wireID(for: page.profileID),
                                 incognito: self.cache.browserTabs.isIncognitoTab(model.id) || self.cache.cef.stores.offTheRecord.isOffTheRecord(page.profileID),
-                                agentsProfile: page.profileID.rawValue == AgentBrowserProfile.id,
+                                agentsProfile: BrowserProfileRecord.wireID(for: page.profileID) == AgentBrowserProfile.id,
                                 url: page.state.url?.absoluteString, navigation: page.state.activeNavigation?.rawValue, isLoading: page.state.isLoading) },
                             readCookies: { try await $0.cookies() },
                             evaluate: { try await $0.evaluate($1, world: $2, gesture: $3) }).read(request)

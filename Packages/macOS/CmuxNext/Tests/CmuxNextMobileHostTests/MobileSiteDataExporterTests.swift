@@ -28,7 +28,7 @@ struct MobileSiteDataExporterTests {
         let model = NSObject()
         return try MobileSiteDataExporter(model: model, currentModel: { isCurrent() ? model : nil },
             page: { _ in page }, identity: { $0 },
-            snapshot: { _, page in .init(profileID: page.profileID.rawValue, incognito: incognito, agentsProfile: agentsProfile,
+            snapshot: { _, page in .init(profileID: BrowserProfileRecord.wireID(for: page.profileID), incognito: incognito, agentsProfile: agentsProfile,
                 url: page.state.url?.absoluteString, navigation: page.state.activeNavigation?.rawValue, isLoading: page.state.isLoading) },
             readCookies: { _ in try await readCookies() },
             evaluate: { page, script, world, gesture in
@@ -70,7 +70,7 @@ struct MobileSiteDataExporterTests {
         let original = currentPage
         let exporter = try MobileSiteDataExporter(model: model, currentModel: { model },
             page: { _ in currentPage }, identity: { $0 },
-            snapshot: { _, page in .init(profileID: page.profileID.rawValue, incognito: false, agentsProfile: false,
+            snapshot: { _, page in .init(profileID: BrowserProfileRecord.wireID(for: page.profileID), incognito: false, agentsProfile: false,
                 url: page.state.url?.absoluteString, navigation: page.state.activeNavigation?.rawValue, isLoading: page.state.isLoading) },
             readCookies: { _ in currentPage = self.page(); return [] },
             evaluate: { try await $0.evaluate($1, world: $2, gesture: $3) })
