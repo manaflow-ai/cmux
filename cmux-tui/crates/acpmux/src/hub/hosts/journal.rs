@@ -40,10 +40,26 @@ impl Hub {
         }
         drop(state);
         // The next adoption of this host reads only what follows it.
-        if let Some(checkpoint) = checkpoint {
+        if let Some(checkpoint) = self.keep_processes(session, &mut work, checkpoint) {
             self.save_adoption_checkpoint(session, checkpoint);
         }
         work
+    }
+
+    /// `checkpoint` with the chat's process table through its record, from the one the resumed
+    /// checkpoint kept (in `work.processes`), which then holds it for the adoption's rebuild of
+    /// the table (`recover_work`): neither reads more than the records after a checkpoint.
+    fn keep_processes(
+        &self,
+        session: &Session,
+        work: &mut OpenWork,
+        checkpoint: Option<Checkpoint>,
+    ) -> Option<Checkpoint> {
+        let mut checkpoint = checkpoint?;
+        let saved = self.processes_through(session, work.processes.take(), checkpoint.seq);
+        work.processes = Some(saved.clone());
+        checkpoint.processes = Some(saved);
+        Some(checkpoint)
     }
 
     pub(super) fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
@@ -206,6 +222,9 @@ impl Hub {
             .then(|| self.adoption_checkpoint(session, incarnation, &inputs))
             .flatten()
             .filter(|c| c.seq <= turn_bound);
+        // The process table it kept goes on beside the work (`keep_processes`).
+        let resumed_processes =
+            resumed.as_ref().and_then(|c| c.processes.clone().filter(|p| p.through <= c.seq));
         // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
         // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
         let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;
@@ -242,7 +261,8 @@ impl Hub {
         if bound.is_some() && kept.is_none() {
             kept = Some((folded, None, folds.clone(), unstarted.clone()));
         }
-        let (work, host_seq_at) = folds.work.finish(scanned.is_err());
+        let (mut work, host_seq_at) = folds.work.finish(scanned.is_err());
+        work.processes = resumed_processes;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at
             && !self.logs_host_seq(session, seq, work.last_host_seq)
@@ -272,7 +292,9 @@ impl Hub {
         incarnation: &str,
         settled: u64,
     ) -> Option<Checkpoint> {
-        self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) }).1
+        let (mut work, checkpoint) =
+            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
+        self.keep_processes(session, &mut work, checkpoint)
     }
 
     /// The checkpoint of an incarnation not started yet through `settled`.

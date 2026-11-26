@@ -768,6 +768,46 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
     }
 }
 
+/// The process table an adoption rebuilds from its checkpoint's (`journal.rs` `keep_processes`)
+/// is the one a read of the whole log gives: for each log ended at every record, the table kept
+/// by an adoption then, then the rest of the log folded onto it, against a fresh read. A 4 GB
+/// chat's restart spent 712 of its 900 ms reading every segment's copy for it (cmux#51494).
+#[tokio::test]
+async fn an_adoptions_process_table_resumed_from_its_checkpoint_matches_a_whole_read() {
+    let mut logs = checkpoint_logs();
+    let mut ended = hosted_log_of(3, 2);
+    ended.push("in", "background_task_update", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": "completed", "command": "serve"}}}), true);
+    ended.push("in", "background_task_update", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg2", "taskId": "bg2", "state": "running", "command": "watch"}}}), true);
+    logs.push(ended);
+    let mut kept = 0;
+    for (n, log) in logs.iter().enumerate() {
+        let last = log.records.len() as u64;
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            hub.recovery_work(&session, "inc", 0);
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(last, Ordering::SeqCst);
+            let work = hub.recovery_work(&session, "inc", 0);
+            let whole = hub.processes_through(&session, None, last);
+            if let Some(saved) = work.processes.clone() {
+                kept += 1;
+                assert_eq!(
+                    hub.processes_through(&session, Some(saved), last),
+                    whole,
+                    "log {n} split {split}"
+                );
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(kept > 0, "no adoption kept a process table");
+}
+
 /// A host's first adoption resumes from a checkpoint another host's adoption saved, or the one
 /// folded in the background when it started (`prime_adoption_checkpoint`), through the folds of
 /// an incarnation not started yet, and recovers what a fold of the whole log recovers. One whose

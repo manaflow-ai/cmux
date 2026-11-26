@@ -69,6 +69,11 @@ pub(super) struct Checkpoint {
     /// The folds through `seq` of an incarnation whose `host_started` comes after it.
     #[serde(default)]
     pub(super) unstarted: Option<Folds>,
+    /// The chat's process table (`processes.rs`) through `seq` or an earlier record; one an
+    /// incarnation does not change. None in a checkpoint saved before it was kept: the next
+    /// adoption reads the table from the log's copies, then keeps it.
+    #[serde(default)]
+    pub(super) processes: Option<super::super::processes::SavedProcesses>,
 }
 
 /// What the folds read besides the log; a checkpoint is good only under the same.
@@ -138,6 +143,7 @@ impl Checkpoint {
             inputs,
             folds,
             unstarted,
+            processes: None,
         }
     }
 }
