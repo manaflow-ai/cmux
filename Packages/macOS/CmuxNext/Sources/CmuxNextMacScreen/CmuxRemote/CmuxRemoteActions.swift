@@ -147,19 +147,21 @@ extension CmuxRemoteActionEnvironment {
         let environment = self
         return [
             .mainActor("remote.confirm") { call in
-                let action = call.params["action"]?.stringValue ?? ""
-                let device = call.params["device"]?.stringValue ?? ""
-                let scope = call.params["scope"]?.stringValue.flatMap(DeviceScope.init(rawValue:))
-                let ticket = call.params["agent_ticket"]?.stringValue
-                guard action == "share" || action == "allow_agents" || (action == "unshare" && ticket != nil)
-                    || (action == "access" && !device.isEmpty && scope != nil) else {
-                    throw ControlError.invalidParams("action must be share, allow_agents, unshare with agent_ticket, or access with device and scope (none, ask, view, full)")
+                // Rust checks the request (remote.confirmRequest) and names its refusal.
+                let checked = RdUI.answer("remote.confirmRequest", encoding: call.params)
+                guard let request = checked.ok as? [String: Any], let action = request["action"] as? String,
+                      let kind = request["kind"] as? String else {
+                    throw ControlError.invalidParams(checked.err ?? "remote.confirm: no answer")
                 }
+                let device = request["device"] as? String ?? ""
+                let scope = (request["scope"] as? String).flatMap(DeviceScope.init(rawValue:))
+                let ticket = request["ticket"] as? String
+                let redeemsTicket = request["redeemsTicket"] as? Bool == true
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
-                if action == "allow_agents" {
-                    return Self.allowAgents(call.params["on"]?.boolValue ?? true, hub: hub, window: environment.window())
+                if kind == "allowAgents" {
+                    return Self.allowAgents(request["on"] as? Bool ?? true, hub: hub, window: environment.window())
                 }
-                if action == "share", !device.isEmpty {
+                if kind == "shareOther" {
                     return try Self.confirmShareOther(device, hub: hub, window: environment.window(), ticket: ticket, remote: environment.remote,
                                                      consent: environment.shareConsent)
                 }
@@ -169,7 +171,7 @@ extension CmuxRemoteActionEnvironment {
                 let windowSource = environment.window, hubHost = environment.hubHost
                 // The person's answer outlives the request (`confirmedChange`).
                 let personConfirmed: @Sendable () async throws -> CmuxNextSettings.JSONValue
-                if action == "access" {
+                if kind == "access" {
                     let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                     personConfirmed = Self.confirmedChange(
                         confirm: { await Self.confirm(title: title, body: body, in: window) },
@@ -186,7 +188,7 @@ extension CmuxRemoteActionEnvironment {
                         apply: {})
                 }
                 return .followUp {
-                    if let ticket, action != "access",
+                    if let ticket, redeemsTicket,
                        let grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote) {
                         // The daemon decided for the ticket's own change: make that one (its timer waits for the write).
                         guard grant.action == action else {
@@ -196,7 +198,7 @@ extension CmuxRemoteActionEnvironment {
                                                                   window: windowSource, hubHost: hubHost)
                         return ["ok": true, "agent": true, "device_name": .string(device)]
                     }
-                    if action == "unshare" { return ["ok": false, "asks_person": true] }
+                    if kind == "unshare" { return ["ok": false, "asks_person": true] }
                     return try await personConfirmed()
                 }
             }.withDeadline(.fixed(Self.confirmationTimeout)),
@@ -237,8 +239,10 @@ extension CmuxRemoteActionEnvironment {
             }
         }
         CmuxRemoteAgentShare.post(grant, in: window(), turnOff: turnOff)
-        guard grant.notice["kind"]?.stringValue == "shared", grant.notice["turn_off"]?.stringValue != nil else { return }
-        let device = grant.notice["device_name"]?.stringValue ?? ""
+        // Rust (agents.notice): the menu bar line shows while a share the agent turned on can be turned off.
+        guard let notice = RdUI.call("agents.notice", encoding: ["notice": grant.notice]) as? [String: Any],
+              notice["offersTurnOff"] as? Bool == true else { return }
+        let device = notice["device"] as? String ?? ""
         hubHost()?.showAgentShare(CmuxRemoteAgentStrings.indicator(grant.label)) {
             CmuxRemoteAgentShare.post(message: CmuxRemoteAgentStrings.unshared(device), detail: nil, offersTurnOff: false, in: window())
         }
