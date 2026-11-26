@@ -38,9 +38,9 @@ struct SidebarAccount: Hashable {
     func menuBarAccount(teamSymbol: String) -> MenuBarMenuState.Account { MenuBarMenuState.Account(lines: [name, email].compactMap(\.self), team: team, teamSymbol: teamSymbol) }
 
     /// Adds the account rows to the profile menu (`ProfileMenuBuilder.addAccountRows`).
-    @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {
+    @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry, backend: CloudConfiguration.BackendLabel? = nil) {
         ProfileMenuBuilder(registry: registry)
             .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) },
-                            avatar: account?.avatar.image(diameter: Double(Metrics.smallIconSize)))
+                            avatar: account?.avatar.image(diameter: Double(Metrics.smallIconSize)), signInBackend: backend.map { SignInButton.backendLine(kind: $0.kind, title: $0.title, detail: $0.detail) })
     }
 }
