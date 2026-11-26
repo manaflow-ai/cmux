@@ -34,10 +34,10 @@ import Security
     /// Starts listening for second copies and checks where this copy runs. Only a guarded launch (a release build,
     /// not DEV or a second-instance opt-out) takes part, and only the person's own (`activates` false for an agent
     /// launch, which never asks anything).
-    public func start(activates: Bool) {
+    public func start(activates: Bool, afterFrame: (@escaping @MainActor () -> Void) -> Void = { $0() }) {
         guard activates, SingleInstanceGuard.current.isGuarded, let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
         register(bundleIdentifier: bundleIdentifier)
-        offerMoveIfPassing()
+        afterFrame { [weak self] in self?.offerMoveIfPassing() }
     }
 
     // MARK: Second copies
