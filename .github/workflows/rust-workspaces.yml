@@ -26,6 +26,7 @@ on:
       - ".github/rust-workspaces.toml"
       - ".github/scripts/rust-workspaces.py"
       - ".github/scripts/test_rust_workspaces.py"
+      - ".github/workflows/cmux-rd-release.yml"
       - ".github/workflows/rust-workspaces.yml"
       - "Native/**"
       - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
@@ -33,11 +34,11 @@ on:
       - "Packages/macOS/CmuxNext/Sources/**"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/MacOSSystemShortcutsTests.swift"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
-      - "Resources/ghostty/themes/**"
-      - "Resources/theme-files/**"
+      - "Resources/**"
       - "backend/catalog/**"
       - "backend/packages/home-core/conformance/conversation-cases.json"
       - "backend/packages/home-core/conformance/conversation-search-cases.json"
+      - "cmux-next-ios/PROTOCOL.md"
       - "cmux-next-ios/rust/**"
       - "cmux-tui/**"
       - "docs/assets/screenshot.png"
@@ -55,8 +56,8 @@ on:
       - "schemas/chief-profile/chiefs-tool.json"
       - "schemas/chief-profile/tool.json"
       - "schemas/cloud-machine-power/table.json"
-      - "schemas/defaults/cmux-next.json"
       - "schemas/keybindings/ghostty-reserved-keys.json"
+      - "schemas/mobile-link-reconnect/table.json"
       - "schemas/ownership-mirror/vectors.json"
       - "schemas/remote-tab/client.json"
       - "schemas/remote-tab/cookie-sync.json"
@@ -65,10 +66,13 @@ on:
       - "schemas/remote-tab/messages.json"
       - "schemas/remote-tab/scroll-writer.json"
       - "schemas/remote-tab/session.json"
+      - "schemas/settings/published-keys.txt"
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
-      - "schemas/terminal-size-claim/table.json"
+      - "schemas/settings/source/**"
+      - "schemas/sidebar-row/table.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "scripts/ci/api_call_log/env.sh"
       - "scripts/ci/init-submodule.sh"
       - "scripts/ci/needs_verdict.py"
@@ -88,7 +92,9 @@ on:
       - "tests/test_needs_verdict.py"
       - "web/**"
       - "webviews/src/agent-session/acpmux/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "!**/*.md"
+      - "cmux-next-ios/PROTOCOL.md"
       - "docs/posthog/chief-product-analytics.md"
       - "mux/packages/brain/conformance/README.md"
       - "skills/cmux-customization/references/local-app-views.md"
@@ -111,6 +117,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/ARTWORK.md"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/GENERATED.md"
+      - "Resources/terminfo-overlay/README.md"
       - "cmux-tui/AGENTS.md"
       - "cmux-tui/CLAUDE.md"
       - "cmux-tui/README.md"
@@ -150,6 +157,7 @@ on:
       - "cmux-tui/crates/acpmux/skills/integrate-harness/SKILL.md"
       - "cmux-tui/crates/cmux-browser-host/js/guide.md"
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/crates/cmux-follow-cam/tests/traces/README.md"
       - "cmux-tui/crates/cmux-tui/src/cli/ext/templates/common/DESIGN.md"
       - "cmux-tui/crates/cmux-tui/src/cli/ext/templates/common/README.md"
       - "cmux-tui/dist/notices/texts/ghostty-next/uucode/LICENSE.md"
@@ -246,6 +254,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/rust-workspaces.toml
+            /.gitmodules
 
       - name: Check out the trusted receipt verifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -259,6 +268,7 @@ jobs:
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /.github/rust-workspaces.toml
+            /.gitmodules
 
       - name: Verify the local test receipt
         id: verify
