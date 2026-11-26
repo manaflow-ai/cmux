@@ -14,8 +14,6 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
-//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
-//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! `cmux-rd-core`'s Mac Screen device hub rules (`rd_hub_*`: the host's ticket admission, a
@@ -54,6 +52,7 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -103,6 +102,7 @@ pub mod input;
 pub mod keychain;
 mod pane_focus;
 mod rd_hub;
+mod pane_focus;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -111,6 +111,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -259,12 +260,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: auto_archive::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
-            }
-            b"sidebar_automatic_plan" => {
-                use cmux_layout_reducer::automatic;
-                let request: automatic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
@@ -645,6 +640,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 window_rules::respond(operation, request)?
             }
             operation if rd_hub::handles(operation) => rd_hub::respond(operation, request)?,
+            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
