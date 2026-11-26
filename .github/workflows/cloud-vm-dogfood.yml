@@ -192,8 +192,10 @@ jobs:
     needs: installer
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ inputs.lifecycle && 80 || 45 }}
-    # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
-    environment: cmux-vm-${{ inputs.target }}
+    # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys). Paused reads on staging run as the
+    # agent test account's Stack session instead (cmux-next-cloud-journey holds it, as vm-hassle.yml uses it): the files
+    # routes need vm:files, which the staging smoke key was not issued (run 45856090047 skipped the leg for it).
+    environment: ${{ inputs.paused_reads && inputs.target == 'staging' && 'cmux-next-cloud-journey' || format('cmux-vm-{0}', inputs.target) }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -239,13 +241,20 @@ jobs:
           PRODUCTION_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           HAS_TENANT_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY != '' }}
           HAS_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' && vars.CMUX_VM_SMOKE_SERVICE_TEAM != '' }}
+          SESSION_AUTH: ${{ inputs.paused_reads && inputs.target == 'staging' }}
+          HAS_SESSION: ${{ secrets.CMUX_STAGING_STACK_EMAIL != '' && secrets.CMUX_STAGING_STACK_PASSWORD != '' }}
         run: |
           set -euo pipefail
           if [ "$TARGET" = "production" ] && [ "$CONFIRM_PRODUCTION" != "true" ]; then
             echo "::error::A production dogfood run requires confirm_production=true"
             exit 1
           fi
-          if [ "$HAS_TENANT_KEY" != true ] && [ "$HAS_SERVICE_KEY" != true ]; then
+          if [ "$SESSION_AUTH" = true ]; then
+            if [ "$HAS_SESSION" != true ]; then
+              echo "::error::cmux-next-cloud-journey needs CMUX_STAGING_STACK_EMAIL and CMUX_STAGING_STACK_PASSWORD for paused reads on staging"
+              exit 1
+            fi
+          elif [ "$HAS_TENANT_KEY" != true ] && [ "$HAS_SERVICE_KEY" != true ]; then
             echo "::error::cmux-vm-$TARGET needs CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM"
             exit 1
           fi
@@ -269,10 +278,14 @@ jobs:
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
+          SESSION_AUTH: ${{ inputs.paused_reads && inputs.target == 'staging' }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ inputs.paused_reads && inputs.target == 'staging' && secrets.CMUX_STAGING_STACK_EMAIL || '' }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ inputs.paused_reads && inputs.target == 'staging' && secrets.CMUX_STAGING_STACK_PASSWORD || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood"
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
+          if [ "$SESSION_AUTH" = "true" ]; then args+=(--auth session); fi
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
           if [ "$PAUSED_READS" = "true" ]; then args+=(--paused-reads); fi
