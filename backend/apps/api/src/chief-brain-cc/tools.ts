@@ -3,6 +3,7 @@ import { GITHUB_CLIENT } from "./github.ts"
 import { WAKE_CLIENT } from "./wake.ts"
 import { AUTO_CLIENT } from "./jobs.ts"
 import { MEMORY_CLIENT } from "./memory-tools.ts"
+import { HUB_CLIENT } from "./hub.ts"
 
 /**
  * The Cloud Chief's own tools (Lawrence, 2026-10-22: "the Cloud Chief must be able to add or change its own
@@ -25,11 +26,12 @@ const GITHUB = ".local/bin/chief-github"
 const WAKE = ".local/bin/chief-wake"
 const AUTO = ".local/bin/chief-auto"
 const MEMORY = ".local/bin/chief-memory"
+const HUB = ".local/bin/chief-hub"
 const SETTINGS = ".claude/settings.json"
 
 /** A path the Chief may keep a tool at: ~/.local/bin/NAME, ~/.claude/agents/NAME, ~/.claude/skills/** or ~/.chief/tools/**. */
 export const toolPathOk = (path: string): boolean => {
-  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT || path === GITHUB || path === WAKE || path === AUTO || path === MEMORY) return false
+  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT || path === GITHUB || path === WAKE || path === AUTO || path === MEMORY || path === HUB) return false
   const parts = path.split("/")
   if (path.startsWith(".local/bin/") || path.startsWith(".claude/agents/")) return parts.length === 3
   return (path.startsWith(".claude/skills/") || path.startsWith(".chief/tools/")) && parts.length >= 3
@@ -142,5 +144,5 @@ esac
  */
 export const mergeTurnFiles = (base: Readonly<Record<string, string>>, tools: Readonly<Record<string, string>>): Record<string, string> => {
   const own = Object.fromEntries(Object.entries(tools).filter(([p]) => toolPathOk(p)))
-  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [GITHUB]: GITHUB_CLIENT, [WAKE]: WAKE_CLIENT, [AUTO]: AUTO_CLIENT, [MEMORY]: MEMORY_CLIENT, [SETTINGS]: withHook(base[SETTINGS]) }
+  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [GITHUB]: GITHUB_CLIENT, [WAKE]: WAKE_CLIENT, [AUTO]: AUTO_CLIENT, [MEMORY]: MEMORY_CLIENT, [HUB]: HUB_CLIENT, [SETTINGS]: withHook(base[SETTINGS]) }
 }
