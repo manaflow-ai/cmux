@@ -4,6 +4,7 @@ use crate::hash::BlobHash;
 pub(crate) fn browser(id: &str, title: &str, favicon: &[u8], thumb: &[u8]) -> Observation {
     Observation {
         tab_id: id.to_owned(),
+        tab_key: String::new(),
         title: title.to_owned(),
         kind: Kind::Browser,
         favicon: Some(FaviconInput { mime: Mime::Png, bytes: favicon.to_vec() }),
