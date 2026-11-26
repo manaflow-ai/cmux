@@ -213,7 +213,8 @@ async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
     let rig = upload_rig(Transport::WireGuard).await;
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("big.bin");
-    patterned_file(&source, 200 * MIB);
+    let size = cmux_mobile_link::bundle_link::MAX_BUNDLE_BYTES + 8 * MIB;
+    patterned_file(&source, size);
     let (uploads, _recorder) = engine(Timings::default());
     uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
     let id = uploads.start(spec(&rig, "big.bin"), source.to_str().unwrap().into());
@@ -234,7 +235,7 @@ async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
     }
     let progress = uploads.progress(id.clone()).unwrap();
     assert_eq!(progress.stage, UploadStage::Cancelled);
-    assert!(progress.sent_bytes < 200 * MIB);
+    assert!(progress.sent_bytes < size);
     // No later event revives it.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(uploads.progress(id).unwrap().stage, UploadStage::Cancelled);
