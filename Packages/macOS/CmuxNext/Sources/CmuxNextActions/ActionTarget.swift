@@ -84,6 +84,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case workspaceRow
     case workspaceGroup
     case sidebarBackground
+    /// The sidebar's new workspace (+) button: a click opens a workspace; its
+    /// menu holds the other ways to make one (Leo 2026-11-22, a short decided list).
+    case sidebarNew
     case terminalSelection
     case browserPage
     /// A link in a page (both engines; `BrowserHitMenu` in the App).
@@ -156,7 +159,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .pane, .newTab, .tabStrip: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
-        case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        case .sidebarBackground, .sidebarNew, .sidebarFooter, .nowPlayingCard: nil
         // The explorer's actions act on its selection, not a target.
         case .fileExplorerRow: nil
         case .cloudMachine, .sshMachine, .machineSection, .joinedMachine: .machine

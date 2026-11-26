@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.proxyAuth" : {
+      "comment" : "Agent pane: a failed turn's note (cx-w10a)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "رفض {via} طلب {harness} ({status}). تحقّق من مفتاح هذا المسار أو حسابه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} je odbio zahtjev za {harness} ({status}). Provjeri ključ ili račun te rute."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} afviste anmodningen fra {harness} ({status}). Tjek rutens nøgle eller konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} hat die Anfrage von {harness} abgelehnt ({status}). Prüfe Schlüssel oder Konto dieser Route."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{via} refused {harness}’s request ({status}). Check that route’s key or account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} rechazó la solicitud de {harness} ({status}). Revisa la clave o la cuenta de esa ruta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} a refusé la requête de {harness} ({status}). Vérifie la clé ou le compte de cette route."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} ha rifiutato la richiesta di {harness} ({status}). Controlla chiave o account di quella rotta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{via} が {harness} のリクエストを拒否しました（{status}）。そのルートのキーまたはアカウントを確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} បានបដិសេធសំណើរបស់ {harness} ({status})។ ពិនិត្យ key ឬគណនីនៃផ្លូវនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via}가 {harness}의 요청을 거부했습니다({status}). 그 경로의 키나 계정을 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} avviste forespørselen fra {harness} ({status}). Sjekk rutens nøkkel eller konto."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} odrzucił żądanie {harness} ({status}). Sprawdź klucz lub konto tej trasy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} recusou a solicitação de {harness} ({status}). Verifique a chave ou a conta dessa rota."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} отклонил запрос {harness} ({status}). Проверьте ключ или аккаунт этого маршрута."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} ปฏิเสธคำขอของ {harness} ({status}) ตรวจสอบ key หรือบัญชีของเส้นทางนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via}, {harness} isteğini reddetti ({status}). O rotanın anahtarını veya hesabını kontrol et."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} відхилив запит {harness} ({status}). Перевірте ключ або акаунт цього маршруту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} đã từ chối yêu cầu của {harness} ({status}). Kiểm tra khóa hoặc tài khoản của tuyến đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} 拒绝了 {harness} 的请求（{status}）。请检查该路由的密钥或账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{via} 拒絕了 {harness} 的請求（{status}）。請檢查該路由的金鑰或帳號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

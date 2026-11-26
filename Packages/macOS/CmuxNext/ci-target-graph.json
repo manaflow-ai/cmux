@@ -14,7 +14,9 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
+    "CmuxLiveCode": "Packages/Shared/CmuxLiveCode",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
+    "CmuxPagePushBound": "Packages/Shared/CmuxPagePushBound",
     "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
@@ -197,7 +199,8 @@
       ],
       "packages": [
         "CmuxAppAttest",
-        "CmuxEgress"
+        "CmuxEgress",
+        "CmuxPagePushBound"
       ]
     },
     "CmuxNextAgentPanePlacement": {
@@ -360,6 +363,7 @@
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
         "CmuxNextHostPressure",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextImportCards",
@@ -525,6 +529,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
@@ -673,7 +678,8 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWindowRules"
       ],
       "packages": []
     },
@@ -983,6 +989,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1032,6 +1039,7 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCloudUI",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
@@ -1625,9 +1633,7 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [
-        "CmuxNextDesignTokens"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
@@ -1638,6 +1644,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextHostPressureTunables": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressureTunables",
+      "targets": [
+        "CmuxNextDesignTokens",
+        "CmuxNextHostPressure"
+      ],
+      "packages": []
     },
     "CmuxNextHostedChief": {
       "kind": "regular",
@@ -1773,19 +1788,10 @@
     "CmuxNextLiveCode": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
-      "targets": [
-        "CmuxNextCompat"
-      ],
-      "packages": []
-    },
-    "CmuxNextLiveCodeTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLiveCodeTests",
-      "targets": [
-        "CmuxNextLiveCode"
-      ],
-      "packages": [],
-      "reads": []
+      "targets": [],
+      "packages": [
+        "CmuxLiveCode"
+      ]
     },
     "CmuxNextMacScreen": {
       "kind": "regular",
@@ -1922,7 +1928,8 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextMobileHost",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -2287,6 +2294,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -2306,9 +2314,10 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/",
         "Resources/theme-files/",
         "cmux-tui/crates/cmux-computer-use/src/policy.rs",
+        "cmux-tui/crates/cmux-customize-recipes/recipes/",
         "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",
@@ -2407,6 +2416,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
@@ -2647,6 +2657,12 @@
     "SettingsSchemaPlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Sources/SettingsSchemaPlugin",
+      "targets": [],
+      "packages": []
+    },
+    "StringCatalogsPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Sources/StringCatalogsPlugin",
       "targets": [],
       "packages": []
     }

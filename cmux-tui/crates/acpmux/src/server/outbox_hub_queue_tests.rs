@@ -429,6 +429,42 @@ async fn duress_a_30s_hub_503_loses_none_of_100_sends_and_drains_on_recovery() {
     assert_eq!(held, SENDS as usize, "the hub holds each send once");
 }
 
+/// A delivery that followed its chat's move over the hub names `HOST/ID` on a machine only the
+/// hub reaches (`follow_move` leaves it with no hub post). It goes through the hub to that id,
+/// never failing as "no session HOST/ID on" this machine, as six messages to one moved chat did
+/// on 2026-11-25.
+#[tokio::test(start_paused = true)]
+async fn a_followed_hub_move_goes_through_the_hub_not_a_lookup_here() {
+    let (hub, stub) = setup(StubHub::default());
+    let id = "01a2116d-0000-7000-8000-000000000001";
+    let target = format!("far-host/{id}");
+    let mut d = super::retry_delay_tests::delivery(crate::store::now_ms(), false);
+    d.id = "followed-hub-move".into();
+    d.target.clone_from(&target);
+    d.request = json!({
+        "sessionId": target,
+        "prompt": [{"type": "text", "text": "after the move"}],
+        "_meta": {"acpmux": {"promptId": "prompt-followed-move"}},
+    });
+    d.error = Some(format!("the chat moved; following it to {target}"));
+    assert!(hub.mesh_only_host(&target), "only the hub reaches {target}");
+    let d = hub.outbox.add(d).unwrap();
+    let delivering = {
+        let hub = hub.clone();
+        let id = d.id.clone();
+        tokio::spawn(async move { deliver(&hub, &id).await })
+    };
+    let d = settled(&hub, &d.id, Duration::from_secs(600)).await;
+    delivering.abort();
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert!(!d.no_session(), "{d:?}");
+    let posts = stub.posts.lock().unwrap();
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0].to.session_id.as_deref(), Some(id), "{posts:?}");
+    assert_eq!(posts[0].to.host.as_deref(), Some("far-host"), "{posts:?}");
+    assert_eq!(posts[0].idempotency_key, "prompt-followed-move", "{posts:?}");
+}
+
 /// RFD 0180 (EAGAIN, not ENOENT): a kept delivery whose target the hub does not list yet (its
 /// machine paused, restarting or between heartbeats) waits on the outbox's back-off and is
 /// delivered once the hub lists it, under its one key. Before: failed on the first 404 ("the
