@@ -50,7 +50,7 @@ public final class WebKitDriver: DriverCallHandler {
         await keepRendering(params)
         switch method {
         case "tabs.list": return try tabsList(params)
-        case "tabs.open": return try await tabsOpen(params)
+        case "tabs.open": return try await tabsOpen(params, place: AutomationTabPlace(json))
         case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)

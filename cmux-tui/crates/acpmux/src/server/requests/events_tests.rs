@@ -333,3 +333,102 @@ fn a_page_cuts_an_oversized_tool_output_and_the_record_reads_whole_on_its_own() 
     assert_eq!(update["content"][0]["content"]["text"].as_str(), Some(log.as_str()));
     assert!(update.pointer("/_meta/acpmux/cut").is_none());
 }
+
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A chat on disk whose newest records are `filler` raw harness lines, a page's transcript kinds
+/// sparse among them: 200 reply chunks, then that many lines the transcript page skips.
+fn sparse_tail_chat(filler: u64) -> (std::path::PathBuf, Arc<Hub>) {
+    let root = std::env::temp_dir().join(format!("acpmux-page-replies-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let writer = crate::store::LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+    let mut seq = 0;
+    let line = "x".repeat(1000);
+    for n in 0..200 + filler {
+        seq += 1;
+        let (kind, msg) = if n < 200 {
+            let update = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "word "}});
+            (
+                "agent_message_chunk",
+                json!({"method": "session/update", "params": {"sessionId": "a", "update": update}}),
+            )
+        } else {
+            ("claude.stream_event", json!({"line": line}))
+        };
+        let record =
+            EventRecord { seq, at: seq, dir: "in".into(), kind: kind.into(), msg, host_seq: None };
+        writer.append("c", &record).unwrap();
+    }
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        "lastSeq": seq, "eventCount": seq,
+    }))
+    .unwrap();
+    writer.save(&meta).unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::LocalStore::new(sessions, 8 << 20).unwrap();
+    (root, Hub::new_deferred(config, Box::new(store), crate::mailbox::Mailbox::memory()))
+}
+
+/// The app's ask for a chat's newest transcript page, as it sends it.
+fn newest_transcript_page() -> Value {
+    json!({
+        "_meta": {"acpmux": {"personVerified": true, "via": "app"}},
+        "sessionId": "c", "beforeSeq": 9007199254740991u64, "limit": 400, "maxBytes": 131072,
+        "kinds": ["transcript", "available_commands_update", "usage_update", "config_option_update", "bookmarks"],
+    })
+}
+
+/// The app asks for a chat's newest page again and again while nothing is appended
+/// (cmuxterm-hq#13733: 45 asks read 159 MB in 30 s). The same ask of an unchanged log is answered
+/// as it was, with no read; an append makes the next ask read the log and see the new record.
+#[test]
+fn an_unchanged_chats_newest_page_asked_again_reads_nothing() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let (root, hub) = sparse_tail_chat(8_000);
+    let ask = newest_transcript_page();
+    let first_read = read_bytes();
+    let first = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+    let first_read = read_bytes() - first_read;
+    assert_eq!(first["events"].as_array().unwrap().len(), 200);
+    assert!(first_read > 4 << 20, "the first ask reads back past the filler: {first_read}");
+
+    let again_read = read_bytes();
+    let again = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+    let again_read = read_bytes() - again_read;
+    assert_eq!(again, first);
+    assert!(again_read < 64 << 10, "the same ask read {again_read} bytes of an unchanged log");
+
+    // A lane's own read marks its reports read: it reads the log every time.
+    let lane_read = read_bytes();
+    handle(&hub, method::MUX_EVENTS, &ask, Some("lane")).unwrap();
+    assert!(read_bytes() - lane_read > 4 << 20);
+
+    let s = hub.resolve("c").unwrap();
+    let update =
+        json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "new"}});
+    let appended = hub.append(
+        &s,
+        "in",
+        "agent_message_chunk",
+        json!({"method": "session/update", "params": {"sessionId": "a", "update": update}}),
+    );
+    let after = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+    assert_eq!(after["lastSeq"], appended.seq);
+    assert_eq!(seqs(&after).last(), Some(&appended.seq), "the page holds the appended record");
+    let _ = std::fs::remove_dir_all(&root);
+}

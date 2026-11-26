@@ -25,6 +25,11 @@ pub(super) const APP_SEND: &str = "app_chat_send";
 /// sender's app when no harness environment says (chief/caller.rs).
 static CLIENT: OnceLock<String> = OnceLock::new();
 
+/// The MCP client's name, once `initialize` gave one.
+pub(super) fn client_name() -> Option<&'static str> {
+    CLIENT.get().map(String::as_str)
+}
+
 /// Keeps the client's name from an `initialize` request's params.
 pub(super) fn remember_client(params: &Value) {
     let info = params.get("clientInfo");

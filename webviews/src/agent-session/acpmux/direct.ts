@@ -1422,6 +1422,37 @@ export function firstHeldFrom(events: readonly EventRecord[], seq: number): numb
   return low;
 }
 
+/// The index of the last record in `events` (oldest first) at or before `seq`, -1 when none is. A row's order need
+/// not be a held seq (a prompt drawn before its record comes back sits at `latest + 0.5`, `placeLocalLast`; a page read
+/// with a kinds filter leaves holes), so a cut moved back to where a row begins steps to the record before it, never
+/// to the same record again (`spanCut`).
+export function heldAtOrBefore(events: readonly EventRecord[], seq: number): number {
+  const at = firstHeldFrom(events, seq);
+  return events[at]?.seq === seq ? at : at - 1;
+}
+
+/// Where a cut at `events[cut]` goes back to so that no row is drawn from records on both sides of it: to where the
+/// row spanning it begins (`spanningFrom`), until none spans it. Each pass moves the cut to an older record, so it ends
+/// within `cut` passes; 0 or less when that reaches the oldest record held. Stepping to the first record at or after
+/// where the row begins instead (`firstHeldFrom`) found the same cut again when no held record lay between, and spun
+/// with the page's main thread held: Leo's NIGHTLY renderer at 100% CPU and 14 GB, its pages unclosable.
+export function spanCut(events: readonly EventRecord[], cut: number, spanningFrom: (seq: number) => number): number {
+  while (cut > 0) {
+    const { seq } = events[cut]!;
+    const from = spanningFrom(seq);
+    if (from >= seq) break;
+    const older = heldAtOrBefore(events, from);
+    // ends: `older` holds a seq at or before `from`, below `seq`, so the cut moves to an older record every pass. A
+    // pass that does not (a `spanningFrom` that breaks that) is logged and keeps the cut, never spins.
+    if (older >= cut) {
+      console.error(`agent pane: a shed cut at seq ${seq} did not move back (row from ${from}); kept`);
+      break;
+    }
+    cut = older;
+  }
+  return cut;
+}
+
 /// Where a rebuild of `events` (held, oldest first) starts folding again: 0 to fold them all, when
 /// they fit `window` (`REBUILD_WINDOW`); else the turn start at or before both the newest `window`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
@@ -1461,7 +1492,7 @@ export function midTurnCut(
     while (at > 0 && events[at]!.at >= openSince) at -= 1;
     if (at <= 0) return 0;
     const from = spanningFrom(events[at]!.seq);
-    if (from < events[at]!.seq) at = firstHeldFrom(events, from);
+    if (from < events[at]!.seq) at = heldAtOrBefore(events, from);
     if (at <= 0) return 0;
     if (at === moved) return at;
   }
@@ -5188,10 +5219,7 @@ export class AcpmuxDirectClient {
     if (through === 0) return;
     // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
-    for (const entry of held.queue) {
-      const author = queuedAuthor(entry?.author);
-      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
-    }
+    this.keepQueueAuthors(held.queue);
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
@@ -5288,10 +5316,7 @@ export class AcpmuxDirectClient {
     this.pendingSecret = undefined;
     // A teammate's prompt whose authored record fell out of the kept tail keeps the author its row
     // had when the tail was kept (this page's or another tab's): acpmux's list names none.
-    for (const entry of kept.queue) {
-      const author = queuedAuthor(entry?.author);
-      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
-    }
+    this.keepQueueAuthors(kept.queue);
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors, this.queueEdited);
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
@@ -5301,11 +5326,23 @@ export class AcpmuxDirectClient {
     // that prompt now makes it jump up when the attach brings its reply and work back.
     if (!this.hasTranscriptTail()) {
       this.resetSessionState("incomplete kept tail");
+      // The rows go, but not who wrote each queued prompt: the attach's page may hold none of
+      // their authored records either.
+      this.keepQueueAuthors(kept.queue);
       return 0;
     }
     // A copy's rows continue from how far it covers, which may be past its newest record
     // (`drawPeerCopy`): an attach page that starts right after that is no gap.
     return kept.peerCopy ? Math.max(this.lastSeq, kept.peerCopy.lastSeq) : this.lastSeq;
+  }
+
+  /// A teammate's queued prompt keeps the author its row had when the tail was kept, for when
+  /// acpmux's list or attach draws the queue: acpmux's list names none.
+  private keepQueueAuthors(queue: KeptTail["queue"]): void {
+    for (const entry of queue) {
+      const author = queuedAuthor(entry?.author);
+      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
+    }
   }
 
   private hasTranscriptTail(): boolean {
@@ -6105,6 +6142,10 @@ export class AcpmuxDirectClient {
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
+    if (pageShown() && this.readAheadOwed) {
+      this.readAheadOwed = false;
+      this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
+    }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
     const sessionId = this.selectedSessionId;
@@ -8053,14 +8094,12 @@ export class AcpmuxDirectClient {
     // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
     // kept are what a fold of the records kept draws, and none is folded again.
     const chosen = cut;
-    while (cut > 0) {
-      const { seq } = this.events[cut]!;
+    cut = spanCut(this.events, cut, (seq) => {
       let from = this.rows.spanningFrom(seq);
       for (const [id, first] of this.subagentFirstSeen)
         if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
-      if (from >= seq) break;
-      cut = firstHeldFrom(this.events, from);
-    }
+      return from;
+    });
     if (cut <= 0) return;
     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
     if (cut !== chosen) {
@@ -13921,6 +13960,8 @@ export class AcpmuxDirectClient {
   /// Chats waiting for a read, the next one first.
   private readAheadQueue: string[] = [];
   private readAheadTimer?: ReturnType<typeof setTimeout>;
+  /// The idle read ahead came due while the page was hidden: it runs once the page shows (`showChanged`).
+  private readAheadOwed = false;
 
   /// A chat acpmux purged: nothing of its read ahead is kept. Kept, each closed chat the read ahead
   /// had read stayed in `readAheadAt` and `readAheadSeq` for the pane's life
@@ -13935,10 +13976,22 @@ export class AcpmuxDirectClient {
   }
 
   /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
+  /// A hidden page reads nothing ahead: every workspace's pages read the same recent chats, so N
+  /// hidden pages read each one N times for a switch only the shown page takes (Leo, 2026-11-18:
+  /// "And other general perf"). Its read ahead runs when it shows. A hover or a host's prefetch
+  /// (`queueReadAhead` with `first`) still reads at once.
   private scheduleReadAhead(delayMs: number): void {
     if (this.closed || this.readAheadTimer !== undefined) return;
+    if (!pageShown()) {
+      this.readAheadOwed = true;
+      return;
+    }
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
+      if (!pageShown()) {
+        this.readAheadOwed = true;
+        return;
+      }
       const recent = [...this.sessions]
         .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId && !session.coldArchive)
         .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))

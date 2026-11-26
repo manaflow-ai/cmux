@@ -24,6 +24,7 @@
 }
 .cmux-app-scene-zstack {
   display: grid;
+  place-items: center;
 }
 .cmux-app-scene-zstack > * {
   grid-area: 1 / 1;
@@ -86,6 +87,8 @@
 }
 .cmux-app-scene-node[data-hover]:hover:not([data-disabled]) {
   background-color: var(--app-hover);
+  /* A gradient background is an inline image; the hover wash replaces it, as on AppKit. */
+  background-image: none !important;
 }
 .cmux-app-scene-node:is(button, [role="button"]):not([data-disabled]) {
   cursor: default;
@@ -311,4 +314,117 @@
 }
 .cmux-app-scene-switch {
   flex: none;
+}
+
+/* Scene motion (sceneMotion.tsx): `transition` in and out, `contentTransition` on Text and
+   `animation` on a node's own prop changes. The motion gate (WebTheme `data-cmux-motion`,
+   `data-agent-motion`, Reduce Motion): off draws the end state; reduced crossfades instead of
+   moving. On the motion scale: entering standard, leaving quick (SCENE_LEAVE_MS). */
+.cmux-app-scene-root {
+  --cmux-app-scene-enter: var(--cmux-motion-standard);
+  --cmux-app-scene-leave: var(--cmux-motion-quick);
+  --cmux-app-scene-ease: var(--cmux-ease-out);
+}
+.cmux-app-scene-node[data-leaving] {
+  pointer-events: none;
+}
+.cmux-app-scene-digit {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes cmux-app-scene-fade-in {
+  from { opacity: 0; }
+}
+@keyframes cmux-app-scene-fade-out {
+  to { opacity: 0; }
+}
+@keyframes cmux-app-scene-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes cmux-app-scene-slide-out {
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes cmux-app-scene-scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+}
+@keyframes cmux-app-scene-scale-out {
+  to { opacity: 0; transform: scale(0.9); }
+}
+@keyframes cmux-app-scene-move-in {
+  from { opacity: 0; transform: translateX(-12px); }
+}
+@keyframes cmux-app-scene-move-out {
+  to { opacity: 0; transform: translateX(12px); }
+}
+@keyframes cmux-app-scene-roll-up {
+  from { opacity: 0; transform: translateY(0.45em); }
+}
+@keyframes cmux-app-scene-roll-down {
+  from { opacity: 0; transform: translateY(-0.45em); }
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-entering][data-transition],
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-content[data-roll],
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-digit[data-roll] {
+  animation: cmux-app-scene-fade-in var(--cmux-app-scene-enter) var(--cmux-app-scene-ease) both;
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-leaving][data-transition] {
+  animation: cmux-app-scene-fade-out var(--cmux-app-scene-leave) var(--cmux-app-scene-ease) both;
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="smooth"] {
+  transition:
+    opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+}
+:root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="snappy"] {
+  transition:
+    opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+    text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
+}
+/* Full motion moves; reduced keeps the crossfades above. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="slide"] {
+    animation-name: cmux-app-scene-slide-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="slide"] {
+    animation-name: cmux-app-scene-slide-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="scale"] {
+    animation-name: cmux-app-scene-scale-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="scale"] {
+    animation-name: cmux-app-scene-scale-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-entering][data-transition="move"] {
+    animation-name: cmux-app-scene-move-in;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-leaving][data-transition="move"] {
+    animation-name: cmux-app-scene-move-out;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-digit[data-roll="up"] {
+    animation-name: cmux-app-scene-roll-up;
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-digit[data-roll="down"] {
+    animation-name: cmux-app-scene-roll-down;
+  }
+  /* A transform change moves only under full motion; reduced keeps the color and opacity fades. */
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="smooth"] {
+    transition:
+      opacity var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="snappy"] {
+    transition:
+      opacity var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      transform var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
+  }
 }

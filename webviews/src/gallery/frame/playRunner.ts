@@ -513,7 +513,7 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
-    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
+    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves, boxFollow: boxShift.follow } : {}),
     longFrames,
     ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),

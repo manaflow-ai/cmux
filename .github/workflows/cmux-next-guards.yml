@@ -371,11 +371,29 @@ jobs:
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
+          # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
+          # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
+          # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
           step_started=$(date +%s)
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          head_budget=$(( 15 * 60 ))
+          head_status=0
+          timeout --kill-after=10 "$head_budget" \
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
+          head_cut=false
+          if [ "$head_status" -eq 124 ] || [ "$head_status" -eq 137 ]; then
+            head_cut=true
+            echo "::error title=ci guard group head pass cut::the head pass hit its ${head_budget}s bound (exit ${head_status}); its unfinished steps have no head result"
+            scripts/ci/guards-local.sh --list --feat-routes "$RUNNER_TEMP/changed-files.txt" 2>/dev/null \
+              | sed -n 's/^  - //p; s/  (Linux only; skipped here)$//' | sort -u > "$RUNNER_TEMP/guards-plan.txt" || true
+            # --results has one key per finished step; a step with no key was cut off.
+            sed -n 's/^  "\(.*\)": \(true\|false\),\{0,1\}$/\1/p' "$RUNNER_TEMP/guards-head.json" | sort -u > "$RUNNER_TEMP/guards-done.txt" || true
+            comm -23 "$RUNNER_TEMP/guards-plan.txt" "$RUNNER_TEMP/guards-done.txt" > "$RUNNER_TEMP/guards-cut.txt" || true
+            echo "$(wc -l < "$RUNNER_TEMP/guards-cut.txt") of $(wc -l < "$RUNNER_TEMP/guards-plan.txt") planned steps had no head result when it was cut (first 40):"
+            head -n 40 "$RUNNER_TEMP/guards-cut.txt"
+          fi
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
           steps=()
@@ -534,7 +552,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
+          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$'
           if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Generate the Rust notices from this tree (as the nightly does)
@@ -842,8 +860,7 @@ jobs:
       - name: Remote Powerlevel10k prompt reset compatibility
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get -o DPkg::Lock::Timeout=300 update
-            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+            bash scripts/ci/apt-ensure.sh zsh
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
@@ -1030,16 +1047,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/cmux-next/tests/origin-net.test.sh
 
-      # A tab switch build step on a Mac without the CEF R2 read key fails in seconds, not after a 7 to 13 minute
-      # build under the host lock (cmux19, 2026-11-16).
-      - name: tab-switch.sh checks the CEF read credentials before it builds
+      # Every scripts/measure test, each named PASS, FAIL or SKIP with its reason: only 4 of 45 had their own step
+      # and the rest went unrun (2026-11-18). A new measure test runs here with no step of its own.
+      - name: Every scripts/measure test passes (run-all.sh)
         if: ${{ !cancelled() }}
-        run: bash scripts/measure/tests/tab-switch-cef-creds.test.sh
+        run: bash scripts/measure/tests/run-all.sh
 
-      # A submodule pointer the fork lacks, or a stale host mirror, fails in seconds, not after the step took the host.
-      - name: tab-switch.sh checks the submodule commits are fetchable before it builds
+
+      # A Mac whose sudoers grants purge but not launchctl ran every launch-ready step into "a password is required".
+      - name: console-session.sh hops into Aqua only when it must and sudo grants launchctl
         if: ${{ !cancelled() }}
-        run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
+        run: bash scripts/ci/tests/console-session-hop.test.sh
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}

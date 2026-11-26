@@ -8,6 +8,7 @@ import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
+import { AgentToolsCard } from "./AgentToolsCard";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
@@ -35,6 +36,7 @@ import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
+import { McpServersCard } from "./McpServersCard";
 import { TailnetCard } from "./TailnetCard";
 import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
@@ -67,6 +69,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
+  agentTools: () => <AgentToolsCard />,
   chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
@@ -87,6 +90,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
+  mcpServers: () => <McpServersCard />,
   tailnet: () => <TailnetCard />,
   models: (focus) => <ModelsCard focus={focus} />,
   worktreeSetup: () => <WorktreeSetupCard />,
@@ -130,7 +134,7 @@ export function SectionView({
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density, the custom density keys and Text Size.
   const densityCard = [...category.lead, ...category.trail].includes("density");
-  // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
+  // The Computer Use card draws every computerUse.* row (mode, denied apps, switches) itself.
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");

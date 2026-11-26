@@ -147,10 +147,6 @@ path = "tests/test_compose_stable_appcast.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_computer_use_helper_icon_depth.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
@@ -481,10 +477,6 @@ path = "tests/test_normalize_pbxproj.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_notarize_computer_use_helper.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_notary_submit_retry.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Drives notary_submit_retry in scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_submit_retry.py yourself after changing it (under 1 s, no Mac)."
@@ -749,6 +741,11 @@ reason = "Run by the lane that changes side-instance.sh (no new CI tests): pytho
 path = "tests/test_side_instance_remake_clears_old_identity.py"
 lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_side_instance_stale_default.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_stale_default.py; needs only bash and python3."
 
 [[test]]
 path = "tests/test_sidebar_row_oracle.py"

@@ -35,6 +35,7 @@ impl Customize {
             profile,
             added_ms: Some(now_ms),
             generation: None,
+            on_ms: Some(now_ms),
             code: None,
         };
         self.check_collection(&Collection {

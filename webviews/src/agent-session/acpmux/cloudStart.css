@@ -240,7 +240,7 @@
 .acpmux-cloud-plan-team__team { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plan-team[data-look="banner"] .acpmux-cloud-plan-team__actions { margin-top: 0; margin-left: auto; }
 .acpmux-cloud-plan-team[data-look="card"] { margin-top: 8px; }
-/* The pricing card's plans (CloudStartView PlanCard): Pro and Max side by side, one under the other in a narrow
+/* The pricing card's plans (CloudStartView PlanCard): the plans side by side, one under the other in a narrow
    pane. Each is the ask's title, a muted price and line, and its Subscribe, inside the ask button's border. */
 .acpmux-cloud-plans {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--ds-space-2);

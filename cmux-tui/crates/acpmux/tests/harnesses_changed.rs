@@ -75,6 +75,7 @@ async fn a_new_profile_file_reaches_watchers_as_harnesses_changed() {
         managed: vec![root.join("managed-missing")],
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
+        person_dir: None,
     };
     write(&root.join("home").join("config.json"), "{}");
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();
@@ -157,6 +158,7 @@ async fn a_profile_in_folders_made_after_the_start_reaches_watchers() {
         managed: vec![managed.clone()],
         user_dir: Some(user.clone()),
         cmux_json: Some(config.join("cmux.json")),
+        person_dir: None,
     };
     write(&root.join("config").join("config.json"), "{}");
     let mut cfg =

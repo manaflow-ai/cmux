@@ -467,15 +467,19 @@ def focus_terminal(tries=5):
     ws, pane = LOAD["terminal_ws"], LOAD.get("stress_pane") or LOAD.get("terminal_pane")
     report = {}
     for attempt in range(1, tries + 1):
-        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
-        if pane:
-            rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"})
+        went = rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        focus = rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"}) if pane else None
         time.sleep(0.5)  # focus settles
         report = focus_report()
         focused = any("TerminalSurfaceView" in str(r) for r in report["first_responders"])
         if focused:
             break
         note(f"{SESSION}: focus try {attempt}: no terminal has the keyboard ({report['first_responders']})")
+        if attempt == 1:
+            # What the app says it did and has: the whole debug.focus report, the two replies, the shown workspace.
+            results.setdefault("focus_failures", []).append({
+                "session": SESSION, "round": ROUND, "workspace": ws, "pane": pane,
+                "goToWorkspace": went, "pane_focus": focus, "debug_focus": rpc("debug.focus")})
     return dict(report, tries=attempt, terminal_focused=focused)
 
 

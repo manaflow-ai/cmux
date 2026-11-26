@@ -153,7 +153,7 @@ if [ "${#want[@]}" -gt 0 ]; then
       cmux-nightly=*) apps+=(--app "cmux=${line#cmux-nightly=}") ;;
       *=*) apps+=(--app "$line") ;;
     esac
-  done < <(python3 scripts/perf-bench/fetch_browsers.py "${want[@]}")
+  done < <(python3 scripts/perf-bench/fetch_browsers.py ${want[@]+"${want[@]}"})
 fi
 
 status=0

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """busy_holder: the bench load arm `oversub` (FABLE-COMMON.md "Load arm rule", coordinator order f24, 2026-11-10).
 
-Lawrence's Mac runs all day at a load average of about 250 to 300 on 18 cores: about 14 runnable threads per core
+A Mac in real use runs all day at a load average of about 250 to 300 on 18 cores: about 14 runnable threads per core
 (claude, codex, git, gh, node, bun, cargo, rustc). A read of it (2026-11-10) gave 97 % of them below the default
 priority 31 (at 20 and at 4), from processes that also sleep on I/O. A bench "load" arm with a host load under 15
 is a quiet machine next to that. This tool puts N busy threads beside the app under test, for a short time, and
@@ -27,14 +27,14 @@ takes them away again, in one of two shapes (see "Two shapes"). It is the ONE bu
 Shape. `--threads N` is the count of busy threads; `--procs P` spreads them over P processes (default 1: one
 process with N threads). The macOS scheduler shares a QoS band between thread groups (about one per process) before
 it shares it between threads, so 1 process with 250 threads and 250 processes with 1 thread are different loads;
-his Mac has many processes. Say the shape next to each number: threads, processes, cores, threads per core, the
+such a Mac has many processes. Say the shape next to each number: threads, processes, cores, threads per core, the
 1-minute load at the start and at the end (the summary of `stop` has all of them).
 
 Two shapes (`--shape`), say which one next to each number:
   spin    (default) N threads that never sleep and do no I/O. They start at the default priority 31; the kernel
           lowers a thread that never sleeps, so `ps -M` shows them at 0 to 24 during the arm. This is run-queue
           length only.
-  agents  N processes with one thread each, like a Mac full of agent CLIs and their helpers (measured on his Mac:
+  agents  N processes with one thread each, like a Mac full of agent CLIs and their helpers (measured on such a Mac:
           248 to 376 runnable threads, 97 % of them below priority 31, at 20 and at 4, from processes that also
           sleep on I/O). Two of three run at utility QoS (priority 20), one of three at background (4). Each one
           repeats: a CPU burst of 2 to 24 ms, ONE I/O step (write 64 KiB, with an fsync each 8th turn; or lstat
@@ -45,7 +45,7 @@ Two shapes (`--shape`), say which one next to each number:
           and such a child stays at 31), so each has its own interpreter memory. A process that does not get its
           class ends with an error and the holder ends with it: the shape never runs at the wrong priority.
 
-What neither shape copies from his Mac: memory pressure, page cache traffic of large files, timers of real
+What neither shape copies from such a Mac: memory pressure, page cache traffic of large files, timers of real
 programs, GPU work, network. `spin` also has no disk I/O and no process starts.
 
 SAFETY (each one is enforced here, not left to the caller):

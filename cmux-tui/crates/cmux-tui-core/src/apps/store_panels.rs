@@ -161,6 +161,9 @@ impl Supervisor {
             "apps.composer.list" => params::<EmptyParams>(args).map(|_| self.composer_list()),
             "apps.composer.mentions" => params(args).map(|p| self.composer_mentions(p)),
             "apps.chat_widgets.route" => self.chat_widget_route(args),
+            op if op.starts_with("apps.widgets.") => {
+                return self.widget_call(client, op, args, origin);
+            }
             "apps.grants.get" => params(args).and_then(|p| to_value(self.grants_get(p)?)),
             "apps.logs" => params(args).and_then(|p| self.logs_tail(client, p)),
             "apps.asset.get" => params(args).and_then(|p| self.asset_get(p)),

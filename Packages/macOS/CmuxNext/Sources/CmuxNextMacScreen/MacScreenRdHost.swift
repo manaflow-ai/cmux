@@ -45,13 +45,20 @@ nonisolated final class MacScreenRdHost: Sendable {
     private let output = Mutex<Task<Void, Never>?>(nil)
     private let handler = Mutex<(@Sendable (Event) -> Void)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd-host")
+    /// How long the started host may take to answer (its key and candidates); tests shorten it.
+    let answerTimeout: Duration
+    /// The pending no-answer deadline, from the host's start to its answer.
+    private let answerDeadline: DemandTimer
 
     /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
     private let webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)?
 
-    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil) {
+    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil,
+         answerTimeout: Duration = .seconds(15), clock: any Clock<Duration> = ContinuousClock()) {
         self.session = session
         self.webRTCServer = webRTCServer
+        self.answerTimeout = answerTimeout
+        answerDeadline = DemandTimer(owner: "mac-screen.rd-host-answer-deadline", clock: clock)
     }
 
     /// Whether the rd process was started (a WebRTC viewer never starts it).
@@ -79,6 +86,8 @@ nonisolated final class MacScreenRdHost: Sendable {
             var connected = false
             for await line in process.lines {
                 guard let self else { return }
+                // Every line's kind, so a session's log shows the stage it reached (cmuxterm-hq#13721).
+                logger.info("cmux rd: host line \(line.kinds, privacy: .public)")
                 if let displays = line.displays {
                     var document = answer ?? MacScreenRdDocument(key: "")
                     document.displays = displays.compactMap { $0.count == 2 ? CGSize(width: Double($0[0]), height: Double($0[1])) : nil }
@@ -100,6 +109,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 // The answer goes once every candidate this side will find is known.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
+                    answerDeadline.cancel()
                     logger.info("cmux rd: answer sent (\(document.candidates.count, privacy: .public) candidates)")
                     do { try await signaling.send(.answer(document.text)) } catch {
                         logger.error("answer not sent: \(String(describing: error), privacy: .public)")
@@ -159,6 +169,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                     emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))
                     return
                 }
+                // The helper answers in under a second; one that has not by now never will.
+                answerDeadline.schedule(after: answerTimeout) { [weak self] in self?.answerTimedOut() }
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
@@ -198,8 +210,18 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await host.serve(signaling)
     }
 
+    /// No answer went within ``answerTimeout`` of the host's start: the session fails here
+    /// (the hub hears `failed`, so the viewer's card says so) instead of serving nothing.
+    private func answerTimedOut() {
+        logger.error("cmux rd: the screen host gave no answer within \(String(describing: self.answerTimeout), privacy: .public); stopping it")
+        process.stop()
+        output.withLock { $0 }?.cancel()
+        emit(.sourceFailed("the screen host did not answer"))
+    }
+
     /// Stop: the host stops its session (the viewer sees the link close) and exits.
     func disconnectViewer() {
+        answerDeadline.cancel()
         process.stop()
         output.withLock { $0 }?.cancel()
         // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).

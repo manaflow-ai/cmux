@@ -30,7 +30,7 @@ extension IPhoneHostService {
     /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
     func configurePairedFile(_ directory: URL) {
         let record = pairedQuitRecord
-        let file = pairedStore.configure(directory: directory, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
+        let file = pairedStore.configure(directory: directory, sealName: dependencies?.pairingSealName, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
                                          cutOffSettled: { record?.pairedCutOffSettled() })
         guard pairedFile !== file else { return }
         pairedFile = file
@@ -88,7 +88,12 @@ extension IPhoneHostService {
 
     private func ask(_ request: MobileHostPairRequest) {
         // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = pairedStore.current else { return }
+        guard allowed else { return }
+        // Before the list is in nothing is decided; the request waits for it, its code with it.
+        guard let list = pairedStore.current else {
+            heldPairRequests.hold(request)
+            return
+        }
         switch list.decision(for: request) {
         case .trusted, .denied:
             // hostd may hold an older list: send the current one again.
@@ -255,7 +260,14 @@ extension IPhoneHostService {
     }
 
     /// The account changed: its waiting requests, quiet period, blocked count and pairing code go with it.
+    /// The paired list is in: each request that came before it is answered now (its code redeems then).
+    func answerHeldPairRequests() {
+        guard pairedStore.current != nil, !heldPairRequests.isEmpty else { return }
+        for request in heldPairRequests.release() { ask(request) }
+    }
+
     func resetPrompts() {
+        heldPairRequests = MobileHostHeldPairRequests()
         pairTokens.revoke()
         prompts = MobileHostPairPrompts()
         quietAttention()

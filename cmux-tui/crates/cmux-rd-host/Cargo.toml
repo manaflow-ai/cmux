@@ -43,6 +43,8 @@ x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput", "pre
 cmux-hub-host = { path = "../cmux-hub-host" }
 # The host's `cmux-rd serve` children: owned, ended with their session.
 cmux-process = { path = "../cmux-process" }
+# The identity lock every writer of the records holds (src/linux_host/serving.rs).
+cmux-file-lock = { path = "../cmux-file-lock" }
 # Wayland capture (features `portal-dbus` and `portal`: src/portal.rs, src/pipewire_capture.rs):
 # the xdg-desktop-portal ScreenCast and RemoteDesktop handshakes over D-Bus and the PipeWire
 # stream they open.

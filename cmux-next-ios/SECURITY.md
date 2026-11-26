@@ -1227,6 +1227,32 @@ Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-on
 `CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
 ships. `--manual-pairing` hands the phone no code at all.
 
+## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
+
+The hand-off can point a tag's Mac and phone builds at that tag's own backend stack on the dev VM
+(`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
+token to that origin, so the origin is allowlisted in each app, not only in the script:
+
+- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
+  origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
+  else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
+  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
+  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
+  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
+  environment or write its files. Shipped builds never take a tailnet origin from any source.
+- **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
+  out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
+  (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
+  keeps it in its own defaults for later launches, and an empty value clears it.
+- **Mac:** read only by DEV bundles (`com.cmuxterm.app.debug[.<tag>]`), from the launch or the tag's
+  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet origin. A tailnet
+  backend's client-config may name only its own host for other services, and no other backend's
+  may name a tailnet host. Each override has its own sign-in storage, so no other backend's session
+  is sent there.
+- **Visible:** Settings > Developer > Cloud backend (phone), Settings > Accounts (Mac), the DEBUG
+  readiness receipt's `cloud_backend` and the Mac's `auth.status`; the hand-off checks both apps
+  report the asked-for origin.
+
 ## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
 
 Held for #13742 (`verify/notifications-trust.md`). Wire format: PROTOCOL.md

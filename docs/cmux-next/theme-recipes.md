@@ -51,6 +51,44 @@ a view"). A view whose script fails shows its error in its own place with a Relo
 rest of the app keeps working. If a code change of your own breaks the app, go back a build from the
 palette with **Roll Back to Previous Version**, or run `cmux settings rollback-update --confirm`.
 
+## Install a theme from a repository
+
+A theme someone shared lives in a git repository: a `cmux-theme.json` at its root and theme files
+under `themes/`. One command installs it and puts it on, wallpapers included:
+
+```sh
+cmux theme install github.com/teamleaderleo/teal-twin-theme
+```
+
+cmux shows one line (what it is, where it comes from, that no code runs) and asks first; an agent
+passes `--yes` after asking you. The look changes at once, and the output names the theme now in
+use. `cmux apps install github.com/OWNER/REPO` (the line cmux.com's install page shows) and
+`cmux theme import github.com/OWNER/REPO` do the same for a theme or snippet repository.
+`cmux theme remove OWNER/REPO` (or `cmux customize rollback`) puts back the look you had, and
+`cmux theme update` follows new releases. A snippet (look settings and surface stylesheets, such
+as a set of fonts) installs the same way with `cmux snippet install`.
+
+`cmux theme import FILE` only copies one theme file into the themes folder; add `--use` to put it
+on, or run the `cmux theme use NAME` it prints.
+
+## Share a theme so people find it
+
+1. Make a repository: `cmux theme export --save NAME` writes your look as `themes/NAME.json`; add a
+   `cmux-theme.json` beside `themes/` (`"cmuxTheme": 1`, an `id` starting with your GitHub name, a
+   `name`, a `description`, a `version`, and `"use"` naming the theme file to put on).
+   [Teal Twin](https://github.com/teamleaderleo/teal-twin-theme) is a full example.
+2. `cmux theme check .` in the folder reports anything cmux would not load.
+3. Tag a release with the version (`1.0.0`).
+4. Add the topics. cmux.com lists repositories with the topic `cmux-extension` as candidates; add
+   `cmux-theme` (or `cmux-snippet`) and `cmux` too, so people searching GitHub find it. On the
+   repository page, click the gear beside **About**, type each topic under **Topics**, and save. From
+   a terminal signed in to GitHub:
+   `gh repo edit OWNER/REPO --add-topic cmux-extension --add-topic cmux-theme --add-topic cmux`.
+5. To list it on cmux.com and in the App Store's Community source, open a pull request adding it to
+   `themes.json` (a snippet: `snippets.json`) in
+   [manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions); a merge there is
+   the review.
+
 ## Keep it fast
 
 A theme file costs nothing per frame: it's read once on each save. Code you add to the app is a
@@ -63,5 +101,3 @@ These parts of a look are still built into the app:
 
 - the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
 - the motion of the jump to latest button
-- shared looks and views from a vetted source; [the extension RFC](../rfcs/extension-ecosystem.md)
-  proposes packs with exact-source trust

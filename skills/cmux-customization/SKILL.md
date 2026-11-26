@@ -182,7 +182,17 @@ The other verbs:
 - `cmux theme get [KEY]` shows what the file sets.
 - `cmux theme list` lists the files and marks the active one.
 - `cmux theme use NAME` picks a different file.
-- `cmux theme import FILE.json [--use]` installs someone else's theme file.
+- `cmux theme import FILE.json [--use]` copies someone else's theme file in; without `--use`
+  the look does not change.
+- A shared theme in a git repository (`cmux-theme.json` at its root): `cmux theme install
+  github.com/OWNER/REPO` installs it and puts it on in one step, wallpapers included. Never tell
+  the person to run commands after it: run it yourself (`--yes` once they said yes), then say
+  what changed. `cmux apps install` and `cmux theme import` of that repository do the same;
+  `cmux theme remove OWNER/REPO` puts back the earlier look. A snippet repository
+  (`cmux-snippet.json`: look settings and stylesheets, such as fonts) is `cmux snippet install`.
+- To make a repository show up for others, give it the GitHub topics `cmux-extension` (what
+  cmux.com's candidate list searches), `cmux-theme` (or `cmux-snippet`) and `cmux`, and list it
+  in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
 - A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not

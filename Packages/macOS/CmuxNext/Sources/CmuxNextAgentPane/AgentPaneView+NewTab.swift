@@ -78,8 +78,8 @@ extension AgentPaneView {
     }
 
     private func show(_ page: AgentPaneNewTab, sending sent: AgentPaneNewTab? = nil) {
-        guard model.newTab == page, let data = try? JSONEncoder().encode(sent ?? page),
-              let json = String(data: data, encoding: .utf8) else { return }
+        // The page's own part, joined in the page with the shared text that its document has (``AgentPaneNewTabShared``).
+        guard model.newTab == page, let json = model.newTabScriptValue(sent ?? page) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
     }

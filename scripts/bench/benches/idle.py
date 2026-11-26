@@ -31,7 +31,7 @@ from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/perf-10x-idle.sh"
 PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days",
-                "chat_renderer_crash", "vmmap")
+                "chat_renderer_crash", "vmmap", "axes", "items", "visible_items", "settled")
 DEFAULTS = {"counts": "1,10", "measure": "60"}
 FIELD = re.compile(r"(\w+)=(\S+)")
 APP_LINE = re.compile(r"^PERF-IDLE (app|app-agents) (\S+) (.*)$")
@@ -106,7 +106,8 @@ class Idle(Bench):
                 tot = totals.setdefault((scope, m.group(2), count), {})
                 for metric, key, unit in (("cpu", "cpu_pct", "%"), ("wakeups", "wakeups_per_s", "per_s"),
                                           ("footprint", "footprint_mb", "MB"), ("rss", "rss_mb", "MB"),
-                                          ("processes", "n", "count")):
+                                          ("processes", "n", "count"), ("disk_write", "disk_write_mb_per_h", "MB_per_h"),
+                                          ("disk_read", "disk_read_mb_per_h", "MB_per_h")):
                     v = _num(f, key)
                     if v is None:
                         continue
@@ -126,7 +127,8 @@ class Idle(Bench):
                 found += 1
         if not found:
             raise BenchError(f"{path}: no PERF-IDLE line (not a perf-10x-idle.sh log?)")
-        units = {"cpu": "%", "wakeups": "per_s", "footprint": "MB", "rss": "MB", "processes": "count"}
+        units = {"cpu": "%", "wakeups": "per_s", "footprint": "MB", "rss": "MB", "processes": "count",
+                 "disk_write": "MB_per_h", "disk_read": "MB_per_h"}
         for (scope, sample, count), tot in totals.items():
             for metric, v in tot.items():
                 ctx.row(metric, v, units[metric], labels={"scope": scope, "sample": sample, "count": count, "kind": "total"})

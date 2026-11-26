@@ -9,7 +9,11 @@ Prints one JSON plan on stdout:
 
     {"base": SHA, "head": SHA, "all": false, "reasons": [...], "files": [...],
      "units": [{"name": "rust", "kind": "rust", "argv": ["run", ...], "why": "..."}, ...],
-     "not_run": [{"what": "...", "why": "..."}]}
+     "not_run": [{"what": "...", "why": "..."}],
+     "ci_jobs": [{"workflow": "...", "job": "...", "run": true, "why": "..."}]}
+
+`ci_jobs` are the pull-request CI jobs scripts/ci/affected_jobs.py routes by the crate graph, as the pull
+request's own CI will route them (the same map, scripts/ci/affected-jobs.json).
 
 Each unit's argv is a `cmux-ci` command line without the leading `cmux-ci`. HQ's
 `cmux-ci test --affected` runs every unit at once, each on its own free fleet machine, and
@@ -55,6 +59,7 @@ from pathlib import Path, PurePosixPath
 os.environ["FOCUSED_WEB_CAP"] = "100000"
 os.environ["FOCUSED_SWIFT_CAP"] = "100000"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import affected_jobs  # noqa: E402
 import cargo_affected  # noqa: E402
 import focused_tests  # noqa: E402
 
@@ -69,6 +74,7 @@ NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
 SELF_INPUTS = (
     "scripts/ci/affected_tests.py", "scripts/ci/focused_tests.py", "scripts/ci/cargo_affected.py",
     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py", "scripts/ci/focused-tests-extra.json",
+    "scripts/ci/affected_jobs.py", "scripts/ci/affected-jobs.json",
     RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT,
 )
 MAX_FILES = 400
@@ -403,7 +409,22 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             p.not_run.append({"what": test, "why": UNREGISTERED_WHY})
         p.native([item["manifest"] for item in focused["native"]])
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
-            "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", [])}
+            "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", []),
+            "ci_jobs": ci_jobs(root, base, head, None if everything else files)}
+
+
+def ci_jobs(root: Path, base: str, head: str, files: list[str] | None) -> list[dict]:
+    """The pull-request CI jobs the change reaches, from the same crate graph and map PR CI routes them by
+    (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): what the pull request's own CI will run. FILES None
+    (--all, or no merge base: nothing says what changed) routes every job, as the router does for an unlisted change
+    (cmux#45420 review P3-F2: it reported every job skipped)."""
+    try:
+        with affected_jobs.git_tree.GitTree(root, head) as tree, affected_jobs.git_tree.GitTree(root, base) as base_tree:
+            route = affected_jobs.route(tree, files, base_tree=base_tree)
+    except affected_jobs.git_tree.Unreadable as why:
+        return [{"workflow": "*", "job": "*", "run": True, "why": f"the graph could not be read: {why}"}]
+    return [{"workflow": workflow, "job": job, "run": run, "why": route.why[workflow, job]}
+            for (workflow, job), run in sorted(route.run.items())]
 
 
 def resolve(root: Path, ref: str) -> str:

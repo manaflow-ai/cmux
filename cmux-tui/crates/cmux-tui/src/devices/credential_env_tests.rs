@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 /// Names a `cmux` child (`cmux acp`, the acpmux daemon it may start and the agents that daemon
 /// runs) keeps on purpose, each group with why.
 const ALLOWED: &[&str] = &[
+    // Not a credential: the Computer Use worker's experimental keyboard handoff switch
+    // (cmux-computer-use platform/macos/key_focus.rs, "1" or unset); "KEY" is the keyboard.
+    "CMUX_CU_KEY_HANDOFF",
     // The agents' own logins: the harnesses the daemon runs read them (acpmux login_env.rs,
     // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs, provider_cloud_auth.rs).
     "AI_GATEWAY_API_KEY",

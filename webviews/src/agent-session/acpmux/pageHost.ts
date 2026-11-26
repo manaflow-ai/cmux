@@ -112,6 +112,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
       return;
+    case "github.changed":
+      window.dispatchEvent(new Event("cmux-github-changed"));
+      return;
     case "sessionInfoHost":
       return setNativeSessionInfoHost(event.value);
     case "sessionInfoAction":

@@ -128,6 +128,7 @@ impl Hub {
                 dev_origins: _,        // this run's flags
                 web_token_override: _, // this run's flags
                 saved: _,              // what this process last wrote (`save_merge.rs`)
+                mcp_store,
             } = next;
             current.harnesses = harnesses;
             // A profile that is new or changed back is served its disk list, if any.
@@ -176,6 +177,7 @@ impl Hub {
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
+            current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
             current.coderouter_claude_route = coderouter_claude_route;

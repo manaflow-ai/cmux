@@ -370,6 +370,18 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .module)
     }
 
+    /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
+    static func gitHubCloneFailedMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneFailed",
+                              defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .module), repo)
+    }
+
+    /// `github.repos.checkout` found every clone folder for `repo` taken by something else (`github.clone_no_folder`).
+    static func gitHubCloneNoFolderMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneNoFolder",
+                              defaultValue: "Couldn't find a free folder for %@ in ~/cmux/repos.", bundle: .module), repo)
+    }
+
     /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
     static var gitHubFolderCloudOnlyMessage: String {
         String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)

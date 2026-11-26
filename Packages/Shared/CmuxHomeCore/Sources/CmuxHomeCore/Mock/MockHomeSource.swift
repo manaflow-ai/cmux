@@ -492,11 +492,13 @@ public actor MockHomeSource: HomeSource {
     }
 
     /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
-    /// done marker answers the message it closes), and returns its seq.
+    /// done marker answers the message it closes), and returns its seq. `parent` is the message of
+    /// that thread the post answers (a nested reply, conversation-tree-v1); nil answers the root.
     @discardableResult
     public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
-                     threadRoot: MessageID? = nil) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
+                     threadRoot: MessageID? = nil, parent: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot,
+                                  parent: parent)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
     }
 

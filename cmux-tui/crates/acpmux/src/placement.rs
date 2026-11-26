@@ -11,7 +11,8 @@
 //! - RAM: (free − `reserved_gb`) / `per_lane_gb`;
 //! - CPU: (cores − 1-minute load) / `cores_per_lane`;
 //! - disk: (free − `free_gb_floor`) / `disk_per_lane_gb`;
-//! - lanes: `max_lanes` − live agents.
+//! - lanes: the lane limit − live agents, counted as leo-workspace's `lane_admission.room_for`
+//!   counts it: `max_lanes`, or `headroom_max_lanes` while the other three show room for a lane.
 //!
 //! The smallest of the four is its room. Among hosts with room, the registry's
 //! `lane_place.placement_preference` decides first, as leo-workspace's lane-place does
@@ -27,12 +28,15 @@
 //! is passed over for room, load or swap, the one with the most room takes
 //! the work anyway and the verdict says so (`overloaded`): load, swap and lane
 //! caps only warn, and no launch is refused for them (Leo's rulebook, as
-//! lane-place does). Builds go only to
+//! lane-place does). A host whose resources are unknown (an old build, no reading yet,
+//! or a machine only the mesh hub reaches, which carries no health) is never taken ahead
+//! of a host known to be under its lane cap, even one short of RAM or CPU: its numbers
+//! may be worse. Builds go only to
 //! `lanes.build: true`; `"fallback"` takes a build only when no `true` host
 //! has room. Hosts, sizes and roles come from fleet-registry.json's
 //! `lanes` entries (no name here); a host with none is not a lane host. A
-//! peer too old to report health is never refused for it: it ranks after
-//! every host with a reading. A host the registry holds (`hold`, a reservation, `retired`, or a
+//! peer too old to report health is never refused for it: it takes the work only
+//! when no host with a reading is under its cap, and its line says how to update it. A host the registry holds (`hold`, a reservation, `retired`, or a
 //! `status` that says it is idle-stopped, stopped or paused) takes no new work at all.
 //!
 //! Without a registry (acpmux outside the fleet) every connected peer is a
@@ -80,12 +84,15 @@ pub fn placed(verdict: &Value) -> Option<String> {
 /// health reading (`_acpmux/host_health` fields, or null), and when that
 /// reading arrived (ms on this machine's clock; `None` when unknown). The
 /// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
+/// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`), which no link asks
+/// for health, so its resources stay unknown whatever its build.
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub name: String,
     pub local: bool,
     pub health: Value,
     pub health_at: Option<u64>,
+    pub via_hub: bool,
 }
 
 impl Candidate {
@@ -97,6 +104,7 @@ impl Candidate {
             local: false,
             health: row.get("health").cloned().unwrap_or(Value::Null),
             health_at: row.get("healthAt").and_then(Value::as_u64),
+            via_hub: row.get("via").and_then(Value::as_str) == Some("hub"),
         })
     }
 }
@@ -112,6 +120,9 @@ struct Lanes {
     disk_per_lane_gb: f64,
     cores_per_lane: f64,
     max_lanes: Option<f64>,
+    /// lane-place's admission ceiling past `max_lanes` (`lane_admission.py`): a host may take
+    /// lanes up to it while its RAM holds one more, so it, when set, is the lanes term's cap.
+    headroom_max_lanes: Option<f64>,
     max_swap_used_fraction: Option<f64>,
     /// Why the host takes no new work: its registry entry's `hold` (`lane_hosts`).
     held: Option<String>,
@@ -135,6 +146,7 @@ impl Default for Lanes {
             disk_per_lane_gb: 3.0,
             cores_per_lane: 1.0,
             max_lanes: None,
+            headroom_max_lanes: None,
             max_swap_used_fraction: None,
             held: None,
         }
@@ -163,6 +175,10 @@ impl Lanes {
                 .get("max_lanes")
                 .and_then(Value::as_f64)
                 .filter(|n| n.is_finite() && *n >= 0.0),
+            headroom_max_lanes: v
+                .get("headroom_max_lanes")
+                .and_then(Value::as_f64)
+                .filter(|n| n.is_finite() && *n >= 0.0),
             max_swap_used_fraction: v
                 .get("max_swap_used_fraction")
                 .and_then(Value::as_f64)
@@ -171,6 +187,40 @@ impl Lanes {
             held: v.get(HELD).and_then(Value::as_str).map(str::to_owned),
         }
     }
+
+    /// The most lanes measured headroom may admit: `headroom_max_lanes` when it is at least
+    /// `max_lanes`, else `max_lanes`; none without `max_lanes`.
+    fn ceiling(&self) -> Option<f64> {
+        let cap = self.max_lanes?;
+        Some(self.headroom_max_lanes.filter(|c| *c >= cap).unwrap_or(cap))
+    }
+
+    /// Where `live` lanes stand against the cap, as leo-workspace's `lane_admission.room_for`
+    /// counts them (the one count its picker, admission and cap watch read): under `max_lanes`;
+    /// past it and under the ceiling only while `headroom` (the reading shows room for a lane);
+    /// else full. Without `max_lanes` or a live count, unknown.
+    fn cap_state(&self, live: Option<u64>, headroom: bool) -> CapState {
+        let (Some(cap), Some(ceiling), Some(live)) = (self.max_lanes, self.ceiling(), live) else {
+            return CapState::Unknown;
+        };
+        let live = live as f64;
+        if live < cap {
+            CapState::Under
+        } else if live < ceiling && headroom {
+            CapState::Headroom
+        } else {
+            CapState::Full
+        }
+    }
+}
+
+/// A host's lanes against its cap (`Lanes::cap_state`, lane_admission's `room_for` states).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapState {
+    Under,
+    Headroom,
+    Full,
+    Unknown,
 }
 
 /// The key `lane_hosts` sets in a held machine's `lanes` value: why it is held.
@@ -521,7 +571,38 @@ struct Weighed {
     load: bool,
     /// Its `placement_preference` tier (`tier`), counted only while it has room (`place`).
     tier: Option<(usize, String)>,
+    /// It has no health reading (`unknown`): it takes the work only when no host with one is
+    /// under its lane cap (`place`).
+    unknown: bool,
+    /// Its lanes against its cap (`Lanes::cap_state`).
+    cap: CapState,
     why: String,
+}
+
+impl Weighed {
+    /// It has a reading and its lanes are not full (`CapState`): under `max_lanes`, or past it on
+    /// measured headroom. A host with no cap configured, or whose reading has no live count,
+    /// counts as under it: a host we can read goes ahead of one we cannot.
+    fn under_cap(&self) -> bool {
+        !self.unknown && self.cap != CapState::Full
+    }
+}
+
+/// Why `c` has no reading, and what to do about it, for its line.
+fn unknown(c: &Candidate) -> String {
+    let name = &c.name;
+    if c.health.get("unsupported").is_some() {
+        format!(
+            "resources unknown: its acpmux build has no host health; update it (`acpmux machine update {name}`)"
+        )
+    } else if c.via_hub {
+        format!(
+            "resources unknown: only the mesh hub reaches it, and the hub carries no host health; \
+             a direct link reads it (`acpmux machine add {name}`)"
+        )
+    } else {
+        "resources unknown: no health reading yet (one comes within a minute of connecting)".into()
+    }
 }
 
 const GB: f64 = 1e9;
@@ -544,6 +625,8 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         refused: None,
         load: false,
         tier: None,
+        unknown: !known,
+        cap: CapState::Unknown,
         why: String::new(),
     };
     let Some(lanes) = lanes else {
@@ -556,7 +639,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         return w;
     }
     if !known {
-        w.why = "resources unknown (a build without host health)".into();
+        w.why = unknown(c);
         return w;
     }
     let mut parts = Vec::new();
@@ -575,7 +658,18 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         parts.push(format!("{:.0} GB disk free", free / GB));
         rooms.push(("disk", (free / GB - lanes.free_gb_floor) / lanes.disk_per_lane_gb));
     }
-    if let (Some(max), Some(live)) = (lanes.max_lanes, live) {
+    // Headroom, as lane_admission's `headroom_short` judges it: the reading shows room for a lane
+    // in RAM, CPU and disk, within its budget and its swap limit. Past `max_lanes` only it admits
+    // lanes, up to the ceiling.
+    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
+    let over_budget = h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false);
+    let swap_full = matches!((swap.0, swap.1, lanes.max_swap_used_fraction),
+        (Some(used), Some(total), Some(max)) if used / total >= max);
+    let fits = rooms.iter().map(|r| r.1).min_by(f64::total_cmp).is_some_and(|r| r >= 1.0);
+    let headroom = fits && !over_budget && !swap_full;
+    w.cap = lanes.cap_state(live, headroom);
+    let limit = if headroom { lanes.ceiling() } else { lanes.max_lanes };
+    if let (Some(max), Some(live)) = (limit, live) {
         parts.push(format!("{live}/{max:.0} lanes"));
         rooms.push(("lanes", max - live as f64));
     }
@@ -586,8 +680,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
-    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
-    if h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false) {
+    if over_budget {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
             .and_then(Value::as_array)
@@ -673,22 +766,39 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         }
     }
     // The best placement_preference tier first (a host in none after every one in one), then
-    // most room (a host with no reading after every host with one), then the registry's rank,
-    // then fewer live agents. With none left, the hosts passed over only for room, load or
-    // swap whose role takes the work.
-    let mut order: Vec<&Weighed> = weighed.iter().filter(|w| w.refused.is_none()).collect();
-    let overloaded = order.is_empty();
-    if overloaded {
-        order = weighed
-            .iter()
-            .filter(|w| w.load && (work == Work::Agent || w.lanes.build != Build::No))
-            .collect();
+    // most room, then the registry's rank, then fewer live agents. A host with a reading and
+    // room goes first. With none, a host with no reading, unless a host passed over for room,
+    // load or swap is still under its lane cap: a host with no reading never goes ahead of one
+    // known to be under its cap, since its numbers may be worse. Then the hosts passed over
+    // only for room, load or swap whose role takes the work.
+    let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
+    let mut order: Vec<&Weighed> =
+        weighed.iter().filter(|w| w.refused.is_none() && !w.unknown).collect();
+    let mut overloaded = false;
+    if order.is_empty() {
+        let under: Vec<&Weighed> = weighed.iter().filter(|w| takes(w) && w.under_cap()).collect();
+        let unread: Vec<&Weighed> =
+            weighed.iter().filter(|w| w.refused.is_none() && w.unknown).collect();
+        (order, overloaded) = match (unread.is_empty(), under.is_empty()) {
+            (false, true) => (unread, false),
+            (false, false) => (under, true),
+            (true, _) => (weighed.iter().filter(takes).collect(), true),
+        };
     }
+    // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
+    // or count read), then past it on headroom, then full. An unread host stands between the
+    // last two (`under_cap` and the order above).
+    let cap_rank = |w: &Weighed| match w.cap {
+        CapState::Under | CapState::Unknown => 0,
+        CapState::Headroom => 1,
+        CapState::Full => 2,
+    };
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
-        best(a)
-            .cmp(&best(b))
+        cap_rank(a)
+            .cmp(&cap_rank(b))
+            .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))

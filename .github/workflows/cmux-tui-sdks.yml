@@ -14,6 +14,7 @@ on:
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
@@ -65,13 +66,110 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "Resources/theme-files/charcoal.json"
+      - "Resources/theme-files/classic-desktop.json"
+      - "Resources/theme-files/claude-desktop.json"
+      - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/phosphor.json"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "docs/remote-agents-and-cloud.md"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "ghostty"
+      - "ghostty-next"
+      - "plans/cmux-next/action-catalog.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "samples/apps/**"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/init-submodule.sh"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "scripts/ghostty-zig-version.sh"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
@@ -123,7 +221,103 @@ on:
       - "tests/git_fixture_env.py"
       - "tests/runs_on_labels.py"
       - "tests/test_ci_fleet_rule_lints.py"
+      # The router's own files (affected_jobs.py SELF): a change to them runs every routed job, so it starts this workflow.
+      - "scripts/ci/affected-jobs.json"
+      - "scripts/ci/affected_jobs.py"
+      - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
+      - "scripts/ci/affected_jobs_replay.py"
+      - "tests/test_ci_affected_jobs.py"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
+      # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
+      # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
+      - ".github/actions/ghostty-zig-packages/**"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "Resources/theme-files/charcoal.json"
+      - "Resources/theme-files/classic-desktop.json"
+      - "Resources/theme-files/claude-desktop.json"
+      - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/phosphor.json"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/packages/home-core/conformance/conversation-import-cases.json"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "docs/remote-agents-and-cloud.md"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "ghostty"
+      - "ghostty-next"
+      - "plans/cmux-next/action-catalog.json"
+      - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/daemon-capabilities.json"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "samples/apps/**"
+      - "schemas/agent-url-policy/vectors.json"
+      - "schemas/automation-input/vectors.json"
+      - "schemas/automation-lease/vectors.json"
+      - "schemas/build-identity/vectors.json"
+      - "schemas/chief-cmux-target/vectors.json"
+      - "schemas/chief-home/vectors.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/init-submodule.sh"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "scripts/ghostty-zig-version.sh"
+      - "scripts/install-zig-ci.sh"
+      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/cmux-browser/SKILL.md"
+      - "skills/cmux-browser/references/authentication.md"
+      - "skills/cmux-browser/references/commands.md"
+      - "skills/cmux-browser/references/proxy-support.md"
+      - "skills/cmux-browser/references/session-management.md"
+      - "skills/cmux-browser/references/snapshot-refs.md"
+      - "skills/cmux-browser/references/surface-discovery.md"
+      - "skills/cmux-browser/references/video-recording.md"
+      - "skills/cmux-browser/templates/authenticated-session.sh"
+      - "skills/cmux-browser/templates/capture-workflow.sh"
+      - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
+      - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/SKILL.md"
+      - "skills/cmux-customization/references/examples.md"
+      - "skills/cmux-customization/references/local-app-views.md"
+      - "skills/cmux-customization/references/viewer-types.md"
+      - "skills/cmux-live/SKILL.md"
+      - "skills/cmux/SKILL.md"
+      - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+      - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
+      - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
+      - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   workflow_dispatch:
 
 concurrency:
@@ -148,6 +342,7 @@ jobs:
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
+      conformance: ${{ steps.graph.outputs.conformance }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -176,6 +371,24 @@ jobs:
           fi
           echo "SDK package inputs changed: $changed"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      # Jobs routed by the crate graph (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): each runs
+      # when the change touches an input of a crate it builds (the crate, its path dependencies with their
+      # features, the files their sources name) or of its own steps. A push, a dispatch, the full-ci label, a
+      # change to the router and a cmux-tui path it cannot place run every job; so does a failed router (the
+      # jobs read `!= 'false'`).
+      - name: Which jobs can the change affect (crate graph)
+        id: graph
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-sdks.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
 
       # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
       # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
@@ -361,6 +574,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test and install Python SDK
         if: matrix.language == 'python'
@@ -554,6 +772,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test Python agent watchdog
         if: matrix.language == 'python'
@@ -704,6 +927,8 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
+    # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
+    if: ${{ !cancelled() && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     steps:
@@ -763,6 +988,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
@@ -821,6 +1050,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Run shared fake and live protocol contract
         env:

@@ -2609,9 +2609,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "machine-vault-e2e.yml e2e: runs-on[0]",
         "release.yml build-sign-notarize: runs-on[0]",
         "release.yml build-sign-notarize-blacksmith: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml verify-shipped: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair-blacksmith: runs-on[0]",
         "resume-nightly-notarization.yml resume: runs-on[0]",
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
@@ -2850,7 +2847,7 @@ RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
 # The workflows that must read pr-rescue as off: nightly, promote, signing and release.
 RESCUE_IGNORED = ("nightly.yml", "nightly-sign.yml", "nightly-next-train.yml", "nightly-next-canary.yml",
-                  "nightly-next-launch-smoke.yml", "nightly-next-cua-signed-host.yml", "stable-next.yml",
+                  "nightly-next-launch-smoke.yml", "stable-next.yml",
                   "signing-keychain-macos.yml", "app-ffi-release.yml", "release.yml")
 SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
 SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")

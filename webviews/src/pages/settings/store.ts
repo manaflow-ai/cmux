@@ -64,10 +64,15 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -117,6 +122,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row: where a value comes from, and why it does not draw (#44894). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the last load, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
@@ -188,6 +195,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     revision: scope?.revision ?? 0,
     rows,
     diagnostics: scope?.diagnostics ?? new Map(),
+    notes: scope?.notes ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,
@@ -763,10 +771,29 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
+    return reply.ok ? reply.value : null;
+  }
+
   /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

@@ -346,6 +346,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
     /// Where this pane's new chat starts: the store's answer and its rules (cx-9aps).
     @ObservationIgnored public let startFolders = AgentPaneStartFolders()
+    /// Makes and keeps the JSON text of the New Tab context's shared part (``AgentPaneNewTabText``): the app gives
+    /// each page's model its one, so the pages share the text.
+    @ObservationIgnored public var newTabText = AgentPaneNewTabText() { didSet { newTabSharedGeneration = nil } }
+    /// The generation of the shared text that this page's document has; nil for none (a new document).
+    @ObservationIgnored var newTabSharedGeneration: Int?
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
@@ -635,8 +640,8 @@ public final class AgentPaneModel {
         case .newTabContext:
             // Only a page with no chat yet is a New Tab page, and marks so; the handshake still sends the same context.
             if sessionId == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context") }
-            guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
-                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+            // The page asked: it gets the shared text too, whatever its document's mark says (a document that lost it).
+            guard sessionId == nil, let newTab = newTabForPage, let object = newTabReply(newTab, always: true) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
@@ -957,6 +962,8 @@ public final class AgentPaneModel {
             return await stager(stage, sessionId)
         case .uploadStageForSend(let stage, let ticket):
             return await beginSendUpload(stage, ticket: ticket)
+        case .gitHub(.checkout(let repo, let candidates, let key)):
+            return await AgentPaneGitWriteReply.gitHubCheckout(repo: repo, candidates: candidates, key: key, userGesture: userGesture, in: self)
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }

@@ -428,6 +428,7 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
@@ -1797,7 +1798,8 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextTestSupport",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -1822,6 +1824,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextPalette",
         "CmuxNextTestSupport"
       ],

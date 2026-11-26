@@ -76,8 +76,9 @@ export function mountAcpmux(initialChat?: InitialChat): void {
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
   // No App glass under the page's popovers and menus (CMUX-561): the App's glass was drawn from boxes
   // the page sent, so a zoom left it apart from the page's content. The page draws their glass itself.
-  // The always-on flicker detector (flickerLog.ts): on the shared page host its batches are the
-  // `diag.flicker` op, on the old host the pane's own WebKit handler takes them.
+  // The always-on flicker detector (flickerLog.ts; its frame watch only behind a debug flag): on the
+  // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
+  // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>

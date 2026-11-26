@@ -425,6 +425,16 @@ export class MockAcpmuxSocket {
     return id;
   }
 
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
+  }
+
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
   /// delivery: `_acpmux/events {subagent}` reads them as acpmux's log would (`debug.agent_pane
   /// seed_rows` `subagent-report`, whose capped report card's Show more reads that subagent's reply).

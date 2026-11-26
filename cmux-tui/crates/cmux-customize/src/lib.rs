@@ -38,7 +38,7 @@ pub use brief::brief;
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
 pub use redact::Reader;
-pub use store::{Ask, Draft, Generation, Kind, TryOn};
+pub use store::{Ask, Draft, Generation, Kind, LibraryMark, TryOn};
 pub use tree::{Part, Skipped};
 pub use try_on::{DEFAULT_TRY_ON_MINUTES, MAX_TRY_ON_MINUTES, Settled, TriedOn};
 pub use validate::Problem;

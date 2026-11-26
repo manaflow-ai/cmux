@@ -253,10 +253,21 @@ impl Brain {
             "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
             // Nor add servers or call tools with the owner's accounts: only look.
             "mcp__optchat__mcp" => {
-                return matches!(
-                    field("action").unwrap_or("list"),
+                let action = field("action").unwrap_or("list");
+                if matches!(
+                    action,
                     "list" | "servers" | "search" | "describe" | "tasks" | "events" | "prompts"
-                );
+                ) {
+                    return true;
+                }
+                // A trusted agent's turn may call a tool of a server the
+                // owner named for it (`relay.mcpServers`); never `run` (a
+                // script across servers), `add` or any other action.
+                return action == "call"
+                    && self.turn_relay.is_some()
+                    && field("server").is_some_and(|server| {
+                        self.chief.relay_mcp_servers.iter().any(|n| n == server)
+                    });
             }
             _ => return true,
         }

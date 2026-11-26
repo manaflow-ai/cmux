@@ -19,7 +19,7 @@ extension AppBrowserPage {
         let stale = page.map { !$0.isAgentDriven && $0.engineKind == .cef && !($0 is HibernatedBrowserTab) && !($0 is DeferredBrowserTab) } ?? false
         services.cache.markAgentDriven(tabID)
         // A popup's opener is the old page: once that is rebuilt, the tab's script reaches the popup no more.
-        for popup in services.popups.pages(openedBy: tabID) { popup.markAgentDriven() }
+        for popup in services.popups.pages(openedBy: tabID) { popup.takeOpenersAgentMark() }
         return stale
     }
 

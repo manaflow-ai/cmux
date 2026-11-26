@@ -13,6 +13,8 @@ public import CmuxNextDesign
 /// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 /// - `flickerLog`: the app run's flicker ring file (``AgentPageFlickerLog/forAppRun()``); nil (tests) writes none.
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
+/// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
+///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -20,16 +22,20 @@ public struct AgentPaneShared {
     public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
+    public let newTabText: AgentPaneNewTabText
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log and no focus log.
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log
+    /// and a New Tab text of this value's own.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil) {
+                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText()) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
         self.actAsMe = actAsMe
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
+        self.newTabText = newTabText
     }
 }
 
@@ -40,6 +46,7 @@ extension AgentPaneView {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
+        model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
         onPageFocusLost = shared.focusLoss
         showActAsMe(shared.actAsMe)
     }

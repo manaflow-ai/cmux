@@ -50,10 +50,11 @@
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
 //   [MODE=all|nightly|down|slow-init|native-ready|native-ready-tail|refused|refused-no-copy] [RUNNING=1]
-//     [CONTENT=rich] [HEIGHT_DELTA=28] [PAGES=6] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//     [CONTENT=rich] [HEIGHT_DELTA=28] [PAGES=6] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] [SOURCES=1] \
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
-// mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
+// mode's worst round frame by frame. SOURCES=1 prints each round's layout-shift entries with the boxes
+// that moved (from and to: x, y, width, height). One `FIRST_LOAD_JSON {...}` line carries every number.
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -123,6 +124,7 @@ if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSP
 const BRIDGE = TRANSPORT === "bridge";
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
+const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
 const THEME = "bench-theme";
@@ -178,9 +180,28 @@ const richAnswer = (n: number): string => {
       return `${head} the checks on the merged head are green.`;
   }
 };
+/// The chat's summary names its model and its effort, as acpmux's does (`configOptions`, attach-config-current
+/// test): until a summary comes, the composer draws the effort this harness's chats last showed (chipMemory.ts),
+/// and a summary with no effort took that away 200 ms after the first frame (reopen-no-copy: layout shift
+/// 0.0003, the model chip 163 to 107 px), a shift no chat acpmux reports would have. High, not the Medium a
+/// first chat remembers, so a guess that outlived the summary would show.
+const REPORTED = {
+  model: "claude-sonnet-4-5",
+  configOptions: [
+    {
+      id: "effort",
+      name: "Reasoning",
+      category: "thought_level",
+      type: "select",
+      currentValue: "high",
+      options: ["low", "medium", "high"].map((level) => ({ value: level, name: level })),
+    },
+  ],
+};
 const { events, session } = papercutEvents({
   turns: TURNS,
   running: RUNNING,
+  session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
@@ -242,10 +263,13 @@ type Painted = FrameRecord & {
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
 };
+type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
   /// The layout-shift entries' sum over the recording (none with recent input).
   layoutShift: number;
+  /// Each of those entries: when (ms from navigation), its value, and each box that moved (`SOURCES=1`).
+  shifts: LayoutShiftSeen[];
   latestAt: number;
   /// When the live page itself (no copy over it) first showed the newest answer, else 0.
   liveLatestAt: number;
@@ -399,6 +423,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   const recording = {
     frames: [] as Frame[],
     layoutShift: 0,
+    shifts: [] as LayoutShiftSeen[],
     latestAt: 0,
     liveLatestAt: 0,
     changedAt: 0,
@@ -409,9 +434,34 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     },
   };
   (window as unknown as { __firstLoad: typeof recording }).__firstLoad = recording;
+  type Source = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
+  /// A box by its class names and its parent's first one ("acpmux-main > div.acpmux-dock").
+  const named = (node: Node | null | undefined): string => {
+    if (!(node instanceof Element)) return node?.nodeName ?? "?";
+    const classes = (element: Element) => [...element.classList].map((name) => `.${name}`).join("");
+    const parent = node.parentElement;
+    return `${parent ? `${parent.classList[0] ?? parent.tagName.toLowerCase()} > ` : ""}${node.tagName.toLowerCase()}${classes(node)}`;
+  };
+  const box = (rect: DOMRectReadOnly) => [rect.x, rect.y, rect.width, rect.height].map(Math.round);
   new PerformanceObserver((list) => {
-    for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean; startTime: number }[])
-      if (!entry.hadRecentInput && entry.startTime <= windowMs) recording.layoutShift += entry.value;
+    for (const entry of list.getEntries() as unknown as {
+      value: number;
+      hadRecentInput: boolean;
+      startTime: number;
+      sources?: Source[];
+    }[]) {
+      if (entry.hadRecentInput || entry.startTime > windowMs) continue;
+      recording.layoutShift += entry.value;
+      recording.shifts.push({
+        at: Math.round(entry.startTime),
+        value: Number(entry.value.toFixed(5)),
+        moved: (entry.sources ?? []).map((source) => ({
+          node: named(source.node),
+          from: box(source.previousRect),
+          to: box(source.currentRect),
+        })),
+      });
+    }
   }).observe({ type: "layout-shift", buffered: true });
   let signature = "";
   const read = (): Frame => {
@@ -480,6 +530,8 @@ type Round = {
   /// else null: a round whose copy never gave way to the read chat has not loaded.
   liveLatestMs: number | null;
   layoutShift: number;
+  /// The layout-shift entries that sum to it, with the boxes that moved (printed with SOURCES=1).
+  layoutShifts: LayoutShiftSeen[];
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
   swapMs: number | null;
@@ -853,6 +905,7 @@ try {
         return {
           frames: w.__firstLoad.frames,
           layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
           origin: performance.timeOrigin,
           miss: w.__cmuxChatSnapshotMiss ?? null,
           shown: w.__cmuxChatSnapshotShown ?? null,
@@ -871,6 +924,7 @@ try {
         frames: got.frames,
         liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
+        layoutShifts: got.layoutShifts,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
         copyMiss: got.miss,
@@ -950,6 +1004,15 @@ try {
         ].join(" | "),
       ),
     );
+    if (SOURCES)
+      rounds.forEach((r, at) => {
+        for (const shift of r.layoutShifts)
+          console.log(
+            `  round ${at + 1} layout shift at ${shift.at} ms, ${shift.value}: ${shift.moved
+              .map((moved) => `${moved.node} ${moved.from.join(",")} -> ${moved.to.join(",")}`)
+              .join("; ")}`,
+          );
+      });
     const summary = (of: (values: number[]) => number | null) =>
       Object.fromEntries(Object.entries(PICKS).map(([key, pick]) => [key, of(numbers(rounds, pick))]));
     const medians = summary(median);

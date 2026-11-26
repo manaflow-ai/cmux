@@ -120,6 +120,13 @@ public struct GitRepositoryActions {
                     }
                 }
             })
+            // A tab with no folder, or a worktree write on another machine's tab: the row leaves the menus and the
+            // palette row is disabled, from the same place the run looks up (never a toast; a CLI run is told why).
+            ActionTargetVisibility.gate(id, in: registry) { invocation in
+                guard let request = Request.make(id, arguments: invocation.arguments) else { return nil }
+                guard let found = place(invocation), found.cwd.hasPrefix("/") else { return GitRepositoryStrings.noFolder }
+                return found.link.isLocal || !request.localOnly ? nil : GitRepositoryStrings.thisMacOnly
+            }
         }
     }
 }

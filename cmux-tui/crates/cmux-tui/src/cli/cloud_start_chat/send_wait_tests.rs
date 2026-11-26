@@ -9,6 +9,8 @@ fn existing(wait: bool) -> Request {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,

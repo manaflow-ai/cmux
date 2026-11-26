@@ -275,6 +275,9 @@ pub(super) struct Scan<'a> {
     pub(super) kinds: &'a [&'a str],
     pub(super) copied: bool,
     pub(super) strict: bool,
+    /// A copy made by line heads alone, no line parsed ([`LocalStore::copy_for_read_back`]): it
+    /// says its lines were not all read (`parsed` false), so a strict scan makes it again.
+    pub(super) heads: bool,
 }
 
 impl Scan<'_> {
@@ -309,7 +312,8 @@ impl LocalStore {
     /// very file and whole ([`Self::read_kind_index`]): the segment's bytes past the copy back from
     /// the end, then the copy's lines newest first. Anywhere else (no copy yet, a copy a
     /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
-    /// back from its end, as `scan_back` does. It never writes a copy: the log load does.
+    /// back from its end, as `scan_back` does. A segment with no copy, or [`COPY_AFTER`] bytes
+    /// past its copy, gets one first ([`Self::copy_for_read_back`]).
     pub(super) fn scan_back_in(
         &self,
         id: &str,
@@ -351,7 +355,7 @@ impl LocalStore {
             }
             let mut file = crate::config::private_state_file(&path)?;
             let copy =
-                if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
+                if indexed { self.copy_for_read_back(id, index, &path, &file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -386,6 +390,38 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Segment `index`'s copy for an indexed read back, made or brought up to date first when the
+    /// segment has none or is [`COPY_AFTER`] bytes past it. Only a log load made copies, so a
+    /// chat that ran on since its load had none for the segments written after it: each page of
+    /// its prompts (every open and attach asks for one, `turn_opener.rs`) read every such segment
+    /// whole, back from its end. A busy chat 16 minutes old read its whole 26 MB log for each
+    /// 16-prompt page, and an app asked for that page every few seconds (cmuxterm-hq#13733). The
+    /// copy is made by the lines' heads, no line parsed (an adoption reads many chats' logs this
+    /// way and parses only what it folds, `hosts_tests.rs`), once per sealed segment and once per
+    /// [`COPY_AFTER`] bytes of the one being written. None on a system with no birth time, or when
+    /// the copy is of another file than `file` (a compaction renamed it meanwhile).
+    fn copy_for_read_back(
+        &self,
+        id: &str,
+        index: u32,
+        path: &Path,
+        file: &std::fs::File,
+    ) -> Result<Option<(Vec<u8>, u64, bool)>> {
+        let stamp = Stamp::of(file)?;
+        let copy = self.read_kind_index(id, index, &stamp);
+        let behind =
+            copy.as_ref().map_or(stamp.len, |(_, from, _)| stamp.len.saturating_sub(*from));
+        if stamp.id.2 == 0 || behind < COPY_AFTER {
+            return Ok(copy);
+        }
+        let scan = Scan { kinds: &[], copied: true, strict: false, heads: true };
+        if let Err(e) = self.scan_segment(id, index, path, &scan, &mut |_| true) {
+            tracing::debug!(session = %id, segment = index, "copying a segment for a read back failed: {e}");
+            return Ok(copy);
+        }
+        Ok(self.read_kind_index(id, index, &Stamp::of(file)?).or(copy))
+    }
+
     pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
@@ -407,7 +443,7 @@ impl LocalStore {
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));
-        let scan = Scan { kinds, copied, strict };
+        let scan = Scan { kinds, copied, strict, heads: false };
         for (index, path) in self.segments(id)? {
             if !self.scan_segment(id, index, &path, &scan, visit)? {
                 break;
@@ -462,7 +498,10 @@ impl LocalStore {
             let blank = line.iter().all(u8::is_ascii_whitespace);
             // A strict scan, and one that makes a copy, reads every line: a copy says whether
             // all of its bytes read, so a strict scan of it fails where one of the segment would.
-            if !blank
+            // A copy by heads reads none, and says so.
+            if scan.heads && !blank && !torn {
+                parsed = false;
+            } else if !blank
                 && (scan.strict || stamp.is_some())
                 && let Err(e) = parse_record(&line)
             {

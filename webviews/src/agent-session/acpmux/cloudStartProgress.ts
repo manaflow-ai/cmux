@@ -37,6 +37,9 @@ export type CloudStartProgress = {
   state: "starting" | "failed";
   /// The folder's name (its last path part).
   folder?: string;
+  /// The folder the start copies, whole (trailing slashes dropped): the composer's folder chip names it while the
+  /// start shows, so it never reads No folder for a start that went with one (cmux#46023).
+  cwd?: string;
   step?: CloudStartStep;
   /// The machine's name, and its size as the host words it ("4 CPU, 16 GB").
   machine?: string;
@@ -254,12 +257,13 @@ export function cloudStartBegun(
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
 ): CloudStartProgress {
-  const folder = cwd?.replace(/\/+$/, "").split("/").pop();
+  const whole = cwd?.replace(/\/+$/, "");
+  const folder = whole?.split("/").pop();
   return {
     key,
     task,
     state: "starting",
-    ...(folder ? { folder } : {}),
+    ...(folder ? { folder, cwd: whole } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),

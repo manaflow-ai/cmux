@@ -449,8 +449,9 @@ own Linux runner), else a mini idle now with no nightly job waiting on its pool,
 Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
 cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
 The placement code comes from the base branch, as macos-placement's does.
-This bootstrap must start independently of the labels it validates: hosted Ubuntu on attempt 1,
-then the measured paid retry route. Its consumers take live fleet capacity from its outputs.
+This bootstrap must start independently of the labels it validates: Blacksmith 2 vCPU
+(RUNNER_POOLS.linux_2) on every attempt, like the other placement bootstraps. It took hosted Ubuntu on
+attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours (cmux#45735). Its consumers take live fleet capacity from its outputs.
 
 ## note-26
 
@@ -3842,3 +3843,20 @@ jobs on the std minis' nightly slot, which no other PR job asks for, so it skips
 (side_lane_placement.STACK_SLOT; glaeda's runner hook admits it there and ranks it right after nightly jobs). Attempt
 1 only: a rescue re-run is placed as before. The label is read from the run's own payload, so adding it takes effect
 on the PR's next push.
+
+## note-409
+
+Above `CMUX_FAST_TIER_OWNED_SEED:` in `.github/workflows/cmux-next.yml`.
+
+On an owned mini the fast tier first holds the mini's seed root (owned_spm_scratch.py seed_lease):
+/Users/runner/_work/cmux/cmux, the workspace path cmux-next-fast-tier-seed.yml builds the R2 base seed at on
+Blacksmith. SwiftPM records absolute paths, so the seed is warm only there; at that path and the same Xcode
+build an owned mini computes the seed's own key, restores it as Blacksmith does (note-401) and replays its
+input times. One job per mini holds the root; another takes a shared root as before. The root qualifies above
+glaeda's floor (seed_fits): the job's admitted growth covers the seed, which a cold build would write anyway,
+so the light 228 GiB minis (32-48 GiB free), where the lease's floor + growth + root reserve never admitted a
+root, take it too. 48 h to 2026-11-18: 3% of owned fast-tier jobs started warm and 170 of 812 were cancelled
+past 1100 s (cmux#44271). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: the tier takes
+the shared roots as before. The root's parent must exist, belong to the mini's user and hold the marker
+`.cmux-seed-root` (fleet setup); without
+them the tier falls back. The marker keeps a runner that works at that path (the nightly-next builder) out.

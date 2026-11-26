@@ -74,7 +74,42 @@ pub(in crate::cli) struct NewChat {
 
 const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--peer <machine>] \
      [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
-     [--attach <file>]... [--] [<prompt>]";
+     [--attach <file>]... [--] [<prompt>]; or agents chat new --on <target> [cmux chat flags] \
+     [--] <prompt> (cmux chat --help)";
+
+/// `agents chat new`'s own flags that place a chat in this app's workspaces or pick its
+/// approvals: a chat `--on TARGET` is placed and run by its target (`cmux chat --on`).
+const PLACED_HERE: &[&str] = &["--workspace", "--pane", "--top", "--policy", "--peer"];
+
+/// `cmux … agents chat new --on TARGET …` as `cmux … chat new --on TARGET …`, the start `cmux
+/// chat --on` makes (chat_start.rs): a Cloud chat with its folder or `--no-folder`, harness,
+/// model, effort and mode, as the composer's Cloud start. None when `args` is not `agents chat
+/// new` or names no `--on` (before `--`); an error for a flag only a chat in this app's
+/// workspaces takes.
+pub(in crate::cli) fn on_target_words(args: &[String]) -> Option<Result<Vec<String>, UsageError>> {
+    let verb = args
+        .windows(3)
+        .position(|w| matches!(w, [a, c, n] if a == "agents" && c == "chat" && n == "new"))?;
+    let rest = args.get(verb.saturating_add(3)..)?;
+    let flags = rest.iter().take_while(|word| *word != "--");
+    let named = |word: &String, flag: &str| {
+        word == flag || word.strip_prefix(flag).is_some_and(|tail| tail.starts_with('='))
+    };
+    if !flags.clone().any(|word| named(word, "--on")) {
+        return None;
+    }
+    if let Some(flag) = flags.clone().find(|word| PLACED_HERE.iter().any(|flag| named(word, flag)))
+    {
+        return Some(Err(UsageError::new(format!(
+            "agents chat new: {flag} places a chat in this app's workspaces; a chat --on a target \
+             opens in its own (a Cloud chat in its machine's workspace): drop {flag}, or drop --on"
+        ))));
+    }
+    let mut words = args.get(..verb)?.to_vec();
+    words.extend(["chat".to_owned(), "new".to_owned()]);
+    words.extend(rest.iter().cloned());
+    Some(Ok(words))
+}
 
 /// `chat new ...` (the words after `new`).
 pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
@@ -820,7 +855,7 @@ pub(in crate::cli) fn interrupt(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_new, session_meta, take_attach};
+    use super::{on_target_words, parse_new, session_meta, take_attach};
     use serde_json::json;
 
     #[test]
@@ -866,5 +901,62 @@ mod tests {
         assert_eq!(meta.get("env"), None);
         assert!(parse_new(&["--peer"]).is_err());
         assert!(parse_new(&["--peer="]).is_err());
+    }
+
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    /// cmux#46701: `agents chat new --on TARGET` is `chat new --on TARGET`, globals kept, so a
+    /// Cloud chat starts from either name with the composer's picks.
+    #[test]
+    fn a_chat_on_a_target_is_the_chat_start() {
+        let args = strings(&[
+            "--json",
+            "agents",
+            "chat",
+            "new",
+            "--on",
+            "cloud",
+            "--harness",
+            "codex",
+            "--effort",
+            "high",
+            "--no-folder",
+            "--",
+            "1+1?",
+        ]);
+        assert_eq!(
+            on_target_words(&args).unwrap().unwrap(),
+            strings(&[
+                "--json",
+                "chat",
+                "new",
+                "--on",
+                "cloud",
+                "--harness",
+                "codex",
+                "--effort",
+                "high",
+                "--no-folder",
+                "--",
+                "1+1?",
+            ])
+        );
+        let inline = strings(&["agents", "chat", "new", "--on=vm:new", "go"]);
+        assert_eq!(
+            on_target_words(&inline).unwrap().unwrap()[..3],
+            strings(&["chat", "new", "--on=vm:new"])
+        );
+        // No `--on` (a `--on` in the prompt is text): the chat here, as before.
+        assert!(on_target_words(&strings(&["agents", "chat", "new", "--", "--on"])).is_none());
+        assert!(on_target_words(&strings(&["agents", "chat", "send", "--on", "x"])).is_none());
+        for placed in ["--workspace", "--pane", "--policy", "--peer"] {
+            let args = strings(&["agents", "chat", "new", "--on", "cloud", placed, "x", "go"]);
+            let error = on_target_words(&args).unwrap().unwrap_err();
+            assert!(error.0.contains(placed), "{}", error.0);
+        }
+        let top = strings(&["agents", "chat", "new", "--top", "--on", "cloud", "go"]);
+        assert!(on_target_words(&top).unwrap().is_err());
     }
 }

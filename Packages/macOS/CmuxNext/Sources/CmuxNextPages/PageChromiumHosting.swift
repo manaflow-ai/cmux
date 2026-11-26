@@ -22,7 +22,7 @@ public protocol PageChromiumHosting: AnyObject {
     func serves(_ page: PageDescriptor) -> Bool
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
-    /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
+    /// (``ChromiumPageHostBridge/setUp(documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
     /// - Parameter page: The page's descriptor (its origin and policy).

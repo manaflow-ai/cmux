@@ -12,6 +12,13 @@ extension WorkspaceModel {
             return (tab.id, agent.agent, session)
         }
     }
+
+    /// Whether it has tabs and every one is an agent chat: a Cloud chat start's own workspace, which shows
+    /// in a window without opening its machine's other workspaces there (cmux#45947).
+    public var holdsOnlyAgentChats: Bool {
+        let tabs = screens.flatMap(\.panes).flatMap(\.tabs)
+        return !tabs.isEmpty && tabs.allSatisfy { $0.agentSession != nil }
+    }
 }
 
 extension DaemonStore {

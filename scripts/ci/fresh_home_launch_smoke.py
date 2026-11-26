@@ -440,6 +440,35 @@ class DefaultsAside:
         return False
 
 
+# The default the app keeps its last launch snapshot's path in, per session (LaunchSnapshotLocation.key).
+LAUNCH_SNAPSHOT_KEY_PREFIX = "cmuxNext.launchSnapshotPath."
+
+
+def defaults_before(bundle_id: str) -> dict:
+    """What the bundle's defaults domain holds just before a launch: its key names, sorted, and the value of
+    every `cmuxNext.launchSnapshotPath.*` key (no other key's value). A HOME of its own does not give a launch
+    its own defaults: cfprefsd keeps the domain in the account's real preferences, so a key here was written by
+    an earlier launch of the bundle. `error` (and no keys) when the domain could not be read; {} with no tool."""
+    tool = os.environ.get("CMUX_FRESH_SMOKE_DEFAULTS_TOOL") or shutil.which("defaults")
+    if not tool:
+        return {}
+    try:
+        done = subprocess.run([tool, "export", bundle_id, "-"], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"error": f"defaults export: {error}"}
+    if done.returncode != 0:
+        return {"error": f"defaults export exited {done.returncode}: {done.stderr.decode(errors='replace')[:200]}"}
+    try:
+        domain = plistlib.loads(done.stdout)
+    except Exception as error:  # noqa: BLE001 - any unreadable export is "cannot tell"
+        return {"error": f"defaults export unreadable: {error}"}
+    if not isinstance(domain, dict):
+        return {"error": f"defaults export is a {type(domain).__name__}, not a dictionary"}
+    keys = sorted(str(key) for key in domain)
+    return {"keys": keys,
+            "launch_snapshot_paths": {key: domain[key] for key in keys if key.startswith(LAUNCH_SNAPSHOT_KEY_PREFIX)}}
+
+
 def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:
     """snapshot.get over the release control socket (newline-delimited JSON), None while it does not answer."""
     if not socket_path.exists():

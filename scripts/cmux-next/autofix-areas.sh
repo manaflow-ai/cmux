@@ -43,7 +43,8 @@ area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-o
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|scripts/lint-namespace-types-baseline\.txt|scripts/lint-ios-package-conventions-baseline\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
-area webviews 'webviews/'
+# webviews formatting, and the acpmux protocol types its codegen writes from the spec.
+area webviews 'webviews/|cmux-tui/crates/acpmux/spec/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
 # Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a

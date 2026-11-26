@@ -207,11 +207,15 @@ import Testing
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
         let panel = JoinConsentAskPanel(model: model)
         model.present = { [weak panel] _ in panel?.content.rebuild() }
-        panel.content.rebuild()
-        panel.setContentSize(panel.content.fittingSize)
-        panel.contentView?.layoutSubtreeIfNeeded()
+        // Shown as the app shows it (``JoinConsentAskPanel/setShown(_:)``): the content joins the panel only then, and
+        // Allow's action finds its panel through its window (before 27ee68fa the panel's init held the content).
+        panel.setShown(true)
+        defer { panel.hide() }
         let allow = { try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton) }
-        func texts(_ view: NSView) -> [String] { ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap(texts) }
+        // The card's words are ChromeLabels (the dialog card draws no NSTextField labels).
+        func texts(_ view: NSView) -> [String] {
+            (((view as? NSTextField)?.stringValue ?? (view as? ChromeLabel)?.stringValue).map { [$0] } ?? []) + view.subviews.flatMap(texts)
+        }
         let shown = { (text: String) in texts(panel.content).contains(text) }
         var number = 0
         let mouse = { (type: NSEvent.EventType) throws -> NSEvent in

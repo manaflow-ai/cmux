@@ -12,7 +12,7 @@ import type {
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
-import { categories } from "./categories";
+import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -219,9 +219,31 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
-  selector: '[data-card="computer-use"] [data-action-row] button',
+  // The mode picker's checked mode: it shows in every phase.
+  selector: '[data-card="computer-use"] [data-mode][data-checked] input',
   action: "focus",
+};
+const focusApprovals: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-approval] button',
+  action: "focus",
+};
+const focusDenied: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-denied-input]',
+  action: "focus",
+};
+const computerUseReady = {
+  phase: "ready" as const,
+  accessibility: true,
+  screen_recording: false,
+  helper: null,
+  engine: "cmux Computer Use 1.0",
+  worker: { state: "running" as const, pid: 4242 },
+  approvals: [],
+  running_apps: [
+    { id: "com.apple.Safari", name: "Safari" },
+    { id: "com.apple.Notes", name: "Notes" },
+    { id: "com.figma.Desktop", name: "Figma" },
+  ],
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
@@ -253,12 +275,13 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     return [setting.key, value];
   }),
 );
-const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => ({
-  section,
-  host,
-  accounts: accounts(),
-  ...extra,
-});
+const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => {
+  // A section that is neither a category id nor one of its aliases opens General (categoryOf), so
+  // a state's steps wait for a card that is never drawn: say which section is wrong instead.
+  if (!isCategory(section) && categoryOf(section) === defaultCategory)
+    throw new Error(`settings gallery: ${JSON.stringify(section)} is not a Settings category or alias`);
+  return { section, host, accounts: accounts(), ...extra };
+};
 /** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
 const showEndpoint =
   (ready = "[data-agents-endpoint]") =>
@@ -315,6 +338,10 @@ const variants: Record<string, SettingsPageVariant> = {
     host: { ...host, harness_placement: "left" },
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+  "agent-tools": variant("agents", {
+    focus: "agents.cmuxMcp",
+    note: "The onboarding step's question kept in Settings: cmux Tools for Agents in cmux, each coding agent on this Mac with Turn On, and the manual lines for agents started elsewhere.",
   }),
 };
 for (const category of categories) {
@@ -1114,67 +1141,64 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
-  // Focusing the card's first button scrolls it into view.
-  "computer-use-off": variant("agents", {
-    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
+  // Settings > Computer Use (ComputerUseCard): the default (Full access, one grant missing, the
+  // engine's deny list), every grant given with saved approvals, Look only, Off, a failed worker,
+  // a policy lock and a short custom deny list. Focusing the mode picker scrolls the card into view.
+  "computer-use-default": variant("computerUse", {
+    host: { ...host, computer_use: computerUseReady },
+    steps: [wait('[data-card="computer-use"] [data-mode]'), focusComputerUse],
+    note: "Full access by default: status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
   }),
-  "computer-use-failed": variant("agents", {
+  "computer-use-granted": variant("computerUse", {
+    host: {
+      ...host,
+      computer_use: {
+        ...computerUseReady,
+        screen_recording: true,
+        approvals: [
+          { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+          { app_id: "com.figma.Desktop", name: "Figma", decision: "always" },
+          { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+        ],
+      },
+    },
+    options: { values: { "computerUse.mode": "approvedApps" } },
+    steps: [wait('[data-card="computer-use"] [data-approval]'), focusApprovals],
+    note: "Approved apps with every grant given: Saved Approvals lists Always Allow and Never, each with Forget.",
+  }),
+  "computer-use-look-only": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.mode": "lookOnly" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="lookOnly"][data-checked]'), focusComputerUse],
+    note: "Look only: screenshots and reading, no clicks or typing.",
+  }),
+  "computer-use-off": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, phase: "off", worker: { state: "stopped" } } },
+    options: { values: { "computerUse.mode": "off" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="off"][data-checked]'), focusComputerUse],
+    note: "Off: the status says pick a mode to turn it on; no grant or worker rows.",
+  }),
+  "computer-use-failed": variant("computerUse", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
     steps: [
       wait('[data-card="computer-use"]'),
-      {
-        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
-        action: "focus",
-      },
+      { selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]', action: "focus" },
     ],
-    note: "The helper did not respond. Restart Helper is the only action.",
+    note: "The worker did not respond: Restart is the only status action.",
   }),
-  "computer-use-granted": variant("agents", {
+  "computer-use-policy-locked": variant("computerUse", {
     host: {
       ...host,
-      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+      computer_use: { phase: "disabled_by_policy", accessibility: null, screen_recording: null, helper: null },
     },
-    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
-    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+    steps: [wait('[data-card="computer-use"][data-phase="disabled_by_policy"]'), focusComputerUse],
+    note: "A managed policy turned Computer Use off on this Mac: no Grant or Restart; the rows still show.",
   }),
-  "computer-use-host-unverified": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        host_unverified: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
-  }),
-  "computer-use-upstream-fallback": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        upstream_fallback: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
-  }),
-  "computer-use-not-granted": variant("agents", {
-    host: {
-      ...host,
-      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
-    },
-    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
-    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  "computer-use-custom-deny-list": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.deniedApps": ["com.apple.Terminal", "com.1password.*", "name:Notes"] } },
+    steps: [wait('[data-card="computer-use"] [data-denied-app="name:Notes"]'), focusDenied],
+    note: "A short custom deny list: Restore Defaults is enabled; Add a Running App offers Safari, Notes and Figma.",
   }),
   // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
   "agents-harnesses": variant("agents", {
@@ -1674,6 +1698,7 @@ const githubConnection = {
   busy: false,
   connect: "Connect GitHub",
   disconnect: "Disconnect",
+  reconfigure: "Reconfigure",
   confirm: "Disconnect GitHub? Agents will lose access through this connection.",
   cancel: "Cancel",
   refresh: "Refresh",
@@ -1682,6 +1707,7 @@ const githubConnection = {
     {
       id: "sample-github",
       canDisconnect: true,
+      canReconfigure: true,
       account: "sample-team",
       status: "Connected",
       permissions: ["contents:write", "pull_requests:write"],
@@ -1835,6 +1861,8 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/AgentToolsCard.tsx",
+    "pages/settings/components/McpServersCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",

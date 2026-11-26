@@ -634,7 +634,12 @@ async fn watch_once(
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
                     None => std::future::pending().await,
                 }
-            } => return Err("pending-input lookup timed out".into()),
+            } => {
+                // A list page that never answered ends the watch; a lookup is asked again later.
+                let queries = waiting.expire(Instant::now())?;
+                report_and_query(&mut sink, queries, vec![], |event| reporter.send(event)).await?;
+                continue;
+            }
             () = async {
                 match due {
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
