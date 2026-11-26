@@ -4,6 +4,18 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes mail.threads.peek declares.
+    MailThreadsPeekError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
 wire_op! {
     /// Replace the parts of one of your messages (not after it was retracted).
     MessageEditOp {
@@ -887,20 +899,5 @@ wire_errors! {
     RunListError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.
-    ServerNetworkConfirmOp {
-        name: "server.network.confirm",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: ServerNetworkConfirmParams,
-        result: ServerNetworkConfirmResult,
-        error: ServerNetworkConfirmError,
     }
 }
