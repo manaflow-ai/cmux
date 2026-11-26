@@ -548,7 +548,9 @@ jobs:
   # the app's own at sha: the fleet builds the app's commit as it is, with no overlay. Anything else (another gate
   # commit, a red or unanswered build, a fork, outside manaflow-ai) leaves `use` empty and every leg builds on its
   # Mac as before, so the walk judges the same products either way. It never fails the run.
-  gate-products:
+  # The job id ends in -fleet: the build-fleet gateway runner's job-started hook takes only thin cmux-ci client
+  # jobs, by that suffix (run 45889626981 had it refused as gate-products).
+  gate-products-fleet:
     needs: plan
     name: Build the app and the gate for testing (build fleet)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
@@ -620,7 +622,7 @@ jobs:
         run: echo "use=true" >> "$GITHUB_OUTPUT"
 
   reviewer-path:
-    needs: [plan, gate-products]
+    needs: [plan, gate-products-fleet]
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it. It runs whether
@@ -645,7 +647,7 @@ jobs:
     env:
       LANE: ${{ needs.plan.outputs.lane }}
       # 'false' when gate-products built this commit's products: the leg takes them and builds nothing.
-      BUILD_HERE: ${{ needs.gate-products.outputs.use != 'true' }}
+      BUILD_HERE: ${{ needs.gate-products-fleet.outputs.use != 'true' }}
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Result paths

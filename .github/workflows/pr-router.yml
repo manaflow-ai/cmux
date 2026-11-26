@@ -87,6 +87,7 @@ jobs:
             scripts/ci/check_reusable_workflow_permissions.py
             scripts/ci/deadline_http.py
             scripts/ci/cmux-machine-channel-pr-plan.sh
+            scripts/ci/cmux_machine_channel_head_built.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
             scripts/cmux-next/cmux-tui-build-profiles.json
@@ -131,6 +132,10 @@ jobs:
         timeout-minutes: 3
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # An earlier run of this same head that built both artifacts: no second build (the land hands a head over
+          # more than once; cmux_machine_channel_head_built.py). The job's token has actions: read for head_tier.py.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.

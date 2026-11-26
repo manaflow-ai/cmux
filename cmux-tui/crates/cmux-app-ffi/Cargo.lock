@@ -191,6 +191,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-acpmux-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
@@ -214,6 +222,7 @@ version = "0.1.0"
 dependencies = [
  "acpmux-client",
  "cbindgen",
+ "cmux-acpmux-remote-wire",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-background-ready",

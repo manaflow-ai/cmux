@@ -29,7 +29,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # May run on a persistent owned Mac (vars.CI_SIDE_LANE_RUNNER): keep no token in .git/config.
           persist-credentials: false
@@ -55,7 +55,7 @@ jobs:
       # Swift 6 without `sudo xcode-select`: every xcrun, swift and xcodebuild call reads DEVELOPER_DIR.
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Verify the app's pinned native relay TLS verifier
         run: python3 tests/relay_tls/system_keychain.py --allow-system-keychain --diagnostics --output relay-tls-results
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
