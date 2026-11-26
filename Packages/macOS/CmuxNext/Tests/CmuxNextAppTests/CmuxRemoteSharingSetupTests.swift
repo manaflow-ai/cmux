@@ -703,4 +703,22 @@ struct CmuxRemoteSharingSetupTests {
             #expect(!spec.title.isEmpty && !spec.lines.isEmpty)
         }
     }
+
+    /// Leo: "the whole "allow blah blah" is so annoying too". `cmux remote-host share on --device` from a
+    /// Mac whose own yes holds (joined to the person's own account, Z4) asks nothing; without it the
+    /// dialog still asks, and its Cancel still declines.
+    @Test func sharingAnotherOwnMacAsksOnlyWithoutThisMacsYes() async {
+        typealias Env = CmuxRemoteActionEnvironment
+        var asks = 0
+        let ask: @MainActor () async -> Bool = { asks += 1; return true }
+        let yes = CmuxRemoteShareConsent(given: { true }, remember: {})
+        let no = CmuxRemoteShareConsent(given: { false }, remember: {})
+        #expect(await Env.shareOtherAnswer(agent: false, consent: yes, ask: ask) == .consented)
+        #expect(await Env.shareOtherAnswer(agent: true, consent: no, ask: ask) == .agent)
+        #expect(asks == 0)
+        #expect(await Env.shareOtherAnswer(agent: false, consent: no, ask: ask) == .asked)
+        #expect(await Env.shareOtherAnswer(agent: false, consent: nil, ask: ask) == .asked)
+        #expect(asks == 2)
+        #expect(await Env.shareOtherAnswer(agent: false, consent: no, ask: { false }) == .declined)
+    }
 }

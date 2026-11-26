@@ -888,7 +888,11 @@ impl UltraUnderlay {
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
-        self.forward(datagram, priority);
+        match priority {
+            // Class 0 (input) goes on the best two paths; its repair below does not.
+            Some(p) if p.braid_class().duplicates() => self.inner.send_duplicated(datagram, p),
+            _ => self.forward(datagram, priority),
+        }
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
