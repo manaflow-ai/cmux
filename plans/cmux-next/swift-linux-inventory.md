@@ -518,7 +518,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextServerHelper | target | mac | scan | imports Security | - |
 | CmuxNextServerHelperDaemon | executableTarget | mac | scan | via CmuxNextServerHelper | - |
 | CmuxNextSessionTransfer | target | mac | scan | via CmuxNextCompat | - |
-| CmuxNextSettings | target | mac | scan | imports AppKit, CoreText; shim CoreGraphics, CryptoKit, UniformTypeIdentifiers, os; unknown module CCmuxLayoutReducerFFI | - |
+| CmuxNextSettings | target | mac | scan | imports AppKit, CoreText; shim CoreGraphics, CryptoKit, UniformTypeIdentifiers, os; unknown module CCmuxLayoutReducerFFI, CCmuxSettingsFFI | - |
 | CmuxNextSettingsWindow | target | mac | scan | imports AppKit, SwiftUI; shim CoreGraphics, UniformTypeIdentifiers, os | - |
 | CmuxNextSidebar | target | mac | scan | imports Accelerate, AppKit, CoreText, QuartzCore; shim CoreGraphics, OSLog, os; unknown module CCmuxLayoutReducerFFI | - |
 | CmuxNextSidebarActions | target | mac | scan | imports AppKit | - |

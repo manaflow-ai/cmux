@@ -1499,19 +1499,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHostPressure",
             swiftSettings: daemonSwiftSettings
         ),
-        // Host pressure's Debug Settings tunables (forced level, indicator style), apart from
-        // CmuxNextHostPressure so that target needs no Mac-only module and builds in the Linux shape.
+        .testTarget(
+            name: "CmuxNextHostPressureTests",
+            dependencies: ["CmuxNextHostPressure"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Host pressure's Debug Settings tunables (forced level, indicator style, thresholds). They
+        // read the design tokens, so they stay out of CmuxNextHostPressure, which builds on Linux.
         .target(
             name: "CmuxNextHostPressureTunables",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDesignTokens",
                 "CmuxNextHostPressure",
             ],
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextHostPressureTests",
-            dependencies: ["CmuxNextHostPressure"],
             swiftSettings: daemonSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
@@ -2197,6 +2197,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCloudUI",
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
@@ -2934,7 +2935,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
-                "CmuxNextHostPressure",
                 "CmuxNextHostPressureTunables",
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
