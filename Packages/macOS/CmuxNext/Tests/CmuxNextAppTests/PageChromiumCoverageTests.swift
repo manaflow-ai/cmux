@@ -24,7 +24,7 @@ import Testing
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
         (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
-        (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
+        (.changelog, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
         (.serverCards, ServerPanelPopover.engineOptions),
     ]
