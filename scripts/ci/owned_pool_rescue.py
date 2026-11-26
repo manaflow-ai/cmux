@@ -626,9 +626,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-tui-nightly.yml":
         "feat-cmux-next only; builds (on a side label it passes cmux-tui-build-package.yml) and publishes the "
         "cmux-tui nightly packages: a release step, so a person re-runs it",
-    ".github/workflows/ios-sim-linux-build.yml":
-        "feat-cmux-next only; its route job runs ios_runner_pool.py and the build job takes retry_runs_on (Blacksmith) "
-        "from attempt 2 on, so a person's re-run moves a refused or stuck build off the owned pool",
     ".github/workflows/ios-internal-nightly.yml":
         "feat-cmux-next only; signs and uploads the internal iOS build: a release step, so a person re-runs it",
     ".github/workflows/nightly-next-train.yml":
@@ -649,6 +646,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/measure-swift-typecheck.yml":
         "feat-cmux-next only; type-checks scripts/measure/*.swift on a Mac when a pull request touches them, on the "
         "light side lane only on attempt 1 while vars.CI_PR_POOL_OWNED is 1; a re-run takes the paid macOS pool",
+    ".github/workflows/ios-sim-linux-build.yml":
+        "feat-cmux-next only (#55612); a producer for the Linux simulator runner's lane branches and by hand: its "
+        "build job takes ios_runner_pool.py's owned Mac on attempt 1 and retry_runs_on on a re-run, and nothing "
+        "waits on it, so the next lane push or a person's re-run moves it",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
