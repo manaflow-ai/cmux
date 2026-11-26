@@ -379,22 +379,6 @@
   background: var(--agent-muted);
 }
 
-/* A harness tab dragged along the rail (railReorder.ts): it follows the pointer above the others,
-   which slide aside on the standard clock; Starred never moves. With reduced motion they jump. */
-.acpmux-cols-rail[data-reordering] { cursor: grabbing; }
-.acpmux-cols-rail[data-reordering] .acpmux-cols-tab { cursor: grabbing; }
-.acpmux-cols-tab[data-lifted] {
-  position: relative;
-  z-index: var(--layer-raised);
-  background: var(--ds-surface-inset);
-  color: var(--agent-text);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-cols-rail[data-reordering] .acpmux-cols-tab[data-movable]:not([data-lifted]) {
-    transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
-  }
-}
-
 /* Rows */
 .acpmux-cols-row {
   display: flex;
@@ -472,9 +456,6 @@
   white-space: normal;
 }
 .acpmux-cols-note .acpmux-cols-name { white-space: normal; overflow: visible; }
-/* A model with no levels: a level row's size, line and place (the levels' "Low"), muted, and no
-   width of its own, so a longer translation never widens the column. */
-.acpmux-cols-none { contain: inline-size; }
 .acpmux-cols-caption {
   padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
   color: var(--agent-muted);
@@ -493,14 +474,11 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
-/* A row that stays through a search or a tab and moves two rows at most glides from its old slot to
-   its new one (QuickModelColumns flipSlots): one keyframe on one clock, instead of the one-frame jump
-   when rows above it leave. A row a keystroke brings in, or moves further, fades in where it lands. */
+/* A row that stays through a search or a tab glides from its old slot to its new one (QuickModelColumns
+   flipSlots): one keyframe on one clock, instead of the one-frame jump when rows above it leave. */
 @keyframes acpmux-cols-flip { from { transform: translateY(var(--flip-dy, 0)); } to { transform: none; } }
-@keyframes acpmux-cols-enter { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-cols-list [data-flipping] { animation: acpmux-cols-flip var(--cmux-motion-standard) var(--cmux-ease-out) both; }
-  .acpmux-cols-list [data-entering] { animation: acpmux-cols-enter var(--cmux-motion-micro) var(--cmux-ease-out) both; }
 }
 /* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
 .acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }

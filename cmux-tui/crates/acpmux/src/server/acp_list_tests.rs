@@ -410,6 +410,12 @@ async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize)
 }
 
 /// CPU time this thread has used.
+#[cfg(not(unix))]
+fn thread_cpu() -> Duration {
+    unimplemented!("CPU time is read through libc on unix only")
+}
+
+#[cfg(unix)]
 fn thread_cpu() -> Duration {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `ts` is a valid timespec for the call to write.

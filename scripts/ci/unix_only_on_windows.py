@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIBC_LIST = os.path.join(HERE, "libc_windows_gnu.txt")
 # The crates the Windows check builds whose own sources are scanned. acpmux first: every red of
 # the Windows check since 2026-11-21 was in it.
-DEFAULT_CRATES = ["cmux-tui/crates/acpmux"]
+DEFAULT_CRATES = ["cmux-tui/crates/acpmux", "cmux-tui/crates/cmux-fault"]  # cmux-fault: an acpmux dev-dependency that --all-targets builds
 
 # rustc's cfg set for x86_64-pc-windows-gnu in a debug `cargo check` (`rustc --print cfg`).
 WINDOWS_CFG_NAMES = {"windows", "debug_assertions", "overflow_checks"}
@@ -78,13 +78,24 @@ STRIP_RE = re.compile(
 CFG_ATTR_RE = re.compile(r"#\s*(!)?\s*\[\s*cfg\s*\(")
 TOKEN_RE = re.compile(r"->|=>|==|!=|<=|>=|<<|>>|[{}()\[\];,<>=]")
 NEXT_RE = re.compile(r"\s*(else\b|as\b|=>|\.|\?|[-+*/%&|^<>=!]|\S)")
-MOD_RE = re.compile(r"(?:\bpub\s*(?:\([^)]*\))?\s*)?\bmod\s+(?:r#)?(\w+)\s*([;{])")
+MAIN_RE = re.compile(r"\bfn\s+main\s*\(")
+NO_MAIN_RE = re.compile(r"#!\[\s*(?:no_main|cfg_attr\s*\((.*?),\s*no_main\s*\))\s*\]", re.S)
+MOD_RE = re.compile(r"\bmod\s+(?:r#)?(\w+)\s*([;{])")
+VIS_TAIL_RE = re.compile(r"\bpub\s*(?:\([^)]*\))?\s*$")
 PATH_ATTR_RE = re.compile(r'#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]')
 ATTR_TAIL_RE = re.compile(r"(?:#\s*\[[^\]]*\]\s*)+$")
 TOP_ITEM_RE = re.compile(
     r"(?:\bpub\s*(?:\([^)]*\))?\s*)(?:unsafe\s+|async\s+|const\s+|extern\s+)*"
     r"(?:mod|fn|struct|enum|trait|type|const|static|union)\s+(?:r#)?(\w+)"
 )
+
+
+def _blank(m: re.Match) -> str:
+    g = m.group()
+    return " " * len(g) if "\n" not in g else _NOT_NL.sub(" ", g)
+
+
+_NOT_NL = re.compile(r"[^\n]")
 
 
 # ---------------------------------------------------------------- cfg predicates
@@ -223,7 +234,7 @@ def block_of(code: str, inner_attr_at: int) -> tuple[int, int]:
         if k < 0 or code[k] != "{":
             return 0, len(code)
         j = k
-    return j, item_end(code, j) if False else _match_brace(code, j)
+    return j, _match_brace(code, j)
 
 
 def _match_brace(code: str, open_at: int) -> int:
@@ -308,11 +319,12 @@ class Source:
     original: str
     lines: list[int] = field(default_factory=list)
     cfgs: list[tuple[int, int, bool, str]] = field(default_factory=list)  # attr start, after attr, inner, predicate
+    mods: list[re.Match] | None = None
 
     @classmethod
     def load(cls, path: str, text: str) -> "Source":
-        code = STRIP_RE.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), text)
-        lines = [i for i, c in enumerate(code) if c == "\n"]
+        code = STRIP_RE.sub(_blank, text) if ("/" in text or '"' in text or "'" in text) else text
+        lines = [m.start() for m in re.finditer("\n", code)]
         cfgs = []
         for m in CFG_ATTR_RE.finditer(code):
             open_at = m.end() - 1
@@ -361,24 +373,29 @@ class Crate:
     features: set[str]
     missing_crates: dict[str, str]  # ident -> why
     missing_items: dict[str, dict[str, str]]  # ident -> item -> why
+    # Roots that must have a `main` on Windows too: bins, examples, `harness = false` tests and
+    # benches. A `#![cfg(unix)]` file is empty there and fails with E0601 (turn_overhead, 037a5240).
+    needs_main: set[str] = field(default_factory=set)
 
 
 def _workspace_paths(tree: Tree, crate_dir: str) -> tuple[str | None, dict]:
-    d = os.path.dirname(crate_dir)
-    while d and d != os.path.dirname(d):
-        text = tree.read(os.path.join(d, "Cargo.toml"))
+    d = os.path.dirname(os.path.normpath(crate_dir))
+    while True:
+        text = tree.read(os.path.join(d, "Cargo.toml") if d else "Cargo.toml")
         if text and re.search(r"^\[workspace\]", text, re.M):
             data = tomllib.loads(text)
             return d, data.get("workspace", {}).get("dependencies", {})
+        if not d or d == os.path.dirname(d):
+            return None, {}
         d = os.path.dirname(d)
-    return None, {}
 
 
-def _enabled_features(manifest: dict) -> tuple[set[str], set[str]]:
+def _enabled_features(manifest: dict, start: list[str] | None = None) -> tuple[set[str], set[str]]:
+    """The feature closure from `start` (default: `default`), and the optional deps it turns on."""
     feats = manifest.get("features", {})
     on: set[str] = set()
     deps_on: set[str] = set()
-    todo = ["default"]
+    todo = list(start) if start is not None else ["default"]
     while todo:
         f = todo.pop()
         if f in on:
@@ -406,34 +423,48 @@ def _target_on_windows(key: str) -> bool:
     return key == "x86_64-pc-windows-gnu"
 
 
-def _crate_root_dead(tree: Tree, crate_path: str) -> tuple[bool, dict[str, str]]:
-    """Whether a dependency's lib root is `#![cfg(...)]`-off on Windows, and its off top items."""
+def _crate_root_dead(tree: Tree, crate_path: str, asked: set[str], default: bool) -> tuple[bool, dict[str, str]]:
+    """Whether a dependency's lib root is `#![cfg(...)]`-off on Windows, and the public top-level
+    items of its root that Windows does not get (no arm of the same name is compiled there).
+    `asked` and `default` are the features the dependent turns on, across its sections."""
     manifest_text = tree.read(os.path.join(crate_path, "Cargo.toml")) or ""
     lib = "src/lib.rs"
+    manifest: dict = {}
     try:
-        lib = tomllib.loads(manifest_text).get("lib", {}).get("path", lib)
+        manifest = tomllib.loads(manifest_text)
+        lib = manifest.get("lib", {}).get("path", lib)
     except tomllib.TOMLDecodeError:
         pass
     text = tree.read(os.path.join(crate_path, lib))
     if text is None:
         return False, {}
+    features, _ = _enabled_features(manifest, (["default"] if default else []) + sorted(asked))
     src = Source.load(os.path.join(crate_path, lib), text)
-    items: dict[str, str] = {}
-    for start, after, inner, pred in src.cfgs:
-        if eval_cfg(pred, False, {"default"}):
+    dead = src.dead_ranges(False, features)
+    if dead and dead[0] == (0, len(src.code)):
+        return True, {}
+    # Depth of every offset: top-level items only.
+    braces = [(m.start(), 1 if m.group() == "{" else -1) for m in re.finditer(r"[{}]", src.code)]
+    depth_at: list[tuple[int, int]] = []
+    d = 0
+    for pos, step in braces:
+        d += step
+        depth_at.append((pos, d))
+
+    def depth(pos: int) -> int:
+        i = bisect.bisect_left(depth_at, (pos, -10**9)) - 1
+        return depth_at[i][1] if i >= 0 else 0
+
+    live: set[str] = set()
+    off: dict[str, str] = {}
+    for m in TOP_ITEM_RE.finditer(src.code):
+        if depth(m.start()):
             continue
-        if inner and block_of(src.code, start) == (0, len(src.code)):
-            return True, {}
-        if inner:
-            continue
-        # Only top-level items (depth 0) of the crate root.
-        if src.code[:start].count("{") != src.code[:start].count("}"):
-            continue
-        end = item_end(src.code, start)
-        m = TOP_ITEM_RE.search(src.code, after, end)
-        if m and not ATTR_TAIL_RE.search(src.code[after:m.start()].strip() + "") is None or m:
-            items[m.group(1)] = f"`#[cfg({' '.join(pred.split())})]` in {src.path}:{src.line_of(start)}"
-    return False, items
+        if is_dead(dead, m.start()):
+            off.setdefault(m.group(1), f"{src.path}:{src.line_of(m.start())} is behind a cfg Windows does not set")
+        else:
+            live.add(m.group(1))
+    return False, {k: v for k, v in off.items() if k not in live}
 
 
 def load_crate(tree: Tree, crate_dir: str) -> Crate:
@@ -443,7 +474,7 @@ def load_crate(tree: Tree, crate_dir: str) -> Crate:
 
     def path_of(name: str, spec) -> str | None:
         if isinstance(spec, dict):
-            if spec.get("workspace") and ws_dir:
+            if spec.get("workspace") and ws_dir is not None:
                 w = ws_deps.get(name)
                 if isinstance(w, dict) and "path" in w:
                     return os.path.normpath(os.path.join(ws_dir, w["path"]))
@@ -474,12 +505,32 @@ def load_crate(tree: Tree, crate_dir: str) -> Crate:
     for name, why in elsewhere.items():
         if name not in on_windows:
             missing_crates[name.replace("-", "_")] = why
+    # Features each path dependency gets from this crate (all sections, as cargo unifies them).
+    asked: dict[str, set[str]] = {}
+    default_on: dict[str, bool] = {}
+    for _label, deps, on in sections:
+        if not on:
+            continue
+        for name, spec in deps.items():
+            if not isinstance(spec, dict):
+                default_on[name] = True
+                continue
+            w = ws_deps.get(name, {}) if spec.get("workspace") else {}
+            w = w if isinstance(w, dict) else {}
+            asked.setdefault(name, set()).update(spec.get("features", []), w.get("features", []))
+            dflt = spec.get("default-features", w.get("default-features", True))
+            default_on[name] = default_on.get(name, False) or bool(dflt)
+    for f in features:
+        for item in manifest.get("features", {}).get(f, []):
+            if "/" in item:
+                dep, feat = item.split("/", 1)
+                asked.setdefault(dep.rstrip("?"), set()).add(feat)
     missing_items: dict[str, dict[str, str]] = {}
     for name, spec in on_windows.items():
         p = path_of(name, spec)
         if not p:
             continue
-        dead, items = _crate_root_dead(tree, p)
+        dead, items = _crate_root_dead(tree, p, asked.get(name, set()), default_on.get(name, True))
         ident = name.replace("-", "_")
         if dead:
             missing_crates[ident] = f"its crate root ({p}) is `#![cfg(...)]`-off on Windows"
@@ -491,13 +542,20 @@ def load_crate(tree: Tree, crate_dir: str) -> Crate:
     if tree.exists(os.path.join(crate_dir, lib)):
         roots.append((os.path.join(crate_dir, lib), False))
     named = set()
+    needs_main: set[str] = set()
     for kind, auto_dir, test_only in (("bin", "src/bin", False), ("test", "tests", True),
                                       ("bench", "benches", True), ("example", "examples", True)):
         explicit = manifest.get(kind, [])
+        no_harness = set()
         for t in explicit:
             path = t.get("path")
             if path:
                 named.add(os.path.normpath(path))
+            if kind in ("bin", "example") or t.get("harness", True) is False:
+                if path:
+                    needs_main.add(os.path.normpath(os.path.join(crate_dir, path)))
+                elif t.get("name"):
+                    no_harness.add(t["name"])
             if path and set(t.get("required-features", [])) <= features:
                 roots.append((os.path.join(crate_dir, path), test_only))
         if manifest.get("package", {}).get(f"auto{kind}s", True) is False:
@@ -512,36 +570,58 @@ def load_crate(tree: Tree, crate_dir: str) -> Crate:
                 continue
             if os.path.normpath(cand) not in named:
                 roots.append((os.path.join(crate_dir, cand), test_only))
-    if kind and tree.exists(os.path.join(crate_dir, "src/main.rs")) and os.path.normpath("src/main.rs") not in named:
+                stem = entry[:-3] if entry.endswith(".rs") else entry
+                if kind in ("bin", "example") or stem in no_harness:
+                    needs_main.add(os.path.normpath(os.path.join(crate_dir, cand)))
+    if tree.exists(os.path.join(crate_dir, "src/main.rs")) and os.path.normpath("src/main.rs") not in named:
         roots.append((os.path.join(crate_dir, "src/main.rs"), False))
-    return Crate(crate_dir, roots, features, missing_crates, missing_items)
+        needs_main.add(os.path.normpath(os.path.join(crate_dir, "src/main.rs")))
+    return Crate(crate_dir, roots, features, missing_crates, missing_items, needs_main)
 
 
 # ---------------------------------------------------------------- findings
 
 
+def _starts_path(code: str, at: int) -> bool:
+    """`at` begins a path (`x::`, `::x::`), not the tail of one (`a::x`, `a.x`, `ax`)."""
+    if code.startswith("::", at - 2):
+        at -= 2
+    return at == 0 or not (code[at - 1].isalnum() or code[at - 1] in "_:.")
+
+
+def _led(why):
+    # Patterns open with their literal so `re` can skip ahead to it (a leading look-behind made
+    # it try every offset: 1.4 s of the 5 s over acpmux); the start is checked here instead.
+    return lambda m: why(m) if _starts_path(m.string, m.start()) else None
+
+
 def _patterns(crate: Crate, libc_ok: set[str]):
     out = [
-        (re.compile(r"(?<![\w:])std\s*::\s*os\s*::\s*(unix|fd)\b"), lambda m: f"`std::os::{m.group(1)}` is unix-only"),
-        (re.compile(r"(?<![\w:])std\s*::\s*os\s*::\s*\{[^}]*?\b(unix|fd)\b"), lambda m: f"`std::os::{m.group(1)}` is unix-only"),
-        (re.compile(r"\b(Unix(?:Stream|Listener|Datagram))\b"), lambda m: f"`{m.group(1)}` is unix-only"),
+        (("unix", "fd"), re.compile(r"std\s*::\s*os\s*::\s*(?:(unix|fd)\b|\{[^}]*?\b(unix|fd)\b)"),
+         _led(lambda m: f"`std::os::{m.group(1) or m.group(2)}` is unix-only")),
+        # `net::UnixStream` (tokio's, std's through std::os::unix): a bare `UnixStream` may be a
+        # crate's own Windows stand-in (router_socket::UnixStream), so only the `net::` path counts.
+        ("Unix", re.compile(r"net\s*::\s*(?:(Unix(?:Stream|Listener|Datagram))\b|\{[^}]*?\b(Unix(?:Stream|Listener|Datagram))\b)"),
+         lambda m: (f"`net::{m.group(1) or m.group(2)}` is unix-only"
+                    if m.start() == 0 or not (m.string[m.start() - 1].isalnum() or m.string[m.start() - 1] == "_") else None)),
     ]
-    libc_re = re.compile(r"(?<![\w:])libc\s*::\s*(?:(\w+)|\{([^}]*)\})")
+    libc_re = re.compile(r"libc\s*::\s*(?:(\w+)|\{([^}]*)\})")
 
     def libc_why(m):
         names = [m.group(1)] if m.group(1) else re.findall(r"\b\w+\b", m.group(2) or "")
         bad = [n for n in names if n not in libc_ok and n != "self"]
         return f"`libc::{', '.join(bad)}` is not in libc for windows-gnu" if bad else None
 
-    out.append((libc_re, libc_why))
+    out.append(("libc", libc_re, _led(libc_why)))
     if crate.missing_crates:
         alt = "|".join(sorted(map(re.escape, crate.missing_crates), key=len, reverse=True))
-        cre = re.compile(rf"(?<![\w:.])(?:(?:use|extern\s+crate)\s+)?(?:::)?({alt})\b(?=\s*(?:::|;|\s+as\b))")
-        out.append((cre, lambda m: f"crate `{m.group(1)}` is not built for Windows ({crate.missing_crates[m.group(1)]})"))
+        cre = re.compile(rf"({alt})\b(?=\s*(?:::|;|\s+as\b))")
+        out.append((tuple(crate.missing_crates), cre,
+                    _led(lambda m: f"crate `{m.group(1)}` is not built for Windows ({crate.missing_crates[m.group(1)]})")))
     for ident, items in crate.missing_items.items():
         alt = "|".join(sorted(map(re.escape, items), key=len, reverse=True))
-        ire = re.compile(rf"(?<![\w:.])(?:::)?({re.escape(ident)})\s*::\s*(?:\{{[^}}]*?\b)?({alt})\b")
-        out.append((ire, lambda m, items=items: f"`{m.group(1)}::{m.group(2)}` is off on Windows ({items[m.group(2)]})"))
+        ire = re.compile(rf"({re.escape(ident)})\s*::\s*(?:\{{[^}}]*?\b)?({alt})\b")
+        out.append((ident, ire, _led(lambda m, items=items: f"`{m.group(1)}::{m.group(2)}` is off on Windows ({items[m.group(2)]})")))
     return out
 
 
@@ -549,6 +629,7 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
     crate = load_crate(tree, crate_dir)
     pats = _patterns(crate, libc_ok)
     sources: dict[str, Source] = {}
+    hits: dict[str, list[tuple[int, str]]] = {}
     found: dict[tuple[str, int, str], None] = {}
     for test in (False, True):
         seen: set[str] = set()
@@ -566,24 +647,36 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                     continue
                 src = sources[path] = Source.load(path, text)
             dead = src.dead_ranges(test, crate.features)
+            no_main = any(m.group(1) is None or eval_cfg(m.group(1), test, crate.features)
+                          for m in NO_MAIN_RE.finditer(src.original)) if "no_main" in src.original else False
+            if path in crate.needs_main and not no_main:
+                mains = [m.start() for m in MAIN_RE.finditer(src.code)]
+                if not any(not is_dead(dead, at) for at in mains):
+                    at = mains[0] if mains else next((c[0] for c in src.cfgs if c[2]), 0)
+                    found[(path, src.line_of(at), "no `main` on Windows: a `#![cfg(...)]` or `#[cfg]` takes it out "
+                           "(E0601); add a `#[cfg(not(unix))] fn main() {}`")] = None
             if dead and dead[0] == (0, len(src.code)):
                 continue
-            # Inline modules: their braces, for the directory of a `mod x;` inside them.
+            # Inline modules (`mod x { ... }`) nest the directory of a `mod y;` inside them.
+            if src.mods is None:
+                src.mods = list(MOD_RE.finditer(src.code)) if "mod" in src.code else []
             inline: list[tuple[int, int, str]] = []
-            for m in MOD_RE.finditer(src.code):
-                if m.group(2) == "{":
+            for m in src.mods:
+                if m.group(2) == "{" and not is_dead(dead, m.start()):
                     inline.append((m.end() - 1, _match_brace(src.code, m.end() - 1), m.group(1)))
-            for m in MOD_RE.finditer(src.code):
+            for m in src.mods:
                 if m.group(2) != ";" or is_dead(dead, m.start()):
                     continue
                 name = m.group(1)
-                nest = [n for lo, hi, n in inline if lo < m.start() < hi]
-                attrs = ATTR_TAIL_RE.search(src.original[:m.start()].rstrip() + "")
+                nest = [n for lo, hi, n in inline if lo < m.start() < hi] if inline else []
+                lead = VIS_TAIL_RE.sub("", src.original[max(0, m.start() - 600):m.start()]).rstrip()
+                attrs = ATTR_TAIL_RE.search(lead)
                 pa = PATH_ATTR_RE.search(attrs.group()) if attrs else None
                 here = os.path.dirname(path)
                 if pa:
-                    base = os.path.join(here, *nest) if nest else here
-                    todo.append((os.path.join(base, pa.group(1)), None, True))
+                    # A `#[path]` file reads its own `mod x;` as a mod.rs does: from its directory.
+                    target = os.path.normpath(os.path.join(os.path.join(here, *nest) if nest else here, pa.group(1)))
+                    todo.append((target, os.path.dirname(target), True))
                     continue
                 base = mod_dir if mod_dir is not None else os.path.splitext(path)[0]
                 base = os.path.join(base, *nest)
@@ -592,13 +685,19 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                         child_dir = os.path.dirname(cand) if cand.endswith("mod.rs") else os.path.join(base, name)
                         todo.append((cand, child_dir, True))
                         break
-            for rx, why in pats:
-                for m in rx.finditer(src.code):
-                    if is_dead(dead, m.start()):
+            if path not in hits:
+                hits[path] = []
+                for need, rx, why in pats:
+                    needs = (need,) if isinstance(need, str) else need
+                    if not any(n in src.code for n in needs):
                         continue
-                    w = why(m)
-                    if w:
-                        found[(path, src.line_of(m.start()), w)] = None
+                    for m in rx.finditer(src.code):
+                        w = why(m)
+                        if w:
+                            hits[path].append((m.start(), w))
+            for pos, w in hits[path]:
+                if not is_dead(dead, pos):
+                    found[(path, src.line_of(pos), w)] = None
     return sorted(found)
 
 
@@ -608,6 +707,9 @@ def write_libc_list(src_dir: str) -> None:
         with open(os.path.join(src_dir, rel), encoding="utf-8") as f:
             text = STRIP_RE.sub(" ", f.read())
         names.update(re.findall(r"\b(?:fn|const|type|struct|union|enum|static)\s+(?:mut\s+)?([A-Za-z_]\w*)", text))
+        for group in re.findall(r"\bpub\s+use\s+[\w:]+::\{([^}]*)\}", text):
+            names.update(re.findall(r"\b[A-Za-z_]\w*\b", group))
+        names.update(re.findall(r"\bpub\s+use\s+[\w:]+::([A-Za-z_]\w*)\s*;", text))
     with open(LIBC_LIST, "w", encoding="utf-8") as f:
         f.write(f"# libc items on x86_64-pc-windows-gnu, from {os.path.basename(os.path.dirname(src_dir.rstrip('/')))}\n")
         f.write("# (src/windows/mod.rs, src/windows/gnu/mod.rs, src/primitives.rs, core::ffi::c_void).\n")

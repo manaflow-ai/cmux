@@ -1,8 +1,10 @@
-// The model menu's search over every harness the catalog knows (Lawrence 2026-11-07: "we should make
-// it possible to search for any model in cmux model picker"), narrowed to the harnesses this Mac has
-// (Lucas 2026-11-25): one that is not installed lists no models, in a tab or a search, so no pick
-// installs it; its tab offers Install. The real composer, catalog and menu, in JSDOM, over a fake
-// app host.
+// Lawrence 2026-11-07: "we should make it possible to search for any model in cmux model picker and
+// it needs to 'just work' aka download the relevant harness". The model menu's search finds the
+// models of every harness the catalog knows, also one this Mac does not have (Gemini CLI) and one
+// whose models only its own probe names once it runs (OpenCode: the feed's OpenCode Zen and Go
+// models). A pick of one installs its CLI in place, with the progress in the menu and on the chip
+// (no terminal), signs in through the harness's login when it needs one, then starts the chat on
+// the picked model. The real composer, catalog and menu, in JSDOM, over a fake app host.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -111,6 +113,20 @@ async function installedCatalog(extra: Snapshot["catalog"] = []): Promise<Snapsh
   ] as Snapshot["catalog"];
 }
 
+/// Gemini CLI as acpmux lists it once its CLI is on PATH.
+async function geminiListed(): Promise<Snapshot["catalog"]> {
+  const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
+  const gemini = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "gemini")!;
+  return installedCatalog([
+    {
+      id: "gemini",
+      name: gemini.name,
+      family: "gemini",
+      models: gemini.models.map((model) => ({ id: model.id, name: model.name })),
+    } as Snapshot["catalog"][number],
+  ]);
+}
+
 function newChat(catalog: Snapshot["catalog"]): Snapshot {
   return {
     type: "snapshot",
@@ -124,6 +140,13 @@ function newChat(catalog: Snapshot["catalog"]): Snapshot {
     catalog,
     summary: { sessionId: "s1", harness: "claude", model: "claude-opus-5-5", turnCount: 0 },
   } as Snapshot;
+}
+
+/// A deferred value a fake host call waits on, so a test can look at the menu mid-install.
+function gate() {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  return { open, opened };
 }
 
 /// A New Tab's composer on the fake host `answer`. `relist` swaps acpmux's harness list (its
@@ -186,7 +209,11 @@ const rowNames = () => rows().map(nameOf);
 /// The search's headings: one per harness family, in the order the menu lists them.
 const groupNames = () =>
   [...(menu()?.querySelectorAll<HTMLElement>(".acpmux-cols-group") ?? [])].map((group) => group.textContent ?? "");
+/// The search's top match.
+const topMatch = () => rows()[0]!;
 const chip = () => host.querySelector<HTMLElement>('[data-menu="Model"]')!;
+/// The menu's setup strip: what the pick of a model whose harness needs setting up is doing.
+const strip = () => menu()?.querySelector<HTMLElement>(".acpmux-cols-setup") ?? null;
 
 async function click(element: HTMLElement) {
   await act(async () => element.click());
@@ -202,20 +229,104 @@ async function search(text: string) {
   });
   await settle();
 }
+/// Yields to the page until `ready` holds, failing once `ms` have passed without it.
+async function until(ready: () => boolean, ms = 5000) {
+  const ends = Date.now() + ms;
+  while (!ready() && Date.now() < ends) await settle();
+  expect(ready()).toBe(true);
+}
 
-// Lucas 2026-11-25: "we should not display their models if they are not installed" (search too). A
-// harness this Mac does not have lists no models, so no pick installs it: its tab says "Gemini CLI
-// not installed" with an Install row, and the search finds only the harnesses set up here.
-test("the search lists no model of a harness this Mac does not have", async () => {
+test("the search finds the models of a harness this Mac does not have", async () => {
   await mount(() => ({}));
   await open();
   await search("gemini 3.8 flash");
-  expect(groupNames().some((name) => name.startsWith("Gemini CLI"))).toBe(false);
-  expect(rowNames()).not.toContain("3.8 Flash");
-  // OpenCode is not installed either: the feed's OpenCode Zen and Go models stay out.
+  // Its vendor's own CLI leads: the harnesses a pick installs come before those that only serve the
+  // model (OpenCode), and those no pick installs come last.
+  expect(groupNames()[0]).toBe("Gemini CLINot installed");
+  expect(rowNames()[0]).toBe("3.8 Flash");
+  // OpenCode's probe names its models only once it runs: until then the feed's OpenCode Zen and Go
+  // models stand in, so an open model such as DeepSeek is found too.
   await search("deepseek v4.1 flash");
-  expect(rowNames().some((name) => name.startsWith("DeepSeek V4.1 Flash"))).toBe(false);
-  // A model of a harness set up here is still found.
-  await search("opus");
-  expect(rowNames().length).toBeGreaterThan(0);
+  expect(rowNames().some((name) => name.startsWith("DeepSeek V4.1 Flash"))).toBe(true);
+});
+
+test("picking a model of a harness that is not installed installs it in place, then starts the chat on it", async () => {
+  const { INSTALL_COMMANDS } = await import("../src/agent-session/acpmux/harnesses/harnessRows");
+  const installed = gate();
+  const listed = await geminiListed();
+  const { calls, switched } = await mount(async ({ method, params }, relist) => {
+    if (method === "shell.run") return { id: "run-1" };
+    if (method === "shell.read") {
+      await installed.opened;
+      return { output: "added 1 package in 3s\n", next: 1, exit: { code: 0 } };
+    }
+    if (method === "harness.health") {
+      // acpmux's rescan finds the new CLI.
+      if (params.rescan) relist(listed);
+      return { health: { id: "gemini", auth: "signedIn" } };
+    }
+    return {};
+  });
+  await open();
+  await search("gemini 3.8 flash");
+  await click(topMatch());
+  // The install runs in place (no terminal tab), and the menu and the chip say so.
+  expect(calls.find((call) => call.method === "shell.run")?.params.command).toBe(INSTALL_COMMANDS.gemini);
+  expect(calls.some((call) => call.method === "tab.open")).toBe(false);
+  await until(() => strip()?.textContent?.includes("Installing Gemini CLI") === true);
+  expect(chip().textContent).toContain("Installing Gemini CLI");
+  expect(switched).toEqual([]);
+  installed.open();
+  await until(() => switched.length > 0);
+  expect(switched).toEqual([{ harness: "gemini", model: "gemini-3.8-flash" }]);
+  expect(calls.some((call) => call.method === "harness.health" && call.params.rescan === true)).toBe(true);
+  await until(() => strip() === null);
+});
+
+test("a harness that installs signed out signs in through its login, then starts the chat", async () => {
+  const listed = await geminiListed();
+  let signedIn = false;
+  const { calls, switched } = await mount(async ({ method, params }, relist) => {
+    if (method === "shell.run") return { id: "run-1" };
+    if (method === "shell.read") return { output: "done\n", next: 1, exit: { code: 0 } };
+    if (method === "tab.open") {
+      signedIn = true;
+      return {};
+    }
+    if (method === "harness.health") {
+      if (params.rescan) relist(listed);
+      return { health: { id: "gemini", auth: signedIn ? "signedIn" : "signedOut", login: "gemini auth login" } };
+    }
+    return {};
+  });
+  await open();
+  await search("gemini 3.8 flash");
+  await click(topMatch());
+  // The install spent the click: the login's terminal waits for the person's own Sign In.
+  await until(() => strip()?.querySelector("button") != null);
+  expect(switched).toEqual([]);
+  const signIn = [...strip()!.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.includes("Sign In"),
+  )!;
+  await click(signIn);
+  const login = calls.find((call) => call.method === "tab.open")!;
+  expect(login.params).toMatchObject({ kind: "terminal", text: "gemini auth login", run: true });
+  await until(() => switched.length > 0);
+  expect(switched).toEqual([{ harness: "gemini", model: "gemini-3.8-flash" }]);
+});
+
+// A network failure reads as plain words, never the installer's own line (first-run finding 6).
+test("a failed install says why in the menu and starts nothing", async () => {
+  const { calls, switched } = await mount(async ({ method }) => {
+    if (method === "shell.run") return { id: "run-1" };
+    if (method === "shell.read") return { output: "npm ERR! network unreachable\n", next: 1, exit: { code: 1 } };
+    return {};
+  });
+  await open();
+  await search("gemini 3.8 flash");
+  await click(topMatch());
+  await until(() => strip()?.textContent?.includes("The network dropped. Check your connection and retry.") === true);
+  expect(strip()?.textContent).not.toContain("npm ERR!");
+  expect(switched).toEqual([]);
+  expect(calls.some((call) => call.method === "harness.health")).toBe(false);
 });

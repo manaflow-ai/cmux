@@ -484,7 +484,6 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
-    var titlebarAccessoryReserve: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryReserve }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
     /// Views that keep clear of the top row (Home's header in a pane with no tab bar): they
     /// re-check when the top row, the main pane card or a pane moves (`WindowController+Sidebar`).

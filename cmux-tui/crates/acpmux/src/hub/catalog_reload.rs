@@ -58,10 +58,6 @@ impl Hub {
                 .lock()
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
-            self.known_efforts
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and

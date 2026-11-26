@@ -14,10 +14,12 @@
 
 pub mod pty;
 pub mod store;
-#[cfg(test)]
+// The token flow runs `claude` in a pty: unix-only, as are its tests.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +44,7 @@ const ITEM_LABEL: &str = "cmux Claude Code token";
 
 struct Attempt {
     status: watch::Sender<Status>,
+    #[cfg(unix)]
     master: Arc<OwnedFd>,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -70,6 +73,7 @@ impl Default for Service {
     }
 }
 
+#[cfg(unix)]
 fn random_id() -> Result<String, Failure> {
     use base64::Engine as _;
     let mut buf = [0u8; 18];
@@ -77,6 +81,7 @@ fn random_id() -> Result<String, Failure> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf))
 }
 
+#[cfg(unix)]
 /// The last line of what the child showed, for an error (it is never the token: the filter took
 /// that out first).
 fn last_line(shown: &[u8]) -> String {
@@ -90,6 +95,7 @@ fn last_line(shown: &[u8]) -> String {
     line.chars().take(200).collect()
 }
 
+#[cfg(unix)]
 /// What a finished read of the child ends in.
 enum Read {
     Token(Zeroizing<String>),
@@ -127,6 +133,25 @@ impl Service {
             let _ = self.cancel(&id).await;
         }
         self.prune();
+        #[cfg(not(unix))]
+        {
+            let _ = (add, on_finish);
+            return Err(Failure::new(
+                "unsupported",
+                "a Claude Code token needs a unix build of acpmux",
+            ));
+        }
+        #[cfg(unix)]
+        self.spawn_child(add, on_finish).await
+    }
+
+    /// [`Self::begin`]'s child: `claude setup-token` in a new pty, read on its own thread.
+    #[cfg(unix)]
+    async fn spawn_child(
+        self: &Arc<Self>,
+        add: impl FnOnce(&str) -> Result<String, Failure> + Send + 'static,
+        on_finish: impl FnOnce(&Status) + Send + 'static,
+    ) -> Result<Begun, Failure> {
         let program = self.program.clone().unwrap_or_else(pty::program);
         let (master, slave, slave_path) =
             pty::open_pty(pty::MIN_COLUMNS.max(240)).map_err(|e| Failure::new("pty", e))?;
@@ -252,7 +277,11 @@ impl Service {
         if *entry.status.borrow() != Status::Pending {
             return Err(Failure::new("not_pending", "the attempt already ended"));
         }
+        #[cfg(not(unix))]
+        let written = false;
+        #[cfg(unix)]
         let master = entry.master.clone();
+        #[cfg(unix)]
         let written = tokio::task::spawn_blocking(move || {
             let fd = master.as_raw_fd();
             // Return on its own, a moment later: a terminal UI reads one chunk as a paste.
@@ -293,6 +322,7 @@ impl Service {
     }
 }
 
+#[cfg(unix)]
 /// The child's output until its token: the link goes to `url_tx` once it is whole (within
 /// `url_timeout`), then the token is read (within [`ATTEMPT_TTL`]). It looks for a cancel every
 /// 100 ms.
@@ -374,6 +404,7 @@ fn read_token(
     }
 }
 
+#[cfg(unix)]
 /// `token` into `store`, then `add` with its reference; a refused add deletes the item.
 fn keep(
     store: &dyn store::Store,

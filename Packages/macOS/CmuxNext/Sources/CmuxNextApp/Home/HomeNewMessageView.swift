@@ -260,12 +260,8 @@ final class HomeNewMessageView: NSView {
         super.layout()
         let width = bounds.width
         let fieldHeight = field.height(forWidth: width)
-        // Under the chat's top row, as Messages puts To: under its toolbar: at the top the label sat
-        // under the traffic lights and beside Chats (the person, 2026-11-24: "something under the
-        // traffic light").
-        let row = HomeSidebarHeaderLayout.chatTopRow
-        field.frame = NSRect(x: 0, y: row, width: width, height: fieldHeight)
-        var top = row + fieldHeight
+        field.frame = NSRect(x: 0, y: 0, width: width, height: fieldHeight)
+        var top = fieldHeight
         if !notice.isHidden {
             let height = ceil(notice.size(forWidth: width - 28).height)
             notice.frame = NSRect(x: 14, y: top + 6, width: width - 28, height: height)
@@ -278,7 +274,7 @@ final class HomeNewMessageView: NSView {
         for view in [host as NSView?, composer as NSView?].compactMap({ $0 }) where view.frame != inner { view.frame = inner }
         let suggestions = field.suggestions
         // Under the refusal line when it shows, so the Chiefs listed before anyone is chosen never hide it.
-        let listTop = notice.isHidden ? field.frame.maxY + 2 : notice.frame.maxY + 6
+        let listTop = notice.isHidden ? fieldHeight + 2 : notice.frame.maxY + 6
         let height = min(suggestions.preferredHeight, max(0, bounds.height - listTop - 18))
         suggestions.frame = NSRect(x: 10, y: listTop, width: max(0, width - 20), height: height)
     }

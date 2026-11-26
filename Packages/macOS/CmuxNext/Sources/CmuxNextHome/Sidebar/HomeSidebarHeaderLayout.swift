@@ -27,9 +27,6 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// size: it lines up with the chat's header beside it (`HomeChatColumnView`), and it holds the
     /// biggest filter circle (``HomeSidebarHeaderMetrics/side``, 39 pt at Comfortable, Larger text).
     static let band: CGFloat = 52
-    /// The chat column's top row (the traffic lights, Chats and compose; ``band``): a page that fills the
-    /// column starts its own top line under it (the New Message page's To: field).
-    public static var chatTopRow: CGFloat { band }
     /// The filter circle's least room above it under the traffic lights: cmux's lights sit higher
     /// than Messages', so on their line the circle shrinks rather than run off the window's top.
     static let topMargin: CGFloat = 1

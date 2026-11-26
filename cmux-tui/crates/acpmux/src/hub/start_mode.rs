@@ -1124,20 +1124,7 @@ impl Hub {
         if modes.is_empty() && options.is_empty() {
             return None;
         }
-        let mut reported = json!({"modes": modes, "configOptions": options});
-        // The mode the harness's own `session/new` starts a chat in when acpmux sets none (its
-        // startup probe sets nothing; a chat's current mode is that chat's): Antigravity's
-        // `default`, which a new chat's Mode chip names where acpmux has no start mode for it.
-        if let Some(own) = probed
-            .as_ref()
-            .and_then(|(modes, _)| {
-                modes.as_ref()?.get("currentModeId")?.as_str().map(str::to_owned)
-            })
-            .filter(|own| modes.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(own)))
-        {
-            reported.set("startModeId", json!(own));
-        }
-        Some(reported)
+        Some(json!({"modes": modes, "configOptions": options}))
     }
 
     /// Tells local watchers a new chat's start mode may have changed

@@ -3,7 +3,7 @@
 
 extension AgentBrandID {
     /// Every brand with a mark, in manifest order.
-    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .github, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio, .vercel, .prime]
+    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .github, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
     public static let claude = AgentBrandID(rawValue: "claude")
     public static let anthropic = AgentBrandID(rawValue: "anthropic")
     public static let openai = AgentBrandID(rawValue: "openai")
@@ -33,8 +33,6 @@ extension AgentBrandID {
     public static let ollama = AgentBrandID(rawValue: "ollama")
     public static let openrouter = AgentBrandID(rawValue: "openrouter")
     public static let lmstudio = AgentBrandID(rawValue: "lmstudio")
-    public static let vercel = AgentBrandID(rawValue: "vercel")
-    public static let prime = AgentBrandID(rawValue: "prime")
 }
 
 extension AgentBrandCatalog {
@@ -403,30 +401,6 @@ extension AgentBrandCatalog {
             tile: nil,
             overlays: []
         ),
-        .vercel: AgentBrandSpec(
-            name: "Vercel",
-            isWordmark: false,
-            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
-            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
-            paths: [
-                AgentBrandPathSpec(d: "M12 1.6L24 22.4L0 22.4Z"),
-            ],
-            small: nil,
-            tile: nil,
-            overlays: []
-        ),
-        .prime: AgentBrandSpec(
-            name: "Prime Intellect",
-            isWordmark: false,
-            viewBox: AgentBrandRect(x: 0, y: -172, width: 944, height: 944),
-            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
-            paths: [
-                AgentBrandPathSpec(d: "M911.5 3.6C916.29 2.35 921.31 2.35 926.1 3.6C930.76 4.94 934.73 8.02 937.2 12.2L937.5 12.6C940.37 17.8 941.27 22.53 940.2 26.8C938.93 31.52 936.24 35.75 932.5 38.9C920.99 49.28 909.28 59.45 897.4 69.4C873.4 89.6 849.4 110 828.9 133.4C819.28 143.97 809.1 154.02 798.4 163.5C779.9 180.5 761 198 748.2 221.3L747.6 222.4C744.6 228 738.2 233.6 729.6 238.5C710.25 248.92 688.84 254.96 666.9 256.2C656.5 256.7 647.6 255.7 641.5 253.1C635.9 250.7 634.9 248 635.1 246.1C635.3 243.9 637.2 241.2 640.6 239.1C647.8 234.8 655.9 231.8 664.3 228.7L676 224L676.4 223.9C678.67 222.97 680.73 221.97 682.6 220.9C684.6 219.97 686.23 218.57 687.5 216.7C689.9 212.77 689.4 207.4 686 200.6C684.49 197.8 683.66 194.68 683.6 191.5C683.67 189.1 684.33 187 685.6 185.2C688.1 181.2 692.6 178.2 697.9 174.8C702.9 171.4 708.7 167.7 711.9 162.5C712.57 161.57 713.57 160.57 714.9 159.5C716.2 158.4 718.1 156.7 719.1 154.7C719.63 153.5 719.83 152.17 719.7 150.7C719.47 149.25 718.88 147.87 718 146.7L717.8 146.4C716.74 144.9 715.29 143.73 713.6 143C711.97 142.38 710.2 142.24 708.5 142.6C705.3 143.1 702.3 145 699.9 146.6C650.9 180.1 608.2 220.8 566.5 262.1C561.5 267.1 558.2 273.4 555 279.3C552.31 285.04 548.81 290.36 544.6 295.1C539.89 299.81 533.56 302.53 526.9 302.7C525.7 302.7 524.9 303.5 524.7 303.8L523.9 305C522.76 306.93 522.01 309.08 521.7 311.3L521.8 312.2C521.8 312.6 522.13 313.13 522.8 313.8L524.4 315.1C525.93 316.43 527.67 317.73 529.6 319C531.4 320.1 533.6 321.2 536 321.2C554.13 321.53 572.2 321.2 590.2 320.2C593.5 320 597.9 319.4 601.4 317.7C603.27 316.77 604.8 315.43 606 313.7C607.14 311.85 607.56 309.64 607.2 307.5L607.2 307C604.1 289.3 607.4 282.2 612.2 279.1C614.67 277.57 617.87 276.67 621.8 276.4C624.73 276.27 627.83 276.27 631.1 276.4L634.3 276.7C639.7 277 645.5 277.4 650.4 276.5L657.9 276.5C663.2 277.7 669.5 277.1 675.3 276.7C678.77 276.37 682.03 276.17 685.1 276.1C688.17 276.03 690.83 276.4 693.1 277.2C695.1 278 696.67 279.23 697.8 280.9C699.13 282.7 699.77 285.63 699.7 289.7C699.6 299.7 693.9 307.9 685.2 314.2C676.04 320.4 665.63 324.5 654.7 326.2L653.7 326.3C630.46 329.32 607.03 330.59 583.6 330.1C552.6 330.1 521.4 330.3 490.6 338.4L489.2 338.8L488.3 339C485.7 339.7 482.5 340.6 479.6 341.8C476.68 342.83 474.18 344.8 472.5 347.4C446.1 395.2 399.5 411.9 351.5 428.9L344.4 431.4L342.7 432C339.7 433 336.1 434.3 333.3 436.7C327.82 441.55 321.97 445.96 315.8 449.9C310.4 453.23 306.07 454.73 302.8 454.4C301.25 454.31 299.77 453.72 298.6 452.7C297.4 451.7 296.27 449.97 295.2 447.5C292.54 439.21 291.46 430.49 292 421.8C292 416.5 290 412.1 286 409.9C282 407.7 277 408.1 272 410.7C265.96 414 258.99 415.2 252.2 414.1C246.04 412.84 240.62 409.22 237.1 404L236.7 403.4C229.2 392.2 230.1 377.4 237.4 364.9C239.27 361.7 240.67 358.7 241.6 355.9C242.67 353.17 242.87 350.5 242.2 347.9C240.7 342.5 235.2 339.6 227.1 337.9C223.63 337.17 221.4 335.73 220.4 333.6C219.17 330.8 218.89 327.67 219.6 324.7L226.4 286.7C230.87 261.23 235.43 235.8 240.1 210.4L240.1 209.9C240.8 206.7 241.5 202.8 241 199.3C240.73 197.43 239.97 195.73 238.7 194.2C237.26 192.53 235.4 191.28 233.3 190.6C220.8 186.4 207.3 192.1 203.7 203.5C196.3 226.7 184 247.5 171.6 268.7C157 293.3 142.2 318.4 135.6 347.3C134.93 350.37 135 354.17 135.8 358.7C136.47 363.17 137.63 368.23 139.3 373.9C147.25 398.97 157.73 423.16 170.6 446.1C173.47 451.17 176.2 455.57 178.8 459.3C181.2 462.77 183.47 465.43 185.6 467.3L186 467.7C194.11 474.17 201.73 481.22 208.8 488.8C215.8 496.5 220.8 504.5 222.6 512.6C223.4 516.8 221.6 520.2 217.3 523.6C211.99 527.34 206.29 530.5 200.3 533C195.7 535.1 191 537.3 187 539.7C171.32 548.86 154.94 556.75 138 563.3C118.8 571.3 99.4 579.3 81.6 591.5C64.2 603.3 44.1 595.8 27.3 580.9L26.5 580.2C5.15 561.12 -2.86 531.2 6.1 504C22.1 449.2 59.5 408.5 105.3 374.8C107.4 373.2 109.1 370.8 110.3 368.5C111.43 366.03 112.3 363.6 112.9 361.2C113.2 359.9 112.7 358.5 112.4 357.7C111.48 355.71 110.11 353.96 108.4 352.6C107.48 351.77 106.33 351.25 105.1 351.1C96.48 351.33 87.95 349.36 80.3 345.4C75.3 342.4 72.7 338.2 71.6 333.4C70.6 328.53 70.8 323.03 72.2 316.9C73.4 310.8 75.5 304.6 77.5 298.6L80 290.8C88.8 261.8 103 234.4 117.2 206.9L123.3 194.9C132.8 176.5 135.3 157.9 132.5 138.3C129.9 120.1 135.2 105.6 145.5 96.1C157.62 85.9 173.54 81.42 189.2 83.8L190 83.9C241.3 89.7 275.8 110.9 300.5 141.3C325.3 171.8 340.4 211.5 352.7 254.3C358.3 273.9 366.4 287.3 378.1 292.5C390.03 297.77 404.43 294.63 421.3 283.1C518.94 217.44 616.11 151.07 712.8 84C772.1 43 838.8 20.8 908.2 4.3ZM583.8 350.2C587.93 350.2 592.4 352.37 597.2 356.7C607.45 365.11 614.88 376.45 618.5 389.2C621.23 402.44 618.98 416.21 612.2 427.9C592.4 466.5 562.2 493 526.7 518.1L523.3 520.5C467.3 559.7 410.6 590 360.7 592C331.6 592.2 314.1 584.3 304.4 572.4C294.7 560.5 292.5 543.6 295.4 525C299.8 495.4 311.9 479.2 327.5 469.3C343.4 459.3 363.1 455.6 383.2 451.9C398.2 449.1 413.5 446.3 426.9 440.7C478.3 419 528.9 397.4 569.6 357.5C575 352.3 579.6 350.2 583.8 350.2"),
-            ],
-            small: nil,
-            tile: nil,
-            overlays: []
-        ),
     ]
 
     /// Marks drawn at this many points or smaller use their `small` art.
@@ -497,16 +471,14 @@ extension AgentBrandCatalog {
         "pi": .pi,
         "pi-acp": .pi,
         "pi-agent": .pi,
-        "prime": .prime,
-        "prime-agent": .prime,
+        "prime": nil,
+        "prime-agent": nil,
         "qoder": .qoder,
         "qodercli": .qoder,
         "qwen": .qwen,
         "qwen-code": .qwen,
         "rovo-dev": .rovodev,
         "rovodev": .rovodev,
-        "vercel": .vercel,
-        "vercel-ai-gateway": .vercel,
         "vertex": nil,
         "xai": .grok,
     ]
@@ -538,8 +510,7 @@ extension AgentBrandCatalog {
         AgentDescriptor(id: "aider", name: "Aider", brand: .aider),
         AgentDescriptor(id: "qwen", name: "Qwen Code", brand: .qwen),
         AgentDescriptor(id: "campfire", name: "Campfire", brand: nil),
-        AgentDescriptor(id: "prime", name: "Prime Intellect", brand: .prime),
-        AgentDescriptor(id: "vercel-ai-gateway", name: "Vercel AI Gateway", brand: .vercel),
+        AgentDescriptor(id: "prime", name: "Prime", brand: nil),
         AgentDescriptor(id: "mux", name: "mux", brand: nil),
     ]
 
@@ -569,8 +540,7 @@ extension AgentBrandCatalog {
         ("antigravity-acp", .antigravity),
         ("amp-acp", .amp),
         ("codebuddy-code", .codebuddy),
-        ("prime-agent", .prime),
-        ("vercel-ai-gateway", .vercel),
+        ("prime-agent", nil),
         ("campfire", nil),
         ("piper", nil),
         ("", nil),

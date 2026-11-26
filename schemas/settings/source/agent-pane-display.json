@@ -1796,31 +1796,6 @@
           ]
         },
         {
-          "key": "agentPane.display.modelPickerOrder",
-          "note": "The order of the model picker's harness tabs, as tab keys, first to last (webviews modelPickerOrder.ts). A drag of a tab on the picker's rail writes it; Starred always stays first, and a tab it does not name keeps its default place after the named ones. Empty: the default order. The agent pages' storage ends with the launch, so the order lives here.",
-          "title": {
-            "key": "settings.agentPane.display.modelPickerOrder",
-            "text": "Model Picker Harness Order"
-          },
-          "help": {
-            "key": "settings.agentPane.display.modelPickerOrder.help",
-            "text": "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
-          },
-          "kind": "string_list",
-          "default": [],
-          "keywords": [
-            "agent",
-            "chat",
-            "model",
-            "picker",
-            "harness",
-            "order",
-            "rearrange",
-            "drag"
-          ],
-          "page_hidden": "tab keys, set by dragging a harness in the model picker"
-        },
-        {
           "key": "agentPane.display.queueing",
           "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
           "title": {

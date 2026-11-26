@@ -248,9 +248,6 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
-    /// The toolbar band at its fully open width in window coordinates, at the last layout
-    /// (`titlebarAccessoryReserve`): where a hover opens it to, also while it is closed.
-    var toolbarBandReserve: CGRect?
     /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
     var onMainPaneMove: (() -> Void)?
 
@@ -313,7 +310,6 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
         let alignedFullBand = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1), fullBandMaxX = alignedFullBand.maxX
-        toolbarBandReserve = convert(alignedFullBand, to: nil)
         let (left, bandEdge) = (sidebarSide == .left, convert(toolbarBand.frame, to: nil).maxX + Metrics.space2) // the band's edge as it closes up
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }

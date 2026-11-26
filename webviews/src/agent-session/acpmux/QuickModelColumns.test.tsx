@@ -323,12 +323,7 @@ test("a model with no levels says None under Reasoning", async () => {
   await press("ArrowDown");
   expect(row("Haiku").hasAttribute("data-hl")).toBe(true);
   expect(popup().querySelector(".acpmux-cols-tune-head")?.textContent).toBe("Reasoning");
-  // A level row's type and place, muted (Lucas 2026-11-25: None at the size of Low), never a note's.
-  const none = tune().querySelector(".acpmux-cols-none");
-  expect(none?.textContent).toBe("None");
-  expect(none?.classList.contains("acpmux-cols-row")).toBe(true);
-  expect(none?.classList.contains("acpmux-cols-note")).toBe(false);
-  expect(none?.getAttribute("aria-disabled")).toBe("true");
+  expect(tune().querySelector(".acpmux-cols-note")?.textContent).toBe("None");
 });
 
 test("the models column is one plain list, Legacy models last, and Reasoning heads a column beside the search row", async () => {
@@ -1150,13 +1145,4 @@ test("a harness this Mac does not have keeps its Install row beside the chat's r
       (row) => row.textContent === translate("harnesses.install"),
     ),
   ).toBe(true);
-});
-
-test("a harness this Mac does not have leads its list with its note and Install row, above its models", async () => {
-  await openMenu();
-  await click(tab("Gemini"));
-  const rows = [...popup().querySelectorAll("[role=listbox][aria-label] > .acpmux-cols-row")]
-    .filter((row) => row.closest("[role=listbox]")?.getAttribute("aria-label") === translate("picker.model"))
-    .map((row) => row.textContent?.trim());
-  expect(rows.slice(0, 3)).toEqual(["Gemini not installed", translate("harnesses.install"), "Pro"]);
 });

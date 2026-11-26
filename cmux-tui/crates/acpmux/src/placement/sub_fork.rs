@@ -166,6 +166,7 @@ pub fn this_machine() -> Option<String> {
 /// (`CMUX_CLOUD_API_URL`, `CMUX_CLOUD_ACCESS_TOKEN`, `CMUX_CLOUD_TEAM`, as `acpmux fork-run`
 /// reads them). A build whose cmux-cloud-api has no `machine.fork` yet refuses at the fork, and
 /// the placement falls back with that refusal as its cause.
+#[cfg(unix)]
 pub struct CloudMachines {
     pub(crate) request: cmux_cloud_api::Request,
 }
@@ -175,6 +176,7 @@ pub const API_ENV: &str = "CMUX_CLOUD_API_URL";
 pub const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 pub const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 
+#[cfg(unix)]
 impl CloudMachines {
     /// The backend from `env` (a lookup, `std::env::var` in the daemon), or which value is missing.
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
@@ -201,6 +203,7 @@ impl CloudMachines {
     }
 }
 
+#[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
         let mut request = self.request.clone();
@@ -248,20 +251,30 @@ pub async fn on_start(
     checkout: &Path,
 ) -> Option<Outcome> {
     let StartPlan::Fork { machine } = plan else { return None };
-    let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
-        Ok(m) => Arc::new(m),
-        Err(detail) => {
-            let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
-            tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
-            return Some(out);
-        }
-    };
-    let runner = super::sub_fork_run::ForkRunner::new(super::sub_fork_run::CloudLink::new(
-        machines.request.clone(),
-    ));
-    let warm = CLOUD_WARM.get_or_init(|| Arc::new(WarmSlot::default())).clone();
-    let opts = Placing { budget: FORK_BUDGET, warm, model: model.map(str::to_owned) };
-    Some(place_with(true, Some(machine), machines, &runner, &opts, prompt, checkout).await)
+    // cmux-cloud-api is a unix-only crate: elsewhere there is no fork backend to try.
+    #[cfg(not(unix))]
+    {
+        let _ = (machine, prompt, model, checkout);
+        let detail = "Cloud forks need a unix build of acpmux".to_owned();
+        Some(Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None })
+    }
+    #[cfg(unix)]
+    {
+        let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
+            Ok(m) => Arc::new(m),
+            Err(detail) => {
+                let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
+                tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
+                return Some(out);
+            }
+        };
+        let runner = super::sub_fork_run::ForkRunner::new(super::sub_fork_run::CloudLink::new(
+            machines.request.clone(),
+        ));
+        let warm = CLOUD_WARM.get_or_init(|| Arc::new(WarmSlot::default())).clone();
+        let opts = Placing { budget: FORK_BUDGET, warm, model: model.map(str::to_owned) };
+        Some(place_with(true, Some(machine), machines, &runner, &opts, prompt, checkout).await)
+    }
 }
 
 /// The longest a placement waits for a new fork before the sub-agent starts here instead:
@@ -272,6 +285,7 @@ pub const FORK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 pub const WARM_TTL: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// The one warm fork of this daemon's Cloud backend.
+#[cfg(unix)]
 static CLOUD_WARM: std::sync::OnceLock<Arc<WarmSlot<CloudMachines>>> = std::sync::OnceLock::new();
 
 /// A fork made ahead of need: of `source`, at the snapshot `base_tree`.
@@ -680,6 +694,7 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
-#[cfg(test)]
+// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;

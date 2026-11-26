@@ -1879,8 +1879,6 @@ async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
         .filter_map(|m| m["id"].as_str())
         .collect();
     assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
-    // The mode the agent starts a chat in when acpmux sets none: the probe's `currentModeId`.
-    assert_eq!(reported["startModeId"], "normal", "{reported}");
     let model = reported["configOptions"]
         .as_array()
         .unwrap()

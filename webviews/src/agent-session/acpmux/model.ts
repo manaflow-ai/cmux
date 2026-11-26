@@ -1648,12 +1648,6 @@ export type AcpmuxSnapshot = {
     /** Its chats, or its startup probe, report permission modes (`_acpmux/harnesses` `reported`,
      * permissionModes.ts). Absent while unknown or none. */
     reportsModes?: true;
-    /** Those modes (`_acpmux/harnesses` `reported.modes`): a new chat's Mode menu before any chat of
-     * the harness is open here. Present with `reportsModes`. */
-    reportedModes?: { id: string; name?: string; description?: string }[];
-    /** The mode the harness's own `session/new` starts a chat in when acpmux sets none
-     * (`reported.startModeId`, its startup probe's answer): Antigravity's Default. */
-    ownStartMode?: string;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: {
