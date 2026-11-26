@@ -9,7 +9,7 @@
 .history-header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
   padding: 18px var(--page-edge) 0;
   border-bottom: 1px solid var(--page-separator);
@@ -19,8 +19,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 12px;
-  row-gap: 4px;
+  column-gap: var(--ds-space-fixed-3);
+  row-gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
@@ -39,7 +39,7 @@
 .history-title-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   min-width: 0;
 }
 
@@ -84,7 +84,7 @@
 .history-pending {
   flex: none;
   margin: 0;
-  padding: 8px var(--page-edge);
+  padding: var(--ds-space-fixed-2) var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
   color: var(--page-text-2);
   overflow-wrap: anywhere;
@@ -125,7 +125,7 @@
   overflow-y: auto;
   /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
      is the virtualizer's (HistoryPage.tsx `paddingStart`, `paddingEnd`). */
-  padding: 0 calc(var(--page-edge) - 8px);
+  padding: 0 calc(var(--page-edge) - var(--ds-space-fixed-2));
   outline: none;
 }
 
@@ -159,7 +159,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
 }
 
@@ -219,7 +219,7 @@
   display: grid;
   place-items: center;
   color: var(--page-text-3);
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   text-align: center;
 }
 
@@ -229,7 +229,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   background: color-mix(in srgb, var(--page-text) 12%, transparent);
 }
 
@@ -244,11 +244,11 @@
   color: inherit;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   width: min(480px, calc(100% - 48px));
   max-width: none;
   max-height: min(440px, calc(100% - 48px));
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   border-radius: 12px;
   background: var(--glass-tint);
   box-shadow: var(--glass-rim-shadow), var(--elevation-2);
@@ -298,7 +298,7 @@
 .history-sheet-empty {
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   color: var(--page-text-3);
 }
 
@@ -313,8 +313,8 @@
 .history-sheet-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
 }
 
 .history-row-title.unreadable {
@@ -324,7 +324,7 @@
 .history-sheet-actions {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 
 .history-menu-button.destructive:not(:disabled) {
@@ -334,7 +334,7 @@
 .history-sheet-done {
   border: 0;
   border-radius: var(--ds-radius-md);
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   background: var(--page-selection);
   color: var(--page-text);
   font-weight: var(--weight-emphasis);

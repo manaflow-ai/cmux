@@ -61,6 +61,7 @@ function Stage({ scheme, children }: { scheme: Scheme; children: ReactNode }) {
       className="kit-gallery-panel"
       style={themedPanelStyle(SHEET_THEMES[scheme])}
       aria-label={scheme === "light" ? "Light" : "Dark"}
+      data-surface-theme=""
       data-scheme={scheme}
     >
       <UiProvider container={container}>{children}</UiProvider>
@@ -78,6 +79,11 @@ function Primitives({ scheme }: { scheme: Scheme }) {
           title="Inbox"
           leading={<Icon name="inbox" size={16} row />}
           trailing={<Pill size="sm">12</Pill>}
+          hoverActions={
+            <Button variant="ghost" size="sm" icon aria-label="Pin Inbox" onClick={() => setLast("pin")}>
+              <Icon name="action.pin" size={16} />
+            </Button>
+          }
           selected={picked === "inbox"}
           onSelect={() => setPicked("inbox")}
         />
@@ -427,7 +433,9 @@ export default componentEntry<Props>({
     "kit/Pill.tsx#Pill",
     "kit/Avatar.tsx#Avatar",
     "kit/Field.tsx#Field",
+    "kit/Glass.tsx#Glass",
     "kit/GlassMenu.tsx#GlassMenu",
+    "ui/Button.tsx#Button",
     "kit/PopoverButton.tsx#PopoverButton",
     "ui/Tooltip.tsx#Tooltip",
     "ui/Tooltip.tsx#AnchoredCard",

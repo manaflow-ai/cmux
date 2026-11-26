@@ -8,7 +8,7 @@
 }
 .variant-pick-options {
   display: flex;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   overflow-x: auto;
   padding: 3px;
 }
@@ -17,19 +17,19 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-3);
   background: var(--agent-surface-elevated, var(--cmux-elevated-background, Canvas));
   border: var(--cmux-border-width, 1px) solid var(--cmux-separator, currentColor);
   border-radius: 8px;
 }
 .variant-pick-option[data-picked] { background: var(--cmux-hover, Canvas); }
-.variant-pick-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.variant-pick-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--ds-space-fixed-2); }
 .variant-pick-heading span { color: var(--cmux-text-secondary, currentColor); }
 .variant-pick-button { align-self: flex-start; margin-top: auto; color: inherit; background: var(--cmux-hover, Canvas); }
 .variant-pick-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .variant-pick-button[aria-pressed="true"] { background: var(--cmux-selection, var(--cmux-hover, Canvas)); }
-.variant-pick-note { display: flex; flex-direction: column; gap: 4px; margin-block: 8px; }
+.variant-pick-note { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); margin-block: var(--ds-space-fixed-2); }
 .variant-pick-note textarea { font: inherit; color: inherit; background: var(--agent-surface-elevated, var(--cmux-elevated-background, Canvas)); }
 
 .variant-pick output { display: block; min-height: 1.4em; }

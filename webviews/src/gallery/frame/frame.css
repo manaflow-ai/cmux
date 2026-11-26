@@ -5,7 +5,7 @@
   place-items: center;
   min-height: 100vh;
   box-sizing: border-box;
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   color: var(--cmux-text-secondary, #888);
   font-family: var(--font-ui);
   font-size: var(--text-caption);
@@ -17,7 +17,7 @@
 .gallery-frame-native {
   box-sizing: border-box;
   margin: 0;
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   white-space: pre-wrap;
   font-family: var(--font-mono, ui-monospace);
   font-size: var(--text-caption);

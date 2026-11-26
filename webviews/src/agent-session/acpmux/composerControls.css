@@ -93,7 +93,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 .acpmux-effort-slider-head .ui-menu-group-label {
   padding-inline: 0;
@@ -108,7 +108,7 @@
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-effort-slider .acpmux-effort-track {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
 }
 /* The menu keeps a row's highlight when focus moves to the slider (a keyboard open, Up from the
    first speed row): one focus at a time, so a row reads highlighted only while it has focus. */
@@ -120,7 +120,7 @@
   --acpmux-effort-inset: 0px;
   position: relative;
   height: calc(23.5px * var(--cmux-interface-scale, 1));
-  margin-top: calc(12px * var(--cmux-interface-scale, 1));
+  margin-top: calc(var(--ds-space-fixed-3) * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   animation: acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both;
@@ -169,7 +169,7 @@
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   width: 24px;
   height: 24px;
-  margin: -12px 0 0 -12px;
+  margin: calc(-1 * var(--ds-space-fixed-3)) 0 0 calc(-1 * var(--ds-space-fixed-3));
   border: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--surface-popup));
   border-radius: 50%;
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
@@ -185,7 +185,7 @@
 .acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
   width: 16px;
   height: 16px;
-  margin: -8px 0 0 -8px;
+  margin: calc(-1 * var(--ds-space-fixed-2)) 0 0 calc(-1 * var(--ds-space-fixed-2));
   border-width: 1.5px;
   background: var(--surface-popup);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
@@ -196,7 +196,7 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  column-gap: 8px;
+  column-gap: var(--ds-space-fixed-2);
   margin-top: 6px;
   direction: ltr;
   font-size: var(--text-detail);
@@ -264,7 +264,7 @@
   width: auto;
   height: 28px;
   min-width: 0;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   padding: 0 6px 0 8px;
   color: var(--agent-muted);
 }

@@ -2,7 +2,7 @@
 .acpmux-open-in {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 /* The menu row's own gap (.acpmux-quick-item) spaces the icon from its name. */
 .acpmux-open-in__icon {

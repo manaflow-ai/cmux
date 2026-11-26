@@ -2,8 +2,8 @@
 .sm-stage {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--ds-space-fixed-3);
+  padding: var(--ds-space-fixed-4);
   color: var(--cmux-text, #ddd);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -13,7 +13,7 @@
 .sm-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 .sm-replay {
   font: inherit;
@@ -28,7 +28,7 @@
 }
 .sm-devices {
   display: flex;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
   align-items: flex-start;
 }
 .sm-mac {
@@ -57,7 +57,7 @@
   background: var(--cmux-hairline, #555);
 }
 .sm-mac-name {
-  margin-left: 8px;
+  margin-left: var(--ds-space-fixed-2);
   color: var(--cmux-text-secondary, #999);
 }
 .sm-mac-body {
@@ -88,20 +88,20 @@
 .sm-phone-island {
   width: 90px;
   height: 24px;
-  margin: 8px auto 4px;
+  margin: var(--ds-space-fixed-2) auto var(--ds-space-fixed-1);
   border-radius: 12px;
   background: #000;
 }
 .sm-phone-header {
   font-size: var(--text-heading);
   font-weight: 700;
-  padding: 8px 16px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-4);
   letter-spacing: var(--text-heading--letter-spacing);
 }
 .sm-phone-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
 }
 .sm-list {
   list-style: none;
@@ -112,9 +112,9 @@
 .sm-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 5px;
   background: var(--cmux-surface-solid, #1e1e1e);
 }

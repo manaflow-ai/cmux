@@ -33,7 +33,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   align-items: center;
   gap: 6px;
   height: 26px;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
   white-space: nowrap;
   cursor: default;
@@ -86,7 +86,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 
 .files-message {
   margin: 0;
-  padding: 16px 12px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-3);
 }
 
 .files-muted { color: var(--page-text-3); }
@@ -95,6 +95,6 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 .files-notice {
   flex: none;
   margin: 0;
-  padding-inline: 12px;
+  padding-inline: var(--ds-space-fixed-3);
   border-top: 1px solid var(--page-separator);
 }

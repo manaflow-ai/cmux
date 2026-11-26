@@ -70,7 +70,7 @@ public struct PairRequestCardView: View {
             .disabled(answering)
         }
         .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 }

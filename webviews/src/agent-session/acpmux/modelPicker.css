@@ -83,7 +83,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 100%;
 }
 .acpmux-mp-rail-tab {
@@ -151,7 +151,7 @@
     flex-direction: row !important;
     align-items: center;
     padding: 6px;
-    gap: 4px;
+    gap: var(--ds-space-fixed-1);
   }
   .acpmux-mp-rail-list > .acpmux-mp-rail-tab {
     scroll-snap-align: start;
@@ -226,7 +226,7 @@
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
-  margin: 4px var(--ui-row-padding-inline);
+  margin: var(--ds-space-fixed-1) var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--menu-separator, var(--agent-border));
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
@@ -255,7 +255,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -272,7 +272,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 /* The check moves to the trailing edge, where the other rows show their number key: a 16px column
    centred on the label's line. */
@@ -307,7 +307,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-inline-start: auto;
-  padding-inline-start: 8px;
+  padding-inline-start: var(--ds-space-fixed-2);
   color: var(--agent-muted);
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
@@ -327,7 +327,7 @@
   padding: var(--ui-popup-padding);
 }
 .acpmux-quick-effort-slider .acpmux-effort-track {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
   animation: none;
 }
 /* A single menu checkbox owns both the label and the switch: no nested focus target. */
@@ -393,7 +393,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: var(--ui-row-height);
   box-sizing: border-box;
   margin: 0;
@@ -456,7 +456,7 @@
   margin: 0;
   border: 0;
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   overflow: auto;
 }
 .acpmux-quick-rail-tab {
@@ -609,7 +609,7 @@
 .acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   color: var(--agent-muted);
   white-space: nowrap;
 }
@@ -621,7 +621,7 @@
 .ui-menu-item.acpmux-quick-item.acpmux-quick-found {
   height: auto;
   min-height: var(--ui-row-height);
-  padding-block: 4px;
+  padding-block: var(--ds-space-fixed-1);
 }
 .acpmux-quick-found .acpmux-menu-label {
   white-space: normal;
@@ -652,8 +652,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -662,7 +662,7 @@
 .acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-menu-item.acpmux-quick-update-action {
   flex: none;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ui-row-radius, 5px);
   background: transparent;
@@ -678,7 +678,7 @@
    note the name carried ("New") is a quiet word after the name. */
 .ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   margin-inline-start: auto;
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-fixed-4);
 }
 .acpmux-quick-tag {
   flex: none;
@@ -692,7 +692,7 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-quick-offer {
-  padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
+  padding-inline-start: calc(var(--ui-row-padding-inline) + var(--ds-space-fixed-3));
 }
 
 /* Model rows own their inset; the list wrapper must not add a second inset. */
@@ -893,7 +893,7 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  margin-inline-start: 4px;
+  margin-inline-start: var(--ds-space-fixed-1);
   color: var(--agent-muted);
 }
 .acpmux-used-dot {
@@ -904,7 +904,7 @@
 }
 .acpmux-used-caption {
   flex: none;
-  margin-inline-start: 8px;
+  margin-inline-start: var(--ds-space-fixed-2);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);

@@ -5,11 +5,12 @@
 //   bun scripts/gen-component-manifest.ts           write the outputs
 //   bun scripts/gen-component-manifest.ts --check   fail when the source no longer generates, or not the same twice
 //
-// Outputs (gitignored, made on demand: no committed generated files; docs only, nothing imports them;
-// output is sorted and byte-stable):
+// Outputs (the web docs are gitignored and made on demand; the Rust fallback
+// is tracked because installed builds do not have a checkout or Bun):
 //   src/ui/components.generated.json   name, file, tier, props, data-* attributes, gallery entries, status
 //   src/ui/llms.txt                    one line per component, linking to its page
 //   src/ui/docs/<Name>.md              summary, props, data attributes, gallery entries, an example
+//   ../cmux-tui/crates/cmux-customize/src/component_manifest.json  shipped fallback registry
 //
 // A component is an exported, capitalised function or const with a call signature in src/ui or
 // src/kit (a *.tsx that is not a test or gallery file), or a name the kit barrel (src/kit/index.ts)
@@ -19,7 +20,7 @@
 // status; otherwise it is `experimental` when every gallery entry covering it is flagged
 // experimental, else `ready`. Gallery entries come from `covers: ["ui/Button.tsx#Button"]` in the
 // `*.gallery.tsx` files. `data-*` attributes are the ones the component's own body sets.
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -31,6 +32,8 @@ const UI = join(SRC, "ui");
 const KIT = join(SRC, "kit");
 const DOCS = join(UI, "docs");
 const MANIFEST = join(UI, "components.generated.json");
+const BUILTIN_MANIFEST = join(ROOT, "../cmux-tui/crates/cmux-customize/src/component_manifest.json");
+const HAS_BUILTIN_MANIFEST = existsSync(dirname(BUILTIN_MANIFEST));
 const LLMS = join(UI, "llms.txt");
 const GALLERY_PATH = "/gallery";
 
@@ -214,7 +217,7 @@ function build(): Component[] {
       name,
       file,
       tier: file.startsWith("kit/") ? "kit" : "ui",
-      kitExport: kitNames.has(name),
+      kitExport: false,
       status: explicit || (covering.length > 0 && covering.every((e) => e.experimental) ? "experimental" : "ready"),
       summary: firstSentence(jsdoc || lead),
       extends: [...ext].sort(),
@@ -235,27 +238,29 @@ function build(): Component[] {
       if (d && d.getSourceFile() === sf) add(d, ex, ex.name);
     }
   }
-  // Barrel re-exports that live outside src/ui and src/kit (Icon, Spinner) are listed from where they are defined.
-  for (const name of kitNames) {
-    if (![...found.values()].some((c) => c.name === name) && /^[A-Z]/.test(name)) {
-      const mod = checker.getSymbolAtLocation(kitBarrel)!;
-      const ex = checker.getExportsOfModule(mod).find((s) => s.name === name);
-      let real = ex;
-      if (real && real.flags & ts.SymbolFlags.Alias) real = checker.getAliasedSymbol(real);
-      const d = real?.declarations?.[0];
-      if (
-        d &&
-        real &&
-        /^[A-Z][A-Za-z0-9]*[a-z]/.test(name) &&
-        checker.getTypeOfSymbolAtLocation(real, d).getCallSignatures().length > 0
-      ) {
-        addOutside(d, real, name);
-      }
-    }
+  // Identify each barrel export by its declaration. Several UI components can share a name.
+  const barrelModule = checker.getSymbolAtLocation(kitBarrel)!;
+  for (const ex of checker.getExportsOfModule(barrelModule)) {
+    const name = ex.name;
+    if (!kitNames.has(name) || !/^[A-Z][A-Za-z0-9]*[a-z]/.test(name)) continue;
+    const real = ex.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(ex) : ex;
+    const decl = real.valueDeclaration ?? real.declarations?.[0];
+    if (!decl) continue;
+    const component = found.get(`${rel(decl.getSourceFile().fileName)}#${name}`);
+    if (component) component.kitExport = true;
+    else if (checker.getTypeOfSymbolAtLocation(real, decl).getCallSignatures().length > 0) addOutside(decl, real, name);
   }
   function addOutside(d: ts.Node, sym: ts.Symbol, name: string) {
     const sf = d.getSourceFile();
     const file = rel(sf.fileName);
+    // A kit barrel can export an in-tree component under a second name, for
+    // example `Surface as Panel` or `AnchoredCard as Card`. Reuse the source
+    // record so the alias keeps its props and gallery entries.
+    const inherited = found.get(`${file}#${sym.name}`);
+    if (inherited) {
+      found.set(`${file}#${name}`, { ...inherited, name, tier: "kit", kitExport: true });
+      return;
+    }
     const stmt = ts.findAncestor(d, (n) => ts.isVariableStatement(n) || ts.isFunctionDeclaration(n)) ?? d;
     const attrs = new Set<string>();
     const scan = (n: ts.Node) => {
@@ -353,8 +358,7 @@ function render(): Map<string, string> {
   const all = build();
   const files = new Map<string, string>();
   const names = new Map<Component, string>(all.map((c) => [c, pageName(c, all)]));
-  files.set(
-    MANIFEST,
+  const manifest =
     JSON.stringify(
       {
         generatedBy: "webviews/scripts/gen-component-manifest.ts",
@@ -363,8 +367,9 @@ function render(): Map<string, string> {
       },
       null,
       2,
-    ) + "\n",
-  );
+    ) + "\n";
+  files.set(MANIFEST, manifest);
+  if (HAS_BUILTIN_MANIFEST) files.set(BUILTIN_MANIFEST, manifest);
   const llms = [
     "# cmux web component library",
     "",
@@ -384,11 +389,22 @@ function render(): Map<string, string> {
 
 const files = render();
 if (process.argv.includes("--check")) {
-  // The outputs are gitignored (no committed generated files), so there is nothing on disk to compare:
-  // the check is that the source still generates, and generates the same bytes twice.
+  // The web outputs are gitignored, so the check is that the source generates the same bytes twice.
+  // The Rust fallback is tracked and must stay byte-identical to the generated manifest.
   const again = render();
   const problems: string[] = [];
-  for (const [f, text] of files) if (again.get(f) !== text) problems.push(`${rel(f)} differs between two runs`);
+  for (const [f, text] of files) {
+    if (again.get(f) !== text) problems.push(`${rel(f)} differs between two runs`);
+    if (f === BUILTIN_MANIFEST) {
+      let current = "";
+      try {
+        current = readFileSync(f, "utf8");
+      } catch {
+        problems.push(`${rel(f)} is missing`);
+      }
+      if (current !== text) problems.push(`${rel(f)} is stale`);
+    }
+  }
   if (![...files.keys()].some((f) => f.startsWith(DOCS))) problems.push("no component was found");
   if (problems.length > 0) {
     console.error(`gen-component-manifest: ${problems.join("; ")}`);

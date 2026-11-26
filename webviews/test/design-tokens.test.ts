@@ -13,7 +13,7 @@ import {
   motionLiteralsInText,
   motionScaleMatchers,
 } from "../scripts/check-design-tokens";
-import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
+import { designTokenValue, designTokens, rootBlocks, tokenFor } from "../scripts/design-token-values";
 
 describe("design token ratchet", () => {
   test.each([
@@ -220,6 +220,15 @@ describe("token copies (a px/ms literal a named token already holds)", () => {
     expect(designTokenValue("--cmux-motion-quick")).toMatch(/^[0-9]+ms$/);
     // Defined with calc() (scales with the interface), so it is no single value.
     expect(() => designTokenValue("--grid-pill")).toThrow();
+  });
+
+  test("reads root tokens shared with nested theme boundaries", () => {
+    const sheet = `
+      :root, [data-surface-theme] { --shared: 10px; }
+      .stage, :root { --also-shared: 14px; }
+      :is(.a, :root, .b), :root.compact { --scoped: 4px; }
+    `;
+    expect(rootBlocks(sheet).map((body) => body.trim())).toEqual(["--shared: 10px;", "--also-shared: 14px;"]);
   });
 
   test("names the token for a value in its own family only", () => {

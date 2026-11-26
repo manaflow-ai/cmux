@@ -78,6 +78,7 @@ const SAMPLES: Sample[] = [
 ];
 
 async function load() {
+  const { Button } = await import("../../../ui/Button");
   const { ConnectCard } = await import("../../../agent-session/acpmux/ConnectCard");
   const { CONNECT_IDLE } = await import("../../../agent-session/acpmux/claudeConnect");
   const { ConnectPill } = await import("./ConnectPill");
@@ -120,15 +121,9 @@ async function load() {
                   details={sample.detail ? <div className="row-help">{sample.detail}</div> : undefined}
                   extra={
                     sample.disconnect ? (
-                      <button
-                        type="button"
-                        className="ui-button ui-btn button"
-                        data-variant="ghost"
-                        data-size="sm"
-                        data-danger=""
-                      >
+                      <Button className="button" variant="ghost" size="sm" danger>
                         Disconnect
-                      </button>
+                      </Button>
                     ) : undefined
                   }
                 />

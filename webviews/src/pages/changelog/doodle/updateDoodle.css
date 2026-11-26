@@ -47,7 +47,7 @@
 .wn-doodle-headline {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   padding-right: calc(var(--wn-close) + var(--wn-gap));
   transform: rotate(-1.2deg);
   transform-origin: left center;
@@ -72,9 +72,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  row-gap: 4px;
-  margin-top: 4px;
-  padding-left: 8px;
+  row-gap: var(--ds-space-fixed-1);
+  margin-top: var(--ds-space-fixed-1);
+  padding-left: var(--ds-space-fixed-2);
 }
 .wn-doodle-circled {
   position: relative;
@@ -96,7 +96,7 @@
   flex: none;
   width: 32px;
   height: 24px;
-  margin-left: 4px;
+  margin-left: var(--ds-space-fixed-1);
   overflow: visible;
 }
 .wn-doodle-aside {

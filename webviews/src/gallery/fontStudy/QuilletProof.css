@@ -42,12 +42,12 @@
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   color: var(--proof-fg);
-  padding-bottom: 8px;
+  padding-bottom: var(--ds-space-fixed-2);
   border-bottom: 1px solid var(--proof-rule);
 }
 
 .quillet-proof-cell {
-  padding: 12px 0 16px;
+  padding: var(--ds-space-fixed-3) 0 var(--ds-space-fixed-4);
   border-bottom: 1px solid var(--proof-rule);
   min-width: 0;
 }
