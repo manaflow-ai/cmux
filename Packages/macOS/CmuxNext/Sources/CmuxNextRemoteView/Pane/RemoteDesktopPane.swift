@@ -8,7 +8,8 @@ import CmuxNextCompat
 public struct RemoteDesktopPaneHandlers {
     /// Stop pressed (toolbar, or Cancel while connecting): close the session.
     public var stop: () -> Void = {}
-    /// Reconnect pressed on an ended session: start a new one on the same source.
+    /// Start a new session on the same source: the pane's own retry of a lost path, or the
+    /// person's Reconnect after an end they chose to resume (Stop, a host's choice).
     public var reconnect: () -> Void = {}
     /// Close pressed on an ended session: close the tab.
     public var close: () -> Void = {}
@@ -160,6 +161,9 @@ public final class RemoteDesktopPane {
         latencyCheck?.cancel()
         latencyCheck = nil
         latencyCheckDue = nil
+        // A backoff wait cut short by a hide picks up again on ``resumeInterruptedReconnect()``.
+        interruptedAutoReconnect = autoReconnectWaiting
+        autoReconnectWaiting = false
         autoReconnectTask?.cancel()
         autoReconnectTask = nil
         connectNotice?.cancel()
@@ -183,12 +187,13 @@ public final class RemoteDesktopPane {
     /// Applies one event through the reducer and re-renders.
     public func apply(_ event: RemotePaneEvent) {
         var next = RemotePaneReducer().reduce(state, event)
-        // Not after an end the pane already shows (Stop, or the card past the last try): a late
-        // lost-path status never reconnects against the person's Stop.
-        if autoReconnectsLost, !state.isEnded, next.isEnded, case .ended(.connectionLost) = next.sessionState,
-           state.hasFrame || state.reconnecting, autoReconnects < Self.autoReconnectBackoff.count {
-            // A path that closed under a session that showed frames comes back by itself, over
-            // the last frame and silently under the notice bound; Reconnect stays for the end.
+        // Not after an end the pane already shows (Stop, a host's choice): a late lost-path status
+        // never reconnects against the person's Stop.
+        if !state.isEnded, next.isEnded, case .ended(.connectionLost) = next.sessionState {
+            // A lost path comes back by itself, for as long as the pane shows: over the last frame
+            // and silently under the notice bound, then as "Reconnecting…" with Cancel. Reconnect
+            // was a vacuous decision (Leo, 2026-11-22: "vacuous decisions like that should be just
+            // done"), so no "Connection lost" card asks for it.
             next = RemotePaneReducer().reduce(next, .reconnect)
             scheduleAutoReconnect()
         }
@@ -204,26 +209,40 @@ public final class RemoteDesktopPane {
         onStateChange?()
     }
 
-    /// Whether a lost path reconnects by itself (the owner's `handlers.reconnect` starts the new
-    /// session). Off: the ended card and its Reconnect button, as before.
-    public var autoReconnectsLost = false
-    /// Waits before each automatic reconnect of one drop: the first at once, then backing off;
-    /// past the last the ended card shows (about 30 s of tries, plus each dial's own time).
+    /// Waits before each automatic reconnect of one drop: the first at once, then backing off to
+    /// the last, which repeats while the pane shows (a hidden pane tries nothing; ``stop()``).
     static let autoReconnectBackoff: [Duration] = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
     /// Automatic reconnects since the last frame was shown.
     private(set) var autoReconnects = 0
     private var autoReconnectTask: Task<Void, Never>?
+    /// A backoff wait is running (its reconnect has not started yet).
+    private var autoReconnectWaiting = false
+    /// The last ``stop()`` cut a backoff wait short.
+    private var interruptedAutoReconnect = false
 
     private func scheduleAutoReconnect() {
-        let delay = Self.autoReconnectBackoff[autoReconnects]
+        let delay = Self.autoReconnectBackoff[min(autoReconnects, Self.autoReconnectBackoff.count - 1)]
         autoReconnects += 1
         autoReconnectTask?.cancel()
+        autoReconnectWaiting = true
         autoReconnectTask = Task { [weak self] in
             // wakeup-allow: one cancellable backoff step per lost path; Stop or a new session cancels it.
             if delay > .zero { do { try await Task.sleep(for: delay) } catch { return } }
-            guard let self, !Task.isCancelled, state.sessionState == .connecting, state.reconnecting else { return }
+            guard let self, !Task.isCancelled else { return }
+            autoReconnectWaiting = false
+            guard state.sessionState == .connecting else { return }
             handlers.reconnect()
         }
+    }
+
+    /// The pane shows again over a session that lived through the hide: a reconnect whose
+    /// backoff wait the hide cut short goes now, instead of leaving "Reconnecting…" with no try.
+    public func resumeInterruptedReconnect() {
+        guard interruptedAutoReconnect else { return }
+        interruptedAutoReconnect = false
+        guard state.sessionState == .connecting else { return }
+        autoReconnects = max(0, autoReconnects - 1)
+        scheduleAutoReconnect()
     }
 
     /// The first connect's notice deadline (``RemotePaneState/connectNoticeDelay``), re-checked when it comes due.
