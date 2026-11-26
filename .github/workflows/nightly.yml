@@ -2383,27 +2383,32 @@ jobs:
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
-          # Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. Each
-          # submodule (nested too) whose commit a verified fleet mirror holds (NAME.git or OWNER/NAME.git beside
-          # cmux.git) is read from it, through this step's environment only; the rest from github.com.
-          mirror_root=${mirror%/*}
-          verified() { [ -d "$1/objects" ] && [ ! -L "$1/objects" ] && [ ! -L "$1" ] && [ -f "$1/HEAD" ] \
-            && [ -f "$1/glaeda-verified" ] && [ ! -e "$1/glaeda-repair-pending" ] && [ ! -e "$1/shallow" ]; }
+          # Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. A mini keeps
+          # one bare mirror per submodule at submodules/NAME.git beside cmux.git (glaeda-git-mirror: each pin as
+          # refs/pins/<sha>, depth 1, glaeda.url naming its GitHub URL). Each submodule (nested too) whose commit
+          # one holds is read from it, through this step's environment only; the rest from github.com.
+          sm_root=${mirror%/*}/submodules
+          normurl() { printf '%s' "$1" | sed -E 's#/+$##; s#\.git$##' | tr '[:upper:]' '[:lower:]'; }
+          sm_for() {  # URL COMMIT: the kept submodule mirror for URL that holds COMMIT
+            local d u
+            for d in "$sm_root"/*.git; do
+              [ -d "$d/objects" ] && [ ! -L "$d/objects" ] && [ ! -L "$d" ] && [ -f "$d/HEAD" ] || continue
+              u=$(git --git-dir="$d" config --get glaeda.url 2>/dev/null) || continue
+              [ "$(normurl "$u")" = "$(normurl "$1")" ] || continue
+              git --git-dir="$d" cat-file -e "$2^{commit}" 2>/dev/null && { printf '%s' "$d"; return 0; }
+            done
+            return 1
+          }
           map_submodules() {  # GIT_DIR COMMIT
-            local key sub url owner name gitlink m
+            local key sub url gitlink m
             { git --git-dir="$1" config --blob "$2:.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null || true; } \
               | while read -r key sub; do
                 url=$(git --git-dir="$1" config --blob "$2:.gitmodules" --get "${key%.path}.url" 2>/dev/null) || continue
-                [[ "$url" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\.git$ ]] || continue
-                owner=${BASH_REMATCH[1]} name=${BASH_REMATCH[2]}
+                [[ "$url" == https://github.com/* ]] || continue
                 gitlink=$(git --git-dir="$1" rev-parse -q --verify "$2:$sub" 2>/dev/null) || continue
-                for m in "$mirror_root/$name.git" "$mirror_root/$owner/$name.git"; do
-                  if verified "$m" && git --git-dir="$m" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
-                    printf '%s\t%s\n' "$m" "$url"
-                    map_submodules "$m" "$gitlink" || true
-                    break
-                  fi
-                done
+                m=$(sm_for "$url" "$gitlink") || continue
+                printf '%s\t%s\n' "$m" "$url"
+                map_submodules "$m" "$gitlink" || true
               done
           }
           n=$GIT_CONFIG_COUNT
