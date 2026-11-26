@@ -214,6 +214,24 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+# A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
+# The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
+# full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
+# granting none, and every cmux-next and cmux-tui artifacts run ended in startup_failure with 0 jobs until #56935
+# at 20:07Z (31 runs on the artifacts workflow alone; the Cloud channel stayed on an 18:56Z commit). Its tree fails
+# this step: "2 reusable-workflow permission mismatch(es) across 69 local call site(s)". Under a second, offline.
+[step.reusable-workflow-permissions]
+job = "linux"
+timeout = 120
+title = "Reusable workflow permissions"
+about = "every local `uses: ./.github/workflows/*.yml` call stays within its caller's permissions, so no workflow fails at startup"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/check_reusable_workflow_permissions.py",
+  "tests/test_ci_reusable_workflow_permissions.py",
+]
+run = "python3 tests/test_ci_reusable_workflow_permissions.py"
+
 # Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
 # (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
 # without a re-sync.
@@ -1291,6 +1309,7 @@ if want tt-checkup-configuration; then python3 -I scripts/checkup/tests/configur
 if want tt-console-session-hop; then bash scripts/ci/tests/console-session-hop.test.sh || status=1; fi
 if want tt-media-build-app-local-tui; then bash scripts/ci/tests/media-build-app-local-tui.test.sh || status=1; fi
 if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh || status=1; fi
+if want tt-media-tree-submodules; then bash scripts/ci/tests/media-tree-submodules.test.sh || status=1; fi
 if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
 if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
 if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
