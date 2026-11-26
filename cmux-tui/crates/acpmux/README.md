@@ -474,7 +474,7 @@ backoff below. Any other connection error stops after the configured attempts
 (`auto_resume_exhausted`). A turn a full disk cut ("No space left on device")
 waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
 re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
-on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
+on (default `0`, never: a chat keeps its model unless its person turns this on; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
 none), a chat on Opus or Fable continues on the catalog's newest Sonnet, with one
 `capacity_failover {from, to, attempt, promptId, text}` notice row and log line; the first turn
 that ends well there puts its own model back (`capacity_restored`), and the chat's meta keeps
