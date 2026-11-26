@@ -124,3 +124,77 @@ async fn keep_fresh(
         futures::future::join_all(asks).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! RFD 0181 B1's measure, in one harness: a placement over N machines only the hub reaches,
+    //! through a hub whose machines never answer a read (the slowest of N, every time). With no
+    //! published records it asks each machine and waits [`FIRST_WAIT`]; with each machine's
+    //! record on the book (`HubHealth::published`) it asks none and waits on nothing.
+    use super::*;
+    use crate::mesh::{Ack, Heartbeat, HeartbeatReply, HubError, InMessage, OutMessage, Receipt};
+    use futures::future::BoxFuture;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A hub that takes every read and never answers one.
+    #[derive(Default)]
+    struct Silent {
+        asks: AtomicUsize,
+    }
+
+    impl MeshHub for Silent {
+        fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+            Box::pin(futures::future::pending())
+        }
+        fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn heartbeat<'a>(
+            &'a self,
+            _: &'a Heartbeat,
+        ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+            Box::pin(async { Ok(HeartbeatReply { daemon_id: "d".into(), ttl_seconds: 90 }) })
+        }
+        fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+            self.asks.fetch_add(1, Ordering::SeqCst);
+            Box::pin(futures::future::pending())
+        }
+        fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+            Box::pin(futures::future::pending())
+        }
+    }
+
+    const MACHINES: usize = 139;
+
+    /// How long one placement's refresh waits, and how many machines it asked.
+    async fn place_once(cache: Arc<StdMutex<HubHealth>>) -> (Duration, usize) {
+        let scope = cmux_scope::Scope::new("hub health test");
+        let silent = Arc::new(Silent::default());
+        let hosts: Vec<String> = (0..MACHINES).map(|i| format!("lane-{i}")).collect();
+        let via: Via = Arc::new(|host| Some(format!("{host}-session")));
+        let began = tokio::time::Instant::now();
+        refresh_with(&scope, silent.clone(), cache, hosts, via, FIRST_WAIT).await;
+        (began.elapsed(), silent.asks.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_placement_over_published_records_asks_no_machine_and_waits_on_none() {
+        let (waited, asked) = place_once(Arc::default()).await;
+        assert_eq!(waited, FIRST_WAIT, "before: it waits on the machines it has no reading of");
+        assert!(asked > 0, "before: it asks them ({asked} of {MACHINES}, `IN_FLIGHT` at once)");
+
+        let cache: Arc<StdMutex<HubHealth>> = Arc::default();
+        let now = crate::store::now_ms();
+        {
+            let mut h = cache.lock().unwrap();
+            for i in 0..MACHINES {
+                h.published(&format!("lane-{i}"), json!({"cpus": 8, "liveSessions": 1}), now, now);
+            }
+        }
+        let (waited, asked) = place_once(cache.clone()).await;
+        assert_eq!((waited, asked), (Duration::ZERO, 0), "after: a replica read");
+        let h = cache.lock().unwrap();
+        assert!((0..MACHINES).all(|i| h.reading(&format!("lane-{i}")).is_some()), "none unknown");
+    }
+}

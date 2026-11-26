@@ -11,7 +11,13 @@ fn hub() -> Arc<Hub> {
 }
 
 fn daemon(id: &str, host: &str, user: &str) -> BookDaemon {
-    BookDaemon { daemon_id: id.into(), host: host.into(), user: user.into(), last_seen_at: 5 }
+    BookDaemon {
+        daemon_id: id.into(),
+        host: host.into(),
+        user: user.into(),
+        last_seen_at: 5,
+        ..BookDaemon::default()
+    }
 }
 
 fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookSession {
@@ -397,4 +403,40 @@ fn a_machine_read_goes_through_one_of_its_own_listed_sessions() {
     assert_eq!(hub.mesh_book_session_on("machine-c"), None);
     hub.set_mesh_book(Default::default(), Vec::new());
     assert_eq!(hub.mesh_book_session_on("machine-b"), None);
+}
+
+/// A machine's cell record on the book (RFD 0181 B1) is its health on the host row placement
+/// reads (`mesh_book_hosts`), with no ask; a teammate's record or this daemon's own is not taken.
+#[tokio::test]
+async fn a_published_cell_record_is_the_machines_health_reading() {
+    let hub = hub();
+    let mut book = book();
+    let now = crate::store::now_ms();
+    for d in &mut book.daemons {
+        d.health = Some(json!({"cpus": 16, "liveSessions": 2, "host_of": d.host.clone()}));
+        d.health_at = Some(now - 5_000);
+    }
+    hub.apply_mesh_book(book, "person-1", Some("d-a"));
+    let hosts = hub.mesh_book_hosts();
+    let b = hosts.iter().find(|h| h["name"] == "machine-b").expect("listed");
+    assert_eq!(b["health"]["host_of"], "machine-b");
+    assert_eq!(b["healthAt"], now - 5_000);
+    let h = hub.hub_health.lock().unwrap();
+    assert!(h.reading("teammate-box").is_none(), "a teammate's record is not this person's");
+    assert!(h.reading("machine-a").is_none(), "this daemon's own is not a peer's");
+}
+
+#[test]
+fn of_one_hosts_daemons_the_newest_record_is_taken() {
+    let mut old = daemon("d-b1", "machine-b", "person-1");
+    old.health = Some(json!({"liveSessions": 1}));
+    old.health_at = Some(10);
+    let mut new = daemon("d-b2", "machine-b", "person-1");
+    new.health = Some(json!({"liveSessions": 2}));
+    new.health_at = Some(20);
+    let mut timeless = daemon("d-c", "machine-c", "person-1");
+    timeless.health = Some(json!({"liveSessions": 3}));
+    let book = AddressBook { daemons: vec![new, old, timeless], sessions: Vec::new() };
+    let got = published(&book, "person-1", None, &|_| false);
+    assert_eq!(got, vec![("machine-b".to_owned(), json!({"liveSessions": 2}), 20)]);
 }
