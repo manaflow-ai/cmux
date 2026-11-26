@@ -49,6 +49,20 @@ pub enum SendClass {
     Media,
 }
 
+impl SendClass {
+    /// The Braid class of what this class carries (RFD 0164 B5). Handshakes and
+    /// keepalives are reliable control; media is latest-wins state.
+    pub const fn braid_class(self) -> cmux_braid_class::Class {
+        use cmux_braid_class::Class;
+        match self {
+            Self::Control => Class::Ordered,
+            Self::Input => Class::Input,
+            Self::Bulk => Class::Bulk,
+            Self::Media => Class::State,
+        }
+    }
+}
+
 /// Encrypted data datagrams up to this size are [`SendClass::Input`]: a
 /// TCP segment with a few hundred bytes of payload, or a pure ACK.
 pub const INPUT_MAX: usize = 400;
