@@ -178,6 +178,7 @@ Rules for pages built on the kit:
 - Color comes from the theme. Use the tokens or the `--cmux-*` variables, never a literal color.
 - Don't restyle `.kit-*` or `.ui-*` classes. If a page needs a variant, add it here.
 - Visible text comes from the caller, in the page's language. The kit holds no strings.
+- Use `space()` for spacing that follows page density. The generated `--ds-space-fixed-*` CSS variables preserve the geometry of existing fixed-pixel layouts during migration.
 - Raw values (a pixel size, a hex colour, a duration) still compile outside the closed directories, but
   they are discouraged: use a token, and if no token fits, ask for one here.
 
