@@ -312,11 +312,13 @@ mod dedupe;
 /// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
 pub(crate) use dedupe::enabled as dedupe_enabled;
 mod dedupe_shell;
-mod path_rules;
+mod dir_rules;
 /// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
-pub(crate) use path_rules::enabled as path_rules_enabled;
+pub(crate) use dir_rules::enabled as dir_rules_enabled;
 #[cfg(test)]
 mod dedupe_tests;
+#[cfg(test)]
+mod dir_rules_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -326,8 +328,6 @@ mod hook_callback_tests;
 mod inbound;
 #[cfg(test)]
 mod initialize_tests;
-#[cfg(test)]
-mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
@@ -632,8 +632,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
-    /// Harness magic `pathRules` (path_rules.rs).
-    path_rules: Arc<path_rules::PathRules>,
+    /// Harness magic `dirRules` (dir_rules.rs).
+    dir_rules: Arc<dir_rules::DirRules>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -848,7 +848,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
-            path_rules: Default::default(),
+            dir_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,

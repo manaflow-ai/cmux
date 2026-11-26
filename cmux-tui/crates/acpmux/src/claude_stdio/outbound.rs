@@ -93,7 +93,7 @@ impl Translator {
                             .is_some_and(|t| t.trim_start().starts_with("/clear"))
                         {
                             self.dedupe.reset();
-                            self.path_rules.reset();
+                            self.dir_rules.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -650,13 +650,13 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
             "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
         }));
     }
-    // Harness magic `pathRules` (`path_rules.rs`): a directory's rules after the first call that
+    // Harness magic `dirRules` (`dir_rules.rs`): a directory's rules after the first call that
     // touches it.
-    if super::path_rules::enabled() {
+    if super::dir_rules::enabled() {
         let entry = json!({
-            "matcher": super::path_rules::PATH_RULES_MATCHER,
-            "hookCallbackIds": [super::path_rules::PATH_RULES_CALLBACK],
-            "timeout": super::path_rules::PATH_RULES_TIMEOUT_S,
+            "matcher": super::dir_rules::DIR_RULES_MATCHER,
+            "hookCallbackIds": [super::dir_rules::DIR_RULES_CALLBACK],
+            "timeout": super::dir_rules::DIR_RULES_TIMEOUT_S,
         });
         if let Some(hooks) = request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut)
         {

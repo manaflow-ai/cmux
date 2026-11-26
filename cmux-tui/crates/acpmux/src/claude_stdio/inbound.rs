@@ -617,12 +617,12 @@ impl Translator {
                         self.dedupe_hook(&rid, req).await;
                     }
                     // Harness magic: a directory's rules, the first time it is touched
-                    // (path_rules.rs).
+                    // (dir_rules.rs).
                     Some("hook_callback")
                         if req.get("callback_id").and_then(Value::as_str)
-                            == Some(path_rules::PATH_RULES_CALLBACK) =>
+                            == Some(dir_rules::DIR_RULES_CALLBACK) =>
                     {
-                        self.path_rules_hook(&rid, req).await;
+                        self.dir_rules_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
@@ -958,8 +958,8 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
-                let path_rule_counts =
-                    Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
+                let dir_rule_counts =
+                    Some(self.dir_rules.turn_ended()).filter(|_| dir_rules::enabled());
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -993,8 +993,8 @@ impl Translator {
                     if let Some(dedupe) = dedupe_counts {
                         magic.insert("dedupe".into(), dedupe.to_json());
                     }
-                    if let Some(rules) = path_rule_counts {
-                        magic.insert("pathRules".into(), rules.to_json());
+                    if let Some(rules) = dir_rule_counts {
+                        magic.insert("dirRules".into(), rules.to_json());
                     }
                     if !magic.is_empty() {
                         meta.set("harnessMagic", Value::Object(magic));
@@ -1034,7 +1034,7 @@ impl Translator {
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // What was read before is in the summary at most (dedupe.rs).
                 self.dedupe.reset();
-                self.path_rules.reset();
+                self.dir_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {

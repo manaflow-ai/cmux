@@ -1,6 +1,6 @@
-//! Harness magic `pathRules` (`path_rules.rs`).
+//! Harness magic `dirRules` (`dir_rules.rs`).
 
-use super::path_rules::{MAX_FILE_BYTES, PATH_RULES_CALLBACK, enabled_in, rules_for, touched_path};
+use super::dir_rules::{DIR_RULES_CALLBACK, MAX_FILE_BYTES, enabled_in, rules_for, touched_path};
 use super::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ fn repo() -> tempfile::TempDir {
     dir
 }
 
-fn texts(rules: &[super::path_rules::Rule]) -> Vec<String> {
+fn texts(rules: &[super::dir_rules::Rule]) -> Vec<String> {
     rules.iter().map(|r| r.text.trim().to_owned()).collect()
 }
 
@@ -88,26 +88,26 @@ fn the_touched_path_comes_from_the_tool_input() {
 fn off_unless_the_setting_says_true_and_registered_only_when_on() {
     assert!(!enabled_in(None));
     assert!(!enabled_in(Some(
-        &json!({"agents": {"harnessMagic": {"pathRules": {"enabled": false}}}})
+        &json!({"agents": {"harnessMagic": {"dirRules": {"enabled": false}}}})
     )));
     assert!(enabled_in(Some(
-        &json!({"agents": {"harnessMagic": {"pathRules": {"enabled": true}}}})
+        &json!({"agents": {"harnessMagic": {"dirRules": {"enabled": true}}}})
     )));
     let registered = |req: &Value| {
         req.pointer("/hooks/PostToolUse").and_then(Value::as_array).is_some_and(|hooks| {
-            hooks.iter().any(|h| h["hookCallbackIds"][0] == PATH_RULES_CALLBACK)
+            hooks.iter().any(|h| h["hookCallbackIds"][0] == DIR_RULES_CALLBACK)
         })
     };
-    super::path_rules::ON_FOR_TEST.with(|on| on.set(true));
+    super::dir_rules::ON_FOR_TEST.with(|on| on.set(true));
     assert!(registered(&outbound::initialize_request(false)));
-    super::path_rules::ON_FOR_TEST.with(|on| on.set(false));
+    super::dir_rules::ON_FOR_TEST.with(|on| on.set(false));
 }
 
 /// Through the translator: the first touch gets the rules, the second nothing, a subagent its
 /// own, a compaction resets, and the turn counts them.
 #[tokio::test]
 async fn the_translator_shows_a_directory_once_per_context() {
-    super::path_rules::ON_FOR_TEST.with(|on| on.set(true));
+    super::dir_rules::ON_FOR_TEST.with(|on| on.set(true));
     let dir = repo();
     let file = dir.path().join("pkg/deep/a.rs");
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
@@ -120,7 +120,7 @@ async fn the_translator_shows_a_directory_once_per_context() {
             input.set("agent_id", json!(a));
         }
         json!({"type": "control_request", "request_id": rid, "request": {
-            "subtype": "hook_callback", "callback_id": PATH_RULES_CALLBACK, "input": input}})
+            "subtype": "hook_callback", "callback_id": DIR_RULES_CALLBACK, "input": input}})
     };
     let context = |replies: Vec<Value>| {
         replies[0]
@@ -136,10 +136,10 @@ async fn the_translator_shows_a_directory_once_per_context() {
     assert_eq!(context(t.take_stdin_replies().await), None);
     t.inbound(&hook("h3", Some("sub-1"))).await;
     assert!(context(t.take_stdin_replies().await).is_some(), "a subagent's context is its own");
-    let counts = t.path_rules.turn_ended();
+    let counts = t.dir_rules.turn_ended();
     assert_eq!(counts.files_injected, 4);
-    t.path_rules.reset();
+    t.dir_rules.reset();
     t.inbound(&hook("h4", None)).await;
     assert!(context(t.take_stdin_replies().await).is_some(), "shown again after a compaction");
-    super::path_rules::ON_FOR_TEST.with(|on| on.set(false));
+    super::dir_rules::ON_FOR_TEST.with(|on| on.set(false));
 }

@@ -1,4 +1,5 @@
-//! Harness magic `pathRules` (RFD 0158 §12): a directory's `AGENTS.md` reaches the model the
+//! Harness magic `dirRules` (RFD 0158 §12, beside `pathRules`' `.agents/rules/*.md`): a directory's
+//! `AGENTS.md` reaches the model the
 //! first time the session touches a file under that directory, as the tool result's
 //! `additionalContext`, instead of never.
 //!
@@ -22,9 +23,9 @@
 //!
 //! Off by default (Leo, 2026-11-26: "identify all the weird opinionated fleet things we shipped
 //! into the app and remove them"): it adds text to the agent's context, so only a person who
-//! asked for it gets it. On: `agents.harnessMagic.pathRules.enabled: true`; `ACPMUX_HM_PATHRULES=0`
+//! asked for it gets it. On: `agents.harnessMagic.dirRules.enabled: true`; `ACPMUX_HM_DIRRULES=0`
 //! turns it off whatever the file says. Fails open: any error, or a walk over [`WORK_BOUND`],
-//! answers nothing. Counted per turn on the prompt result's `_meta.harnessMagic.pathRules`
+//! answers nothing. Counted per turn on the prompt result's `_meta.harnessMagic.dirRules`
 //! (`filesInjected`, `bytesInjected`).
 
 use super::*;
@@ -33,15 +34,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// The callback's id.
-pub(super) const PATH_RULES_CALLBACK: &str = "acpmux-path-rules";
+pub(super) const DIR_RULES_CALLBACK: &str = "acpmux-dir-rules";
 /// The tools it is fired for: the ones whose input names a path.
-pub(super) const PATH_RULES_MATCHER: &str = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob";
+pub(super) const DIR_RULES_MATCHER: &str = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob";
 /// Claude Code's wait for the answer, in seconds.
-pub(super) const PATH_RULES_TIMEOUT_S: u64 = 10;
+pub(super) const DIR_RULES_TIMEOUT_S: u64 = 10;
 /// The setting that turns it on (off unless `true`).
-pub const SETTING_ENABLED: &str = "agents.harnessMagic.pathRules.enabled";
+pub const SETTING_ENABLED: &str = "agents.harnessMagic.dirRules.enabled";
 /// The daemon's switch, over the setting.
-pub const KILL_ENV: &str = "ACPMUX_HM_PATHRULES";
+pub const KILL_ENV: &str = "ACPMUX_HM_DIRRULES";
 
 const WORK_BOUND: Duration = Duration::from_secs(2);
 /// The most of one `AGENTS.md` shown.
@@ -108,7 +109,7 @@ impl Counters {
 
 /// The directories each context has been shown, and the turn's counts.
 #[derive(Default)]
-pub(super) struct PathRules {
+pub(super) struct DirRules {
     inner: std::sync::Mutex<State>,
 }
 
@@ -119,7 +120,7 @@ struct State {
     counters: Counters,
 }
 
-impl PathRules {
+impl DirRules {
     /// Everything shown is gone from the context.
     pub(super) fn reset(&self) {
         if let Ok(mut s) = self.inner.lock() {
@@ -261,12 +262,12 @@ pub(super) fn context_text(rules: &[Rule]) -> String {
 }
 
 impl Translator {
-    pub(super) async fn path_rules_hook(&self, rid: &str, req: &Value) {
-        let output = self.path_rules_output(req).await;
+    pub(super) async fn dir_rules_hook(&self, rid: &str, req: &Value) {
+        let output = self.dir_rules_output(req).await;
         self.stdin_replies.lock().await.push(policy_gate::hook_reply(rid, output));
     }
 
-    async fn path_rules_output(&self, req: &Value) -> Value {
+    async fn dir_rules_output(&self, req: &Value) -> Value {
         let pass = json!({});
         let input = req.get("input").cloned().unwrap_or(Value::Null);
         if !enabled() || input["hook_event_name"].as_str() != Some("PostToolUse") {
@@ -274,10 +275,10 @@ impl Translator {
         }
         let Some(path) = touched_path(&input) else { return pass };
         let agent = input.get("agent_id").and_then(Value::as_str).unwrap_or("").to_owned();
-        let seen = self.path_rules.seen_for(&agent);
+        let seen = self.dir_rules.seen_for(&agent);
         let work = tokio::task::spawn_blocking(move || rules_for(&path, &seen));
         let Ok(Ok(rules)) = tokio::time::timeout(WORK_BOUND, work).await else { return pass };
-        let fresh = self.path_rules.mark(&agent, &rules);
+        let fresh = self.dir_rules.mark(&agent, &rules);
         if fresh.is_empty() {
             return pass;
         }
