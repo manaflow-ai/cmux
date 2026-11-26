@@ -279,12 +279,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
             default: return false
             }
         }
-        // Loading means nothing known yet: a Mac still dialing for its first answer. A Mac whose
-        // last answer was empty (`.cached` with no rows) is empty while it reconnects, as a Mac
-        // with cached rows keeps them: every redial used to bring back "Loading workspaces…"
-        // over a Mac that had already said it has none, so it never settled.
-        let firstAnswerPending = online.contains { context.listState($0.id) == .loading }
-        isLoading = firstAnswerPending && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
+        isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
         showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
         self.statuses = statuses
         var rowIndex: [String: Workspace] = [:]
