@@ -1880,6 +1880,8 @@ fn start(
         ))
         // `control cloud PEER` sets a peer at run time with no env.
         .with_cloud_text(sub_text.clone())
+        // The fleet-wait note for such a peer: only on a host with cmux-ci.
+        .with_fleet_client(crate::fleet_wait::client_from(|k: &str| env(k)))
         .with_cloud_vms(cloud_vms.clone())
         .with_agent_keys(agent_keys.clone())
         // cloud_workspace: the app's own Cloud actions (#25596).

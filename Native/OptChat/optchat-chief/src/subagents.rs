@@ -356,6 +356,9 @@ pub struct CloudPlacement {
     /// The subagent system text: local presets do not exist on the peer, so
     /// it goes in front of the first message.
     pub instructions: String,
+    /// Whether the host has the fleet client (`fleet_wait::client_from`): only
+    /// then does the first message carry the `fleet-wait:` note.
+    pub fleet_client: bool,
 }
 
 /// The repo a `spawn(cwd)` folder on the Mac names, for its clone on the VM
@@ -456,6 +459,7 @@ impl CloudPlacement {
                 .filter(|h| !h.trim().is_empty())
                 .unwrap_or_else(|| "claude".to_owned()),
             instructions,
+            fleet_client: crate::fleet_wait::client_from(&env),
         })
     }
 
@@ -489,7 +493,7 @@ impl CloudPlacement {
                 "" => String::new(),
                 g => format!("Group: {g}\n"),
             },
-            fleet = crate::fleet_wait::note_here(),
+            fleet = crate::fleet_wait::note(self.fleet_client),
             peer = self.peer,
         )
     }
@@ -569,6 +573,9 @@ pub struct Spawner {
     /// The subagent system text for a peer set at run time
     /// (`control cloud`) when the env set none.
     cloud_text: Option<String>,
+    /// Whether this host has the fleet client, for a peer set at run time
+    /// (`with_fleet_client`; the env placement decides its own).
+    fleet_client: bool,
     /// The VMs behind cloud peers (B4): resumed before a subagent starts.
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
     /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
@@ -619,6 +626,7 @@ impl Clone for Spawner {
             refused: self.refused.clone(),
             cloud: self.cloud.clone(),
             cloud_text: self.cloud_text.clone(),
+            fleet_client: self.fleet_client,
             cloud_vms: self.cloud_vms.clone(),
             agent_keys: self.agent_keys.clone(),
             person: self.person.clone(),
@@ -657,6 +665,7 @@ impl Spawner {
             refused: Arc::new(Mutex::new(BTreeMap::new())),
             cloud: None,
             cloud_text: None,
+            fleet_client: false,
             cloud_vms: None,
             agent_keys: None,
             person: None,
@@ -756,6 +765,13 @@ impl Spawner {
         self
     }
 
+    /// Whether this host has the fleet client (`fleet_wait::client_from`): a
+    /// peer set at run time (`control cloud`) gets the `fleet-wait:` note only then.
+    pub fn with_fleet_client(mut self, client: bool) -> Spawner {
+        self.fleet_client = client;
+        self
+    }
+
     /// The placement on `peer`: the env's folder and harness when it set
     /// one, else the defaults (daemon-selected scratch folder, `claude`).
     fn placement(&self, peer: &str) -> CloudPlacement {
@@ -769,6 +785,7 @@ impl Spawner {
                 dir: PathBuf::new(),
                 harness: "claude".to_owned(),
                 instructions: self.cloud_text.clone().unwrap_or_default(),
+                fleet_client: self.fleet_client,
             },
         }
     }

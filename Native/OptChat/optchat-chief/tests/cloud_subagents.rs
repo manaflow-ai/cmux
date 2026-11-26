@@ -41,6 +41,7 @@ fn cloud() -> CloudPlacement {
         dir: PathBuf::from("/home/agent/work"),
         harness: "claude".into(),
         instructions: "SUBAGENT SYSTEM TEXT".into(),
+        fleet_client: false,
     }
 }
 
@@ -1032,12 +1033,18 @@ impl optchat_chief::cloud_vms::CloudVms for PerAgentVms {
 }
 
 fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
+    per_agent_on(h, vms, false)
+}
+
+/// [`per_agent`] on a host that has the fleet client (`cmux-ci`) or not.
+fn per_agent_on(h: &mut Harness, vms: &Arc<PerAgentVms>, fleet_client: bool) -> Arc<Spawner> {
     let dyn_vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
     let sp = Arc::new(
         Arc::try_unwrap(spawner(h, None))
             .ok()
             .unwrap()
             .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_fleet_client(fleet_client)
             .with_cloud_vms(Some(dyn_vms.clone())),
     );
     h.brain.set_sub_starter(Some(sp.queue_starter()));
@@ -2042,7 +2049,9 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
         ]
     }));
     let vms = Arc::new(PerAgentVms::default());
-    let sp = per_agent(&mut h, &vms);
+    // A host with the fleet client: the note is what tells the subagent to end on
+    // `fleet-wait:` (on one without it there is no note, #59508).
+    let sp = per_agent_on(&mut h, &vms, true);
     auto_pause_on(&mut h);
     let fleet = Arc::new(FakeFleet::default());
     h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);
@@ -2306,4 +2315,26 @@ fn fleet_instructions_only_on_a_host_with_the_fleet_client() {
     let task = cloud().task("a1", Some("~/fun/cmux"), "build the web page");
     assert!(!task.contains("sr2"), "{task}");
     assert!(!task.contains("fleet controller"), "{task}");
+    assert!(!task.contains("fleet-wait"), "{task}");
+    let on = CloudPlacement {
+        fleet_client: true,
+        ..cloud()
+    };
+    let task = on.task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(task.contains("fleet-wait: JOB_ID"), "{task}");
+    // The env placement asks the env it is given, never this test host's own.
+    let home_s = home.display().to_string();
+    let with = |key: &str| match key {
+        "OPTCHAT_SUBAGENT_PEER" => Some("cloud1".to_owned()),
+        "HOME" => Some(home_s.clone()),
+        _ => None,
+    };
+    let placed = CloudPlacement::from_env(with, String::new()).unwrap();
+    assert!(placed.fleet_client);
+    let without = |key: &str| (key == "OPTCHAT_SUBAGENT_PEER").then(|| "cloud1".to_owned());
+    assert!(
+        !CloudPlacement::from_env(without, String::new())
+            .unwrap()
+            .fleet_client
+    );
 }
