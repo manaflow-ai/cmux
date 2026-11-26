@@ -327,6 +327,10 @@
     "CI_REPAIR_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
       "after_minutes": 10
+    },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "fork pull requests only, not a host: unset (the default), a fork's job runs on GitHub's hosted ubuntu-24.04 (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'); own-branch runs never read it and take cmux-linux, the label every owned Linux pool host carries",
+      "after_minutes": 5
     }
   },
   "nightly_workflow_marker": "nightly",
