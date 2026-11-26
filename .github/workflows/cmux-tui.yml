@@ -418,7 +418,11 @@ jobs:
         id: rustfmt-check
         working-directory: cmux-tui
         run: |
-          if ! cargo fmt --check; then
+          # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches
+          # them through a generated list cargo fmt cannot follow, so they are named to rustfmt.
+          fmt_tests=()
+          for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
+          if ! cargo fmt --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}; then
             echo "unformatted=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
             [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
@@ -428,7 +432,9 @@ jobs:
         if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         working-directory: cmux-tui
         run: |
-          cargo fmt
+          fmt_tests=()
+          for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
+          cargo fmt ${fmt_tests[@]+-- "${fmt_tests[@]}"}
           git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
           # The later lint and test steps check the commit as pushed, not the reformatted tree.
           git checkout -- .
@@ -958,7 +964,7 @@ jobs:
           ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
           pin_commit="$(sed -n 's/^commit=//p' ../scripts/cmux-next/cmux-tui.pin)"
           CMUX_TUI_PREVIOUS_BIN="$PWD/target/hosted/$pin_commit/cmux-tui" \
-            ../scripts/ci/cargo-test-selected.sh -p cmux-tui --test terminal_host_recovery \
+            ../scripts/ci/cargo-test-selected.sh -p cmux-tui --test it \
             hosts_of_a_previous_build_survive_an_upgrade_restart_and_are_adopted -- --ignored
 
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross

@@ -218,6 +218,7 @@ jobs:
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/release-notes.py
             scripts/cmux-next/media/whats-new-gallery.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

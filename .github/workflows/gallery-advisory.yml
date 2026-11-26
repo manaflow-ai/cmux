@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -178,6 +179,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
       # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
       # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
@@ -490,6 +492,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true

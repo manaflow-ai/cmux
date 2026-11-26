@@ -8,7 +8,7 @@
 set -euo pipefail
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/shelf.log"
 cd cmux-tui
-cargo test --locked -p cmux-tui --test cli -- \
+cargo test --locked -p cmux-tui --test it -- \
   every_shipped_store_listing_installs_and_has_something_to_open \
   a_command_only_store_listing_has_nothing_to_open_after_install \
   a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
