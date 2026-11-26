@@ -67,7 +67,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1, 4px);
-  padding: 2px var(--ds-space-2, 8px);
+  padding: var(--grid-half-step) var(--ds-space-2, 8px);
   border-radius: var(--ds-radius-pill, 999px);
   background: var(--agent-fill-subtle, rgb(128 128 128 / 0.14));
   color: var(--agent-muted);
