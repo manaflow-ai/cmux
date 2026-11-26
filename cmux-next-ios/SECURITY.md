@@ -1125,9 +1125,12 @@ sent as an ACP `resource_link` to that path.
   does not permit resuming or truncating its bytes. Cleanup visits only that
   device's staging directory, never the publish directory's parent.
 - Completion receipts bind the upload ID, declared name and size to the published
-  inode. A retry after a lost final reply returns the same path without another
-  copy. Receipts expire with partial uploads after 24 hours; replaced files are
-  refused. `resumable_upload_reports_have_acks_and_path` checks replay at three
+  inode and content digest, including uploads satisfied by deduplication. A retry
+  after a lost final reply returns the same path without another copy. Publication
+  interrupted before its receipt is recovered by matching the retained part inode. Receipts expire with partial uploads after 24 hours; replaced files are
+  refused, as are same-inode content changes. Receipts are written atomically.
+  `upload_completion_recovers_interrupted_publication_and_checks_bytes` covers
+  crash recovery and changed bytes. `resumable_upload_reports_have_acks_and_path` checks replay at three
   offsets, ID reuse with another name, and replacement of the published inode.
 - **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
   `resumable_upload_reopens_from_the_last_ack`,
