@@ -10,7 +10,9 @@ import Testing
 /// view asks the client first: `CefFocusHandler::OnSetFocus` (source system). cmux refused every such ask made outside
 /// its own grant, so the page lost Chromium's focus while its view stayed the first responder; a later press in it does
 /// not grant again (the view has the keyboard already), document.hasFocus() stayed false and the select popup never
-/// opened. The rule in-tree pages follow: the page has Chromium's focus whenever cmux's first responder is its view.
+/// opened. The focus_log of in-tree run osr-func-9 (same policy) shows that order: cmux's grant, Chromium's ask around
+/// the navigation refused while the page view was the first responder, the commit, document.hasFocus() false. The rule:
+/// an off-screen page has Chromium's focus whenever cmux's first responder is its view.
 @MainActor
 @Suite(.serialized, .closesItsWindows) struct CEFOffscreenFocusRestoreTests {
     /// The C entry CEF's OnSetFocus calls (1: the page may take focus), with the runtime's context.
