@@ -35,14 +35,24 @@
   --glass-knob-grow: 1.18;
 }
 
+/* The shared painter draws the knob's lens. Under Reduce Transparency the track stays crisp. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-settings-look="refined"] .settings[data-glass-controls] {
+    --glass-knob-lens: none;
+  }
+}
+
+:root[data-settings-look="refined"]:is([data-reduce-transparency], [data-glass="off"]) .settings[data-glass-controls] {
+  --glass-knob-lens: none;
+}
+
 /* SWITCH. Off and on draw the same glass knob; the track keeps its color (grey off, accent on), so
    the knob tints with it. */
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch .ui-switch-thumb,
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch:not([data-checked]) .ui-switch-thumb {
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
-  -webkit-backdrop-filter: var(--glass-knob-lens);
-  backdrop-filter: var(--glass-knob-lens);
+  --glass-backdrop: var(--glass-knob-lens);
   transition:
     translate var(--cmux-motion-quick) var(--cmux-ease-out),
     scale var(--cmux-motion-quick) var(--cmux-ease-out);
@@ -52,8 +62,7 @@
 :root[data-settings-look="refined"] .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
-  -webkit-backdrop-filter: var(--glass-knob-lens);
-  backdrop-filter: var(--glass-knob-lens);
+  --glass-backdrop: var(--glass-knob-lens);
   transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
 }
 
