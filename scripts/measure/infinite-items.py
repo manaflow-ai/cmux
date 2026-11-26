@@ -227,6 +227,10 @@ def file_groups(disks):
     return groups
 
 
+# The kernel's own mappings in a process: what smaps_kinds files as "vdso".
+KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
     where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
@@ -245,7 +249,11 @@ def smaps_kinds(pid):
                             "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
-                            "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                            "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
+                            # A named anonymous mapping (`[anon:NAME]`, prctl PR_SET_VMA_ANON_NAME): an
+                            # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
+                            "heap:" + path[6:-1] if path.startswith("[anon:") else
+                            anon if path.startswith("[") else "file:" + os.path.basename(path))
                     prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
