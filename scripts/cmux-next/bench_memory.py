@@ -507,6 +507,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     if gpu is not None:
         result["gpu"] = gpu.finish()
         result["files_written"] = files_written(files_before, store_files(bundle))
+        # A write that lands outside the roots, or in a file deleted before the window ends, moves no mtime the
+        # census reads: the files each process holds open for writing name it.
+        result["files_written"]["open_for_write"] = open_for_write({row["pid"]: row["kind"] for row in rows})
     return result
 
 
@@ -519,7 +522,9 @@ def store_roots(bundle: str) -> list[str]:
     files), the bundle's saved daemon state under the account's real home (saved_state_dir: the app reads that home,
     not HOME), and the real home's cmux folders."""
     home = os.path.expanduser("~")
-    roots = [STORE_HOME] if STORE_HOME else []
+    # The whole scratch (HOME and TMPDIR: acpmux's sockets and spool sit in TMPDIR, outside HOME).
+    roots = [os.path.dirname(STORE_HOME)] if STORE_HOME else []
+    roots.append(f"/tmp/acpmux-{os.getuid()}")
     saved = saved_state_dir(bundle)
     if saved:
         roots.append(saved)
@@ -565,10 +570,46 @@ def files_written(before: dict, after: dict, top: int = 25) -> dict:
     def short(path: str) -> str:
         if STORE_HOME and path.startswith(os.path.realpath(STORE_HOME)):
             return "$HOME" + path[len(os.path.realpath(STORE_HOME)):]
+        if STORE_HOME and path.startswith(os.path.realpath(os.path.dirname(STORE_HOME))):
+            return "$SCRATCH" + path[len(os.path.realpath(os.path.dirname(STORE_HOME))):]
         return path.replace(home, "~", 1)
     return {"count": len(changed), "bytes": sum(size for _, size, _ in changed),
             "grew": sum(max(grew, 0) for _, _, grew in changed), "scanned": len(after),
             "top": [{"path": short(path), "bytes": size, "grew": grew} for path, size, grew in changed[:top]]}
+
+
+def open_for_write(kinds: dict[int, str]) -> dict[str, list[str]]:
+    """kind -> the regular files its processes hold open for writing (`lsof`; deleted ones keep their path)."""
+    if not kinds:
+        return {}
+    try:
+        out = subprocess.run(["lsof", "-n", "-P", "-F", "patn", "-p", ",".join(str(pid) for pid in sorted(kinds))],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return parse_open_for_write(out, kinds)
+
+
+def parse_open_for_write(out: str, kinds: dict[int, str]) -> dict[str, list[str]]:
+    """`lsof -F patn` records: p<pid> starts a process, f/a/t/n fields one file each (a=access, t=type)."""
+    found: dict[str, set[str]] = {}
+    pid = None
+    access = kind_type = ""
+    for line in out.splitlines():
+        if not line:
+            continue
+        tag, value = line[0], line[1:]
+        if tag == "p":
+            pid = int(value) if value.isdigit() else None
+        elif tag == "f":
+            access = kind_type = ""
+        elif tag == "a":
+            access = value
+        elif tag == "t":
+            kind_type = value
+        elif tag == "n" and pid in kinds and kind_type == "REG" and access in ("w", "u"):
+            found.setdefault(kinds[pid], set()).add(value)
+    return {kind: sorted(paths) for kind, paths in sorted(found.items())}
 
 
 def keep_daemon_logs(bundle: str, out: str | None) -> None:
@@ -579,7 +620,7 @@ def keep_daemon_logs(bundle: str, out: str | None) -> None:
     dest = os.path.join(os.path.dirname(os.path.abspath(out)), "acpmux-logs")
     counts = {"hibernated": 0, "woke": 0, "causes": {}}
     for root in store_roots(bundle):
-        if not (STORE_HOME and root.startswith(os.path.realpath(STORE_HOME))) and root != os.path.realpath(saved_state_dir(bundle) or "/nonexistent"):
+        if not (STORE_HOME and root.startswith(os.path.realpath(os.path.dirname(STORE_HOME)))) and root != os.path.realpath(saved_state_dir(bundle) or "/nonexistent"):
             continue
         for top, _, names in os.walk(root):
             for name in names:

@@ -97,6 +97,18 @@
       "title" : "Compact Summary for Short Turns",
       "type" : "boolean"
     },
+    "agentPane.display.detail" : {
+      "default" : "normal",
+      "description" : "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.",
+      "enum" : [
+        "messages",
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Chat Detail",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -272,6 +284,16 @@
       },
       "title" : "Model Picker Harness Order",
       "type" : "array"
+    },
+    "agentPane.display.modelPickerStyle" : {
+      "default" : "list",
+      "description" : "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.",
+      "enum" : [
+        "list",
+        "menu"
+      ],
+      "title" : "Model Picker Style",
+      "type" : "string"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -719,7 +741,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
       "title" : "Compact Before the Cache Expires",
       "type" : "boolean"
@@ -830,6 +852,18 @@
       "title" : "Add Message Relay to Claude Code",
       "type" : "boolean"
     },
+    "agents.claudeOutputStyle" : {
+      "default" : "agent",
+      "description" : "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.",
+      "enum" : [
+        "agent",
+        "default",
+        "Explanatory",
+        "Learning"
+      ],
+      "title" : "Claude Code Response Style",
+      "type" : "string"
+    },
     "agents.cmuxMcp" : {
       "default" : "on",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
@@ -852,8 +886,20 @@
       "title" : "Use in Codex",
       "type" : "boolean"
     },
+    "agents.codexPersonality" : {
+      "default" : "agent",
+      "description" : "The personality new Codex chats use. Agent’s Own keeps Codex’s setting.",
+      "enum" : [
+        "agent",
+        "pragmatic",
+        "friendly",
+        "none"
+      ],
+      "title" : "Codex Personality",
+      "type" : "string"
+    },
     "agents.coldWake.compact" : {
-      "default" : true,
+      "default" : false,
       "description" : "A large chat whose cache expired is compacted before batched messages arrive.",
       "title" : "Compact Cold Chats Before Waking",
       "type" : "boolean"
@@ -867,10 +913,20 @@
       "type" : "number"
     },
     "agents.coldWake.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.",
       "title" : "Batch Wakes of Cold Chats",
       "type" : "boolean"
+    },
+    "agents.commitAttribution" : {
+      "default" : "agent",
+      "description" : "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.",
+      "enum" : [
+        "agent",
+        "strip"
+      ],
+      "title" : "Co-Author Line on Commits and PRs",
+      "type" : "string"
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
@@ -1177,10 +1233,40 @@
       "title" : "Accent",
       "type" : "string"
     },
+    "appearance.accentGlow.dark" : {
+      "description" : "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.",
+      "title" : "Accent Glow (Dark)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.light" : {
+      "description" : "The glow's color in the light appearance. Unset, the dark color.",
+      "title" : "Accent Glow (Light)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.opacity" : {
+      "description" : "How strong the accent glow is.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Accent Glow Opacity",
+      "type" : "number"
+    },
+    "appearance.accentGlow.radius" : {
+      "description" : "How far the accent glow spreads from the focused pane.",
+      "maximum" : 200,
+      "minimum" : 0,
+      "title" : "Accent Glow Radius",
+      "type" : "number"
+    },
     "appearance.agentGlow" : {
       "default" : false,
       "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
       "title" : "React to Agents",
+      "type" : "boolean"
+    },
+    "appearance.agentSignature" : {
+      "default" : false,
+      "description" : "Give each agent a small dot glyph made from its session, on sidebar rows and the running line.",
+      "title" : "Agent Dot Signatures",
       "type" : "boolean"
     },
     "appearance.appFont" : {
@@ -2588,6 +2674,39 @@
       "title" : "Toolbar Button Size",
       "type" : "number"
     },
+    "appearance.mode" : {
+      "default" : "system",
+      "description" : "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too.",
+      "enum" : [
+        "system",
+        "light",
+        "dark"
+      ],
+      "title" : "Appearance",
+      "type" : "string"
+    },
+    "appearance.paneArt.dark" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Dark)",
+      "type" : "array"
+    },
+    "appearance.paneArt.light" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the light appearance. Empty, the dark list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Light)",
+      "type" : "array"
+    },
     "appearance.paneBackgrounds" : {
       "default" : "shared",
       "description" : "One background behind the window, or a copy in each pane.",
@@ -2673,6 +2792,16 @@
       "description" : "Marks experimental settings with a Beta chip.",
       "title" : "Beta Chips in Settings",
       "type" : "boolean"
+    },
+    "appearance.sidebarHeader.dark" : {
+      "description" : "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.",
+      "title" : "Sidebar Header Image (Dark)",
+      "type" : "string"
+    },
+    "appearance.sidebarHeader.light" : {
+      "description" : "The sidebar header picture in the light appearance. Unset, the dark picture.",
+      "title" : "Sidebar Header Image (Light)",
+      "type" : "string"
     },
     "appearance.sidebarSurface" : {
       "default" : "same",
@@ -2933,6 +3062,30 @@
       "minimum" : 0,
       "title" : "Terminal Opacity",
       "type" : "number"
+    },
+    "appearance.tabClose.from" : {
+      "description" : "The color of a tab's close button. Unset, the text color.",
+      "title" : "Tab Close Color",
+      "type" : "string"
+    },
+    "appearance.tabClose.interpolation" : {
+      "description" : "How the close button's color blends to its hover color.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Tab Close Blend",
+      "type" : "string"
+    },
+    "appearance.tabClose.toDark" : {
+      "description" : "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.",
+      "title" : "Tab Close Hover Color (Dark)",
+      "type" : "string"
+    },
+    "appearance.tabClose.toLight" : {
+      "description" : "The close button's hover color in the light appearance. Unset, the dark color.",
+      "title" : "Tab Close Hover Color (Light)",
+      "type" : "string"
     },
     "appearance.tabShape" : {
       "default" : "block",
@@ -3701,6 +3854,12 @@
       "title" : "Denied Apps",
       "type" : "array"
     },
+    "computerUse.floatingPreview" : {
+      "default" : false,
+      "description" : "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.",
+      "title" : "Floating Live Preview",
+      "type" : "boolean"
+    },
     "computerUse.livePreview" : {
       "default" : true,
       "description" : "A small live view of the app an agent uses. Click it for Agent Activity.",
@@ -4359,6 +4518,12 @@
       "default" : false,
       "description" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
       "title" : "App Font in Native Chrome",
+      "type" : "boolean"
+    },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
       "type" : "boolean"
     },
     "experiments.attachmentTypeIcons" : {
@@ -6063,6 +6228,12 @@
       "title" : "Screen Sharing Quality",
       "type" : "string"
     },
+    "remoteDesktop.sharpLinuxText" : {
+      "default" : false,
+      "description" : "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.",
+      "title" : "Sharper Text from Linux Machines",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -6208,6 +6379,12 @@
       "default" : true,
       "description" : "With the sidebar hidden, point at the window's edge to show it over your work.",
       "title" : "Float Hidden Sidebar on Hover",
+      "type" : "boolean"
+    },
+    "sidebar.folderlessUngrouped" : {
+      "default" : false,
+      "description" : "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.",
+      "title" : "Ungroup Rows With No Folder",
       "type" : "boolean"
     },
     "sidebar.groupBy" : {
@@ -6497,10 +6674,28 @@
       "title" : "Priority View",
       "type" : "boolean"
     },
+    "sidebar.priorityView.filters" : {
+      "default" : false,
+      "description" : "All, Waiting, Unread and Running chips with counts, and Mark All as Read.",
+      "title" : "Priority Filters",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.showIdle" : {
+      "default" : true,
+      "description" : "Off, Priority lists only chats that need you or are running.",
+      "title" : "Idle Chats in Priority",
+      "type" : "boolean"
+    },
     "sidebar.priorityView.shown" : {
       "default" : true,
       "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
       "title" : "Show Priority View",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.statusWords" : {
+      "default" : false,
+      "description" : "Each Priority row says its state, such as Needs you or Done.",
+      "title" : "Priority Status Words",
       "type" : "boolean"
     },
     "sidebar.sectionLook" : {
@@ -6554,12 +6749,6 @@
       "default" : false,
       "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
       "title" : "Show Sessions Started by Agents",
-      "type" : "boolean"
-    },
-    "sidebar.showAutomaticSessions" : {
-      "default" : false,
-      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-      "title" : "Show Automatic Sessions",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
@@ -7571,6 +7760,26 @@
       "title" : "Tasks Layout",
       "type" : "string"
     },
+    "terminal.cursorBlink" : {
+      "description" : "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
+      "enum" : [
+        "on",
+        "off"
+      ],
+      "title" : "Cursor Blink",
+      "type" : "string"
+    },
+    "terminal.cursorStyle" : {
+      "description" : "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
+      "enum" : [
+        "block",
+        "bar",
+        "underline",
+        "block_hollow"
+      ],
+      "title" : "Cursor Style",
+      "type" : "string"
+    },
     "terminal.fontFamily" : {
       "description" : "A monospaced font installed on this Mac.",
       "title" : "Font Family",
@@ -8017,11 +8226,23 @@
       "title" : "Clean Up Agent Worktrees",
       "type" : "boolean"
     },
+    "worktrees.branchPrefix" : {
+      "default" : "cmux/",
+      "description" : "The start of each new worktree's branch name, such as cmux/.",
+      "title" : "Worktree Branch Prefix",
+      "type" : "string"
+    },
     "worktrees.cleanBuildCaches" : {
       "default" : false,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"
+    },
+    "worktrees.location" : {
+      "default" : "~/.cmux/worktrees",
+      "description" : "Where cmux makes worktrees for local chats, forks and lanes, one folder per project.",
+      "title" : "Worktree Folder",
+      "type" : "string"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"

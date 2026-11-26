@@ -1834,6 +1834,10 @@ final class SidebarAccessibilityRow: NSAccessibilityElement {
     let id: ConversationID
     init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
     override func accessibilityPerformPress() -> Bool { controller?.open(id); return true } // cmux: a press opens
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
     override func isAccessibilityElement() -> Bool { true }
     /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
     /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
