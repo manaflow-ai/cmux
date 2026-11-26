@@ -816,3 +816,96 @@ fn ops_refuse_unknown_names_and_bad_requests() {
     assert!(matches!(call("wallpaper.placementRect", &json!({})), Err(OpError::Invalid(_))));
     assert!(matches!(call("wallpaper.sunPosition", &json!({"t": "x"})), Err(OpError::Invalid(_))));
 }
+
+// MARK: wallpaper tint (WallpaperTintTests)
+
+mod tint_parity {
+    use cmux_design_core::ops::call;
+    use cmux_design_core::wallpaper::tint::{self, Rgba, Shown, Tint};
+    use serde_json::json;
+
+    const BLUE: Tint = Tint { red: 0.15, green: 0.3, blue: 0.75 };
+    const RED: Tint = Tint { red: 0.8, green: 0.2, blue: 0.15 };
+
+    fn grey(v: f64, alpha: f64) -> Rgba {
+        Rgba { red: v, green: v, blue: v, alpha }
+    }
+
+    fn hsb(c: Rgba) -> (f64, f64, f64) {
+        tint::hsb(c.red, c.green, c.blue)
+    }
+
+    #[test]
+    fn a_neutral_theme_takes_the_pictures_hue_at_its_own_brightness() {
+        for alpha in [1.0, 0.55] {
+            let leaned = BLUE.blended(grey(0.12, alpha));
+            assert!(leaned.blue > leaned.red + 0.01, "{leaned:?}");
+            let (hue, saturation, brightness) = hsb(leaned);
+            assert!((brightness - 0.12).abs() < 0.005);
+            assert!((leaned.alpha - alpha).abs() < 0.0001);
+            assert!(saturation > 0.1 && saturation <= tint::SATURATION_CAP);
+            assert!((hue - tint::hsb(0.15, 0.3, 0.75).0).abs() < 0.01);
+        }
+        let light = RED.blended(grey(0.96, 1.0));
+        assert!(light.red > light.blue + 0.01);
+        assert!((hsb(light).2 - 0.96).abs() < 0.005);
+    }
+
+    #[test]
+    fn a_vivid_picture_only_tints() {
+        let leaned = Tint::new(0.0, 0.0, 1.0).blended(grey(0.5, 1.0));
+        assert!(hsb(leaned).1 <= tint::SATURATION_CAP * tint::STRENGTH + 0.01);
+    }
+
+    #[test]
+    fn a_colored_theme_keeps_its_color() {
+        let purple = Rgba { red: 0.35, green: 0.1, blue: 0.5, alpha: 1.0 };
+        let leaned = RED.blended(purple);
+        assert!((leaned.red - purple.red).abs() < 0.0001);
+        assert!((leaned.blue - purple.blue).abs() < 0.0001);
+        let flat = Tint::new(0.4, 0.4, 0.4).blended(grey(0.12, 1.0));
+        assert!(hsb(flat).1 < 0.01);
+    }
+
+    #[test]
+    fn the_tint_leans_only_where_the_desktop_shows() {
+        let theme = grey(0.12, 1.0);
+        let lean = |enabled, opaque, shown, wallpaper| {
+            tint::tint(theme, wallpaper, enabled, opaque, shown) != theme
+        };
+        assert!(lean(true, false, Shown::None, Some(BLUE)));
+        assert!(lean(true, false, Shown::Desktop, Some(BLUE)));
+        assert!(!lean(false, false, Shown::None, Some(BLUE)));
+        assert!(!lean(true, false, Shown::None, None));
+        assert!(!lean(true, false, Shown::Art, Some(BLUE)));
+        assert!(!lean(true, true, Shown::None, Some(BLUE)));
+    }
+
+    #[test]
+    fn the_pictures_color_is_its_mean() {
+        let mut pixels = Vec::new();
+        for _ in 0..4 {
+            for x in 0..8 {
+                pixels.extend_from_slice(if x < 4 { &[255, 0, 0, 255] } else { &[0, 0, 255, 255] });
+            }
+        }
+        let mean = tint::mean(&pixels).unwrap();
+        assert!(
+            (mean.red - 0.5).abs() < 0.03 && mean.green < 0.03 && (mean.blue - 0.5).abs() < 0.03
+        );
+        assert_eq!(tint::mean(&[0, 0, 0, 0]), None);
+        // Premultiplied half-alpha red reads as opaque red; a clear row is dropped.
+        let rows =
+            [[128, 0, 0, 128, 128, 0, 0, 128], [0; 8], [0, 0, 255, 255, 0, 0, 255, 255]].concat();
+        let bands = tint::bands(&rows, 2);
+        assert_eq!(bands, [Tint::new(1.0, 0.0, 0.0), Tint::new(0.0, 0.0, 1.0)]);
+        let op = call("wallpaper.tintMean", &json!({"pixels": [255, 0, 0, 255]})).unwrap();
+        assert_eq!(op, json!({"red": 1.0, "green": 0.0, "blue": 0.0}));
+        let shown = call(
+            "wallpaper.tint",
+            &json!({"theme": {"red": 0.5, "green": 0.5, "blue": 0.5}, "enabled": true, "shown": "art", "wallpaper": {"red": 1, "green": 0, "blue": 0}}),
+        )
+        .unwrap();
+        assert_eq!(shown, json!({"red": 0.5, "green": 0.5, "blue": 0.5, "alpha": 1.0}));
+    }
+}

@@ -20,6 +20,7 @@ pub mod shader;
 pub mod signals;
 pub mod sun;
 pub mod time_of_day;
+pub mod tint;
 pub mod zone;
 
 use crate::ops::{OpError, OpResult, parse, reply};
@@ -385,6 +386,44 @@ pub fn call(name: &str, request: &Value) -> OpResult {
         "artFitRect" => {
             let r: ArtFitRect = parse(request)?;
             reply(&r.fit.rect(r.image, r.bounds, r.points_per_pixel))
+        }
+        "tintBlend" => {
+            #[derive(Deserialize)]
+            struct R {
+                tint: tint::Tint,
+                theme: tint::Rgba,
+            }
+            let r: R = parse(request)?;
+            reply(&tint::Tint::new(r.tint.red, r.tint.green, r.tint.blue).blended(r.theme))
+        }
+        "tint" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct R {
+                theme: tint::Rgba,
+                #[serde(default)]
+                wallpaper: Option<tint::Tint>,
+                enabled: bool,
+                #[serde(default)]
+                opaque: bool,
+                shown: tint::Shown,
+            }
+            let r: R = parse(request)?;
+            reply(&tint::tint(r.theme, r.wallpaper, r.enabled, r.opaque, r.shown))
+        }
+        "tintMean" | "tintBands" => {
+            #[derive(Deserialize)]
+            struct R {
+                pixels: Vec<u8>,
+                #[serde(default)]
+                width: usize,
+            }
+            let r: R = parse(request)?;
+            if name == "tintMean" {
+                reply(&tint::mean(&r.pixels))
+            } else {
+                reply(&tint::bands(&r.pixels, r.width))
+            }
         }
         "agentGlow" => {
             #[derive(Deserialize)]
