@@ -36,6 +36,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The local/app connection's peer state snapshot; never transport URLs or credentials.
         "_acpmux/peers": .object(["peers": .list(.object([
             "name": .string, "state": .string, "lastSeen": .number, "error": .string,
+            // Which picker group lists it: `own` or `agent` (acpmux hub/agent_vm.rs `group_of`).
+            "group": .string, "liveSessions": .number,
         ]))]),
         "_acpmux/status": .object([
             // What kind of device this machine is (`mac-mini`; cmux-device-kind): the glyph
@@ -44,6 +46,8 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number,
+                // Which picker group lists it (`own` or `agent`) and its live chats now.
+                "group": .string, "liveSessions": .number,
                 // The same cached, one-minute health reading the native remote-machine sidebar
                 // displays. Keep only values needed for a warning and the budget verdict;
                 // URLs, host labels, disk readings and session counts stay out of the page.
@@ -94,6 +98,7 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
+                "group": .string, "liveSessions": .number,
             ])),
         ]),
     ]
