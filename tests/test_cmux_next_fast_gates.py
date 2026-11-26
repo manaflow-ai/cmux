@@ -2098,6 +2098,22 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_type_error_naming_a_node_modules_path_is_the_base_one(self):
+        # Fast gates 45874767698 (cmux#57053): the base's bench/browsers.ts TS2345 names node_modules under each
+        # checkout's root in its message, so a key that unrooted only the path read it as the merge's own.
+        def diagnostic(root: str) -> str:
+            return ("  x typescript(TS2345): Argument of type 'import(\"" + root + "/webviews/node_modules/"
+                    "playwright-core/types/types\").LaunchOptions | undefined' is not assignable to parameter of "
+                    "type 'LaunchOptions | undefined'.\n"
+                    "    ,-[bench/browsers.ts:42:60]\n"
+                    " 42 |   chromium.launch = (options) => launch(withShippedJsFlags(options));\n"
+                    "    `----\n")
+        for base_root in ("/w/merge", "/tmp/fast-gate-webviews-base-x/base"):
+            new, old = self.module.compare(diagnostic("/w/merge"), diagnostic(base_root), "/w/merge",
+                                           "/tmp/fast-gate-webviews-base-x/base")
+            self.assertEqual(new, [], base_root)
+            self.assertEqual(len(old), 1, base_root)
+
     def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
         merge = ("error: Failed to resolve vite config\n"
                  "    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
