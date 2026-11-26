@@ -3,6 +3,7 @@ import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
+import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey } from "./i18n";
@@ -910,7 +911,7 @@ export function EnvironmentPicker({
             </span>
             {value === AUTO_RUN && <span className="acpmux-menu-description">{t("composer.autoPlaceDetail")}</span>}
           </span>
-          <kbd className="acpmux-env-key">⌥⌘{digit}</kbd>
+          <KeyHint keys={`⌥⌘${digit}`} className="acpmux-env-key" />
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>
@@ -1162,7 +1163,7 @@ export function EnvironmentPicker({
                   </span>
                 </span>
               )}
-            {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
+            {number !== undefined && digits && <KeyHint keys={`⌥⌘${number}`} className="acpmux-env-key" />}
             <span className="acpmux-location-check" aria-hidden="true">
               {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && <CheckIcon />}
             </span>
