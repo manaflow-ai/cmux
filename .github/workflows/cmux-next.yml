@@ -1965,6 +1965,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Why: goal a11y-baseline (every animation honors Reduce Motion, macOS, webviews and iOS); 6 came back
+      # between 2026-11-16 and 11-26 with no check to stop them.
+      - name: Reduce Motion audit
+        id: reduce-motion
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/test_reduce_motion_audit.py
+          python3 -I scripts/cmux-next/reduce-motion-audit.py --root "$GITHUB_WORKSPACE" --check
+
       # Why: note-144
       - name: Overlays are glass, never solid
         id: overlay-glass
@@ -2364,6 +2373,7 @@ jobs:
             ${{ steps.concentric-containers.outcome }}|Containers concentric with their buttons
             ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.reduce-motion.outcome }}|Reduce Motion audit
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.type-scale.outcome }}|Type scale

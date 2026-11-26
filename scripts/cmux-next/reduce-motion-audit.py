@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Counts the animations in cmux NEXT that may still move with Reduce Motion on, one number per platform.
 
-    scripts/cmux-next/reduce-motion-audit.py [--root DIR] [--json]
+    scripts/cmux-next/reduce-motion-audit.py [--root DIR] [--json] [--check]
 
 The count behind goal a11y-baseline's motion leg (cmuxterm-hq goals/a11y-baseline.md: "every animation honors Reduce
-Motion"). It reports and never fails; a gate can be added once the count is 0.
+Motion"). It reports and exits 0; with --check (the cmux-next checks job's "Reduce Motion audit" step, since the
+count reached 0 on 2026-11-26) it exits 1 when any platform counts an animation or could not be read.
 
 - macOS: check-motion.sh's findings. Every NEXT animation there goes through a `Motion.<category>` gate, which
   follows Reduce Motion, so a finding is an animation no gate decides.
@@ -103,11 +104,15 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     ap.add_argument("--json", action="store_true", help="the whole report as JSON on stdout")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 when any platform counts an animation or could not be read (CI's gate)")
     a = ap.parse_args(argv)
     report = audit(a.root)
+    failed = a.check and (bool(report.get("total")) or any(
+        "error" in report[name] for name in ("macos", "webviews", "ios")))
     if a.json:
         print(json.dumps(report, indent=1))
-        return 0
+        return 1 if failed else 0
     for name in ("macos", "webviews", "ios"):
         part = report[name]
         if "error" in part:
@@ -117,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
         for w in part["where"]:
             print(f"  {w['file']}:{w['line']}: {w['text']}")
     print(f"total: {report['total']}")
-    return 0
+    if failed:
+        print("Gate each with the Reduce Motion state its neighbours read (WEB_GATE, IOS_GATE above), or mark a "
+              "reviewed exception `motion: allow <reason>`.")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

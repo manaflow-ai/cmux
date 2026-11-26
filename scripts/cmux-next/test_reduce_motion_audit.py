@@ -53,6 +53,18 @@ class Audit(unittest.TestCase):
         self.assertIn("error", report["macos"])
         self.assertIsNone(report["total"])
 
+    def test_check_fails_on_a_tree_it_cannot_read_and_passes_without_it(self):
+        root = self.tree({"webviews/src/a.ts": ""})
+        self.assertEqual(audit.main(["--root", str(root), "--check"]), 1)
+        self.assertEqual(audit.main(["--root", str(root)]), 0)
+
+    def test_web_scene_motion_reads_the_gate_through_scene_timing(self):
+        root = self.tree({
+            "webviews/src/a.ts": "const t = sceneTiming(m, env, doc);\nel.animate([from, to], t);\n",
+        })
+        got = audit.ungated(root, audit.WEB_DIRS, audit.WEB_SUFFIXES, audit.WEB_SITE, audit.WEB_GATE)
+        self.assertEqual(got["sites"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
