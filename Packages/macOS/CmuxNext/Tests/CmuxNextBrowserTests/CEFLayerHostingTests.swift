@@ -684,12 +684,12 @@ private final class LiveResizeWindow: NSWindow {
 
     /// The window's commit waits for this app's send right, and the main thread can itself wait for that commit: the
     /// next commit's backing-store update synchronizes with the render server (`CABackingStoreSynchronize`), which
-    /// holds the fenced commit. A deadline on the main actor then runs only once the server gives up on the fence
-    /// (page-sync bench, 2026-11-26: window-resize fences released 74 ms after opening at p50, 523 ms at p95, for a
-    /// 17 ms deadline). With the deadline off the main thread the right goes at its deadline while the main thread
-    /// stays busy, and the fence's bookkeeping follows once it is free.
+    /// holds the fenced commit. So the fences every app makes (``CEFResizeFences``' defaults) drop the right at the
+    /// deadline whatever the main thread does: a deadline that needs the main thread waits for the very thread it frees
+    /// (page-sync bench, 2026-11-26, window-corner drag: commits held 155 ms at p50 and over 1 s at p95 for a 17 ms
+    /// deadline, with 28 stalls over 250 ms in one drag). The fence's bookkeeping follows once the main thread is free.
     @Test func aFenceGoesAtItsDeadlineWhileTheMainThreadIsBusy() async throws {
-        let (hosting, _, window) = makeHosted(deadlineOffMain: true)
+        let (hosting, _, window) = makeHosted()
         defer { window.close() }
         hosting.paneResizeDrag(active: true)
         hosting.pageViewResized()
