@@ -52,6 +52,19 @@ impl Schema {
             colors.insert(index.to_string(), color.clone());
         }
         colors.insert("palette".into(), json!({ "type": "array", "maxItems": 16, "items": color }));
+        // One look for both appearances: a half paints only that side of
+        // `light:X,dark:Y`, over the plain colors.
+        let half = |side: &str| {
+            json!({
+                "type": "object",
+                "description": format!("Colors for the {side} theme of appearance.theme \"light:NAME,dark:NAME\", over the plain colors. An older cmux ignores this half and shows the plain colors."),
+                "properties": Value::Object(colors.clone()),
+                "additionalProperties": false,
+            })
+        };
+        let (light, dark) = (half("light"), half("dark"));
+        colors.insert("light".into(), light);
+        colors.insert("dark".into(), dark);
         let mut root = Map::new();
         root.insert("$schema".into(), json!({ "type": "string" }));
         root.insert(
@@ -95,6 +108,10 @@ impl Schema {
             }),
         );
         root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
+        root.insert(
+            crate::theme_file::motion::KEY.into(),
+            crate::theme_file::motion::json_schema(),
+        );
         root.insert(
             "fonts".into(),
             json!({
@@ -168,6 +185,9 @@ fn kind_schema(row: &Row) -> Value {
             return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
+        Validation::Domain(DomainKind::BackdropPictures) => {
+            return json!({ "type": "array", "items": picture() });
+        }
         Validation::Domain(DomainKind::BackdropSchedule) => {
             return json!({
                 "type": "object",

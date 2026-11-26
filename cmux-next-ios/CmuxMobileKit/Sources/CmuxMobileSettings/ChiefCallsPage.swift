@@ -51,7 +51,7 @@ struct ChiefCallsPage: View {
                     } label: {
                         Label("Call Chief", systemImage: "phone.fill")
                             .font(theme.type.rowTitle)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.colors.success.color)
                     }
                     .accessibilityIdentifier("settings.chiefCalls.call")
                 }

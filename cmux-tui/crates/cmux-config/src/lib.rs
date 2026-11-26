@@ -55,6 +55,7 @@ pub mod theme_file;
 pub mod transcript_look;
 pub mod value;
 pub mod watch;
+pub mod worktree_names;
 pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
