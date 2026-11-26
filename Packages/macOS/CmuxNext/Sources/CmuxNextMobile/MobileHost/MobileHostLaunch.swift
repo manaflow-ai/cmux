@@ -65,7 +65,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
-                agentTabHost: String? = nil) {
+                agentTabHost: String? = nil, acpmuxHome: String? = nil) {
         self.executable = executable
         self.baseURL = baseURL
         self.teamID = teamID
@@ -77,6 +77,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         self.fileRoots = fileRoots
         self.stackProjectID = stackProjectID
         self.agentTabHost = agentTabHost
+        self.acpmuxHome = acpmuxHome
     }
 
     /// The team hostd joins: the selected Stack team, else the personal space.
