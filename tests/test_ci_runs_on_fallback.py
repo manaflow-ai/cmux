@@ -423,8 +423,16 @@ def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
 
 
 def rescued_paths() -> set[str]:
-    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched."""
-    return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
+    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched.
+
+    Plus owned_pool_rescue.UNRESCUED_WORKFLOW_PATHS, each with its written reason the rescue leaves it to a
+    person (tests/test_ci_owned_pool_sources.py accepts the same list): cloud-chat-proof.yml's proof jobs
+    took the owned gui pool on attempt 1 in #46809 and were listed there, not watched.
+    """
+    import owned_pool_sources
+    source = (ROOT / owned_pool_sources.RESCUE_SCRIPT).read_text(encoding="utf-8")
+    return (set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
+            | set(owned_pool_sources.unrescued_paths(source)))
 
 
 def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:

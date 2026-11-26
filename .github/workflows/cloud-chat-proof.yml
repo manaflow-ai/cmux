@@ -1129,10 +1129,13 @@ jobs:
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
                                  "https://files-next.cmux.com/nightly-next/")):
               sys.exit(f"{url} is not a nightly-next download")
-          print(f"BUILD={build}\nURL={url}\nLENGTH={length}\nSIGNATURE={signature}")
+          # One value per line, read as data: the feed is remote text, so nothing of it is sourced as shell.
+          for value in (build, url, length, signature):
+              if "\n" in str(value) or "\r" in str(value):
+                  sys.exit("the nightly-next feed item holds a line break")
+          print(f"{build}\n{url}\n{length}\n{signature}")
           PY
-          # shellcheck disable=SC1091
-          . "$dir/pick.env"
+          { IFS= read -r BUILD; IFS= read -r URL; IFS= read -r LENGTH; IFS= read -r SIGNATURE || true; } < "$dir/pick.env"
           curl -fsSL --retry 3 -A "cmux-cloud-chat-proof/1" -o "$dir/nightly.dmg" "$URL"
           python3 -I scripts/ci/nightly_next_artifact_check.py dmg --dmg "$dir/nightly.dmg" \
             --length "$LENGTH" --ed-signature "$SIGNATURE"

@@ -252,6 +252,12 @@ for name in shipping:
             body = body.replace(control.group(0), "")
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
+    # The build manifest (#56652 / clean-sheet step 5) takes the tip on purpose: app_build_manifest.py
+    # refuses to write when the published commit is not the one the digest was computed for.
+    manifest = re.search(r"^      - name: Write the build manifest for this app-input digest\n.*?(?=^      - name:|\Z)",
+                         body, re.MULTILINE | re.DOTALL)
+    if manifest:
+        body = body.replace(manifest.group(0), "")
     for line in body.splitlines():
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,

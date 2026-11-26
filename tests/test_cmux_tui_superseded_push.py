@@ -379,7 +379,10 @@ def check_verdicts():
                 else:
                     subprocess.run(["git", "-C", remote, "update-ref", "-d", "refs/pull/7/head"], check=False)
                 api.reset(routes)
-                got = run_check(api, repo, script, "push", ref, head, over_git)
+                # A pull request's head runs only with build on request off (ci-min-per-pr-30 made it the default:
+                # CMUX_TUI_BRANCH_ON_REQUEST=1 asks for a dispatch instead).
+                env = dict(over_git, CMUX_TUI_BRANCH_ON_REQUEST="0") if pull_head == head and want == "false" else over_git
+                got = run_check(api, repo, script, "push", ref, head, env)
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
