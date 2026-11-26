@@ -21,6 +21,7 @@ pub const MANIFEST_SCHEMA: &str = "cmux-shotdiff.goldens/v1";
 pub const REPORT_SCHEMA: &str = "cmux-shotdiff.report/v1";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// skew: strict local golden store manifest in the repo: a stray key means a hand edit or a newer schema, so fail loudly
 #[serde(deny_unknown_fields)]
 pub struct Golden {
     pub hash: String,
@@ -31,6 +32,7 @@ pub struct Golden {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// skew: strict local golden store manifest in the repo: a stray key means a hand edit or a newer schema, so fail loudly
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub schema: String,

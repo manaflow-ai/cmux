@@ -34,6 +34,7 @@ pub struct Rect {
 
 /// A region nothing is compared in: a caret, a clock, an animation, a live avatar.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// skew: strict local spec file: a typo in a region or mask key must fail, not silently widen the tolerance
 #[serde(deny_unknown_fields)]
 pub struct Mask {
     pub x: u32,
@@ -46,6 +47,7 @@ pub struct Mask {
 
 /// A named region with its own thresholds (unset fields take the spec's).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// skew: strict local spec file: a typo in a region or mask key must fail, not silently widen the tolerance
 #[serde(deny_unknown_fields)]
 pub struct Region {
     pub name: String,
@@ -66,6 +68,7 @@ pub struct Region {
 /// `max_changed_ratio` to 1 for SSIM alone (cross-renderer: lavapipe against Metal), or `min_ssim` to 0 for
 /// the pixel ratio alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// skew: strict local spec file: a typo in a region or mask key must fail, not silently widen the tolerance
 #[serde(deny_unknown_fields, default)]
 pub struct Spec {
     /// A pixel changes when any channel moves by more than this (0..255).
