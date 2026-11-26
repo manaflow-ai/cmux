@@ -243,6 +243,7 @@ appearance.metrics.toolbarButtonActiveFill
 appearance.metrics.toolbarButtonCornerRadius
 appearance.metrics.toolbarButtonGap
 appearance.metrics.toolbarButtonSize
+appearance.mode
 appearance.paneArt.dark
 appearance.paneArt.light
 appearance.paneBackgrounds
@@ -754,7 +755,10 @@ sidebar.nowPlaying.otherApps
 sidebar.numbering
 sidebar.pinnedBandsScroll
 sidebar.priorityView.enabled
+sidebar.priorityView.filters
+sidebar.priorityView.showIdle
 sidebar.priorityView.shown
+sidebar.priorityView.statusWords
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -982,4 +986,6 @@ workspaces.hibernation.hiddenSpaceMinutes
 workspaces.hibernation.idleMinutes
 workspaces.newPlacement
 worktrees.autoCleanup
+worktrees.branchPrefix
 worktrees.cleanBuildCaches
+worktrees.location
