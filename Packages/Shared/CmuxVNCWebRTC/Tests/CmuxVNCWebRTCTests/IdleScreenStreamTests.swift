@@ -31,7 +31,8 @@ struct IdleRefreshTests {
     @Test func noRepeatWhileThePictureIsFresh() {
         var policy = Policy()
         policy.pushed(now: 1_000, fresh: true)
-        #expect(!policy.repeatNow(now: 1_000 + Self.period / 2))
+        let early = policy.repeatNow(now: 1_000 + Self.period / 2)
+        #expect(!early)
         #expect(!policy.isIdle(now: 1_000 + Self.period * 10), "repeats are still owed")
     }
 
@@ -43,15 +44,18 @@ struct IdleRefreshTests {
             now += Self.period
             if policy.repeatNow(now: now) { policy.pushed(now: now, fresh: false) }
         }
-        #expect(!policy.repeatNow(now: now + Self.period))
+        let whileIdle = policy.repeatNow(now: now + Self.period)
+        #expect(!whileIdle)
         policy.arm() // a keyframe request, a quality change, the viewer's refresh
-        #expect(policy.repeatNow(now: now + Self.period))
+        let afterArm = policy.repeatNow(now: now + Self.period)
+        #expect(afterArm)
         #expect(policy.remaining == Policy.repeats - 1)
     }
 
     @Test func nothingToRepeatBeforeTheFirstPicture() {
         var policy = Policy()
-        #expect(!policy.repeatNow(now: Self.period * 3))
+        let beforeFirst = policy.repeatNow(now: Self.period * 3)
+        #expect(!beforeFirst)
     }
 }
 
