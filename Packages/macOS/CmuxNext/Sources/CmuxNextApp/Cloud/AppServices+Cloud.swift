@@ -81,7 +81,7 @@ extension AppServices {
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
         CloudMachineUpdates.start(self)
         // Each new link to a Cloud machine (a resume, a restarted daemon) gets its chats' credentials again (cmux#57418).
-        CloudCredentialResends.start(self)
+        cloud.agentCredentials.resendOnNewLinks { [machines = self.machines] in machines.cloud.map { .init(machine: $0.machineID, handshake: CloudMachineUpdates.handshake($0, machines: machines)) } }
         iphone.pairedQuitRecord = agentPaneStateLoss
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },

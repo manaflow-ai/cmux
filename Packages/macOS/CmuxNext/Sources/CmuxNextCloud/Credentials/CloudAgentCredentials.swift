@@ -1,5 +1,7 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
+import os
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
 /// (`_acpmux/connections/credential {id}` -> `{family, kind, env, expires_at}`,
@@ -129,6 +131,34 @@ public final class CloudAgentCredentials {
         started(chat: chat, machine: machine, on: credential,
                 push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: nil, endpoint: endpoint))
     }
+
+    /// One Cloud machine's live daemon handshake as the app sees it (nil while none is live).
+    public struct MachineLink: Sendable, Equatable {
+        public let machine: String
+        public let handshake: String?
+        public init(machine: String, handshake: String?) { (self.machine, self.handshake) = (machine, handshake) }
+    }
+
+    /// Follows the app's Cloud machines' handshakes (`links`, read under observation) until the app quits, and
+    /// sends each machine's chats their credentials again on every new one (cmux#57418): a VM that paused and
+    /// resumed, a daemon an update, crash or rollback restarted. The machine's acpmux keeps a launch
+    /// credential only in memory, so one restarted while the chat's agent slept lost it and the next turn ran
+    /// signed out ("Not logged in · Please run /login"). A refused daemon (`refused`) is no link.
+    @discardableResult
+    public func resendOnNewLinks(_ links: @escaping @MainActor @Sendable () -> [MachineLink]) -> Task<Void, Never> {
+        let refresher = refresher
+        // task-owner: app lifetime (AppServices.startCloud); follows the Cloud machines' handshakes
+        return Task {
+            for await snapshot in ObservationStream(links) {
+                for link in snapshot where link.handshake != "refused" && refresher.linked(machine: link.machine, handshake: link.handshake) {
+                    let sent = await refresher.resend(machine: link.machine)
+                    Self.logger.info("cloud machine \(link.machine, privacy: .public): new link, sent \(sent) chat credential(s) again")
+                }
+            }
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.credentials")
 
     /// The chat started on `credential`: its choice is spent, a ChatGPT plan token is kept fresh on that
     /// machine through `push`, and any credential is sent again on the machine's next link
