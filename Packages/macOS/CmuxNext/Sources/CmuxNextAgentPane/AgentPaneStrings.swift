@@ -377,6 +377,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .localizedModule)
     }
 
+    /// The folder menu after the person asked an organization's owners to install the App (GitHub's `setup_action=request`).
+    static func gitHubRequestedMessage(owner: String?) -> String {
+        guard let owner else {
+            return String(localized: "agentPane.github.requested", defaultValue: "Asked the organization's owners to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+        }
+        return String(localized: "agentPane.github.requestedOwner", defaultValue: "Asked the owners of \(owner) to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+    }
+
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
     static var gitHubSignedOutMessage: String {
         String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .localizedModule)

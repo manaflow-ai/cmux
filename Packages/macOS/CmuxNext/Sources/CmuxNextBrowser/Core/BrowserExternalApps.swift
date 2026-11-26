@@ -61,6 +61,20 @@ public final class BrowserExternalApps {
     /// Whether a tab whose first page was this URL was opened for the flow
     /// (a sign-in or GitHub install page), so it closes once handed off.
     public var closesHandoffTab: (@MainActor (URL?) -> Bool)?
+    /// An https page that is really a return to this app (GitHub's return to the App's Setup URL for a connect this
+    /// build started): the own-scheme link it stands for, else nil. The tab hands it over before the page loads, so no
+    /// console page shows and nothing asks to reopen the app the person is in.
+    public var ownReturn: (@MainActor (URL) -> URL?)?
+
+    /// `url` (a main-frame https navigation) handed to the app instead of loading when ``ownReturn`` takes it: the
+    /// app's own route, and the flow's tab closes as an own-scheme handoff's does. False: it loads.
+    func handOffReturn(_ url: URL, firstPage: URL?, close: (() -> Void)?) -> Bool {
+        guard let own = ownReturn?(url), let route = openOwnURL else { return false }
+        route(own)
+        if closesHandoffTab?(firstPage) == true { close?() }
+        return true
+    }
+
     /// An own-scheme link that returns from a flow the app opened a tab for (Settings > Connections'
     /// `<scheme>://settings/integrations`): handed off without a prompt only from that tab
     /// (``noteFlowPage(_:)``), which then closes.
