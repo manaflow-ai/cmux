@@ -690,6 +690,89 @@ async fn an_agent_row_carries_its_last_turns_with_no_phone_having_opened_it() {
     assert!(p.mirror.holds(&BlobHash::of(b"screen 7 #1")));
 }
 
+/// Two tabs on one chat each get its text: what was read is kept per tab, not per chat.
+#[tokio::test]
+async fn two_agent_tabs_on_one_chat_each_get_its_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(
+        dir.path(),
+        json!([
+            {"surface": 11, "kind": "conversation", "agent": "Claude",
+             "conversation": {"agent_session": {"session": "s-agent"}}},
+            {"surface": 12, "kind": "conversation", "agent": "Claude",
+             "conversation": {"agent_session": {"session": "s-agent"}}},
+        ]),
+    );
+    let (acpmux, target) = FakeAcpmux::start().await;
+    acpmux.say("s-agent", "hello", "Hi there.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    let text = BlobHash::of(agent_text(&[("You", "hello"), ("Claude", "Hi there.")]).as_bytes());
+    p.until(|m| ["11", "12"].iter().all(|id| screen_of(m, id).is_some_and(|r| r.screen_hash == Some(text))))
+        .await;
+
+    // The chat goes on: both tabs follow it.
+    acpmux.say("s-agent", "thanks", "Anytime.");
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    daemon.emit(json!({"event": "title-changed", "surface": 12}));
+    let next = BlobHash::of(
+        agent_text(&[("Claude", "Hi there."), ("You", "thanks"), ("Claude", "Anytime.")]).as_bytes(),
+    );
+    p.until(|m| ["11", "12"].iter().all(|id| screen_of(m, id).is_some_and(|r| r.screen_hash == Some(next))))
+        .await;
+}
+
+/// An acpmux home on this disk: `config.json` naming `target`'s listener, and
+/// chat `session`'s log, so the feeder can stat it.
+fn acpmux_home(dir: &Path, target: &AcpmuxTarget, session: &str) -> (AcpmuxTarget, PathBuf) {
+    let AcpmuxTarget::Fixed { url, .. } = target else { panic!("a fake acpmux has a URL") };
+    let listen = url.trim_start_matches("ws://").trim_end_matches('/');
+    let home = dir.join("acpmux");
+    let events = home.join("sessions").join(session).join("events");
+    std::fs::create_dir_all(&events).unwrap();
+    std::fs::write(home.join("config.json"), json!({"websocket": {"listen": listen}}).to_string()).unwrap();
+    let log = events.join("000001.ndjson");
+    std::fs::write(&log, "{\"seq\":1}\n").unwrap();
+    (AcpmuxTarget::Home(home), log)
+}
+
+/// Steady state costs no query: an idle chat whose log is on this disk is
+/// not asked again (a stat says its log did not move), however long it sits
+/// and even when an event names its tab; a record appended to its log reads it again.
+#[tokio::test]
+async fn an_idle_agent_tab_costs_no_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), agent_tabs());
+    let (acpmux, fixed) = FakeAcpmux::start().await;
+    let (target, log) = acpmux_home(dir.path(), &fixed, "s-agent");
+    acpmux.say("s-agent", "hello", "Hi there.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    let first = BlobHash::of(agent_text(&[("You", "hello"), ("Claude", "Hi there.")]).as_bytes());
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(first))).await;
+    let captured = acpmux.reads("s-agent");
+    // A probe and a tail.
+    assert!(captured >= 2, "{captured}");
+    // Past a whole look interval, and an event naming the tab: the log did not move.
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    p.drain(Duration::from_millis(5_500)).await;
+    assert_eq!(acpmux.reads("s-agent"), captured, "an idle chat was read");
+
+    acpmux.say("s-agent", "thanks", "Anytime.");
+    let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+    std::io::Write::write_all(&mut file, b"{\"seq\":2}\n").unwrap();
+    // Looked at within a second (the event), read because the log moved.
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    let next = BlobHash::of(
+        agent_text(&[("Claude", "Hi there."), ("You", "thanks"), ("Claude", "Anytime.")]).as_bytes(),
+    );
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(next))).await;
+}
+
 /// A read of the chat that fails (acpmux gone or refusing) keeps the last capture.
 #[tokio::test]
 async fn a_failed_agent_read_keeps_the_last_capture() {
