@@ -13,6 +13,7 @@
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::RequestStage;
 use crate::hub::row_log;
+use crate::no_panic::LockExt as _;
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
@@ -59,7 +60,7 @@ fn list_method(method: &str) -> Option<&'static str> {
 /// List filters absent, null or empty: the whole list.
 fn whole(params: &Value) -> bool {
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
-    ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy"]
+    ["limit", "cursor", "peer", "status", "localOnly", "topLevelOnly", "excludeStatus", "orderBy"]
         .into_iter()
         .all(unset)
 }
@@ -99,8 +100,9 @@ async fn send_list(hub: &Hub, conn: &Conn, text: Arc<String>) -> Result<Value, R
 }
 
 /// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
-/// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
-/// (`list_guard::cut_page`): a page of five costs five rows, whatever the list's size.
+/// built (`Hub::session_page`), at most `limit` of them and at most [`LIST_PAGE_BYTES`], each
+/// built only when the page's bytes take it (`Hub::session_page_text`): a page of five costs five
+/// rows, whatever the list's size, and a page of 1000 cut to 260 by its bytes costs 260.
 async fn page(
     hub: &Hub,
     conn: &Conn,
@@ -108,14 +110,13 @@ async fn page(
     tools: bool,
     cursor: Option<Cursor>,
 ) -> Result<Value, RpcError> {
-    use crate::hub::list_guard::{cut_page, serialize_in_order};
     let raw = conn.raw_text;
-    let (rows, next) = hub.session_page_rows(params, tools)?;
-    let (text, spans, keys) = serialize_in_order(&rows);
-    drop(rows);
-    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
-        Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
-    })?;
+    let text = {
+        let picked = hub.session_page(params)?;
+        within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            Ok(hub.session_page_text(&picked, params, tools, budget))
+        })?
+    };
     send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
 }
 
@@ -197,8 +198,16 @@ async fn list(
 /// `_acpmux/sessions {pendingOnly: true}`: the sessions with a pending ask
 /// (`Hub::pending_session_summaries`): it summarizes only those chats. It takes no other filter.
 fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
-    const OTHERS: [&str; 7] =
-        ["limit", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
+    const OTHERS: [&str; 8] = [
+        "limit",
+        "peer",
+        "status",
+        "localOnly",
+        "topLevelOnly",
+        "excludeStatus",
+        "orderBy",
+        "withTools",
+    ];
     if let Some(name) = OTHERS.into_iter().find(|k| params.get(*k).is_some_and(|v| !v.is_null())) {
         return Err(RpcError::invalid_params(format!("pendingOnly takes no {name}")));
     }
@@ -244,12 +253,23 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    conn.set_watching(on);
+    // A client watching again may have lost row notices (a host left them out): each chat's next
+    // row goes whole, a base it can patch (`session_patch.rs`).
+    if on {
+        *conn.sent_rows.lock_or_recover() = Default::default();
+    }
+    // Off is a pause (a hidden page, webviews sessionPages.ts `pause`): the client keeps the rows and
+    // cursor it holds and follows from them when it turns the watch on again, so no list is built
+    // for it, as `_acpmux/inventory_watch` answers `{}` (docs/inventory-watch.md).
+    if !on {
+        return Ok(json!({}));
+    }
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;
     let own_only = conn.origin == super::Origin::Peer;
-    if on && let Some(after) = follow_cursor(hub, params)? {
+    if let Some(after) = follow_cursor(hub, params)? {
         // Rows changed after the client's cursor, never the list: its cost is the changes.
         if let Some(done) = follow(hub, conn, after, own_only, tools).await {
             return done;

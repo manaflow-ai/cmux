@@ -86,7 +86,9 @@ impl Supervisor {
             }
             // Safe mode: no host, no stream, no mount; the place shows its
             // native view (R5).
-            if inner.safe_mode.is_some() && super::safe_mode::holds_off(package) {
+            if super::safe_mode_bisect::held_off(&inner, app)
+                && super::safe_mode::holds_off(package)
+            {
                 return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
             }
             // Paused by its budget: no host until Resume (budget.rs).
@@ -122,8 +124,14 @@ impl Supervisor {
             // A view mounted again under its id (Reload) keeps its old scene
             // on screen until this one: its first scene replaces it.
             let replacing = inner.mounts.contains_key(&key);
+            // A Reload keeps the pane's open (`pane_flow.rs`): it binds again below.
+            inner.pane_opens.detach(&key);
+            let mut context = context;
+            // A Reload keeps the view's kept state (`view_state.rs`).
+            super::view_state::carry(inner.mounts.get(&key), app, &export, &mut context);
             let mut outs = self.unmount_locked(&mut inner, &key);
             let host_key = HostKey { app: app.to_string(), preview };
+            self.pane_mount_bind_locked(&mut inner, &key, &host_key, interface, &mut context);
             if !preview {
                 self.note_launch_mount_locked(&mut inner, app);
             }
@@ -202,6 +210,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.pane_mount_gone_locked(inner, key, &mount.host.app);
         self.signals_mount_gone(key);
         self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
@@ -266,7 +275,9 @@ impl Supervisor {
             return self.fail_host_locked(inner, key, "the app is gone");
         };
         // Every path to a host (mount, run, restart) ends here.
-        if inner.safe_mode.is_some() && super::safe_mode::holds_off(&package) {
+        if super::safe_mode_bisect::held_off(inner, &key.app)
+            && super::safe_mode::holds_off(&package)
+        {
             return self.end_host_locked(inner, key, super::safe_mode::OFF, "off");
         }
         if !key.preview && inner.ladders.get(&key.app).is_some_and(|l| l.paused.is_some()) {
@@ -311,7 +322,8 @@ impl Supervisor {
             Err(error) => return self.fail_host_locked(inner, key, &format!("spawn: {error}")),
         };
         self.host_spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        process.send(&super::load_trial::init_message(&package, main, &grant));
+        let settings = super::app_settings::effective(&package, inner.mirror.apps.get(&key.app));
+        process.send(&super::load_trial::init_message(&package, main, &grant, settings));
         // The package may have been saved since a mount (a local reload): its
         // interface may now name another export, or be gone, which fails the
         // mount the way `mount` refuses it.
@@ -664,7 +676,12 @@ impl Supervisor {
         stream: String,
     ) -> Vec<Out> {
         let host = &inner.hosts[key];
-        if !Self::stream_readable(inner, key, host, &stream) || host.subs.len() >= MAX_SUBSCRIPTIONS
+        // An app with settings of its own hears `settings.changed` for them without
+        // `settings:read`; cmux's settings still reach it only with that scope (publish checks it).
+        let own_settings = stream == super::app_settings::STREAM
+            && inner.catalog.packages.get(&key.app).is_some_and(super::app_settings::declares);
+        if !(own_settings || Self::stream_readable(inner, key, host, &stream))
+            || host.subs.len() >= MAX_SUBSCRIPTIONS
         {
             return vec![];
         }

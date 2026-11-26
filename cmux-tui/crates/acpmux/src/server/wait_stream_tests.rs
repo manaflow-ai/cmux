@@ -75,7 +75,7 @@ async fn a_streamed_token_does_not_evaluate_an_open_wait() {
         "{ran} wait evaluations for {TOKENS} streamed tokens (at most {polls} from the 1 s poll)"
     );
     // A state change still ends the wait at once.
-    hub.set_status(&session, crate::store::SessionStatus::Ready);
+    hub.set_status(&session, crate::hub::NotWaiting::Ready);
     let reply = tokio::time::timeout(Duration::from_secs(10), waiting)
         .await
         .expect("the status change ends the wait")

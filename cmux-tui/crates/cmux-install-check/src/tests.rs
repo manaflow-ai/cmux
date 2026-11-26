@@ -8,6 +8,8 @@ const RUNNING: &str = "200";
 enum CanaryCase {
     Passed,
     Refused,
+    /// Refused with an error marked retryable (`connection.busy`).
+    RefusedRetryable,
     Inconclusive,
 }
 
@@ -36,8 +38,12 @@ enum KeptCase {
     Running,
 }
 
-const CANARIES: [CanaryCase; 3] =
-    [CanaryCase::Passed, CanaryCase::Refused, CanaryCase::Inconclusive];
+const CANARIES: [CanaryCase; 4] = [
+    CanaryCase::Passed,
+    CanaryCase::Refused,
+    CanaryCase::RefusedRetryable,
+    CanaryCase::Inconclusive,
+];
 const RECORDED: [Recorded; 3] = [Recorded::No, Recorded::Passed, Recorded::Refused];
 const KEPT: [KeptCase; 6] = [
     KeptCase::Unchecked,
@@ -85,7 +91,12 @@ fn input(nightly: bool, canary: CanaryCase, recorded: Recorded, kept: &[KeptCase
     }
     let canary = match canary {
         CanaryCase::Passed => Canary::Passed,
-        CanaryCase::Refused => Canary::Refused { reason: "transport.intent_invalid".into() },
+        CanaryCase::Refused => {
+            Canary::Refused { reason: "transport.intent_invalid".into(), retryable: false }
+        }
+        CanaryCase::RefusedRetryable => {
+            Canary::Refused { reason: "connection.busy".into(), retryable: true }
+        }
         CanaryCase::Inconclusive => Canary::Inconclusive,
     };
     Input { nightly, build: RUNNING.into(), canary, history, pinned, kept: kept_builds }
@@ -98,7 +109,7 @@ fn expected(nightly: bool, canary: CanaryCase, recorded: Recorded, kept: &[KeptC
         return keep;
     }
     match canary {
-        CanaryCase::Inconclusive => keep,
+        CanaryCase::Inconclusive | CanaryCase::RefusedRetryable => keep,
         CanaryCase::Passed => Decision {
             record: Some(Entry { build: RUNNING.into(), result: Outcome::Passed }),
             ..keep
@@ -164,8 +175,8 @@ fn every_combination() {
             }
         }
     }
-    // 2 channels x 3 canaries x 3 records x (1 + 6 + 36) kept lists.
-    assert_eq!(checked, 2 * 3 * 3 * 43);
+    // 2 channels x 4 canaries x 3 records x (1 + 6 + 36) kept lists.
+    assert_eq!(checked, 2 * 4 * 3 * 43);
 }
 
 /// The incident: a refused NIGHTLY with the build before it recorded passing
@@ -254,5 +265,120 @@ fn cli_due_then_decide() {
 
     assert!(run(&args(&["decide"]), request).is_err());
     assert!(run(&args(&["other", "--record", &record]), "").is_err());
+    std::fs::remove_dir_all(&directory).unwrap();
+}
+
+/// A retryable refusal (`connection.busy`) with a passing build kept records
+/// nothing and keeps the build: the next launch checks again.
+#[test]
+fn retryable_refusal_keeps_and_records_nothing() {
+    let decision =
+        decide(&input(true, CanaryCase::RefusedRetryable, Recorded::No, &[KeptCase::PassedReads]));
+    assert_eq!(decision, Decision::keep());
+    let mut record = Record::default();
+    record.apply(&decision);
+    assert_eq!(record, Record::default());
+    // The wire form the app sends; `retryable` absent reads as false.
+    let busy: Canary = serde_json::from_str(
+        r#"{"result":"refused","reason":"connection.busy: limit","retryable":true}"#,
+    )
+    .unwrap();
+    assert_eq!(busy, Canary::Refused { reason: "connection.busy: limit".into(), retryable: true });
+    let plain: Canary = serde_json::from_str(r#"{"result":"refused","reason":"no"}"#).unwrap();
+    assert_eq!(plain, Canary::Refused { reason: "no".into(), retryable: false });
+}
+
+fn held(failure: Option<&str>) -> Held {
+    Held {
+        notice: Notice {
+            build: "8".into(),
+            target: Some("7".into()),
+            why: None,
+            reason: "no".into(),
+        },
+        failure: failure.map(str::to_string),
+    }
+}
+
+/// What a launch shows, over every held state and running build.
+#[test]
+fn show_every_combination() {
+    for running in ["7", "8", "9"] {
+        assert_eq!(show(None, running), None);
+        for failure in [None, Some("gone")] {
+            let held = held(failure);
+            let got = show(Some(&held), running);
+            let want = match (running, failure) {
+                ("7", None) => Some((Shown::RolledBack, None)),
+                ("8", _) => Some((Shown::RollbackFailed, failure.map(str::to_string))),
+                _ => None,
+            };
+            assert_eq!(
+                got.map(|show| (show.kind, show.failure)),
+                want,
+                "running={running} failure={failure:?}"
+            );
+        }
+    }
+}
+
+/// Only a rollback holds its notice; a report is shown at once.
+#[test]
+fn apply_holds_only_a_rollback_notice() {
+    let mut record = Record::default();
+    record.apply(&decide(&input(true, CanaryCase::Refused, Recorded::No, &[])));
+    assert_eq!(record.held, None);
+    record.apply(&decide(&input(
+        true,
+        CanaryCase::Refused,
+        Recorded::No,
+        &[KeptCase::PassedReads],
+    )));
+    assert_eq!(record.held.as_ref().and_then(|held| held.notice.target.as_deref()), Some("199"));
+}
+
+/// The rollback's notice through the CLI: held by `decide`, shown once by
+/// the target build's launch; a failed rollback shows its failure once.
+#[test]
+fn cli_holds_and_shows_once() {
+    let directory =
+        std::env::temp_dir().join(format!("cmux-install-check-show-{}", std::process::id()));
+    let path = directory.join("install-check.json");
+    let record = path.display().to_string();
+    let args = |words: &[&str]| words.iter().map(|word| word.to_string()).collect::<Vec<_>>();
+    let passed = r#"{"nightly":true,"build":"7","canary":{"result":"passed"},"kept":[]}"#;
+    run(&args(&["decide", "--record", &record]), passed).unwrap();
+    let refused = r#"{"nightly":true,"build":"8","canary":{"result":"refused","reason":"no"},"kept":[{"build":"7","readsStore":true}]}"#;
+    run(&args(&["decide", "--record", &record]), refused).unwrap();
+
+    let show_on = |build: &str| run(&args(&["show", "--record", &record, "--build", build]), "");
+    assert_eq!(
+        show_on("7").unwrap(),
+        r#"{"kind":"rolledBack","notice":{"build":"8","target":"7","reason":"no"}}"#
+    );
+    assert_eq!(show_on("7").unwrap(), "null");
+
+    // A busy refusal on build 9 records nothing and holds nothing.
+    let busy = r#"{"nightly":true,"build":"9","canary":{"result":"refused","reason":"connection.busy","retryable":true},"kept":[{"build":"7","readsStore":true}]}"#;
+    let output = run(&args(&["decide", "--record", &record]), busy).unwrap();
+    assert!(output.contains(r#""action":{"kind":"keep"}"#), "{output}");
+    assert_eq!(
+        run(&args(&["due", "--record", &record, "--build", "9", "--nightly"]), "").unwrap(),
+        r#"{"due":true}"#
+    );
+
+    let refused = r#"{"nightly":true,"build":"9","canary":{"result":"refused","reason":"no"},"kept":[{"build":"7","readsStore":true}]}"#;
+    run(&args(&["decide", "--record", &record]), refused).unwrap();
+    run(&args(&["failed", "--record", &record, "--failure", "The kept copy is gone."]), "")
+        .unwrap();
+    assert_eq!(
+        show_on("9").unwrap(),
+        r#"{"kind":"rollbackFailed","notice":{"build":"9","target":"7","reason":"no"},"failure":"The kept copy is gone."}"#
+    );
+    assert_eq!(show_on("9").unwrap(), "null");
+    // `failed` with nothing held changes nothing.
+    run(&args(&["failed", "--record", &record, "--failure", "x"]), "").unwrap();
+    assert_eq!(Record::load(&path).unwrap().held, None);
+    assert!(run(&args(&["show", "--record", &record]), "").is_err());
     std::fs::remove_dir_all(&directory).unwrap();
 }

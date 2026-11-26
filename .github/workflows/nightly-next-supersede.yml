@@ -2,17 +2,16 @@ name: nightly-next supersede
 
 # Latest wins (Leo, 2026-11-11: "aren't there things we can just be like 'ok just get this one in asap'";
 # 2026-11-06: nothing queues). nightly.yml keeps nightly-next pushes and the loop's retries in one
-# concurrency group and the sign stages in another, never cancelling a started run, and GitHub keeps
-# only one newer run pending per group. On 2026-11-10/11 runs whose remaining jobs waited on a runner
-# label that had gone held both groups for hours, and every tip run behind them was replaced while
+# concurrency group, never cancelling a started run, and GitHub keeps only one newer run pending in it.
+# On 2026-11-10/11 runs whose remaining jobs waited on a runner label that had gone held it for hours, and every tip run behind them was replaced while
 # pending and never started. nightly.yml cannot clear that itself: the waiting run has no jobs.
 #
 # This runs beside each nightly-next push (a promotion; the file is on nightly-next because the branch
 # carries feat-cmux-next's tree) and by dispatch (scripts/ci/nightly_now.py). It cancels an older run
-# holding the push or sign group only when none of its build, sign or publish jobs has started and the
+# holding the push group only when none of its build, sign or publish jobs has started and the
 # newer run waiting on that group has waited on it (scripts/ci/nightly_next_supersede.py, which reads
 # main's scripts/ci/delivery_workflows.py for the light-job list and the started rule). It never cancels
-# a started job, the tip's push run, or the newest sign stage. Only promotion pushes start it, about
+# a started job or the tip's push run. Only promotion pushes start it, about
 # as often as nightly-next moves, so it spends a few reads per promotion.
 #
 # A holder that is still inside its 5-minute ready wait when the settle ends must not wait for the next
@@ -58,6 +57,7 @@ jobs:
           path: .supersede-tooling
           sparse-checkout: |
             scripts/ci/nightly_next_supersede.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The stale rule's one definition (LIGHT_JOBS, build_started) is main's, which the queue janitor
@@ -69,6 +69,7 @@ jobs:
           path: .main-rules
           sparse-checkout: |
             scripts/ci/delivery_workflows.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Drop an older nightly-next run that holds the tip's group and never started

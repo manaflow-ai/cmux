@@ -67,10 +67,19 @@ test("a note's whole state is read field by field, and a word acpmux never sends
       link: "restarting",
       carrier: "ssh",
       cause: "peerDown",
+      downReason: "pathChanged",
       since: 3,
       nextRetryAt: 9,
     }),
-  ).toEqual({ link: "restarting", carrier: "ssh", cause: "peerDown", since: 3, nextRetryAt: 9 });
+  ).toEqual({
+    link: "restarting",
+    carrier: "ssh",
+    cause: "peerDown",
+    downReason: "pathChanged",
+    since: 3,
+    nextRetryAt: 9,
+  });
+  expect(readPeerLinkDetail({ link: "reconnecting", downReason: "gremlins" })).toEqual({ link: "reconnecting" });
   expect(readPeerLinkDetail({ state: "connected" })).toEqual({ link: "connected" });
   expect(readPeerLinkDetail({ link: "sideways", carrier: "pigeon" })).toBeUndefined();
 

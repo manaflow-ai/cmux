@@ -1,5 +1,8 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Underlying URL-loading failure carried by connectivity-class broker
 /// errors, so journals and caller retry policies can distinguish a dead

@@ -235,10 +235,13 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     public var fetchScript: String {
         prelude + """
         url='\(url.absoluteString)'
+        # While a download runs, say so every 10 s when the staged file grew: the app bounds the
+        # install by silence (RemoteInstaller.transferIdle), and curl -s prints nothing itself.
+        tick() { p=-1; while :; do sleep 10 </dev/null >/dev/null 2>&1; z=$(wc -c < "$stage" 2>/dev/null | tr -d ' '); if [ "$z" != "$p" ]; then echo "cmux-install-progress ${z:-0}" >&2; fi; p=$z; done; }
         \(stageOnly ? "[ -f \"$dest.staged\" ] && [ \"$(digest \"$dest.staged\")\" = \"$want\" ] && mv -f \"$dest.staged\" \"$stage\"" : ":")
         if [ -f "$stage" ] && [ "$(digest "$stage")" = "$want" ]; then :; else
-          if command -v curl >/dev/null 2>&1; then fetch() { curl --http1.1 -fsSL --proto '=https' --connect-timeout 20 --speed-limit 1024 --speed-time 60 -C - -o "$stage" "$url"; }
-          elif command -v wget >/dev/null 2>&1; then fetch() { wget -c -q -T 60 -O "$stage" "$url"; }
+          if command -v curl >/dev/null 2>&1; then fetch() { tick & tk=$!; curl --http1.1 -fsSL --proto '=https' --connect-timeout 20 --speed-limit 1024 --speed-time 60 -C - -o "$stage" "$url"; r=$?; kill "$tk" 2>/dev/null; wait "$tk" 2>/dev/null; return $r; }
+          elif command -v wget >/dev/null 2>&1; then fetch() { tick & tk=$!; wget -c -q -T 60 -O "$stage" "$url"; r=$?; kill "$tk" 2>/dev/null; wait "$tk" 2>/dev/null; return $r; }
           else echo "cmux-install-nodownloader" >&2; exit \(RemoteInstallError.Code.noDownloader); fi
           n=0
           until touch "$lock" 2>/dev/null; fetch; do

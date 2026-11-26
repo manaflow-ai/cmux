@@ -163,7 +163,7 @@ Status entries are keyed (at most 64 per workspace); `set` replaces the entry wi
 
 ## Contributor reloads
 
-For cmux app/runtime changes in a cmux source checkout, use a tagged reload from the active worktree. Never build or launch untagged `cmux DEV`.
+For cmux app/runtime changes in a cmux source checkout, first try `cmux app try .`: a copy of the NIGHTLY with your web and daemon code swapped in, no build. A change it cannot take (Swift signatures, resources, FFI Rust) uses a tagged reload from the active worktree. Never build or launch untagged `cmux DEV`.
 
 ```bash
 ./scripts/reload.sh --tag <short-tag>

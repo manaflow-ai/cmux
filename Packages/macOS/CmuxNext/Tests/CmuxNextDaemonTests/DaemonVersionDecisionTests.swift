@@ -58,4 +58,32 @@ struct DaemonVersionDecisionTests {
         let identity = DaemonIdentity(buildCommit: "", buildID: "abc1234", generation: DaemonGeneration(rawValue: "stamp-test"))
         #expect(DaemonBuildStamp(identity: identity) == DaemonBuildStamp(commit: nil, id: "abc1234"))
     }
+
+    /// An owner of the bundled build whose executable's file is gone (it outlived a deleted copy of
+    /// the app) is restarted: its app host went with that bundle, so every apps request failed
+    /// with "this daemon has no app host" (the Cloud list on the GUI probe, 2026-11-25).
+    @Test func anOwnerWhoseExecutableIsGoneRestarts() {
+        let build = DaemonBuildStamp(commit: "131be44", id: "131be44")
+        let owner = DaemonIdentity(buildCommit: "131be44", buildID: "131be44", pid: 4242,
+                                   generation: DaemonGeneration(rawValue: "gone-test"))
+        #expect(DaemonLauncher.launchDecision(running: owner, bundled: build, executableGone: { _ in true })
+            == .restart(running: "131be44 (executable gone)", bundled: "131be44"))
+        #expect(DaemonLauncher.launchDecision(running: owner, bundled: build, executableGone: { _ in false })
+            == .keep("same build"))
+        // Unknown bundled build: nothing to restart into.
+        #expect(DaemonLauncher.launchDecision(running: owner, bundled: nil, executableGone: { _ in true })
+            == decide(DaemonBuildStamp(identity: owner), nil))
+    }
+
+    /// The real check reads the owner's `cli_path`: a file that exists keeps it, a path with no
+    /// file is gone, and an owner that reports no path is never called gone.
+    @Test func theLiveCheckReadsTheOwnersCLIPath() {
+        let generation = DaemonGeneration(rawValue: "gone-test")
+        let here = DaemonIdentity(generation: generation, cliPath: CommandLine.arguments[0].hasPrefix("/")
+            ? CommandLine.arguments[0] : "/bin/sh")
+        #expect(!DaemonLauncher.runsGoneExecutable(here))
+        let gone = DaemonIdentity(generation: generation, cliPath: "/nonexistent/cmux-probe-work/cmux.app/Contents/Resources/bin/cmux")
+        #expect(DaemonLauncher.runsGoneExecutable(gone))
+        #expect(!DaemonLauncher.runsGoneExecutable(DaemonIdentity(generation: generation)))
+    }
 }

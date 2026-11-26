@@ -107,7 +107,12 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # The advisory attester uses workflow controls and the already-built artifact;
 # its checkout contributes no shipped bytes. republish-nightly-next runs this
 # workflow's fetch script against another run's already-verified artifacts.
-exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", "runner-preflight", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# early-nightly-webviews runs the webview checks on the tip before the signer
+# and ships nothing; its red_sha names that tip for the retry loop to skip.
+# build-live-code-variant and sign-live-code-variant run after the feed is
+# written and build nightly-next-one's own build_sha, the commit it published
+# (docs/cmux-next/live-code.md); their checkout is this workflow's tooling.
+exempt = {"early-nightly-webviews", "build-live-code-variant", "sign-live-code-variant","republish-nightly-next", "attest-nightly-remote-daemon", "decide", "runner-preflight", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
@@ -145,6 +150,9 @@ def tooling_checkout(body: str) -> "tuple[int, int] | None":
         return None
     else:
         paths = [value]
+    # .gitmodules is listed so actions/checkout's submodule foreach never fetches it lazily
+    # (tests/test_sparse_checkout_keeps_gitmodules.py); it is one metadata file, no source.
+    paths = [path for path in paths if path not in (".gitmodules", "/.gitmodules")]
     if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
         return None
     return match.start(), match.end() + len("".join(lines[:end]))

@@ -14,6 +14,14 @@ const RAW_STREAM_EVENT: &str = "claude.stream_event";
 /// A raw Claude `control_response` line.
 const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
 
+/// The most hook callbacks a tap remembers until their answers (`unread_records.rs`): Claude Code
+/// answers each before its tool runs, so a few are open at once.
+const MAX_HOOK_CALLS: usize = 256;
+
+/// The most tool calls a session remembers as left open by the live log
+/// (`Session::unclosed_tools`).
+const MAX_UNCLOSED_TOOLS: usize = 1024;
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -112,18 +120,30 @@ impl Hub {
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        // Claude Code's hook callbacks left out of the log, until their answers are
+        // (`unread_records.rs`).
+        let hook_calls = StdMutex::new(std::collections::HashSet::<String>::new());
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
-        // The last stderr line of this agent that says why it would die, for its `exited` record
-        // (`exit_reason.rs`). Kept here, in entry order: the hub's stderr tail may not have
-        // taken the host's last lines yet when its exit entry comes through.
-        let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+        // The last stderr line of this agent process that says why it would die, for its `exited`
+        // record (`exit_reason::ExitLine`): a turn it ended well clears it, and a new process has
+        // a new tap. Kept here, in entry order: the hub's stderr tail may not have taken the
+        // host's last lines yet when its exit entry comes through.
+        let last_stderr = std::sync::Mutex::new(super::exit_reason::ExitLine::default());
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The replay of a session this chat's `session/fork` made is the fork's, never this
+            // chat's (`fork_replay.rs`): kept nowhere, it counts as logged, so a host drops it.
+            if matches!(dir, Direction::In) && super::fork_replay::of_the_fork(&tap_session, msg) {
+                return true;
+            }
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                if !tap_session.loading.load(Ordering::Relaxed) {
+                    crate::send_trace::first_update(&tap_session.id);
+                }
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
@@ -138,6 +158,9 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                if !tap_session.loading.load(Ordering::SeqCst) {
+                    tap_hub.note_verify(&tap_session, &p["update"]);
+                }
                 // Counted before it is logged, so no check waits for the inbound loop to apply
                 // it (review 69 of #23322).
                 if super::full_access_bound::own_full_access_report(&tap_session, p) {
@@ -148,6 +171,9 @@ impl Hub {
                     }
                 }
             }
+            if matches!(dir, Direction::In) && super::exit_reason::ends_a_turn_well(msg) {
+                last_stderr.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
@@ -155,11 +181,8 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    if let Some(line) = text.as_ref().and_then(Value::as_str).map(str::trim)
-                        && super::exit_reason::explains_exit(line)
-                    {
-                        *last_stderr.lock().unwrap_or_else(|e| e.into_inner()) =
-                            Some(line.to_owned());
+                    if let Some(line) = text.as_ref().and_then(Value::as_str) {
+                        last_stderr.lock().unwrap_or_else(|e| e.into_inner()).heard(line);
                     }
                     return tap_hub
                         .append_logged(
@@ -197,7 +220,8 @@ impl Hub {
                             } else if intentional {
                                 json!({"code": code})
                             } else {
-                                let last = last_stderr.lock().unwrap_or_else(|e| e.into_inner());
+                                let last =
+                                    last_stderr.lock().unwrap_or_else(|e| e.into_inner()).take();
                                 super::exit_reason::exited_data(code, last.as_deref())
                             },
                             host_seq,
@@ -244,11 +268,32 @@ impl Hub {
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }
+                                "claude.system.task_started" => {
+                                    tap_hub.subagent_task_started(&tap_session, line)
+                                }
                                 "claude.system.background_tasks_changed" => {
                                     tap_hub.subagent_tasks_changed(&tap_session, line)
                                 }
                                 _ => {}
                             }
+                        }
+                        // Kept nowhere either: a thinking tick, and a hook callback, whose
+                        // answer goes too (`unread_records.rs`).
+                        let hook_call =
+                            params.as_ref().and_then(crate::unread_records::hook_callback_id);
+                        if let Some(id) = hook_call {
+                            let mut calls = hook_calls
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            // Answers that never came are not kept forever.
+                            if calls.len() >= MAX_HOOK_CALLS {
+                                calls.clear();
+                            }
+                            calls.insert(id.to_owned());
+                        }
+                        if method == crate::unread_records::THINKING_TICK || hook_call.is_some() {
+                            tap_hub.touch(&tap_session);
+                            return true;
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
                         // prompt (`--replay-user-messages`) carries its model-sized copies, and
@@ -272,8 +317,12 @@ impl Hub {
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                                 .leave_out_repeats(&kind, &mut line)
                         });
-                        let retry = (!muted && method == "claude.system.api_retry")
-                            .then(|| super::turn_retry::claude_retry(&line));
+                        let retry = (!muted
+                            && matches!(
+                                method.as_str(),
+                                "claude.system.api_retry" | "claude.system.api_error"
+                            ))
+                        .then(|| super::turn_retry::claude_retry(&line));
                         let logged =
                             tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // Only a logged line's sections count as logged: a retried write is
@@ -321,6 +370,17 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    // The answer to a hook callback left out is left out too, unless it denies.
+                    if let Some(id) =
+                        params.as_ref().and_then(crate::unread_records::plain_answer_id)
+                        && hook_calls
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(id)
+                    {
+                        tap_hub.touch(&tap_session);
+                        return true;
+                    }
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
                     // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
@@ -355,15 +415,19 @@ impl Hub {
             // Whether this update changed which background subagents run: a root learned late
             // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
             let mut background_changed = false;
-            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count)
+            // or the latest ones the sidebar nests under the chat (`recentSubagents`).
             let mut running_changed = false;
-            // The plan a harness's own todo call makes where its adapter sends none
-            // (`acp_todo_plan.rs`): logged after the call's result.
-            let mut todo_plan = None;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
+                // An agent to-do list (a `plan`, a to-do tool call) is never logged, so no client
+                // sees it (`todo_tools.rs`).
+                if crate::todo_tools::drops(&tap_session.id, &params["update"]) {
+                    tap_hub.touch(&tap_session);
+                    return true;
+                }
                 // Gemini's plan approval names its plan file only: the update carries the plan
                 // (`gemini_plan.rs`), in the log every client reads.
                 if params.get("update").is_some_and(super::gemini_plan::names_plan) {
@@ -387,11 +451,15 @@ impl Hub {
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
                 let running_before = tree.running_count();
+                let recent_before = tree.recent_revision();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 tree.set_clock(crate::store::now_ms());
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
-                running_changed = tree.running_count() != running_before;
+                // A subagent that ended and one that started in its place keep the count but
+                // change the list the sidebar nests under the chat (`recentSubagents`).
+                running_changed = tree.running_count() != running_before
+                    || tree.recent_revision() != recent_before;
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
@@ -404,11 +472,6 @@ impl Hub {
                     if let Some(update) = params.get("update") {
                         crate::memory_inbox::observe(&tap_session.id, update);
                     }
-                }
-                if subagent.is_none() && !muted && !kind.ends_with(".replay") {
-                    todo_plan =
-                        crate::acp_todo_plan::observe(&tap_session.id, &mut params["update"])
-                            .map(|update| (params.get("sessionId").cloned(), update));
                 }
                 // A predicted next prompt reaches the composer only when likely to be taken
                 // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.
@@ -437,8 +500,7 @@ impl Hub {
                 && !kind.ends_with(".replay")
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && subagent.is_none();
-            // It reads the update as logged, after the normalizing above: a todo call acpmux
-            // makes the plan of (`_meta.acpmux.planTool`) is one the pane hides, not a cut.
+            // It reads the update as logged, after the normalizing above.
             if live_update
                 && let Some(segment) =
                     tap_hub.before_agent_update(&tap_session, value.get("params"))
@@ -456,13 +518,41 @@ impl Hub {
             } else {
                 None
             };
+            // A load's replay of the chat's history is kept nowhere, but for the modes and options
+            // it reports and the end of a tool call the live log left open (`unread_records.rs`).
+            if d == "in" && crate::unread_records::unread_replay(&kind) {
+                let closes = crate::unread_records::replayed_tool_end(&value).filter(|(id, _)| {
+                    tap_session
+                        .unclosed_tools
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(id)
+                });
+                let Some((_, kept)) = closes else {
+                    tap_hub.touch(&tap_session);
+                    if background_changed {
+                        tap_hub.refresh_work_below(&tap_session);
+                    }
+                    if running_changed {
+                        let count = tap_session
+                            .subagents
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .running_count();
+                        tap_hub.subagents_running(&tap_session, count);
+                    }
+                    return true;
+                };
+                value = kept;
+            } else if live_update {
+                note_live_tool(&tap_session, value.pointer("/params/update"));
+            }
             // A state update that repeats what the log last kept is not logged again; the
             // session's meta took it already (`update_repeats.rs`).
             let repeats = if live_update
                 && !subagent_events
                 && !background_changed
                 && !running_changed
-                && todo_plan.is_none()
                 && let Some(update) = value.pointer_mut("/params/update")
             {
                 let repeats = tap_session
@@ -500,15 +590,6 @@ impl Hub {
             }
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
-            }
-            if let Some((session_id, update)) = todo_plan {
-                tap_hub.note_tool_update(&tap_session, &update);
-                let msg = json!({"jsonrpc": "2.0", "method": crate::rpc::method::SESSION_UPDATE,
-                                 "params": {"sessionId": session_id, "update": update}});
-                // The plan the pane draws is where its row may cut (the turn's first checklist):
-                // the reply's segments end there too.
-                tap_hub.before_agent_update(&tap_session, msg.get("params"));
-                tap_hub.append(&tap_session, "in", "plan", msg);
             }
             if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
@@ -560,6 +641,31 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
     }
 }
 
+/// A live update of the session's own tool call: open until its end (`Session::unclosed_tools`).
+fn note_live_tool(session: &Session, update: Option<&Value>) {
+    let Some(update) = update else { return };
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    let status = update.get("status").and_then(Value::as_str);
+    let mut open = session.unclosed_tools.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match (kind, status) {
+        (Some("tool_call" | "tool_call_update"), Some("completed" | "failed")) => {
+            open.remove(id);
+        }
+        (Some("tool_call"), _) | (Some("tool_call_update"), Some(_)) => {
+            if open.len() >= MAX_UNCLOSED_TOOLS && !open.contains(id) {
+                open.clear();
+            }
+            open.insert(id.to_owned());
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
+
+#[cfg(test)]
+#[path = "tap_unread_tests.rs"]
+mod unread_tests;

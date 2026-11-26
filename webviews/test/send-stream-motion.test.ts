@@ -160,11 +160,30 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
     },
   );
 
-  // The product's `send` arm (Leo, 2026-11-09: "we need to slim down"): only the send's rise moves on
-  // a curve; the reply's growth lands in the frame it comes, so the view rests pinned the frame the
-  // stream stops and the turn's end moves nothing.
-  test.each(SCENARIOS)("%s: the send arm pins the stream at once and rests when it stops", async (scenario) => {
+  // The product's `steady` arm (Leo, 2026-11-22: "it's just not great design to have the jolts ...
+  // it's not smooth"): the send's own rows land at once as in the slim arm, and the reply drifts at
+  // the stream's pace: no frame of a step past a line, at rest pinned soon after the stream stops,
+  // and the turn's end moves nothing.
+  test.each(SCENARIOS)("%s: the steady arm drifts with the stream and rests when it stops", async (scenario) => {
     const report = await measure("", scenario);
+    console.log(`send-stream-motion steady arm ${scenario}: ${JSON.stringify(report, null, 2)}`);
+    // The send's own rows (its `prompt` among them) land at once, as in the slim arm.
+    const sendSteps = new Set(["send", "steer", "prompt"]);
+    const steps = Object.entries(report.byPhase).filter(([phase]) => !sendSteps.has(phase));
+    expect(steps.length).toBeGreaterThan(0);
+    expect(Object.fromEntries(steps.filter(([, step]) => step.maxPx > MAX_FRAME_PX))).toEqual({});
+    expect(report.jumpPx.after).toBeLessThanOrEqual(1);
+    expect(report.restsAtEnd).toBe(true);
+    expect(report.restFramesAfterStream).toBeLessThanOrEqual(REST_FRAMES);
+    expect(report.tailAtEnd).toBeGreaterThanOrEqual(-LINE_PX / 2);
+    expect(report.tailAtEnd).toBeLessThanOrEqual(REST_TAIL_PX);
+  });
+
+  // The slim `send` arm (Leo, 2026-11-09: "we need to slim down"; the product's until 2026-11-22):
+  // only the send's rise moves on a curve; the reply's growth lands in the frame it comes, so the
+  // view rests pinned the frame the stream stops and the turn's end moves nothing.
+  test.each(SCENARIOS)("%s: the send arm pins the stream at once and rests when it stops", async (scenario) => {
+    const report = await measure("arm=send", scenario);
     console.log(`send-stream-motion send arm ${scenario}: ${JSON.stringify(report, null, 2)}`);
     expect(report.jumpPx.after).toBeLessThanOrEqual(1);
     expect(report.restsAtEnd).toBe(true);
