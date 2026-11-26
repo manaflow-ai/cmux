@@ -4,22 +4,22 @@ import AppKit
 /// The message box's pending picture open. A double click's first release is a single click (clickCount 1), so a
 /// click only schedules its open; the next press in the field (the double click's second) cancels it before the
 /// double-click interval ends. The pane's ``ChatController`` owns one; the field reaches it through its
-/// `onPress` and `onOpenDraftPicture` callbacks (PaneHost.swift).
-@MainActor final class DraftPictureClick {
+/// `onPress` and `onOpenDraftPicture` callbacks (PaneHost.swift). Used on the main thread only (AppKit events).
+final class DraftPictureClick {
     /// How long a click waits for a second press; nil is the user's double-click interval. Tests shorten it.
     var delay: TimeInterval?
-    private var pending: Task<Void, Never>?
+    private var pending: DispatchWorkItem?
 
-    /// Opens with `open` once the interval passes with no press in between (replacing an open still pending).
-    func schedule(_ open: @escaping @MainActor () -> Void) {
+    /// Opens with `open` on the main queue once the interval passes with no press in between (replacing an open
+    /// still pending).
+    func schedule(_ open: @escaping () -> Void) {
         pending?.cancel()
-        let delay = delay ?? NSEvent.doubleClickInterval
-        pending = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
+        let item = DispatchWorkItem { [weak self] in
             self?.pending = nil
             open()
         }
+        pending = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? NSEvent.doubleClickInterval), execute: item)
     }
 
     /// A press in the field: whatever click was waiting does not open.
