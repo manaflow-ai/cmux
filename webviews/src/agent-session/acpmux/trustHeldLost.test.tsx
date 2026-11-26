@@ -57,12 +57,29 @@ const image = (id: string): ComposerAttachment => ({ id, kind: "image", name: `$
 
 type Took = { promptId: string; text: string; images: string[]; from: "page" | "journal" };
 
+type Deferred<T> = { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void };
+
+function deferred<T = void>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
 /// acpmux behind a host that goes away: a send while it is gone is lost (the connection drops
 /// before acpmux answers), and the host's journal sends it again, under its promptId, once it is
 /// back. acpmux runs a promptId at most once and records each prompt it takes.
 function fakeHost() {
   const took: Took[] = [];
   const journal: { entry: TrustHeldPrompt; resent: () => void }[] = [];
+  const sendStarted = deferred<void>();
+  const resendWaitStarted = deferred<void>();
+  const journalTaken = deferred<void>();
+  const allTaken = deferred<void>();
+  let failLost: (() => void) | undefined;
   let up = true;
   const take = (entry: TrustHeldPrompt, from: Took["from"]) => {
     if (took.some((one) => one.promptId === entry.id)) return;
@@ -73,10 +90,17 @@ function fakeHost() {
       from,
     });
     promptRecorded(entry.id);
+    if (from === "journal") journalTaken.resolve();
+    if (took.length === 4) allTaken.resolve();
   };
   return {
     took,
     down: () => (up = false),
+    sendStarted: () => sendStarted.promise,
+    failLost: () => failLost?.(),
+    resendWaitStarted: () => resendWaitStarted.promise,
+    journalTaken: () => journalTaken.promise,
+    allTaken: () => allTaken.promise,
     /// The host is back: its journal sends what the connection lost, then the page's sends go.
     back: () => {
       up = true;
@@ -96,7 +120,10 @@ function fakeHost() {
         lostPrompt: { sessionId: "chat-1", promptId: entry.id } satisfies LostPrompt,
       });
       journal.push({ entry, resent: () => undefined });
-      return new Promise<string | undefined>((_, reject) => setTimeout(() => reject(error), 0));
+      const lost = deferred<void>();
+      failLost = () => lost.reject(error);
+      sendStarted.resolve();
+      return lost.promise.then(() => undefined as string | undefined);
     },
     /// lostPrompt.ts `resentAfterLoss`, as App wires it: true once the lost prompt shows on the
     /// next connection (the journal's resend), here once the host is back.
@@ -104,6 +131,7 @@ function fakeHost() {
       const lost = lostPrompt(error);
       if (!lost) return undefined;
       const waiting = journal.find((one) => one.entry.id === lost.promptId);
+      resendWaitStarted.resolve();
       if (waiting) await new Promise<void>((resolve) => (waiting.resent = resolve));
       return took.some((one) => one.promptId === lost.promptId) ? lost.sessionId : undefined;
     },
@@ -112,16 +140,11 @@ function fakeHost() {
 
 type Hold = ReturnType<typeof useTrustHeldPrompts>;
 
-/// Yield to queued macrotasks (the fake host's lost-send rejects, the flush's next send): no wall
-/// clock, so a loaded runner cannot outrun it.
-async function macrotasks(turns = 8) {
-  for (let turn = 0; turn < turns; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 async function scenario(withResendWait: boolean) {
   const main = mountDom();
   const host = fakeHost();
   const givenBack: TrustHeldPrompt[][] = [];
+  const givenBackEvent = deferred<void>();
   let hold: Hold | undefined;
   let setHolds: (holds: boolean) => void = () => undefined;
   function Pane() {
@@ -133,7 +156,10 @@ async function scenario(withResendWait: boolean) {
       holds,
       send: host.send,
       reserve: () => Promise.resolve(undefined),
-      putBack: (entries) => givenBack.push(entries),
+      putBack: (entries) => {
+        givenBack.push(entries);
+        givenBackEvent.resolve();
+      },
       refusedForTrust: () => false,
       ...(withResendWait ? { resent: host.resent } : {}),
     });
@@ -159,17 +185,14 @@ async function scenario(withResendWait: boolean) {
   await act(async () => {
     setHolds(false);
   });
-  await act(async () => {
-    await macrotasks();
-  });
+  await host.sendStarted();
+  host.failLost();
+  if (withResendWait) await host.resendWaitStarted();
+  else await givenBackEvent.promise;
   // The host is back: its journal sends the lost one again under its own id.
-  await act(async () => {
-    host.back();
-    await macrotasks();
-  });
-  await act(async () => {
-    await macrotasks();
-  });
+  host.back();
+  if (withResendWait) await host.allTaken();
+  else await host.journalTaken();
   return { host, givenBack };
 }
 
