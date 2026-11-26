@@ -147,7 +147,7 @@ extension TerminalController {
             }
         }
 
-        var callerGroup: (id: UUID, workspaceID: UUID)?
+        var callerGroup: (id: UUID, workspaceID: UUID, placement: WorkspaceGroupNewPlacement)?
         if let groupID {
             let validation = v2MainSync {
                 let groupExists = preparation.tabManager.workspaceGroups.contains { $0.id == groupID }
@@ -180,20 +180,29 @@ extension TerminalController {
                     data: nil
                 ))
             }
-            // A window Dock can supply a workspace-shaped routing ID without a sidebar row.
-            let source = v2MainSync {
-                let caller = preparation.tabManager.tabs.first { $0.id == callerID }
-                return (exists: caller != nil || AppDelegate.isWindowDockRoutingId(callerID), groupID: caller?.groupId)
-            }
-            guard source.exists else {
+            let manager = preparation.tabManager
+            if let caller = manager.tabs.first(where: { $0.id == callerID }) {
+                if v2HasNonNullParam(params, "surface_id") {
+                    guard let surfaceID = v2UUID(params, "surface_id"),
+                          caller.panels[surfaceID] != nil || caller.containsDockPanel(surfaceID) else {
+                        return .failure(.err(
+                            code: "not_found",
+                            message: controlSurfaceNotFoundMessage(),
+                            data: ["workspace_id": callerID.uuidString]
+                        ))
+                    }
+                }
+                if let groupID = caller.groupId,
+                   let group = manager.workspaceGroups.first(where: { $0.id == groupID }) {
+                    callerGroup = (groupID, callerID, workspaceGroupPlacement(for: group, in: manager))
+                }
+            } else if !AppDelegate.isWindowDockRoutingId(callerID) {
+                // A window Dock supplies a valid routing ID without a sidebar row.
                 return .failure(.err(
                     code: "not_found",
                     message: controlWorkspaceStrings().workspaceNotFound,
                     data: ["workspace_id": callerID.uuidString]
                 ))
-            }
-            if let groupID = source.groupID {
-                callerGroup = (groupID, callerID)
             }
         }
 
@@ -208,7 +217,7 @@ extension TerminalController {
             workspaceEnvironment: workspaceEnvironment,
             workingDirectory: cwd,
             groupID: groupID ?? callerGroup?.id,
-            groupPlacement: callerGroup == nil ? groupPlacement : .afterCurrent,
+            groupPlacement: groupPlacement ?? callerGroup?.placement,
             groupReferenceWorkspaceID: groupReferenceWorkspaceID ?? callerGroup?.workspaceID,
             layoutNode: layoutNode,
             shouldFocus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
