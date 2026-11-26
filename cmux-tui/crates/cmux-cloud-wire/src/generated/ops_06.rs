@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes feed.unarchive declares.
+    FeedUnarchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Allow a validated path through the caller's private network.
     FirewallCreateOp {
@@ -882,22 +899,4 @@ wire_enum! {
         Dm = "dm",
         Group = "group",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeRequestsListResultRequestsItem {
-    pub conversation: ConversationId,
-    pub inviter: String,
-    pub kind: HomeRequestsListResultRequestsItemKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    pub preview: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub trusted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeRequestsListResult {
-    pub requests: Vec<HomeRequestsListResultRequestsItem>,
 }

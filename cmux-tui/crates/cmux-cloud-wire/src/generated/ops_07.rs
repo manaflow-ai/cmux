@@ -4,6 +4,24 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResultRequestsItem {
+    pub conversation: ConversationId,
+    pub inviter: String,
+    pub kind: HomeRequestsListResultRequestsItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub preview: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub trusted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResult {
+    pub requests: Vec<HomeRequestsListResultRequestsItem>,
+}
+
 wire_errors! {
     /// The error codes home.requests.list declares.
     HomeRequestsListError {
@@ -760,6 +778,61 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.
+    IntegrationApprovalApproveOp {
+        name: "integration.approval.approve",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: IntegrationApprovalApproveParams,
+        result: IntegrationApprovalApproveResult,
+        error: IntegrationApprovalApproveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveParams {
+    pub request: String,
+    pub op: String,
+    pub params: Value,
+    pub team: TeamId,
+}
+
+wire_enum! {
+    IntegrationApprovalApproveResultAnswered {
+        Here = "here",
+        Elsewhere = "elsewhere",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveResult {
+    pub request: String,
+    pub answered: IntegrationApprovalApproveResultAnswered,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub reply: Option<Value>,
+}
+
+wire_errors! {
+    /// The error codes integration.approval.approve declares.
+    IntegrationApprovalApproveError {
+        ApprovalMismatch = "approval.mismatch",
+        ApprovalOneCallOff = "approval.one_call_off",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
     IntegrationApprovalGetOp {
         name: "integration.approval.get",
@@ -823,77 +896,5 @@ wire_op! {
         params: IntegrationCompleteParams,
         result: IntegrationCompleteResult,
         error: IntegrationCompleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteParams {
-    pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub installation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub setup_action: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actions_oidc: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteResultAccount {
-    pub key: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-wire_enum! {
-    IntegrationCompleteResultSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteResultResources {
-    pub repos: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub linked_by_github_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteResult {
-    pub id: ConnectionId,
-    pub owner: TeamId,
-    pub created_by: UserId,
-    pub provider: IntegrationProvider,
-    pub account: Option<IntegrationCompleteResultAccount>,
-    pub scopes_requested: Vec<String>,
-    pub scopes_granted: Vec<String>,
-    pub status: ConnectionStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_detail: Option<String>,
-    pub sharing: IntegrationCompleteResultSharing,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resources: Option<IntegrationCompleteResultResources>,
-    pub created_at: i64,
-    pub updated_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub return_to: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub configure_url: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes integration.complete declares.
-    IntegrationCompleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationNotConfigured = "integration.not_configured",
-        IntegrationStateInvalid = "integration.state_invalid",
-        MutationIndeterminate = "mutation.indeterminate",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }

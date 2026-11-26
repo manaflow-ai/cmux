@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
+    DomainClaimOp {
+        name: "domain.claim",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainClaimParams,
+        result: TeamDomain,
+        error: DomainClaimError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainClaimParams {
+    pub domain: EmailDomain,
+}
+
 wire_errors! {
     /// The error codes domain.claim declares.
     DomainClaimError {
@@ -879,21 +899,4 @@ pub struct FeedUnarchiveResultItemsItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedUnarchiveResult {
     pub items: Vec<FeedUnarchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.unarchive declares.
-    FeedUnarchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

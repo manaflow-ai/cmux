@@ -4,6 +4,82 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only.
+    ServerPairInviteOp {
+        name: "server.pair.invite",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:PairingDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: ServerPairInviteParams,
+        result: PairingInvite,
+        error: ServerPairInviteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerPairInviteParams {
+    pub team: TeamId,
+}
+
+wire_errors! {
+    /// The error codes server.pair.invite declares.
+    ServerPairInviteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Show what a pending pairing code would add: the server's name, platform, key thumbprint and location.
+    ServerPairPreviewOp {
+        name: "server.pair.preview",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:PairingDO",
+        risk: "read",
+        principals: [Session],
+        params: ServerPairPreviewParams,
+        result: PairingPreview,
+        error: ServerPairPreviewError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerPairPreviewParams {
+    pub code: PairingCode,
+}
+
+wire_errors! {
+    /// The error codes server.pair.preview declares.
+    ServerPairPreviewError {
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory).
+    ServerRevokeOp {
+        name: "server.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: ServerRevokeParams,
+        result: ServerRevokeResult,
+        error: ServerRevokeError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServerRevokeParams {
     pub host: HostId,
@@ -817,81 +893,6 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         CloudSessionNotFound = "cloud_session.not_found",
         IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.
-    TeamDeviceComplianceOp {
-        name: "team.device.compliance",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamDeviceComplianceParams,
-        result: TeamDeviceComplianceResult,
-        error: TeamDeviceComplianceError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceResultDevicesItem {
-    pub device: ManagedDevice,
-    pub status: Option<DeviceStatus>,
-    pub compliant: bool,
-    pub reasons: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceResult {
-    pub team: TeamId,
-    pub policy_version: i64,
-    pub devices: Vec<TeamDeviceComplianceResultDevicesItem>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.device.compliance declares.
-    TeamDeviceComplianceError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
-    TeamDeviceEnrollOp {
-        name: "team.device.enroll",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: TeamDeviceEnrollParams,
-        result: ManagedDevice,
-        error: TeamDeviceEnrollError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceEnrollParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_hash: Option<EnrollmentTokenHash>,
-}
-
-wire_errors! {
-    /// The error codes team.device.enroll declares.
-    TeamDeviceEnrollError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }

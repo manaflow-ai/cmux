@@ -890,18 +890,3 @@ pub struct CloudMachineKeepParams {
 pub struct CloudMachineKeepResult {
     pub machine: CloudMachine,
 }
-
-wire_errors! {
-    /// The error codes cloud.machine.keep declares.
-    CloudMachineKeepError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
