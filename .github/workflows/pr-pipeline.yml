@@ -125,6 +125,7 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          TIER: ${{ github.event_name != 'pull_request' && 'full' || ((vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full') }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
@@ -138,7 +139,7 @@ jobs:
               exit 0
             fi
           fi
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
+          ci/run run --job linux --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -246,6 +247,7 @@ jobs:
       - name: Run the routed web-browser steps (ci/steps.toml)
         # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
         env:
+          TIER: ${{ github.event_name != 'pull_request' && 'full' || ((vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full') }}
           CI_PR_BASE_REF: ${{ github.base_ref }}
           CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -255,7 +257,7 @@ jobs:
           CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
           CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
           CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
-        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        run: ci/run run --job web-browser --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
         if: ${{ !cancelled() }}
