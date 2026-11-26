@@ -149,9 +149,12 @@ pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 /// loss gate cut 50 ms / 2 % echo-flood goodput from 18.1 to 2.1 Mbit/s,
 /// RFD 0164 row 106), but not the four parities per four data datagrams
 /// input gets: a lost bulk datagram costs TCP a fast retransmit, a lost
-/// keystroke costs a visible stall. One parity rebuilds any one loss of a
-/// group of four, which at 2 % loss leaves about 0.4 % of groups to TCP.
-const BULK_PARITY: u8 = 1;
+/// keystroke costs a visible stall. Two parities rebuild any two losses of a
+/// group of four. Measured at 50 ms (median of 3, echo-flood goodput in
+/// Mbit/s, bulk parity 4 / 2 / 1): 0.5 % loss 70.5 / 82.4 / 75.8, 1 % loss
+/// 68.5 / 74.4 / 45.5, 2 % loss 49.1 / 55.6 / 33.6; one parity loses goodput
+/// from 1 % loss up, two match four at half the parity bytes.
+const BULK_PARITY: u8 = 2;
 /// Benches only: bulk parities per group (1 to 15), in place of
 /// [`BULK_PARITY`].
 pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
