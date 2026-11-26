@@ -964,6 +964,44 @@ class AppReviewGateTests(unittest.TestCase):
             findings = gate.asc_findings(asc)
             self.assertEqual([f["severity"] for f in findings], [severity], state)
 
+    def test_asc_advice_and_a_locked_listing_do_not_block(self) -> None:
+        # Readiness run 45874464871 (2026-11-26) on 1.0.0 WAITING_FOR_REVIEW
+        # ranked 28 blockers: 3 missing promotional images and 7 keyword and
+        # subtitle overlaps (asc's advice, no App Review requirement) and 11
+        # locales' Terms of Use links on a listing App Store Connect locks
+        # during review. The subscriptions' missing review screenshots and
+        # metadata stay blockers: they are editable and App Review needs them.
+        def check(code: str, resource: str, message: str, severity: str = "warning") -> dict:
+            return {"id": code, "severity": severity, "resourceId": resource, "message": message}
+
+        def body(state: str) -> dict:
+            return {"versionString": "1.0.0", "checks": [
+                check("version.state.editable", "", f'version is in non-editable state "{state}"', "error"),
+                check("subscriptions.images.recommended", "6838160761", "no subscription promotional image"),
+                check("metadata.keywords.overlap_subtitle", "219cf75d", "keyword field repeats a subtitle term"),
+                check("legal.subscription.terms_of_use_link", "87553b21", "description is missing a Terms of Use link"),
+                check("subscriptions.diagnostics.review_screenshot_missing", "6838160761", "no App Review screenshot"),
+                check("subscriptions.review_readiness.needs_attention", "6838160761", "is MISSING_METADATA"),
+            ]}
+
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(body("WAITING_FOR_REVIEW")))
+        severities = {f["rule"]: f["severity"] for f in gate.asc_findings(asc)}
+        self.assertEqual(severities, {
+            "asc.version.state.editable": "info",
+            "asc.subscriptions.images.recommended": "warning",
+            "asc.metadata.keywords.overlap_subtitle": "warning",
+            "asc.legal.subscription.terms_of_use_link": "warning",
+            "asc.subscriptions.diagnostics.review_screenshot_missing": "blocker",
+            "asc.subscriptions.review_readiness.needs_attention": "blocker",
+        })
+        # An editable version's listing can be fixed before the submit: it blocks.
+        asc.write_text(json.dumps(body("DEVELOPER_REJECTED")))
+        severities = {f["rule"]: f["severity"] for f in gate.asc_findings(asc)}
+        self.assertEqual(severities["asc.legal.subscription.terms_of_use_link"], "blocker")
+        self.assertEqual(severities["asc.version.state.editable"], "blocker")
+        self.assertEqual(severities["asc.subscriptions.images.recommended"], "warning")
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
