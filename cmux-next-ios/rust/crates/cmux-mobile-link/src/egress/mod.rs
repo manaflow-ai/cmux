@@ -346,7 +346,21 @@ pub(crate) async fn capture_stream(
 /// (`cmux_egress`, docs/privacy.md) as `site`; with a proxy set, the proxy's
 /// host is the one checked.
 pub fn http_client_builder(site: &'static str) -> reqwest::ClientBuilder {
-    let builder = cmux_egress::client_builder(site).proxy(reqwest::Proxy::custom(|url| {
+    with_system_proxy_and_trust(cmux_egress::client_builder(site))
+}
+
+/// [`http_client_builder`] looking names up with `resolver` behind the gate.
+/// Call this, never `.dns_resolver(..)` on the builder: reqwest keeps one
+/// resolver, so a later one replaces the gate's and the client goes ungated.
+pub fn http_client_builder_with(
+    site: &'static str,
+    resolver: impl reqwest::dns::Resolve + 'static,
+) -> reqwest::ClientBuilder {
+    with_system_proxy_and_trust(cmux_egress::client_builder_with(site, resolver))
+}
+
+fn with_system_proxy_and_trust(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    let builder = builder.proxy(reqwest::Proxy::custom(|url| {
         let host = url.host_str()?.trim_start_matches('[').trim_end_matches(']').to_owned();
         let secure = url.scheme() == "https";
         let port = url.port_or_known_default()?;
