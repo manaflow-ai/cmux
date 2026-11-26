@@ -941,6 +941,16 @@ if START_LOGIN:
         record("cloud start-chat takes no --login (dropped)", 0, "", "")
         evidence["claude_login"]["login"] = None
         START_LOGIN = ()
+# A start from a folder this Mac doesn't trust is refused before any machine (#41079), so the proof trusts the
+# fixture it made, as a person does, and puts the decision back at exit (`unknown` forgets it). Never a person's folder.
+if FOLDER_PROOF_DIR:
+    trust_code, trust_out, trust_err = cmux("--json", "setup", "trust", FOLDER_PROOF_DIR, timeout=60)
+    record("trust the proof fixture folder", trust_code, "", failure_text(trust_err, trust_out) if trust_code != 0 else "")
+    if trust_code == 0:
+        _trust_report = parsed(trust_out)
+        if _trust_report.get("written"):
+            _trust_back = (str(_trust_report["written"]), str(_trust_report.get("recorded") or "unknown"))
+            atexit.register(lambda: cmux("--json", "setup", "trust", _trust_back[0], "--level", _trust_back[1], timeout=60))
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
