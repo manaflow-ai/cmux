@@ -32,8 +32,14 @@ import Testing
         var state: NSWindow.OcclusionState = .visible
         var activeSpace = true
         var children: [NSWindow] = []
+        /// How many times the Space was asked: AppKit's `isOnActiveSpace` is a synchronous window-server round trip
+        /// (`SLSWindowServerClientCopySpacesForWindows`).
+        var spaceQueries = 0
         override var occlusionState: NSWindow.OcclusionState { state }
-        override var isOnActiveSpace: Bool { activeSpace }
+        override var isOnActiveSpace: Bool {
+            spaceQueries += 1
+            return activeSpace
+        }
         override var childWindows: [NSWindow]? { children }
     }
 
@@ -102,6 +108,44 @@ import Testing
         #expect(page.isOnActiveSpace)
         parent.activeSpace = false
         #expect(!page.isOnActiveSpace)
+    }
+
+    /// Chromium reads a page window's `isOnActiveSpace` on each visibility change of the page
+    /// (`NativeWidgetNSWindowBridge::OnVisibilityChanged`, `OnSpaceActivationMayHaveChanged`), and a pane's layout
+    /// shows and hides a page (the New Tab spare, `NewTabSparePool.paneLayoutDidChange`) during a divider drag: each
+    /// read asked the window server for the cmux window's Spaces, a synchronous round trip on the main thread
+    /// (31 ms of the resize agent's sampled in-tree divider drags, bp-on-1). A visible window is on a visible Space,
+    /// so a visible cmux window answers from its occlusion state, which AppKit keeps from the window server's own
+    /// notices; only a cmux window out of sight is asked.
+    @Test func aVisibleCmuxWindowAnswersItsPagesSpaceWithoutAskingTheWindowServer() throws {
+        let cls = try Self.pageWindowClass()
+        #expect(ChromiumPageWindowVisibility.followParentWindow(cls, spaceFromOcclusion: true))
+        let page = try Self.window(of: cls)
+        let parent = Self.parent(of: page)
+        for _ in 0 ..< 3 { #expect(page.isOnActiveSpace) }
+        #expect(parent.spaceQueries == 0)
+        // Out of sight (covered, minimized, on another Space): the window server answers.
+        parent.state = []
+        #expect(page.isOnActiveSpace)
+        #expect(parent.spaceQueries == 1)
+        parent.activeSpace = false
+        #expect(!page.isOnActiveSpace)
+        #expect(parent.spaceQueries == 2)
+        // Back in sight: no question again.
+        parent.state = .visible
+        #expect(page.isOnActiveSpace)
+        #expect(parent.spaceQueries == 2)
+    }
+
+    /// The knob off (the measurement's baseline arm): every read asks the cmux window, as before.
+    @Test func withoutTheKnobEveryReadAsksTheCmuxWindow() throws {
+        let cls = try Self.pageWindowClass()
+        #expect(ChromiumPageWindowVisibility.followParentWindow(cls, spaceFromOcclusion: false))
+        let page = try Self.window(of: cls)
+        let parent = Self.parent(of: page)
+        #expect(page.isOnActiveSpace)
+        #expect(page.isOnActiveSpace)
+        #expect(parent.spaceQueries == 2)
     }
 
     @Test func otherWindowsKeepTheirAnswer() throws {
